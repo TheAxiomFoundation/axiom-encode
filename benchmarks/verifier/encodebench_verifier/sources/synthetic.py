@@ -14,7 +14,7 @@ from typing import Any, Callable, Optional
 from .. import DEFECT_KINDS, VARIANT_CONTROL, VARIANT_DEFECTIVE
 from ..canonical import text_sha256
 from ..cases import CaseSuite, VerifierCase
-from ..mutator import MUTATOR_VERSION, MutationError, mutate
+from ..mutator import MUTATOR_VERSION, MutationError, RoundTripError, mutate
 from . import KnownGoodArtifact
 
 
@@ -46,6 +46,7 @@ def build_synthetic_suite(
     cases: list[VerifierCase] = []
     used_citations: set[str] = set()
     skipped_parse = 0
+    skipped_round_trip = 0
     skipped_duplicate = 0
     no_site = 0
 
@@ -70,6 +71,11 @@ def build_synthetic_suite(
                     kind,
                     rng=random.Random(rng.random()),
                 )
+            except RoundTripError:
+                # This kind's edit did not survive the canonical dump; the
+                # artifact itself parsed, so other kinds may still apply.
+                skipped_round_trip += 1
+                continue
             except MutationError:
                 skipped_parse += 1
                 planted = None
@@ -135,6 +141,7 @@ def build_synthetic_suite(
         "pairs": counts,
         "short_of_quota": {k: per_kind - v for k, v in counts.items() if v < per_kind},
         "skipped_unparseable": skipped_parse,
+        "skipped_round_trip": skipped_round_trip,
         "skipped_duplicate_citation": skipped_duplicate,
         "no_mutation_site": no_site,
     }

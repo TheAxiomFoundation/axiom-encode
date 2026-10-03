@@ -3,13 +3,16 @@
 A board answers "does the judge separate defective from control?". This
 answers "on which cases?": paired rise (defective scored strictly above its
 own control on the kind channel) and pooled AUC per bucket of module size,
-relative size of the fix, fix stage or triage confidence. Buckets come from
-the suite (texts and origin metadata), scores from a run; the two are joined
-on case id with the content digests checked.
+share of the module's lines the fix changed (``diff``), fix stage or triage
+confidence. Buckets come from the suite (texts and origin metadata), scores
+from a run; the two are joined on case id with the content digests checked.
+A case without the property's metadata (a synthetic case has no triage
+confidence) lands in an ``unknown`` bucket, never in the lowest one.
 """
 
 from __future__ import annotations
 
+import difflib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -65,21 +68,49 @@ class Breakdown:
         for b in self.buckets:
             lines.append(
                 f"| {b.label} | {b.pairs} | "
-                f"{'—' if b.rise_rate is None else f'{b.rise_rate:.0%}'} | "
-                f"{'—' if b.kind_auc is None else f'{b.kind_auc:.3f}'} | "
-                f"{'—' if b.verdict_auc is None else f'{b.verdict_auc:.3f}'} |"
+                f"{'n/a' if b.rise_rate is None else f'{b.rise_rate:.0%}'} | "
+                f"{'n/a' if b.kind_auc is None else f'{b.kind_auc:.3f}'} | "
+                f"{'n/a' if b.verdict_auc is None else f'{b.verdict_auc:.3f}'} |"
             )
         return "\n".join(lines)
 
 
 def _numeric_buckets(
     edges: list[float], fmt: Callable[[float], str]
-) -> list[tuple[str, Callable[[float], bool]]]:
+) -> list[tuple[str, Callable[[Optional[float]], bool]]]:
     out = []
     for lo, hi in zip(edges, edges[1:]):
         label = f"{fmt(lo)} to {fmt(hi)}" if hi != float("inf") else f"{fmt(lo)} and up"
-        out.append((label, (lambda v, lo=lo, hi=hi: lo <= v < hi)))
+        out.append((label, (lambda v, lo=lo, hi=hi: v is not None and lo <= v < hi)))
+    out.append(("unknown", lambda v: v is None))
     return out
+
+
+def changed_line_fraction(before: str, after: str) -> float:
+    """Share of the module's lines a fix changed, from a line diff.
+
+    Each non-equal diff block counts its larger side (a replaced line counts
+    once, an inserted or deleted line once), over the longer version's line
+    count. A same-length rewrite of every line is 1.0; a one-line fix in a
+    thousand-line module is 0.001, however many characters it adds.
+    """
+
+    old, new = before.splitlines(), after.splitlines()
+    total = max(len(old), len(new), 1)
+    matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    changed = sum(
+        max(i2 - i1, j2 - j1)
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes()
+        if tag != "equal"
+    )
+    return min(1.0, changed / total)
+
+
+def _confidence(case: Any) -> Optional[float]:
+    value = case.origin.get("confidence")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _chars(value: float) -> str:
@@ -105,14 +136,11 @@ def _properties() -> dict[
             ),
         ),
         "diff": (
-            lambda d, c: (
-                abs(len(d.artifact_text) - len(c.artifact_text))
-                / max(1, len(d.artifact_text))
-            ),
+            lambda d, c: changed_line_fraction(d.artifact_text, c.artifact_text),
             _numeric_buckets([0, 0.02, 0.1, 0.3, float("inf")], _pct),
         ),
         "confidence": (
-            lambda d, c: float(d.origin.get("confidence") or 0.0),
+            lambda d, c: _confidence(d),
             _numeric_buckets([0, 0.6, 0.8, 0.9, 1.0001], lambda v: f"{v:.2f}"),
         ),
         "fix_stage": (

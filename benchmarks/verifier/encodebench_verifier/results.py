@@ -181,6 +181,37 @@ def load_completed_rows(
     return rows
 
 
+def _trim_truncated_tail(path: Path) -> None:
+    """Cut a final line without its newline (a write cut off by a crash).
+
+    ``read_rows`` drops that fragment with a warning, but the next append
+    would land on the same line and leave interior corruption that every
+    later read refuses. The fragment is never a finished row: rows are
+    written with their newline in one call and fsynced.
+    """
+
+    if not path.is_file():
+        return
+    with path.open("rb+") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        if size == 0:
+            return
+        handle.seek(size - 1)
+        if handle.read(1) == b"\n":
+            return
+        handle.seek(0)
+        data = handle.read()
+        cut = data.rfind(b"\n") + 1
+        warnings.warn(
+            f"{path}: trimmed {size - cut} bytes of a truncated trailing row "
+            "before appending",
+            stacklevel=3,
+        )
+        handle.truncate(cut)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def _rotate(path: Path) -> None:
     if path.exists():
         stamp = utc_now_iso().replace(":", "").replace("+", "").replace(".", "")
@@ -224,9 +255,15 @@ def run_suite(
         if resume
         else {}
     )
-    if retry_errors:
-        completed = {k: v for k, v in completed.items() if not v.get("error")}
     wanted = {case.case_id for case in requested}
+    if retry_errors:
+        # Only rows this call will re-judge leave ``completed``: an error row
+        # outside ``--limit`` stays (with its cost and error count) instead of
+        # vanishing from the payload unjudged.
+        completed = {
+            k: v for k, v in completed.items() if not (v.get("error") and k in wanted)
+        }
+    _trim_truncated_tail(jsonl_path)
     todo = [
         (index, case)
         for index, case in enumerate(suite.cases, 1)
@@ -248,6 +285,11 @@ def run_suite(
             response = error_response(
                 runner.model, f"runner_exception:{type(exc).__name__}", str(exc)[:500]
             )
+        except BaseException:
+            # KeyboardInterrupt or SystemExit inside a worker stops the run
+            # here, so no queued case starts before the main thread notices.
+            stop.set()
+            raise
         row = result_row(
             index,
             case,
@@ -294,24 +336,113 @@ def run_suite(
     return payload
 
 
-def _finalize_row(
-    row: dict[str, Any], index: int, price: Optional[Price]
+class _RecordedRunner:
+    """The runner a results payload names, rebuilt from that payload.
+
+    It judges nothing: it only carries the recorded name, family, model and
+    identity so rows re-assemble under the digest they were judged with.
+    """
+
+    def __init__(self, section: dict[str, Any]) -> None:
+        self.name = section["name"]
+        self.family = section["family"]
+        self.model = section["model"]
+        self._identity = section["identity"]
+
+    def identity(self) -> dict[str, Any]:
+        return self._identity
+
+    def judge(self, case: VerifierCase) -> JudgeResponse:  # pragma: no cover
+        raise RuntimeError("a recorded runner never judges")
+
+
+def reassemble_results(
+    child: CaseSuite, parent_run: Path, out_dir: Path
 ) -> dict[str, Any]:
-    """Bind a row to its position in the suite being assembled and re-cost it.
+    """Fold a finished run onto a suite filtered from its suite, judge-free.
+
+    ``run`` can re-assemble too, but it rebuilds the judge first, and any
+    drift in the judge's identity (an SDK upgrade, a changed default) makes
+    every row a stranger, so the whole suite is judged again and paid for.
+    This path builds no judge and needs no credentials: it checks the child
+    was derived from the run's own suite, keeps the run's rows whose case
+    and content digests the child carries, and writes ``results.json`` and
+    ``cases.jsonl`` under the run's recorded runner identity and price.
+    """
+
+    parent = load_results(Path(parent_run))
+    derived = child.derived_from or {}
+    if derived.get("parent_suite_sha256") != parent["suite"]["sha256"]:
+        raise ResultsError(
+            f"suite {child.name!r} was not derived from the suite of {parent_run} "
+            f"(parent {str(derived.get('parent_suite_sha256'))[:12]}, run "
+            f"{parent['suite']['sha256'][:12]})"
+        )
+    by_case = {case.case_id: case for case in child.cases}
+    completed: dict[str, dict[str, Any]] = {}
+    for row in parent["results"]:
+        case = by_case.get(str(row.get("case_id")))
+        if case is None:
+            continue
+        if (
+            row.get("provision_sha256") != case.provision_sha256
+            or row.get("artifact_sha256") != case.artifact_sha256
+        ):
+            raise ResultsError(
+                f"row for {case.case_id} disagrees with the child suite's content"
+            )
+        completed[case.case_id] = row
+    pricing = parent.get("pricing")
+    price = Price(**pricing) if pricing else None
+    payload = assemble_results(
+        child, _RecordedRunner(parent["runner"]), completed, price=price
+    )
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = out_dir / CASES_FILE
+    if jsonl_path.exists() or (out_dir / RESULTS_FILE).exists():
+        raise ResultsError(f"{out_dir} already holds a run; choose an empty --out")
+    with jsonl_path.open("w", encoding="utf-8") as handle:
+        for row in payload["results"]:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    (out_dir / RESULTS_FILE).write_text(
+        json.dumps(payload, indent=1, ensure_ascii=False)
+    )
+    load_results(out_dir / RESULTS_FILE)  # our own output must satisfy the contract
+    return payload
+
+
+def _finalize_row(
+    row: dict[str, Any], index: int, price: Optional[Price], case: VerifierCase
+) -> dict[str, Any]:
+    """Bind a row to its position in the suite being assembled; re-derive it.
 
     Rows judged against a parent suite fold into a derived (filtered) suite
-    without re-judging: only their position changes. Cost is recomputed from
-    the row's reported tokens and the payload's price, so every row prices
-    under the one source the payload names.
+    without re-judging: only their position changes. Cost and localization
+    are pure functions of what the judge returned (tokens, findings) and are
+    recomputed here, so every row prices under the one source the payload
+    names and localizes under the current matcher, whenever it was judged.
     """
 
     tokens = row.get("tokens") or {}
     cost = cost_usd(price, tokens.get("input"), tokens.get("output"))
-    if row.get("index") == index and row.get("cost_usd") == cost:
+    localized, evidence = row.get("localized"), row.get("localization_evidence")
+    if localized is not None:
+        # Only rows localization applied to (a scored defective case from a
+        # runner that returns findings) carry a value; keep that scope.
+        localized, evidence = localize(case.locator, list(row.get("findings") or []))
+    if (
+        row.get("index") == index
+        and row.get("cost_usd") == cost
+        and row.get("localized") == localized
+        and row.get("localization_evidence") == evidence
+    ):
         return row
     updated = dict(row)
     updated["index"] = index
     updated["cost_usd"] = cost
+    updated["localized"] = localized
+    updated["localization_evidence"] = evidence
     return _sign(updated)
 
 
@@ -334,7 +465,7 @@ def assemble_results(
     price: Optional[Price],
 ) -> dict[str, Any]:
     rows = [
-        _finalize_row(completed[case.case_id], index, price)
+        _finalize_row(completed[case.case_id], index, price, case)
         for index, case in enumerate(suite.cases, 1)
         if case.case_id in completed
     ]

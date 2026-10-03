@@ -1,7 +1,7 @@
 {
  "schema": "axiom-encode/encodebench-verifier-suite/v1+manifest",
- "name": "EncodeBench verifier synthetic US v1",
- "generated_at": "2026-09-18T12:16:45.598185+00:00",
+ "name": "EncodeBench verifier synthetic US v1 (1.0.2 audit)",
+ "generated_at": "2026-10-03T14:40:10.487261+00:00",
  "source": {
   "kind": "encodings_db",
   "identity": {
@@ -10,7 +10,29 @@
    "outcome_status": "apply_applied",
    "citation_prefix": "us",
    "max_artifact_chars": 12000,
-   "row_count": 1154
+   "row_count": 1154,
+   "derived_from": {
+    "parent_suite_name": "EncodeBench verifier synthetic US v1",
+    "parent_suite_sha256": "5b228af3d17c00aed518dc1b4cd6ab88533e266950f0b3a90da6961fcb08d826",
+    "filter": {
+     "keep_citation_prefix": [],
+     "drop_citation_prefix": [],
+     "drop_pairs": [
+      "date_or_period_wrong-58d498f1",
+      "date_or_period_wrong-66ceaa04",
+      "date_or_period_wrong-73274712",
+      "date_or_period_wrong-aa3de659"
+     ],
+     "max_case_chars": null,
+     "reason": "fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'"
+    },
+    "dropped_pairs": [
+     "date_or_period_wrong-58d498f1",
+     "date_or_period_wrong-66ceaa04",
+     "date_or_period_wrong-73274712",
+     "date_or_period_wrong-aa3de659"
+    ]
+   }
   }
  },
  "corpus_release": null,
@@ -38,33 +60,56 @@
  ],
  "notes": [
   "Synthetic defects are single edits and a lower bound on difficulty.",
-  "Both members of a pair are re-serialised through the same canonical YAML dumper; the only difference is the planted edit."
+  "Both members of a pair are re-serialised through the same canonical YAML dumper; the only difference is the planted edit.",
+  "Derived from suite 5b228af3d17c by filter {'keep_citation_prefix': [], 'drop_citation_prefix': [], 'drop_pairs': ['date_or_period_wrong-58d498f1', 'date_or_period_wrong-66ceaa04', 'date_or_period_wrong-73274712', 'date_or_period_wrong-aa3de659'], 'max_case_chars': None, 'reason': \"fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'\"}; 4 pair(s) dropped."
  ],
  "summary": {
   "schema": "axiom-encode/encodebench-verifier-suite/v1",
-  "name": "EncodeBench verifier synthetic US v1",
-  "sha256": "5b228af3d17c00aed518dc1b4cd6ab88533e266950f0b3a90da6961fcb08d826",
+  "name": "EncodeBench verifier synthetic US v1 (1.0.2 audit)",
+  "sha256": "bc57111f0129093e6d45ccddc29bf6f74f5520f0dbc5704fa18ce42ed6ca9cbb",
   "source_kind": "encodings_db",
   "corpus_release": null,
   "mutator_version": "1.0.1",
   "provision_chars": 24000,
-  "derived_from": null,
-  "case_count": 360,
-  "pair_count": 180,
+  "derived_from": {
+   "parent_suite_name": "EncodeBench verifier synthetic US v1",
+   "parent_suite_sha256": "5b228af3d17c00aed518dc1b4cd6ab88533e266950f0b3a90da6961fcb08d826",
+   "filter": {
+    "keep_citation_prefix": [],
+    "drop_citation_prefix": [],
+    "drop_pairs": [
+     "date_or_period_wrong-58d498f1",
+     "date_or_period_wrong-66ceaa04",
+     "date_or_period_wrong-73274712",
+     "date_or_period_wrong-aa3de659"
+    ],
+    "max_case_chars": null,
+    "reason": "fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'"
+   },
+   "dropped_pairs": [
+    "date_or_period_wrong-58d498f1",
+    "date_or_period_wrong-66ceaa04",
+    "date_or_period_wrong-73274712",
+    "date_or_period_wrong-aa3de659"
+   ]
+  },
+  "case_count": 352,
+  "pair_count": 176,
   "defective_by_kind": {
    "amount_changed": 30,
    "boundary_flipped": 30,
    "conjunct_dropped": 30,
    "polarity_swapped": 30,
-   "date_or_period_wrong": 30,
+   "date_or_period_wrong": 26,
    "entity_wrong": 30
   },
   "controls_by_cleanliness": {
-   "known_good_gate": 180
+   "known_good_gate": 176
   },
   "notes": [
    "Synthetic defects are single edits and a lower bound on difficulty.",
-   "Both members of a pair are re-serialised through the same canonical YAML dumper; the only difference is the planted edit."
+   "Both members of a pair are re-serialised through the same canonical YAML dumper; the only difference is the planted edit.",
+   "Derived from suite 5b228af3d17c by filter {'keep_citation_prefix': [], 'drop_citation_prefix': [], 'drop_pairs': ['date_or_period_wrong-58d498f1', 'date_or_period_wrong-66ceaa04', 'date_or_period_wrong-73274712', 'date_or_period_wrong-aa3de659'], 'max_case_chars': None, 'reason': \"fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'\"}; 4 pair(s) dropped."
   ]
  },
  "case_identities": [
@@ -376,40 +421,6 @@
   },
   {
    "index": 19,
-   "case_id": "date_or_period_wrong-66ceaa04:control",
-   "pair_id": "date_or_period_wrong-66ceaa04",
-   "variant": "control",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-uganda-9903-02-65",
-   "provision_sha256": "c988214b5559b9144490d56deba8bf4b3379e2cd7658424178762fe146a13e7c",
-   "artifact_sha256": "1d8307c98edbadcc5df3f517d5203464d9ec3bb7cb70b93b4ce68855fc8d62f5",
-   "locator": null,
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 20,
-   "case_id": "date_or_period_wrong-66ceaa04:defective",
-   "pair_id": "date_or_period_wrong-66ceaa04",
-   "variant": "defective",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-uganda-9903-02-65",
-   "provision_sha256": "c988214b5559b9144490d56deba8bf4b3379e2cd7658424178762fe146a13e7c",
-   "artifact_sha256": "15eba75e02a2554404f7a7e82eec6217c9452e7c6057b913224eda17728ca48d",
-   "locator": {
-    "path": "rules[8].period",
-    "rule_index": 8,
-    "rule_name": "reciprocal_uganda_column_2_duty_change",
-    "detail": "period Day -> Month",
-    "before": "Day",
-    "after": "Month",
-    "token": "Month"
-   },
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 21,
    "case_id": "boundary_flipped-3524033b:control",
    "pair_id": "boundary_flipped-3524033b",
    "variant": "control",
@@ -422,7 +433,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 22,
+   "index": 20,
    "case_id": "boundary_flipped-3524033b:defective",
    "pair_id": "boundary_flipped-3524033b",
    "variant": "defective",
@@ -443,7 +454,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 23,
+   "index": 21,
    "case_id": "entity_wrong-59b137ca:control",
    "pair_id": "entity_wrong-59b137ca",
    "variant": "control",
@@ -456,7 +467,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 24,
+   "index": 22,
    "case_id": "entity_wrong-59b137ca:defective",
    "pair_id": "entity_wrong-59b137ca",
    "variant": "defective",
@@ -477,7 +488,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 25,
+   "index": 23,
    "case_id": "amount_changed-c24523e7:control",
    "pair_id": "amount_changed-c24523e7",
    "variant": "control",
@@ -490,7 +501,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 26,
+   "index": 24,
    "case_id": "amount_changed-c24523e7:defective",
    "pair_id": "amount_changed-c24523e7",
    "variant": "defective",
@@ -511,7 +522,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 27,
+   "index": 25,
    "case_id": "polarity_swapped-9284f6c7:control",
    "pair_id": "polarity_swapped-9284f6c7",
    "variant": "control",
@@ -524,7 +535,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 28,
+   "index": 26,
    "case_id": "polarity_swapped-9284f6c7:defective",
    "pair_id": "polarity_swapped-9284f6c7",
    "variant": "defective",
@@ -545,7 +556,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 29,
+   "index": 27,
    "case_id": "conjunct_dropped-ff661f57:control",
    "pair_id": "conjunct_dropped-ff661f57",
    "variant": "control",
@@ -558,7 +569,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 30,
+   "index": 28,
    "case_id": "conjunct_dropped-ff661f57:defective",
    "pair_id": "conjunct_dropped-ff661f57",
    "variant": "defective",
@@ -579,7 +590,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 31,
+   "index": 29,
    "case_id": "date_or_period_wrong-558a4915:control",
    "pair_id": "date_or_period_wrong-558a4915",
    "variant": "control",
@@ -592,7 +603,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 32,
+   "index": 30,
    "case_id": "date_or_period_wrong-558a4915:defective",
    "pair_id": "date_or_period_wrong-558a4915",
    "variant": "defective",
@@ -613,7 +624,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 33,
+   "index": 31,
    "case_id": "entity_wrong-3fae0883:control",
    "pair_id": "entity_wrong-3fae0883",
    "variant": "control",
@@ -626,7 +637,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 34,
+   "index": 32,
    "case_id": "entity_wrong-3fae0883:defective",
    "pair_id": "entity_wrong-3fae0883",
    "variant": "defective",
@@ -647,7 +658,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 35,
+   "index": 33,
    "case_id": "boundary_flipped-b3f582f4:control",
    "pair_id": "boundary_flipped-b3f582f4",
    "variant": "control",
@@ -660,7 +671,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 36,
+   "index": 34,
    "case_id": "boundary_flipped-b3f582f4:defective",
    "pair_id": "boundary_flipped-b3f582f4",
    "variant": "defective",
@@ -681,7 +692,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 37,
+   "index": 35,
    "case_id": "conjunct_dropped-ca3e0d57:control",
    "pair_id": "conjunct_dropped-ca3e0d57",
    "variant": "control",
@@ -694,7 +705,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 38,
+   "index": 36,
    "case_id": "conjunct_dropped-ca3e0d57:defective",
    "pair_id": "conjunct_dropped-ca3e0d57",
    "variant": "defective",
@@ -715,7 +726,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 39,
+   "index": 37,
    "case_id": "boundary_flipped-75d0673c:control",
    "pair_id": "boundary_flipped-75d0673c",
    "variant": "control",
@@ -728,7 +739,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 40,
+   "index": 38,
    "case_id": "boundary_flipped-75d0673c:defective",
    "pair_id": "boundary_flipped-75d0673c",
    "variant": "defective",
@@ -749,7 +760,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 41,
+   "index": 39,
    "case_id": "polarity_swapped-1683cc8e:control",
    "pair_id": "polarity_swapped-1683cc8e",
    "variant": "control",
@@ -762,7 +773,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 42,
+   "index": 40,
    "case_id": "polarity_swapped-1683cc8e:defective",
    "pair_id": "polarity_swapped-1683cc8e",
    "variant": "defective",
@@ -783,7 +794,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 43,
+   "index": 41,
    "case_id": "amount_changed-18acfa49:control",
    "pair_id": "amount_changed-18acfa49",
    "variant": "control",
@@ -796,7 +807,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 44,
+   "index": 42,
    "case_id": "amount_changed-18acfa49:defective",
    "pair_id": "amount_changed-18acfa49",
    "variant": "defective",
@@ -817,7 +828,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 45,
+   "index": 43,
    "case_id": "date_or_period_wrong-6fe0057d:control",
    "pair_id": "date_or_period_wrong-6fe0057d",
    "variant": "control",
@@ -830,7 +841,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 46,
+   "index": 44,
    "case_id": "date_or_period_wrong-6fe0057d:defective",
    "pair_id": "date_or_period_wrong-6fe0057d",
    "variant": "defective",
@@ -851,7 +862,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 47,
+   "index": 45,
    "case_id": "date_or_period_wrong-efd0af1a:control",
    "pair_id": "date_or_period_wrong-efd0af1a",
    "variant": "control",
@@ -864,7 +875,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 48,
+   "index": 46,
    "case_id": "date_or_period_wrong-efd0af1a:defective",
    "pair_id": "date_or_period_wrong-efd0af1a",
    "variant": "defective",
@@ -885,7 +896,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 49,
+   "index": 47,
    "case_id": "entity_wrong-64f8fd79:control",
    "pair_id": "entity_wrong-64f8fd79",
    "variant": "control",
@@ -898,7 +909,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 50,
+   "index": 48,
    "case_id": "entity_wrong-64f8fd79:defective",
    "pair_id": "entity_wrong-64f8fd79",
    "variant": "defective",
@@ -919,7 +930,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 51,
+   "index": 49,
    "case_id": "amount_changed-0a372f29:control",
    "pair_id": "amount_changed-0a372f29",
    "variant": "control",
@@ -932,7 +943,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 52,
+   "index": 50,
    "case_id": "amount_changed-0a372f29:defective",
    "pair_id": "amount_changed-0a372f29",
    "variant": "defective",
@@ -953,7 +964,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 53,
+   "index": 51,
    "case_id": "boundary_flipped-f8737019:control",
    "pair_id": "boundary_flipped-f8737019",
    "variant": "control",
@@ -966,7 +977,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 54,
+   "index": 52,
    "case_id": "boundary_flipped-f8737019:defective",
    "pair_id": "boundary_flipped-f8737019",
    "variant": "defective",
@@ -987,7 +998,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 55,
+   "index": 53,
    "case_id": "polarity_swapped-844353d0:control",
    "pair_id": "polarity_swapped-844353d0",
    "variant": "control",
@@ -1000,7 +1011,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 56,
+   "index": 54,
    "case_id": "polarity_swapped-844353d0:defective",
    "pair_id": "polarity_swapped-844353d0",
    "variant": "defective",
@@ -1021,7 +1032,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 57,
+   "index": 55,
    "case_id": "entity_wrong-146bd5b6:control",
    "pair_id": "entity_wrong-146bd5b6",
    "variant": "control",
@@ -1034,7 +1045,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 58,
+   "index": 56,
    "case_id": "entity_wrong-146bd5b6:defective",
    "pair_id": "entity_wrong-146bd5b6",
    "variant": "defective",
@@ -1055,7 +1066,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 59,
+   "index": 57,
    "case_id": "conjunct_dropped-c7b17ef4:control",
    "pair_id": "conjunct_dropped-c7b17ef4",
    "variant": "control",
@@ -1068,7 +1079,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 60,
+   "index": 58,
    "case_id": "conjunct_dropped-c7b17ef4:defective",
    "pair_id": "conjunct_dropped-c7b17ef4",
    "variant": "defective",
@@ -1089,7 +1100,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 61,
+   "index": 59,
    "case_id": "amount_changed-a33f30f8:control",
    "pair_id": "amount_changed-a33f30f8",
    "variant": "control",
@@ -1102,7 +1113,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 62,
+   "index": 60,
    "case_id": "amount_changed-a33f30f8:defective",
    "pair_id": "amount_changed-a33f30f8",
    "variant": "defective",
@@ -1123,7 +1134,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 63,
+   "index": 61,
    "case_id": "boundary_flipped-75fceb70:control",
    "pair_id": "boundary_flipped-75fceb70",
    "variant": "control",
@@ -1136,7 +1147,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 64,
+   "index": 62,
    "case_id": "boundary_flipped-75fceb70:defective",
    "pair_id": "boundary_flipped-75fceb70",
    "variant": "defective",
@@ -1157,7 +1168,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 65,
+   "index": 63,
    "case_id": "conjunct_dropped-26a03b91:control",
    "pair_id": "conjunct_dropped-26a03b91",
    "variant": "control",
@@ -1170,7 +1181,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 66,
+   "index": 64,
    "case_id": "conjunct_dropped-26a03b91:defective",
    "pair_id": "conjunct_dropped-26a03b91",
    "variant": "defective",
@@ -1191,7 +1202,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 67,
+   "index": 65,
    "case_id": "polarity_swapped-77fd96ba:control",
    "pair_id": "polarity_swapped-77fd96ba",
    "variant": "control",
@@ -1204,7 +1215,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 68,
+   "index": 66,
    "case_id": "polarity_swapped-77fd96ba:defective",
    "pair_id": "polarity_swapped-77fd96ba",
    "variant": "defective",
@@ -1225,7 +1236,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 69,
+   "index": 67,
    "case_id": "boundary_flipped-e44c06ce:control",
    "pair_id": "boundary_flipped-e44c06ce",
    "variant": "control",
@@ -1238,7 +1249,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 70,
+   "index": 68,
    "case_id": "boundary_flipped-e44c06ce:defective",
    "pair_id": "boundary_flipped-e44c06ce",
    "variant": "defective",
@@ -1259,7 +1270,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 71,
+   "index": 69,
    "case_id": "date_or_period_wrong-e6ab8012:control",
    "pair_id": "date_or_period_wrong-e6ab8012",
    "variant": "control",
@@ -1272,7 +1283,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 72,
+   "index": 70,
    "case_id": "date_or_period_wrong-e6ab8012:defective",
    "pair_id": "date_or_period_wrong-e6ab8012",
    "variant": "defective",
@@ -1293,7 +1304,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 73,
+   "index": 71,
    "case_id": "amount_changed-95f75a47:control",
    "pair_id": "amount_changed-95f75a47",
    "variant": "control",
@@ -1306,7 +1317,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 74,
+   "index": 72,
    "case_id": "amount_changed-95f75a47:defective",
    "pair_id": "amount_changed-95f75a47",
    "variant": "defective",
@@ -1327,7 +1338,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 75,
+   "index": 73,
    "case_id": "entity_wrong-21aa9b46:control",
    "pair_id": "entity_wrong-21aa9b46",
    "variant": "control",
@@ -1340,7 +1351,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 76,
+   "index": 74,
    "case_id": "entity_wrong-21aa9b46:defective",
    "pair_id": "entity_wrong-21aa9b46",
    "variant": "defective",
@@ -1361,7 +1372,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 77,
+   "index": 75,
    "case_id": "polarity_swapped-061debcc:control",
    "pair_id": "polarity_swapped-061debcc",
    "variant": "control",
@@ -1374,7 +1385,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 78,
+   "index": 76,
    "case_id": "polarity_swapped-061debcc:defective",
    "pair_id": "polarity_swapped-061debcc",
    "variant": "defective",
@@ -1395,7 +1406,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 79,
+   "index": 77,
    "case_id": "date_or_period_wrong-42a663ed:control",
    "pair_id": "date_or_period_wrong-42a663ed",
    "variant": "control",
@@ -1408,7 +1419,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 80,
+   "index": 78,
    "case_id": "date_or_period_wrong-42a663ed:defective",
    "pair_id": "date_or_period_wrong-42a663ed",
    "variant": "defective",
@@ -1429,7 +1440,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 81,
+   "index": 79,
    "case_id": "conjunct_dropped-16461765:control",
    "pair_id": "conjunct_dropped-16461765",
    "variant": "control",
@@ -1442,7 +1453,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 82,
+   "index": 80,
    "case_id": "conjunct_dropped-16461765:defective",
    "pair_id": "conjunct_dropped-16461765",
    "variant": "defective",
@@ -1463,7 +1474,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 83,
+   "index": 81,
    "case_id": "entity_wrong-f358a68e:control",
    "pair_id": "entity_wrong-f358a68e",
    "variant": "control",
@@ -1476,7 +1487,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 84,
+   "index": 82,
    "case_id": "entity_wrong-f358a68e:defective",
    "pair_id": "entity_wrong-f358a68e",
    "variant": "defective",
@@ -1497,7 +1508,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 85,
+   "index": 83,
    "case_id": "boundary_flipped-31555002:control",
    "pair_id": "boundary_flipped-31555002",
    "variant": "control",
@@ -1510,7 +1521,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 86,
+   "index": 84,
    "case_id": "boundary_flipped-31555002:defective",
    "pair_id": "boundary_flipped-31555002",
    "variant": "defective",
@@ -1531,7 +1542,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 87,
+   "index": 85,
    "case_id": "entity_wrong-e3489bf9:control",
    "pair_id": "entity_wrong-e3489bf9",
    "variant": "control",
@@ -1544,7 +1555,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 88,
+   "index": 86,
    "case_id": "entity_wrong-e3489bf9:defective",
    "pair_id": "entity_wrong-e3489bf9",
    "variant": "defective",
@@ -1565,7 +1576,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 89,
+   "index": 87,
    "case_id": "date_or_period_wrong-9bf12721:control",
    "pair_id": "date_or_period_wrong-9bf12721",
    "variant": "control",
@@ -1578,7 +1589,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 90,
+   "index": 88,
    "case_id": "date_or_period_wrong-9bf12721:defective",
    "pair_id": "date_or_period_wrong-9bf12721",
    "variant": "defective",
@@ -1599,7 +1610,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 91,
+   "index": 89,
    "case_id": "polarity_swapped-5853e4dd:control",
    "pair_id": "polarity_swapped-5853e4dd",
    "variant": "control",
@@ -1612,7 +1623,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 92,
+   "index": 90,
    "case_id": "polarity_swapped-5853e4dd:defective",
    "pair_id": "polarity_swapped-5853e4dd",
    "variant": "defective",
@@ -1633,7 +1644,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 93,
+   "index": 91,
    "case_id": "amount_changed-392d1d6a:control",
    "pair_id": "amount_changed-392d1d6a",
    "variant": "control",
@@ -1646,7 +1657,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 94,
+   "index": 92,
    "case_id": "amount_changed-392d1d6a:defective",
    "pair_id": "amount_changed-392d1d6a",
    "variant": "defective",
@@ -1667,7 +1678,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 95,
+   "index": 93,
    "case_id": "conjunct_dropped-07765543:control",
    "pair_id": "conjunct_dropped-07765543",
    "variant": "control",
@@ -1680,7 +1691,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 96,
+   "index": 94,
    "case_id": "conjunct_dropped-07765543:defective",
    "pair_id": "conjunct_dropped-07765543",
    "variant": "defective",
@@ -1701,7 +1712,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 97,
+   "index": 95,
    "case_id": "amount_changed-8870e991:control",
    "pair_id": "amount_changed-8870e991",
    "variant": "control",
@@ -1714,7 +1725,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 98,
+   "index": 96,
    "case_id": "amount_changed-8870e991:defective",
    "pair_id": "amount_changed-8870e991",
    "variant": "defective",
@@ -1735,7 +1746,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 99,
+   "index": 97,
    "case_id": "boundary_flipped-d0241124:control",
    "pair_id": "boundary_flipped-d0241124",
    "variant": "control",
@@ -1748,7 +1759,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 100,
+   "index": 98,
    "case_id": "boundary_flipped-d0241124:defective",
    "pair_id": "boundary_flipped-d0241124",
    "variant": "defective",
@@ -1769,7 +1780,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 101,
+   "index": 99,
    "case_id": "conjunct_dropped-fb004990:control",
    "pair_id": "conjunct_dropped-fb004990",
    "variant": "control",
@@ -1782,7 +1793,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 102,
+   "index": 100,
    "case_id": "conjunct_dropped-fb004990:defective",
    "pair_id": "conjunct_dropped-fb004990",
    "variant": "defective",
@@ -1803,7 +1814,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 103,
+   "index": 101,
    "case_id": "date_or_period_wrong-eb70617f:control",
    "pair_id": "date_or_period_wrong-eb70617f",
    "variant": "control",
@@ -1816,7 +1827,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 104,
+   "index": 102,
    "case_id": "date_or_period_wrong-eb70617f:defective",
    "pair_id": "date_or_period_wrong-eb70617f",
    "variant": "defective",
@@ -1837,7 +1848,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 105,
+   "index": 103,
    "case_id": "polarity_swapped-4e1a2b17:control",
    "pair_id": "polarity_swapped-4e1a2b17",
    "variant": "control",
@@ -1850,7 +1861,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 106,
+   "index": 104,
    "case_id": "polarity_swapped-4e1a2b17:defective",
    "pair_id": "polarity_swapped-4e1a2b17",
    "variant": "defective",
@@ -1871,7 +1882,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 107,
+   "index": 105,
    "case_id": "entity_wrong-b14ab03b:control",
    "pair_id": "entity_wrong-b14ab03b",
    "variant": "control",
@@ -1884,7 +1895,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 108,
+   "index": 106,
    "case_id": "entity_wrong-b14ab03b:defective",
    "pair_id": "entity_wrong-b14ab03b",
    "variant": "defective",
@@ -1905,7 +1916,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 109,
+   "index": 107,
    "case_id": "entity_wrong-0ef11b35:control",
    "pair_id": "entity_wrong-0ef11b35",
    "variant": "control",
@@ -1918,7 +1929,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 110,
+   "index": 108,
    "case_id": "entity_wrong-0ef11b35:defective",
    "pair_id": "entity_wrong-0ef11b35",
    "variant": "defective",
@@ -1939,7 +1950,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 111,
+   "index": 109,
    "case_id": "amount_changed-286e5e2f:control",
    "pair_id": "amount_changed-286e5e2f",
    "variant": "control",
@@ -1952,7 +1963,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 112,
+   "index": 110,
    "case_id": "amount_changed-286e5e2f:defective",
    "pair_id": "amount_changed-286e5e2f",
    "variant": "defective",
@@ -1973,7 +1984,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 113,
+   "index": 111,
    "case_id": "boundary_flipped-1d3d613d:control",
    "pair_id": "boundary_flipped-1d3d613d",
    "variant": "control",
@@ -1986,7 +1997,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 114,
+   "index": 112,
    "case_id": "boundary_flipped-1d3d613d:defective",
    "pair_id": "boundary_flipped-1d3d613d",
    "variant": "defective",
@@ -2007,7 +2018,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 115,
+   "index": 113,
    "case_id": "conjunct_dropped-bdd865fb:control",
    "pair_id": "conjunct_dropped-bdd865fb",
    "variant": "control",
@@ -2020,7 +2031,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 116,
+   "index": 114,
    "case_id": "conjunct_dropped-bdd865fb:defective",
    "pair_id": "conjunct_dropped-bdd865fb",
    "variant": "defective",
@@ -2041,7 +2052,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 117,
+   "index": 115,
    "case_id": "date_or_period_wrong-7936a864:control",
    "pair_id": "date_or_period_wrong-7936a864",
    "variant": "control",
@@ -2054,7 +2065,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 118,
+   "index": 116,
    "case_id": "date_or_period_wrong-7936a864:defective",
    "pair_id": "date_or_period_wrong-7936a864",
    "variant": "defective",
@@ -2075,7 +2086,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 119,
+   "index": 117,
    "case_id": "polarity_swapped-35e0a23f:control",
    "pair_id": "polarity_swapped-35e0a23f",
    "variant": "control",
@@ -2088,7 +2099,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 120,
+   "index": 118,
    "case_id": "polarity_swapped-35e0a23f:defective",
    "pair_id": "polarity_swapped-35e0a23f",
    "variant": "defective",
@@ -2109,7 +2120,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 121,
+   "index": 119,
    "case_id": "conjunct_dropped-e751d5fd:control",
    "pair_id": "conjunct_dropped-e751d5fd",
    "variant": "control",
@@ -2122,7 +2133,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 122,
+   "index": 120,
    "case_id": "conjunct_dropped-e751d5fd:defective",
    "pair_id": "conjunct_dropped-e751d5fd",
    "variant": "defective",
@@ -2143,7 +2154,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 123,
+   "index": 121,
    "case_id": "polarity_swapped-031cedf6:control",
    "pair_id": "polarity_swapped-031cedf6",
    "variant": "control",
@@ -2156,7 +2167,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 124,
+   "index": 122,
    "case_id": "polarity_swapped-031cedf6:defective",
    "pair_id": "polarity_swapped-031cedf6",
    "variant": "defective",
@@ -2177,7 +2188,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 125,
+   "index": 123,
    "case_id": "date_or_period_wrong-90dc6e75:control",
    "pair_id": "date_or_period_wrong-90dc6e75",
    "variant": "control",
@@ -2190,7 +2201,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 126,
+   "index": 124,
    "case_id": "date_or_period_wrong-90dc6e75:defective",
    "pair_id": "date_or_period_wrong-90dc6e75",
    "variant": "defective",
@@ -2211,7 +2222,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 127,
+   "index": 125,
    "case_id": "conjunct_dropped-ddca75bf:control",
    "pair_id": "conjunct_dropped-ddca75bf",
    "variant": "control",
@@ -2224,7 +2235,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 128,
+   "index": 126,
    "case_id": "conjunct_dropped-ddca75bf:defective",
    "pair_id": "conjunct_dropped-ddca75bf",
    "variant": "defective",
@@ -2245,7 +2256,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 129,
+   "index": 127,
    "case_id": "entity_wrong-cb34e5b5:control",
    "pair_id": "entity_wrong-cb34e5b5",
    "variant": "control",
@@ -2258,7 +2269,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 130,
+   "index": 128,
    "case_id": "entity_wrong-cb34e5b5:defective",
    "pair_id": "entity_wrong-cb34e5b5",
    "variant": "defective",
@@ -2279,7 +2290,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 131,
+   "index": 129,
    "case_id": "polarity_swapped-65258149:control",
    "pair_id": "polarity_swapped-65258149",
    "variant": "control",
@@ -2292,7 +2303,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 132,
+   "index": 130,
    "case_id": "polarity_swapped-65258149:defective",
    "pair_id": "polarity_swapped-65258149",
    "variant": "defective",
@@ -2313,7 +2324,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 133,
+   "index": 131,
    "case_id": "amount_changed-2af71861:control",
    "pair_id": "amount_changed-2af71861",
    "variant": "control",
@@ -2326,7 +2337,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 134,
+   "index": 132,
    "case_id": "amount_changed-2af71861:defective",
    "pair_id": "amount_changed-2af71861",
    "variant": "defective",
@@ -2347,7 +2358,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 135,
+   "index": 133,
    "case_id": "date_or_period_wrong-6c5442ce:control",
    "pair_id": "date_or_period_wrong-6c5442ce",
    "variant": "control",
@@ -2360,7 +2371,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 136,
+   "index": 134,
    "case_id": "date_or_period_wrong-6c5442ce:defective",
    "pair_id": "date_or_period_wrong-6c5442ce",
    "variant": "defective",
@@ -2381,7 +2392,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 137,
+   "index": 135,
    "case_id": "conjunct_dropped-fa29fe32:control",
    "pair_id": "conjunct_dropped-fa29fe32",
    "variant": "control",
@@ -2394,7 +2405,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 138,
+   "index": 136,
    "case_id": "conjunct_dropped-fa29fe32:defective",
    "pair_id": "conjunct_dropped-fa29fe32",
    "variant": "defective",
@@ -2415,7 +2426,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 139,
+   "index": 137,
    "case_id": "polarity_swapped-d21087c9:control",
    "pair_id": "polarity_swapped-d21087c9",
    "variant": "control",
@@ -2428,7 +2439,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 140,
+   "index": 138,
    "case_id": "polarity_swapped-d21087c9:defective",
    "pair_id": "polarity_swapped-d21087c9",
    "variant": "defective",
@@ -2449,7 +2460,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 141,
+   "index": 139,
    "case_id": "boundary_flipped-1b70d5ba:control",
    "pair_id": "boundary_flipped-1b70d5ba",
    "variant": "control",
@@ -2462,7 +2473,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 142,
+   "index": 140,
    "case_id": "boundary_flipped-1b70d5ba:defective",
    "pair_id": "boundary_flipped-1b70d5ba",
    "variant": "defective",
@@ -2483,7 +2494,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 143,
+   "index": 141,
    "case_id": "conjunct_dropped-99f41028:control",
    "pair_id": "conjunct_dropped-99f41028",
    "variant": "control",
@@ -2496,7 +2507,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 144,
+   "index": 142,
    "case_id": "conjunct_dropped-99f41028:defective",
    "pair_id": "conjunct_dropped-99f41028",
    "variant": "defective",
@@ -2517,7 +2528,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 145,
+   "index": 143,
    "case_id": "amount_changed-2644738e:control",
    "pair_id": "amount_changed-2644738e",
    "variant": "control",
@@ -2530,7 +2541,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 146,
+   "index": 144,
    "case_id": "amount_changed-2644738e:defective",
    "pair_id": "amount_changed-2644738e",
    "variant": "defective",
@@ -2551,7 +2562,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 147,
+   "index": 145,
    "case_id": "date_or_period_wrong-8272f4db:control",
    "pair_id": "date_or_period_wrong-8272f4db",
    "variant": "control",
@@ -2564,7 +2575,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 148,
+   "index": 146,
    "case_id": "date_or_period_wrong-8272f4db:defective",
    "pair_id": "date_or_period_wrong-8272f4db",
    "variant": "defective",
@@ -2585,7 +2596,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 149,
+   "index": 147,
    "case_id": "entity_wrong-aafa4d10:control",
    "pair_id": "entity_wrong-aafa4d10",
    "variant": "control",
@@ -2598,7 +2609,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 150,
+   "index": 148,
    "case_id": "entity_wrong-aafa4d10:defective",
    "pair_id": "entity_wrong-aafa4d10",
    "variant": "defective",
@@ -2619,7 +2630,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 151,
+   "index": 149,
    "case_id": "polarity_swapped-7b2c5579:control",
    "pair_id": "polarity_swapped-7b2c5579",
    "variant": "control",
@@ -2632,7 +2643,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 152,
+   "index": 150,
    "case_id": "polarity_swapped-7b2c5579:defective",
    "pair_id": "polarity_swapped-7b2c5579",
    "variant": "defective",
@@ -2653,7 +2664,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 153,
+   "index": 151,
    "case_id": "amount_changed-e53351cf:control",
    "pair_id": "amount_changed-e53351cf",
    "variant": "control",
@@ -2666,7 +2677,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 154,
+   "index": 152,
    "case_id": "amount_changed-e53351cf:defective",
    "pair_id": "amount_changed-e53351cf",
    "variant": "defective",
@@ -2687,41 +2698,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 155,
-   "case_id": "date_or_period_wrong-73274712:control",
-   "pair_id": "date_or_period_wrong-73274712",
-   "variant": "control",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-madagascar-9903-02-37",
-   "provision_sha256": "accbf7a55ee2fa68888ea65dd76400991c2deef4c568f545b2c1c574a09ab4d1",
-   "artifact_sha256": "e20ebc8c77c148d9d52e863fb6a949e1c7541b857f91fd6e51905f2cf52045f8",
-   "locator": null,
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 156,
-   "case_id": "date_or_period_wrong-73274712:defective",
-   "pair_id": "date_or_period_wrong-73274712",
-   "variant": "defective",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-madagascar-9903-02-37",
-   "provision_sha256": "accbf7a55ee2fa68888ea65dd76400991c2deef4c568f545b2c1c574a09ab4d1",
-   "artifact_sha256": "a0dd1027af50a19ee3a4014434942a5e71eb7b97cfbb25ae3763a9e113b7e0e9",
-   "locator": {
-    "path": "rules[7].period",
-    "rule_index": 7,
-    "rule_name": "reciprocal_madagascar_special_duty_rate",
-    "detail": "period Day -> Month",
-    "before": "Day",
-    "after": "Month",
-    "token": "Month"
-   },
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 157,
+   "index": 153,
    "case_id": "boundary_flipped-44805517:control",
    "pair_id": "boundary_flipped-44805517",
    "variant": "control",
@@ -2734,7 +2711,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 158,
+   "index": 154,
    "case_id": "boundary_flipped-44805517:defective",
    "pair_id": "boundary_flipped-44805517",
    "variant": "defective",
@@ -2755,7 +2732,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 159,
+   "index": 155,
    "case_id": "boundary_flipped-af76d3b8:control",
    "pair_id": "boundary_flipped-af76d3b8",
    "variant": "control",
@@ -2768,7 +2745,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 160,
+   "index": 156,
    "case_id": "boundary_flipped-af76d3b8:defective",
    "pair_id": "boundary_flipped-af76d3b8",
    "variant": "defective",
@@ -2789,7 +2766,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 161,
+   "index": 157,
    "case_id": "boundary_flipped-db4124d9:control",
    "pair_id": "boundary_flipped-db4124d9",
    "variant": "control",
@@ -2802,7 +2779,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 162,
+   "index": 158,
    "case_id": "boundary_flipped-db4124d9:defective",
    "pair_id": "boundary_flipped-db4124d9",
    "variant": "defective",
@@ -2823,7 +2800,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 163,
+   "index": 159,
    "case_id": "boundary_flipped-abda1312:control",
    "pair_id": "boundary_flipped-abda1312",
    "variant": "control",
@@ -2836,7 +2813,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 164,
+   "index": 160,
    "case_id": "boundary_flipped-abda1312:defective",
    "pair_id": "boundary_flipped-abda1312",
    "variant": "defective",
@@ -2857,7 +2834,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 165,
+   "index": 161,
    "case_id": "entity_wrong-ee7eaf5d:control",
    "pair_id": "entity_wrong-ee7eaf5d",
    "variant": "control",
@@ -2870,7 +2847,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 166,
+   "index": 162,
    "case_id": "entity_wrong-ee7eaf5d:defective",
    "pair_id": "entity_wrong-ee7eaf5d",
    "variant": "defective",
@@ -2891,7 +2868,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 167,
+   "index": 163,
    "case_id": "amount_changed-68f55205:control",
    "pair_id": "amount_changed-68f55205",
    "variant": "control",
@@ -2904,7 +2881,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 168,
+   "index": 164,
    "case_id": "amount_changed-68f55205:defective",
    "pair_id": "amount_changed-68f55205",
    "variant": "defective",
@@ -2925,7 +2902,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 169,
+   "index": 165,
    "case_id": "polarity_swapped-29261661:control",
    "pair_id": "polarity_swapped-29261661",
    "variant": "control",
@@ -2938,7 +2915,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 170,
+   "index": 166,
    "case_id": "polarity_swapped-29261661:defective",
    "pair_id": "polarity_swapped-29261661",
    "variant": "defective",
@@ -2959,7 +2936,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 171,
+   "index": 167,
    "case_id": "entity_wrong-47574d18:control",
    "pair_id": "entity_wrong-47574d18",
    "variant": "control",
@@ -2972,7 +2949,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 172,
+   "index": 168,
    "case_id": "entity_wrong-47574d18:defective",
    "pair_id": "entity_wrong-47574d18",
    "variant": "defective",
@@ -2993,7 +2970,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 173,
+   "index": 169,
    "case_id": "amount_changed-6b79ed03:control",
    "pair_id": "amount_changed-6b79ed03",
    "variant": "control",
@@ -3006,7 +2983,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 174,
+   "index": 170,
    "case_id": "amount_changed-6b79ed03:defective",
    "pair_id": "amount_changed-6b79ed03",
    "variant": "defective",
@@ -3027,7 +3004,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 175,
+   "index": 171,
    "case_id": "conjunct_dropped-595d633b:control",
    "pair_id": "conjunct_dropped-595d633b",
    "variant": "control",
@@ -3040,7 +3017,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 176,
+   "index": 172,
    "case_id": "conjunct_dropped-595d633b:defective",
    "pair_id": "conjunct_dropped-595d633b",
    "variant": "defective",
@@ -3061,7 +3038,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 177,
+   "index": 173,
    "case_id": "boundary_flipped-b2c5c2af:control",
    "pair_id": "boundary_flipped-b2c5c2af",
    "variant": "control",
@@ -3074,7 +3051,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 178,
+   "index": 174,
    "case_id": "boundary_flipped-b2c5c2af:defective",
    "pair_id": "boundary_flipped-b2c5c2af",
    "variant": "defective",
@@ -3095,7 +3072,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 179,
+   "index": 175,
    "case_id": "entity_wrong-378b753f:control",
    "pair_id": "entity_wrong-378b753f",
    "variant": "control",
@@ -3108,7 +3085,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 180,
+   "index": 176,
    "case_id": "entity_wrong-378b753f:defective",
    "pair_id": "entity_wrong-378b753f",
    "variant": "defective",
@@ -3129,7 +3106,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 181,
+   "index": 177,
    "case_id": "date_or_period_wrong-40b435d4:control",
    "pair_id": "date_or_period_wrong-40b435d4",
    "variant": "control",
@@ -3142,7 +3119,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 182,
+   "index": 178,
    "case_id": "date_or_period_wrong-40b435d4:defective",
    "pair_id": "date_or_period_wrong-40b435d4",
    "variant": "defective",
@@ -3163,7 +3140,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 183,
+   "index": 179,
    "case_id": "entity_wrong-c095dc7c:control",
    "pair_id": "entity_wrong-c095dc7c",
    "variant": "control",
@@ -3176,7 +3153,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 184,
+   "index": 180,
    "case_id": "entity_wrong-c095dc7c:defective",
    "pair_id": "entity_wrong-c095dc7c",
    "variant": "defective",
@@ -3197,7 +3174,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 185,
+   "index": 181,
    "case_id": "conjunct_dropped-e0bdd27f:control",
    "pair_id": "conjunct_dropped-e0bdd27f",
    "variant": "control",
@@ -3210,7 +3187,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 186,
+   "index": 182,
    "case_id": "conjunct_dropped-e0bdd27f:defective",
    "pair_id": "conjunct_dropped-e0bdd27f",
    "variant": "defective",
@@ -3231,7 +3208,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 187,
+   "index": 183,
    "case_id": "amount_changed-b5552cbd:control",
    "pair_id": "amount_changed-b5552cbd",
    "variant": "control",
@@ -3244,7 +3221,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 188,
+   "index": 184,
    "case_id": "amount_changed-b5552cbd:defective",
    "pair_id": "amount_changed-b5552cbd",
    "variant": "defective",
@@ -3265,7 +3242,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 189,
+   "index": 185,
    "case_id": "polarity_swapped-f1bd1630:control",
    "pair_id": "polarity_swapped-f1bd1630",
    "variant": "control",
@@ -3278,7 +3255,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 190,
+   "index": 186,
    "case_id": "polarity_swapped-f1bd1630:defective",
    "pair_id": "polarity_swapped-f1bd1630",
    "variant": "defective",
@@ -3299,7 +3276,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 191,
+   "index": 187,
    "case_id": "conjunct_dropped-117fc5b1:control",
    "pair_id": "conjunct_dropped-117fc5b1",
    "variant": "control",
@@ -3312,7 +3289,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 192,
+   "index": 188,
    "case_id": "conjunct_dropped-117fc5b1:defective",
    "pair_id": "conjunct_dropped-117fc5b1",
    "variant": "defective",
@@ -3333,7 +3310,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 193,
+   "index": 189,
    "case_id": "amount_changed-4c9cad66:control",
    "pair_id": "amount_changed-4c9cad66",
    "variant": "control",
@@ -3346,7 +3323,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 194,
+   "index": 190,
    "case_id": "amount_changed-4c9cad66:defective",
    "pair_id": "amount_changed-4c9cad66",
    "variant": "defective",
@@ -3367,7 +3344,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 195,
+   "index": 191,
    "case_id": "polarity_swapped-853eb396:control",
    "pair_id": "polarity_swapped-853eb396",
    "variant": "control",
@@ -3380,7 +3357,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 196,
+   "index": 192,
    "case_id": "polarity_swapped-853eb396:defective",
    "pair_id": "polarity_swapped-853eb396",
    "variant": "defective",
@@ -3401,7 +3378,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 197,
+   "index": 193,
    "case_id": "date_or_period_wrong-ac295403:control",
    "pair_id": "date_or_period_wrong-ac295403",
    "variant": "control",
@@ -3414,7 +3391,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 198,
+   "index": 194,
    "case_id": "date_or_period_wrong-ac295403:defective",
    "pair_id": "date_or_period_wrong-ac295403",
    "variant": "defective",
@@ -3435,7 +3412,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 199,
+   "index": 195,
    "case_id": "date_or_period_wrong-8aef1726:control",
    "pair_id": "date_or_period_wrong-8aef1726",
    "variant": "control",
@@ -3448,7 +3425,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 200,
+   "index": 196,
    "case_id": "date_or_period_wrong-8aef1726:defective",
    "pair_id": "date_or_period_wrong-8aef1726",
    "variant": "defective",
@@ -3469,7 +3446,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 201,
+   "index": 197,
    "case_id": "entity_wrong-a6ea534d:control",
    "pair_id": "entity_wrong-a6ea534d",
    "variant": "control",
@@ -3482,7 +3459,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 202,
+   "index": 198,
    "case_id": "entity_wrong-a6ea534d:defective",
    "pair_id": "entity_wrong-a6ea534d",
    "variant": "defective",
@@ -3503,7 +3480,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 203,
+   "index": 199,
    "case_id": "boundary_flipped-7a931e5d:control",
    "pair_id": "boundary_flipped-7a931e5d",
    "variant": "control",
@@ -3516,7 +3493,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 204,
+   "index": 200,
    "case_id": "boundary_flipped-7a931e5d:defective",
    "pair_id": "boundary_flipped-7a931e5d",
    "variant": "defective",
@@ -3537,7 +3514,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 205,
+   "index": 201,
    "case_id": "conjunct_dropped-eb0e32a7:control",
    "pair_id": "conjunct_dropped-eb0e32a7",
    "variant": "control",
@@ -3550,7 +3527,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 206,
+   "index": 202,
    "case_id": "conjunct_dropped-eb0e32a7:defective",
    "pair_id": "conjunct_dropped-eb0e32a7",
    "variant": "defective",
@@ -3571,7 +3548,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 207,
+   "index": 203,
    "case_id": "polarity_swapped-6f462200:control",
    "pair_id": "polarity_swapped-6f462200",
    "variant": "control",
@@ -3584,7 +3561,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 208,
+   "index": 204,
    "case_id": "polarity_swapped-6f462200:defective",
    "pair_id": "polarity_swapped-6f462200",
    "variant": "defective",
@@ -3605,7 +3582,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 209,
+   "index": 205,
    "case_id": "conjunct_dropped-1f89c7f6:control",
    "pair_id": "conjunct_dropped-1f89c7f6",
    "variant": "control",
@@ -3618,7 +3595,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 210,
+   "index": 206,
    "case_id": "conjunct_dropped-1f89c7f6:defective",
    "pair_id": "conjunct_dropped-1f89c7f6",
    "variant": "defective",
@@ -3639,7 +3616,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 211,
+   "index": 207,
    "case_id": "amount_changed-ed731606:control",
    "pair_id": "amount_changed-ed731606",
    "variant": "control",
@@ -3652,7 +3629,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 212,
+   "index": 208,
    "case_id": "amount_changed-ed731606:defective",
    "pair_id": "amount_changed-ed731606",
    "variant": "defective",
@@ -3673,7 +3650,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 213,
+   "index": 209,
    "case_id": "amount_changed-8aaecb11:control",
    "pair_id": "amount_changed-8aaecb11",
    "variant": "control",
@@ -3686,7 +3663,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 214,
+   "index": 210,
    "case_id": "amount_changed-8aaecb11:defective",
    "pair_id": "amount_changed-8aaecb11",
    "variant": "defective",
@@ -3707,7 +3684,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 215,
+   "index": 211,
    "case_id": "boundary_flipped-762b542d:control",
    "pair_id": "boundary_flipped-762b542d",
    "variant": "control",
@@ -3720,7 +3697,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 216,
+   "index": 212,
    "case_id": "boundary_flipped-762b542d:defective",
    "pair_id": "boundary_flipped-762b542d",
    "variant": "defective",
@@ -3741,7 +3718,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 217,
+   "index": 213,
    "case_id": "date_or_period_wrong-8db02427:control",
    "pair_id": "date_or_period_wrong-8db02427",
    "variant": "control",
@@ -3754,7 +3731,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 218,
+   "index": 214,
    "case_id": "date_or_period_wrong-8db02427:defective",
    "pair_id": "date_or_period_wrong-8db02427",
    "variant": "defective",
@@ -3775,7 +3752,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 219,
+   "index": 215,
    "case_id": "entity_wrong-60cb41c4:control",
    "pair_id": "entity_wrong-60cb41c4",
    "variant": "control",
@@ -3788,7 +3765,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 220,
+   "index": 216,
    "case_id": "entity_wrong-60cb41c4:defective",
    "pair_id": "entity_wrong-60cb41c4",
    "variant": "defective",
@@ -3809,7 +3786,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 221,
+   "index": 217,
    "case_id": "polarity_swapped-dd28b6e4:control",
    "pair_id": "polarity_swapped-dd28b6e4",
    "variant": "control",
@@ -3822,7 +3799,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 222,
+   "index": 218,
    "case_id": "polarity_swapped-dd28b6e4:defective",
    "pair_id": "polarity_swapped-dd28b6e4",
    "variant": "defective",
@@ -3843,7 +3820,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 223,
+   "index": 219,
    "case_id": "boundary_flipped-fa539337:control",
    "pair_id": "boundary_flipped-fa539337",
    "variant": "control",
@@ -3856,7 +3833,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 224,
+   "index": 220,
    "case_id": "boundary_flipped-fa539337:defective",
    "pair_id": "boundary_flipped-fa539337",
    "variant": "defective",
@@ -3877,7 +3854,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 225,
+   "index": 221,
    "case_id": "conjunct_dropped-66029600:control",
    "pair_id": "conjunct_dropped-66029600",
    "variant": "control",
@@ -3890,7 +3867,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 226,
+   "index": 222,
    "case_id": "conjunct_dropped-66029600:defective",
    "pair_id": "conjunct_dropped-66029600",
    "variant": "defective",
@@ -3911,7 +3888,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 227,
+   "index": 223,
    "case_id": "amount_changed-bf125f85:control",
    "pair_id": "amount_changed-bf125f85",
    "variant": "control",
@@ -3924,7 +3901,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 228,
+   "index": 224,
    "case_id": "amount_changed-bf125f85:defective",
    "pair_id": "amount_changed-bf125f85",
    "variant": "defective",
@@ -3945,7 +3922,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 229,
+   "index": 225,
    "case_id": "date_or_period_wrong-bd1fc559:control",
    "pair_id": "date_or_period_wrong-bd1fc559",
    "variant": "control",
@@ -3958,7 +3935,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 230,
+   "index": 226,
    "case_id": "date_or_period_wrong-bd1fc559:defective",
    "pair_id": "date_or_period_wrong-bd1fc559",
    "variant": "defective",
@@ -3979,7 +3956,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 231,
+   "index": 227,
    "case_id": "entity_wrong-5b7f56ad:control",
    "pair_id": "entity_wrong-5b7f56ad",
    "variant": "control",
@@ -3992,7 +3969,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 232,
+   "index": 228,
    "case_id": "entity_wrong-5b7f56ad:defective",
    "pair_id": "entity_wrong-5b7f56ad",
    "variant": "defective",
@@ -4013,7 +3990,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 233,
+   "index": 229,
    "case_id": "boundary_flipped-2ec34754:control",
    "pair_id": "boundary_flipped-2ec34754",
    "variant": "control",
@@ -4026,7 +4003,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 234,
+   "index": 230,
    "case_id": "boundary_flipped-2ec34754:defective",
    "pair_id": "boundary_flipped-2ec34754",
    "variant": "defective",
@@ -4047,7 +4024,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 235,
+   "index": 231,
    "case_id": "polarity_swapped-61b37162:control",
    "pair_id": "polarity_swapped-61b37162",
    "variant": "control",
@@ -4060,7 +4037,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 236,
+   "index": 232,
    "case_id": "polarity_swapped-61b37162:defective",
    "pair_id": "polarity_swapped-61b37162",
    "variant": "defective",
@@ -4081,7 +4058,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 237,
+   "index": 233,
    "case_id": "entity_wrong-be8145d7:control",
    "pair_id": "entity_wrong-be8145d7",
    "variant": "control",
@@ -4094,7 +4071,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 238,
+   "index": 234,
    "case_id": "entity_wrong-be8145d7:defective",
    "pair_id": "entity_wrong-be8145d7",
    "variant": "defective",
@@ -4115,7 +4092,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 239,
+   "index": 235,
    "case_id": "conjunct_dropped-743e87e0:control",
    "pair_id": "conjunct_dropped-743e87e0",
    "variant": "control",
@@ -4128,7 +4105,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 240,
+   "index": 236,
    "case_id": "conjunct_dropped-743e87e0:defective",
    "pair_id": "conjunct_dropped-743e87e0",
    "variant": "defective",
@@ -4149,7 +4126,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 241,
+   "index": 237,
    "case_id": "amount_changed-93957cba:control",
    "pair_id": "amount_changed-93957cba",
    "variant": "control",
@@ -4162,7 +4139,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 242,
+   "index": 238,
    "case_id": "amount_changed-93957cba:defective",
    "pair_id": "amount_changed-93957cba",
    "variant": "defective",
@@ -4183,7 +4160,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 243,
+   "index": 239,
    "case_id": "date_or_period_wrong-a0085e4e:control",
    "pair_id": "date_or_period_wrong-a0085e4e",
    "variant": "control",
@@ -4196,7 +4173,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 244,
+   "index": 240,
    "case_id": "date_or_period_wrong-a0085e4e:defective",
    "pair_id": "date_or_period_wrong-a0085e4e",
    "variant": "defective",
@@ -4217,7 +4194,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 245,
+   "index": 241,
    "case_id": "boundary_flipped-d0a602fa:control",
    "pair_id": "boundary_flipped-d0a602fa",
    "variant": "control",
@@ -4230,7 +4207,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 246,
+   "index": 242,
    "case_id": "boundary_flipped-d0a602fa:defective",
    "pair_id": "boundary_flipped-d0a602fa",
    "variant": "defective",
@@ -4251,7 +4228,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 247,
+   "index": 243,
    "case_id": "polarity_swapped-1de35b19:control",
    "pair_id": "polarity_swapped-1de35b19",
    "variant": "control",
@@ -4264,7 +4241,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 248,
+   "index": 244,
    "case_id": "polarity_swapped-1de35b19:defective",
    "pair_id": "polarity_swapped-1de35b19",
    "variant": "defective",
@@ -4285,7 +4262,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 249,
+   "index": 245,
    "case_id": "boundary_flipped-1f656d0a:control",
    "pair_id": "boundary_flipped-1f656d0a",
    "variant": "control",
@@ -4298,7 +4275,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 250,
+   "index": 246,
    "case_id": "boundary_flipped-1f656d0a:defective",
    "pair_id": "boundary_flipped-1f656d0a",
    "variant": "defective",
@@ -4319,41 +4296,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 251,
-   "case_id": "date_or_period_wrong-58d498f1:control",
-   "pair_id": "date_or_period_wrong-58d498f1",
-   "variant": "control",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-democratic-republic-of-the-congo-9903-02-16",
-   "provision_sha256": "4b0c7cd4448bac646b001b1bd7493a7a3a34e15cdb3c33a5b3ab6d24df7e2a98",
-   "artifact_sha256": "5f0915f8fb8d1cb74a479feff4c57773f86d3a5e85695f32d47d3c1a62e28b20",
-   "locator": null,
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 252,
-   "case_id": "date_or_period_wrong-58d498f1:defective",
-   "pair_id": "date_or_period_wrong-58d498f1",
-   "variant": "defective",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-democratic-republic-of-the-congo-9903-02-16",
-   "provision_sha256": "4b0c7cd4448bac646b001b1bd7493a7a3a34e15cdb3c33a5b3ab6d24df7e2a98",
-   "artifact_sha256": "dcfffdab465f30ff71c1a5747e48d989579b53ae3e57d0e513697c99f2037cb0",
-   "locator": {
-    "path": "rules[6].period",
-    "rule_index": 6,
-    "rule_name": "reciprocal_democratic_republic_of_the_congo_general_duty_rate",
-    "detail": "period Day -> Month",
-    "before": "Day",
-    "after": "Month",
-    "token": "Month"
-   },
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 253,
+   "index": 247,
    "case_id": "amount_changed-a6706368:control",
    "pair_id": "amount_changed-a6706368",
    "variant": "control",
@@ -4366,7 +4309,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 254,
+   "index": 248,
    "case_id": "amount_changed-a6706368:defective",
    "pair_id": "amount_changed-a6706368",
    "variant": "defective",
@@ -4387,7 +4330,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 255,
+   "index": 249,
    "case_id": "entity_wrong-3a4dffb3:control",
    "pair_id": "entity_wrong-3a4dffb3",
    "variant": "control",
@@ -4400,7 +4343,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 256,
+   "index": 250,
    "case_id": "entity_wrong-3a4dffb3:defective",
    "pair_id": "entity_wrong-3a4dffb3",
    "variant": "defective",
@@ -4421,7 +4364,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 257,
+   "index": 251,
    "case_id": "polarity_swapped-252c9e9c:control",
    "pair_id": "polarity_swapped-252c9e9c",
    "variant": "control",
@@ -4434,7 +4377,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 258,
+   "index": 252,
    "case_id": "polarity_swapped-252c9e9c:defective",
    "pair_id": "polarity_swapped-252c9e9c",
    "variant": "defective",
@@ -4455,7 +4398,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 259,
+   "index": 253,
    "case_id": "conjunct_dropped-8fb4e38b:control",
    "pair_id": "conjunct_dropped-8fb4e38b",
    "variant": "control",
@@ -4468,7 +4411,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 260,
+   "index": 254,
    "case_id": "conjunct_dropped-8fb4e38b:defective",
    "pair_id": "conjunct_dropped-8fb4e38b",
    "variant": "defective",
@@ -4489,7 +4432,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 261,
+   "index": 255,
    "case_id": "date_or_period_wrong-6d7726d0:control",
    "pair_id": "date_or_period_wrong-6d7726d0",
    "variant": "control",
@@ -4502,7 +4445,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 262,
+   "index": 256,
    "case_id": "date_or_period_wrong-6d7726d0:defective",
    "pair_id": "date_or_period_wrong-6d7726d0",
    "variant": "defective",
@@ -4523,7 +4466,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 263,
+   "index": 257,
    "case_id": "entity_wrong-d19e9d0f:control",
    "pair_id": "entity_wrong-d19e9d0f",
    "variant": "control",
@@ -4536,7 +4479,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 264,
+   "index": 258,
    "case_id": "entity_wrong-d19e9d0f:defective",
    "pair_id": "entity_wrong-d19e9d0f",
    "variant": "defective",
@@ -4557,7 +4500,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 265,
+   "index": 259,
    "case_id": "conjunct_dropped-cd930190:control",
    "pair_id": "conjunct_dropped-cd930190",
    "variant": "control",
@@ -4570,7 +4513,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 266,
+   "index": 260,
    "case_id": "conjunct_dropped-cd930190:defective",
    "pair_id": "conjunct_dropped-cd930190",
    "variant": "defective",
@@ -4591,7 +4534,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 267,
+   "index": 261,
    "case_id": "amount_changed-6a1ec468:control",
    "pair_id": "amount_changed-6a1ec468",
    "variant": "control",
@@ -4604,7 +4547,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 268,
+   "index": 262,
    "case_id": "amount_changed-6a1ec468:defective",
    "pair_id": "amount_changed-6a1ec468",
    "variant": "defective",
@@ -4625,7 +4568,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 269,
+   "index": 263,
    "case_id": "polarity_swapped-e9700d17:control",
    "pair_id": "polarity_swapped-e9700d17",
    "variant": "control",
@@ -4638,7 +4581,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 270,
+   "index": 264,
    "case_id": "polarity_swapped-e9700d17:defective",
    "pair_id": "polarity_swapped-e9700d17",
    "variant": "defective",
@@ -4659,41 +4602,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 271,
-   "case_id": "date_or_period_wrong-aa3de659:control",
-   "pair_id": "date_or_period_wrong-aa3de659",
-   "variant": "control",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-cameroon-9903-02-12",
-   "provision_sha256": "a21c23ac538a8a358e6417dab4c3305b2501ed5ef6f027a1501d61036abd9046",
-   "artifact_sha256": "62d1addccd37f577286ec7c61ea2ed33648f05710d17564ff9823784be8f665a",
-   "locator": null,
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 272,
-   "case_id": "date_or_period_wrong-aa3de659:defective",
-   "pair_id": "date_or_period_wrong-aa3de659",
-   "variant": "defective",
-   "defect_kind": "date_or_period_wrong",
-   "citation": "us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-cameroon-9903-02-12",
-   "provision_sha256": "a21c23ac538a8a358e6417dab4c3305b2501ed5ef6f027a1501d61036abd9046",
-   "artifact_sha256": "8d8bcbeae2338d30187269f56ac8942b8fddd2e27b9d83d7b4b6c04cb7da5718",
-   "locator": {
-    "path": "rules[3].period",
-    "rule_index": 3,
-    "rule_name": "reciprocal_cameroon_otherwise_provision_exception_applies",
-    "detail": "period Day -> Month",
-    "before": "Day",
-    "after": "Month",
-    "token": "Month"
-   },
-   "control_clean": "known_good_gate",
-   "generator_model": "gpt-5.5"
-  },
-  {
-   "index": 273,
+   "index": 265,
    "case_id": "boundary_flipped-a703d897:control",
    "pair_id": "boundary_flipped-a703d897",
    "variant": "control",
@@ -4706,7 +4615,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 274,
+   "index": 266,
    "case_id": "boundary_flipped-a703d897:defective",
    "pair_id": "boundary_flipped-a703d897",
    "variant": "defective",
@@ -4727,7 +4636,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 275,
+   "index": 267,
    "case_id": "entity_wrong-2cc84fca:control",
    "pair_id": "entity_wrong-2cc84fca",
    "variant": "control",
@@ -4740,7 +4649,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 276,
+   "index": 268,
    "case_id": "entity_wrong-2cc84fca:defective",
    "pair_id": "entity_wrong-2cc84fca",
    "variant": "defective",
@@ -4761,7 +4670,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 277,
+   "index": 269,
    "case_id": "conjunct_dropped-11d10fb8:control",
    "pair_id": "conjunct_dropped-11d10fb8",
    "variant": "control",
@@ -4774,7 +4683,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 278,
+   "index": 270,
    "case_id": "conjunct_dropped-11d10fb8:defective",
    "pair_id": "conjunct_dropped-11d10fb8",
    "variant": "defective",
@@ -4795,7 +4704,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 279,
+   "index": 271,
    "case_id": "polarity_swapped-2eb31b2d:control",
    "pair_id": "polarity_swapped-2eb31b2d",
    "variant": "control",
@@ -4808,7 +4717,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 280,
+   "index": 272,
    "case_id": "polarity_swapped-2eb31b2d:defective",
    "pair_id": "polarity_swapped-2eb31b2d",
    "variant": "defective",
@@ -4829,7 +4738,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 281,
+   "index": 273,
    "case_id": "amount_changed-2dc53e19:control",
    "pair_id": "amount_changed-2dc53e19",
    "variant": "control",
@@ -4842,7 +4751,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 282,
+   "index": 274,
    "case_id": "amount_changed-2dc53e19:defective",
    "pair_id": "amount_changed-2dc53e19",
    "variant": "defective",
@@ -4863,7 +4772,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 283,
+   "index": 275,
    "case_id": "boundary_flipped-34d93deb:control",
    "pair_id": "boundary_flipped-34d93deb",
    "variant": "control",
@@ -4876,7 +4785,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 284,
+   "index": 276,
    "case_id": "boundary_flipped-34d93deb:defective",
    "pair_id": "boundary_flipped-34d93deb",
    "variant": "defective",
@@ -4897,7 +4806,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 285,
+   "index": 277,
    "case_id": "entity_wrong-22730f94:control",
    "pair_id": "entity_wrong-22730f94",
    "variant": "control",
@@ -4910,7 +4819,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 286,
+   "index": 278,
    "case_id": "entity_wrong-22730f94:defective",
    "pair_id": "entity_wrong-22730f94",
    "variant": "defective",
@@ -4931,7 +4840,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 287,
+   "index": 279,
    "case_id": "date_or_period_wrong-94becccf:control",
    "pair_id": "date_or_period_wrong-94becccf",
    "variant": "control",
@@ -4944,7 +4853,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 288,
+   "index": 280,
    "case_id": "date_or_period_wrong-94becccf:defective",
    "pair_id": "date_or_period_wrong-94becccf",
    "variant": "defective",
@@ -4965,7 +4874,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 289,
+   "index": 281,
    "case_id": "date_or_period_wrong-2875ca86:control",
    "pair_id": "date_or_period_wrong-2875ca86",
    "variant": "control",
@@ -4978,7 +4887,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 290,
+   "index": 282,
    "case_id": "date_or_period_wrong-2875ca86:defective",
    "pair_id": "date_or_period_wrong-2875ca86",
    "variant": "defective",
@@ -4999,7 +4908,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 291,
+   "index": 283,
    "case_id": "boundary_flipped-9d7f6908:control",
    "pair_id": "boundary_flipped-9d7f6908",
    "variant": "control",
@@ -5012,7 +4921,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 292,
+   "index": 284,
    "case_id": "boundary_flipped-9d7f6908:defective",
    "pair_id": "boundary_flipped-9d7f6908",
    "variant": "defective",
@@ -5033,7 +4942,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 293,
+   "index": 285,
    "case_id": "amount_changed-20261042:control",
    "pair_id": "amount_changed-20261042",
    "variant": "control",
@@ -5046,7 +4955,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 294,
+   "index": 286,
    "case_id": "amount_changed-20261042:defective",
    "pair_id": "amount_changed-20261042",
    "variant": "defective",
@@ -5067,7 +4976,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 295,
+   "index": 287,
    "case_id": "conjunct_dropped-2fb56bbb:control",
    "pair_id": "conjunct_dropped-2fb56bbb",
    "variant": "control",
@@ -5080,7 +4989,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 296,
+   "index": 288,
    "case_id": "conjunct_dropped-2fb56bbb:defective",
    "pair_id": "conjunct_dropped-2fb56bbb",
    "variant": "defective",
@@ -5101,7 +5010,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 297,
+   "index": 289,
    "case_id": "polarity_swapped-c78c2b13:control",
    "pair_id": "polarity_swapped-c78c2b13",
    "variant": "control",
@@ -5114,7 +5023,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 298,
+   "index": 290,
    "case_id": "polarity_swapped-c78c2b13:defective",
    "pair_id": "polarity_swapped-c78c2b13",
    "variant": "defective",
@@ -5135,7 +5044,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 299,
+   "index": 291,
    "case_id": "polarity_swapped-118113f9:control",
    "pair_id": "polarity_swapped-118113f9",
    "variant": "control",
@@ -5148,7 +5057,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 300,
+   "index": 292,
    "case_id": "polarity_swapped-118113f9:defective",
    "pair_id": "polarity_swapped-118113f9",
    "variant": "defective",
@@ -5169,7 +5078,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 301,
+   "index": 293,
    "case_id": "entity_wrong-c86a39ac:control",
    "pair_id": "entity_wrong-c86a39ac",
    "variant": "control",
@@ -5182,7 +5091,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 302,
+   "index": 294,
    "case_id": "entity_wrong-c86a39ac:defective",
    "pair_id": "entity_wrong-c86a39ac",
    "variant": "defective",
@@ -5203,7 +5112,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 303,
+   "index": 295,
    "case_id": "conjunct_dropped-0a98597e:control",
    "pair_id": "conjunct_dropped-0a98597e",
    "variant": "control",
@@ -5216,7 +5125,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 304,
+   "index": 296,
    "case_id": "conjunct_dropped-0a98597e:defective",
    "pair_id": "conjunct_dropped-0a98597e",
    "variant": "defective",
@@ -5237,7 +5146,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 305,
+   "index": 297,
    "case_id": "entity_wrong-708c93e0:control",
    "pair_id": "entity_wrong-708c93e0",
    "variant": "control",
@@ -5250,7 +5159,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 306,
+   "index": 298,
    "case_id": "entity_wrong-708c93e0:defective",
    "pair_id": "entity_wrong-708c93e0",
    "variant": "defective",
@@ -5271,7 +5180,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 307,
+   "index": 299,
    "case_id": "date_or_period_wrong-7d9f1036:control",
    "pair_id": "date_or_period_wrong-7d9f1036",
    "variant": "control",
@@ -5284,7 +5193,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 308,
+   "index": 300,
    "case_id": "date_or_period_wrong-7d9f1036:defective",
    "pair_id": "date_or_period_wrong-7d9f1036",
    "variant": "defective",
@@ -5305,7 +5214,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 309,
+   "index": 301,
    "case_id": "conjunct_dropped-175c6865:control",
    "pair_id": "conjunct_dropped-175c6865",
    "variant": "control",
@@ -5318,7 +5227,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 310,
+   "index": 302,
    "case_id": "conjunct_dropped-175c6865:defective",
    "pair_id": "conjunct_dropped-175c6865",
    "variant": "defective",
@@ -5339,7 +5248,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 311,
+   "index": 303,
    "case_id": "boundary_flipped-e9186944:control",
    "pair_id": "boundary_flipped-e9186944",
    "variant": "control",
@@ -5352,7 +5261,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 312,
+   "index": 304,
    "case_id": "boundary_flipped-e9186944:defective",
    "pair_id": "boundary_flipped-e9186944",
    "variant": "defective",
@@ -5373,7 +5282,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 313,
+   "index": 305,
    "case_id": "amount_changed-530954da:control",
    "pair_id": "amount_changed-530954da",
    "variant": "control",
@@ -5386,7 +5295,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 314,
+   "index": 306,
    "case_id": "amount_changed-530954da:defective",
    "pair_id": "amount_changed-530954da",
    "variant": "defective",
@@ -5407,7 +5316,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 315,
+   "index": 307,
    "case_id": "amount_changed-8cfab464:control",
    "pair_id": "amount_changed-8cfab464",
    "variant": "control",
@@ -5420,7 +5329,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 316,
+   "index": 308,
    "case_id": "amount_changed-8cfab464:defective",
    "pair_id": "amount_changed-8cfab464",
    "variant": "defective",
@@ -5441,7 +5350,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 317,
+   "index": 309,
    "case_id": "date_or_period_wrong-d88f1543:control",
    "pair_id": "date_or_period_wrong-d88f1543",
    "variant": "control",
@@ -5454,7 +5363,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 318,
+   "index": 310,
    "case_id": "date_or_period_wrong-d88f1543:defective",
    "pair_id": "date_or_period_wrong-d88f1543",
    "variant": "defective",
@@ -5475,7 +5384,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 319,
+   "index": 311,
    "case_id": "amount_changed-d20e73d3:control",
    "pair_id": "amount_changed-d20e73d3",
    "variant": "control",
@@ -5488,7 +5397,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 320,
+   "index": 312,
    "case_id": "amount_changed-d20e73d3:defective",
    "pair_id": "amount_changed-d20e73d3",
    "variant": "defective",
@@ -5509,7 +5418,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 321,
+   "index": 313,
    "case_id": "boundary_flipped-26ad722b:control",
    "pair_id": "boundary_flipped-26ad722b",
    "variant": "control",
@@ -5522,7 +5431,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 322,
+   "index": 314,
    "case_id": "boundary_flipped-26ad722b:defective",
    "pair_id": "boundary_flipped-26ad722b",
    "variant": "defective",
@@ -5543,7 +5452,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 323,
+   "index": 315,
    "case_id": "polarity_swapped-921f8ec4:control",
    "pair_id": "polarity_swapped-921f8ec4",
    "variant": "control",
@@ -5556,7 +5465,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 324,
+   "index": 316,
    "case_id": "polarity_swapped-921f8ec4:defective",
    "pair_id": "polarity_swapped-921f8ec4",
    "variant": "defective",
@@ -5577,7 +5486,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 325,
+   "index": 317,
    "case_id": "entity_wrong-b667c71c:control",
    "pair_id": "entity_wrong-b667c71c",
    "variant": "control",
@@ -5590,7 +5499,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 326,
+   "index": 318,
    "case_id": "entity_wrong-b667c71c:defective",
    "pair_id": "entity_wrong-b667c71c",
    "variant": "defective",
@@ -5611,7 +5520,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 327,
+   "index": 319,
    "case_id": "boundary_flipped-c3b5be78:control",
    "pair_id": "boundary_flipped-c3b5be78",
    "variant": "control",
@@ -5624,7 +5533,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 328,
+   "index": 320,
    "case_id": "boundary_flipped-c3b5be78:defective",
    "pair_id": "boundary_flipped-c3b5be78",
    "variant": "defective",
@@ -5645,7 +5554,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 329,
+   "index": 321,
    "case_id": "conjunct_dropped-a8169827:control",
    "pair_id": "conjunct_dropped-a8169827",
    "variant": "control",
@@ -5658,7 +5567,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 330,
+   "index": 322,
    "case_id": "conjunct_dropped-a8169827:defective",
    "pair_id": "conjunct_dropped-a8169827",
    "variant": "defective",
@@ -5679,7 +5588,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 331,
+   "index": 323,
    "case_id": "polarity_swapped-d9622851:control",
    "pair_id": "polarity_swapped-d9622851",
    "variant": "control",
@@ -5692,7 +5601,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 332,
+   "index": 324,
    "case_id": "polarity_swapped-d9622851:defective",
    "pair_id": "polarity_swapped-d9622851",
    "variant": "defective",
@@ -5713,7 +5622,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 333,
+   "index": 325,
    "case_id": "date_or_period_wrong-5ea2347d:control",
    "pair_id": "date_or_period_wrong-5ea2347d",
    "variant": "control",
@@ -5726,7 +5635,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 334,
+   "index": 326,
    "case_id": "date_or_period_wrong-5ea2347d:defective",
    "pair_id": "date_or_period_wrong-5ea2347d",
    "variant": "defective",
@@ -5747,7 +5656,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 335,
+   "index": 327,
    "case_id": "entity_wrong-b7d3ed27:control",
    "pair_id": "entity_wrong-b7d3ed27",
    "variant": "control",
@@ -5760,7 +5669,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 336,
+   "index": 328,
    "case_id": "entity_wrong-b7d3ed27:defective",
    "pair_id": "entity_wrong-b7d3ed27",
    "variant": "defective",
@@ -5781,7 +5690,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 337,
+   "index": 329,
    "case_id": "boundary_flipped-c5f66490:control",
    "pair_id": "boundary_flipped-c5f66490",
    "variant": "control",
@@ -5794,7 +5703,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 338,
+   "index": 330,
    "case_id": "boundary_flipped-c5f66490:defective",
    "pair_id": "boundary_flipped-c5f66490",
    "variant": "defective",
@@ -5815,7 +5724,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 339,
+   "index": 331,
    "case_id": "amount_changed-a52cf634:control",
    "pair_id": "amount_changed-a52cf634",
    "variant": "control",
@@ -5828,7 +5737,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 340,
+   "index": 332,
    "case_id": "amount_changed-a52cf634:defective",
    "pair_id": "amount_changed-a52cf634",
    "variant": "defective",
@@ -5849,7 +5758,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 341,
+   "index": 333,
    "case_id": "conjunct_dropped-e39c00da:control",
    "pair_id": "conjunct_dropped-e39c00da",
    "variant": "control",
@@ -5862,7 +5771,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 342,
+   "index": 334,
    "case_id": "conjunct_dropped-e39c00da:defective",
    "pair_id": "conjunct_dropped-e39c00da",
    "variant": "defective",
@@ -5883,7 +5792,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 343,
+   "index": 335,
    "case_id": "date_or_period_wrong-2439974c:control",
    "pair_id": "date_or_period_wrong-2439974c",
    "variant": "control",
@@ -5896,7 +5805,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 344,
+   "index": 336,
    "case_id": "date_or_period_wrong-2439974c:defective",
    "pair_id": "date_or_period_wrong-2439974c",
    "variant": "defective",
@@ -5917,7 +5826,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 345,
+   "index": 337,
    "case_id": "entity_wrong-27ae1644:control",
    "pair_id": "entity_wrong-27ae1644",
    "variant": "control",
@@ -5930,7 +5839,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 346,
+   "index": 338,
    "case_id": "entity_wrong-27ae1644:defective",
    "pair_id": "entity_wrong-27ae1644",
    "variant": "defective",
@@ -5951,7 +5860,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 347,
+   "index": 339,
    "case_id": "amount_changed-408352f7:control",
    "pair_id": "amount_changed-408352f7",
    "variant": "control",
@@ -5964,7 +5873,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 348,
+   "index": 340,
    "case_id": "amount_changed-408352f7:defective",
    "pair_id": "amount_changed-408352f7",
    "variant": "defective",
@@ -5985,7 +5894,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 349,
+   "index": 341,
    "case_id": "polarity_swapped-55ea11d3:control",
    "pair_id": "polarity_swapped-55ea11d3",
    "variant": "control",
@@ -5998,7 +5907,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 350,
+   "index": 342,
    "case_id": "polarity_swapped-55ea11d3:defective",
    "pair_id": "polarity_swapped-55ea11d3",
    "variant": "defective",
@@ -6019,7 +5928,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 351,
+   "index": 343,
    "case_id": "boundary_flipped-d31a13c2:control",
    "pair_id": "boundary_flipped-d31a13c2",
    "variant": "control",
@@ -6032,7 +5941,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 352,
+   "index": 344,
    "case_id": "boundary_flipped-d31a13c2:defective",
    "pair_id": "boundary_flipped-d31a13c2",
    "variant": "defective",
@@ -6053,7 +5962,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 353,
+   "index": 345,
    "case_id": "date_or_period_wrong-04e75972:control",
    "pair_id": "date_or_period_wrong-04e75972",
    "variant": "control",
@@ -6066,7 +5975,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 354,
+   "index": 346,
    "case_id": "date_or_period_wrong-04e75972:defective",
    "pair_id": "date_or_period_wrong-04e75972",
    "variant": "defective",
@@ -6087,7 +5996,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 355,
+   "index": 347,
    "case_id": "conjunct_dropped-b7ef480c:control",
    "pair_id": "conjunct_dropped-b7ef480c",
    "variant": "control",
@@ -6100,7 +6009,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 356,
+   "index": 348,
    "case_id": "conjunct_dropped-b7ef480c:defective",
    "pair_id": "conjunct_dropped-b7ef480c",
    "variant": "defective",
@@ -6121,7 +6030,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 357,
+   "index": 349,
    "case_id": "entity_wrong-1b28cd75:control",
    "pair_id": "entity_wrong-1b28cd75",
    "variant": "control",
@@ -6134,7 +6043,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 358,
+   "index": 350,
    "case_id": "entity_wrong-1b28cd75:defective",
    "pair_id": "entity_wrong-1b28cd75",
    "variant": "defective",
@@ -6155,7 +6064,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 359,
+   "index": 351,
    "case_id": "polarity_swapped-edec0fe1:control",
    "pair_id": "polarity_swapped-edec0fe1",
    "variant": "control",
@@ -6168,7 +6077,7 @@
    "generator_model": "gpt-5.5"
   },
   {
-   "index": 360,
+   "index": 352,
    "case_id": "polarity_swapped-edec0fe1:defective",
    "pair_id": "polarity_swapped-edec0fe1",
    "variant": "defective",
@@ -6189,5 +6098,5 @@
    "generator_model": "gpt-5.5"
   }
  ],
- "sha256": "5b228af3d17c00aed518dc1b4cd6ab88533e266950f0b3a90da6961fcb08d826"
+ "sha256": "bc57111f0129093e6d45ccddc29bf6f74f5520f0dbc5704fa18ce42ed6ca9cbb"
 }

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -74,6 +76,8 @@ from encodebench_verifier.pricing import Price, cost_usd, load_pricing  # noqa: 
 from encodebench_verifier.results import (  # noqa: E402
     ResultsError,
     load_results,
+    read_rows,
+    result_row,
     run_suite,
 )
 from encodebench_verifier.sources import KnownGoodArtifact  # noqa: E402
@@ -219,8 +223,14 @@ def test_conjunct_dropped_skips_if_else_formulas_and_keeps_valid_expression():
         # Only the plain conjunction rule may be edited.
         assert mutation.locator.rule_name == "tax_table_method_applies"
         formula = mutation.defective_document["rules"][1]["versions"][0]["formula"]
-        assert " and " in formula or "and" not in formula
-        assert not formula.startswith("and ") and not formula.endswith(" and")
+        control = mutation.control_document["rules"][1]["versions"][0]["formula"]
+        # The cut keeps the control's layout (a newline before "and" survives),
+        # so compare conjunct lists rather than exact spacing.
+        kept = re.split(r"\s+and\s+", formula.strip())
+        original = re.split(r"\s+and\s+", control.strip())
+        assert len(kept) == len(original) - 1
+        assert [c for c in original if c in kept] == kept
+        assert not formula.lstrip().startswith("and") and not formula.endswith("and")
         assert mutation.locator.token in (
             "tax_table_income",
             "individual_is_estate_or_trust",
@@ -341,7 +351,7 @@ def test_canonical_dump_round_trips_multiline_and_quoted_scalars():
 
 
 def test_mutator_version_is_pinned():
-    assert MUTATOR_VERSION == "1.0.1"
+    assert MUTATOR_VERSION == "1.0.2"
 
 
 # -- synthetic suite -------------------------------------------------------------
@@ -523,14 +533,18 @@ def test_real_loader_refuses_hash_mismatch_and_identical_pairs(tmp_path):
         real_source.build_real_suite(
             root, provision_chars=24_000, truncate=truncate_provision
         )
+    # A case.json without its hashes is a broken record, not an unverified one.
     payload = json.loads((case_dir / "case.json").read_text())
-    for key in (
-        "pre_fix_artifact_sha256",
-        "post_fix_artifact_sha256",
-        "provision_sha256",
-    ):
-        payload.pop(key)
-    (case_dir / "pre_fix.yaml").write_text((case_dir / "post_fix.yaml").read_text())
+    stripped = dict(payload)
+    stripped.pop("pre_fix_artifact_sha256")
+    (case_dir / "case.json").write_text(json.dumps(stripped))
+    with pytest.raises(real_source.RealDefectsError, match="no recorded sha256"):
+        real_source.build_real_suite(
+            root, provision_chars=24_000, truncate=truncate_provision
+        )
+    post_fix = (case_dir / "post_fix.yaml").read_text()
+    (case_dir / "pre_fix.yaml").write_text(post_fix)
+    payload["pre_fix_artifact_sha256"] = payload["post_fix_artifact_sha256"]
     (case_dir / "case.json").write_text(json.dumps(payload))
     with pytest.raises(real_source.RealDefectsError, match="identical"):
         real_source.build_real_suite(
@@ -539,23 +553,40 @@ def test_real_loader_refuses_hash_mismatch_and_identical_pairs(tmp_path):
 
 
 def test_real_loader_maps_unknown_kinds_to_other_and_accepts_inline_content(tmp_path):
+    import hashlib
+
+    def sha(text):
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    pre = "rules: [{name: a, versions: [{formula: '1'}]}]\n"
+    post = "rules: [{name: a, versions: [{formula: '2'}]}]\n"
+    record = {
+        "case_id": "c1",
+        "defect_kind": "wrong-import",
+        "triage_status": "fidelity",
+        "locator": "some_rule.versions[0].formula",
+        "provision_text": "text",
+        "pre_fix_yaml": pre,
+        "post_fix_yaml": post,
+        "hashes": {
+            "provision": sha("text"),
+            "pre_fix": sha(pre),
+            "post_fix": sha(post),
+        },
+    }
     root = tmp_path / "real"
     (root / "c1").mkdir(parents=True)
-    (root / "c1" / "case.json").write_text(
-        json.dumps(
-            {
-                "case_id": "c1",
-                "defect_kind": "wrong-import",
-                "locator": "some_rule.versions[0].formula",
-                "provision_text": "text",
-                "pre_fix_yaml": "rules: [{name: a, versions: [{formula: '1'}]}]\n",
-                "post_fix_yaml": "rules: [{name: a, versions: [{formula: '2'}]}]\n",
-            }
-        )
-    )
-    suite, _ = real_source.build_real_suite(
+    (root / "c1" / "case.json").write_text(json.dumps(record))
+    # A second record without a triage status never matches the default filter.
+    (root / "c2").mkdir()
+    unlabeled = {k: v for k, v in record.items() if k != "triage_status"}
+    unlabeled["case_id"] = "c2"
+    (root / "c2" / "case.json").write_text(json.dumps(unlabeled))
+    suite, report = real_source.build_real_suite(
         root, provision_chars=100, truncate=truncate_provision
     )
+    assert report["skipped"] == {"triage_status_missing": 1}
+    assert suite.summary()["pair_count"] == 1
     defective = next(c for c in suite.cases if c.is_defective)
     assert defective.defect_kind == "other:wrong_import"
     assert defective.locator.rule_name == "some_rule"
@@ -808,12 +839,18 @@ def test_jev_runner_maps_choice_and_nouls_and_leaves_findings_blank(monkeypatch)
     assert runner.identity()["model"] == "jev-1.13.0"
 
 
-def test_jev_runner_fails_closed_without_sdk_or_on_exception():
-    pytest.importorskip("typesafe_sdk")
-    runner = JevRunner("jev-1.13.0", client=_FakeTypeSafe(fail=True))
+def test_jev_runner_fails_closed_without_sdk_or_on_exception(monkeypatch):
+    # Only build_questions() needs the SDK; an injected question set lets the
+    # fail-closed paths run in CI, where typesafe-sdk is not installed.
+    runner = JevRunner("jev-1.13.0", client=_FakeTypeSafe(fail=True), questions={})
     response = runner.judge(_case())
     assert response.verdict == "error"
     assert response.error["type"] == "RuntimeError"
+    # No SDK at all: an sdk_missing error row, never a pass.
+    monkeypatch.setitem(sys.modules, "typesafe_sdk", None)
+    missing = JevRunner("jev-1.13.0").judge(_case())
+    assert missing.verdict == "error" and missing.error["type"] == "sdk_missing"
+    assert missing.verdict_score is None
 
 
 def test_jev_state_and_questions_cover_every_kind():
@@ -912,6 +949,28 @@ def _replay_file(tmp_path, suite, name, *, sharp=True, drop=(), error=()):
     path = tmp_path / f"{name}.json"
     path.write_text(json.dumps({"model": f"fake-{name}", "responses": responses}))
     return path
+
+
+class _CountingReplay(ReplayRunner):
+    """A replay runner that counts judge calls, optionally interrupting one.
+
+    ``run_suite`` judges on a thread pool, so the count is taken under a lock
+    (a bare ``calls += 1`` from several workers loses updates).
+    """
+
+    def __init__(self, *args, interrupt_at=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._calls_lock = threading.Lock()
+        self.calls = 0
+        self.interrupt_at = interrupt_at
+
+    def judge(self, case):
+        with self._calls_lock:
+            self.calls += 1
+            call = self.calls
+        if call == self.interrupt_at:
+            raise KeyboardInterrupt
+        return super().judge(case)
 
 
 def test_run_suite_writes_contract_and_board_ranks_under_ceiling(tmp_path):
@@ -1019,18 +1078,11 @@ def test_run_suite_resumes_without_rejudging_completed_cases(tmp_path):
     suite = _suite_for_board()
     replay = _replay_file(tmp_path, suite, "r")
 
-    class Counting(ReplayRunner):
-        calls = 0
-
-        def judge(self, case):
-            Counting.calls += 1
-            return super().judge(case)
-
-    runner = Counting(replay, name="r")
+    runner = _CountingReplay(replay, name="r")
     run_suite(suite, runner, tmp_path / "r", price=None, limit=3)
-    assert Counting.calls == 3
+    assert runner.calls == 3
     run_suite(suite, runner, tmp_path / "r", price=None)
-    assert Counting.calls == len(suite.cases)
+    assert runner.calls == len(suite.cases)
     payload = load_results(tmp_path / "r")
     assert payload["coverage"]["complete"] is True
 
@@ -1133,8 +1185,6 @@ def test_judge_response_round_trip():
 
 
 def test_localization_is_blank_for_probability_only_judges(tmp_path):
-    from encodebench_verifier.results import result_row
-
     case = _case()
     response = JudgeResponse(
         verdict="flag",
@@ -1150,7 +1200,6 @@ def test_localization_is_blank_for_probability_only_judges(tmp_path):
     assert result_row(1, case, response, price=None)["localized"] is False
     blank = result_row(1, case, response, price=None, supports_localization=False)
     assert blank["localized"] is None and blank["localization_evidence"] is None
-    pytest.importorskip("typesafe_sdk")
     assert (
         JevRunner("jev-1.13.0", client=_FakeTypeSafe()).supports_localization is False
     )
@@ -1176,16 +1225,9 @@ def test_filtered_suite_records_parent_and_folds_existing_rows_without_rejudging
     parent = _suite_for_board()
     replay = _replay_file(tmp_path, parent, "f")
 
-    class Counting(ReplayRunner):
-        calls = 0
-
-        def judge(self, case):
-            Counting.calls += 1
-            return super().judge(case)
-
-    runner = Counting(replay, name="f")
+    runner = _CountingReplay(replay, name="f")
     run_suite(parent, runner, tmp_path / "f", price=None)
-    judged = Counting.calls
+    judged = runner.calls
     drop_citation = parent.cases[0].citation
     child = parent.filtered(
         name="child",
@@ -1200,7 +1242,7 @@ def test_filtered_suite_records_parent_and_folds_existing_rows_without_rejudging
     assert all(c.citation != drop_citation for c in child.cases)
     # Re-assembling against the child re-judges nothing and re-stamps positions.
     payload = run_suite(child, runner, tmp_path / "f", price=None)
-    assert Counting.calls == judged
+    assert runner.calls == judged
     assert payload["suite"]["sha256"] == child.sha256
     assert payload["coverage"]["complete"] is True
     assert [row["index"] for row in payload["results"]] == list(
@@ -1427,6 +1469,466 @@ def test_conjunct_is_not_dropped_beside_a_top_level_or():
     assert formula in ("(b or c) and d", "a and d", "a and (b or c)")
 
 
+# -- mutator 1.0.2 regressions (review round two) -------------------------------
+
+
+def _artifact_with(formulas=None, periods=None, entities=None):
+    """ARTIFACT with chosen rule formulas, periods or entities (by rule index)."""
+
+    document = load_yaml_document(ARTIFACT)
+    for index, formula in (formulas or {}).items():
+        document["rules"][index]["versions"][0]["formula"] = formula
+    for index, period in (periods or {}).items():
+        document["rules"][index]["period"] = period
+    for index, entity in (entities or {}).items():
+        document["rules"][index]["entity"] = entity
+    return dump_yaml_document(document)
+
+
+def _all_seeds(artifact, provision, kind, seeds=range(20)):
+    return [mutate(artifact, provision, kind, rng=random.Random(s)) for s in seeds]
+
+
+def test_period_guard_matches_whole_words_so_daylight_is_not_a_day():
+    # The 1.0.1 suite's four undetectable pairs: a Day rule on a tariff
+    # heading whose window only says "eastern daylight time".
+    artifact = _artifact_with(periods={0: "Day", 1: "Day", 2: "Day"})
+    daylight = (
+        "Goods entered before 12:01 a.m. eastern daylight time on August 7, "
+        "2025. Rates of duty (1-General): + 15%."
+    )
+    assert all(
+        m is None for m in _all_seeds(artifact, daylight, "date_or_period_wrong")
+    )
+    # A whole word (or its plural) still counts.
+    for stated in ("A fee accrues each day.", "Within 30 days of entry."):
+        found = [m for m in _all_seeds(artifact, stated, "date_or_period_wrong") if m]
+        assert found and all(m.locator.detail == "period Day -> Month" for m in found)
+
+
+def test_entity_guard_matches_whole_words_both_ways():
+    # "personal" and "personnel" do not mention a person.
+    artifact = _artifact_with(entities={1: "Person", 2: "Person"})
+    prefixes = "Personal income of personnel is taxed."
+    assert all(m is None for m in _all_seeds(artifact, prefixes, "entity_wrong"))
+    plural = "Persons who reside here are taxed."
+    assert all(m is not None for m in _all_seeds(artifact, plural, "entity_wrong"))
+    # "trademark" no longer reads as "trade", so Business (present in the
+    # artifact) stays a replacement for the Person rule.
+    mixed = _artifact_with(entities={1: "Person", 2: "Business"})
+
+    def person_afters(provision):
+        return {
+            m.locator.after
+            for m in _all_seeds(mixed, provision, "entity_wrong", range(60))
+            if m and m.locator.rule_index == 1
+        }
+
+    assert "Business" in person_afters(
+        "Each individual who registers a trademark pays."
+    )
+    afters = person_afters("Each individual engaged in a trade pays.")
+    assert afters and "Business" not in afters
+
+
+def test_amount_changed_never_treats_a_dotted_code_as_an_amount():
+    from decimal import Decimal
+
+    from encodebench_verifier.mutator import provision_numbers
+
+    artifact = _artifact_with(
+        formulas={0: "'1'", 1: 'hts_number == "7202.11.10.00"', 2: "x"}
+    )
+    window = "Heading 7202.11.10: ferromanganese. Subheading 7202.11 covers it."
+    assert all(m is None for m in _all_seeds(artifact, window, "amount_changed"))
+    numbers = provision_numbers("Heading 7202.11.10, rate 7.5 percent, $1,250.50.")
+    assert Decimal("7202.11") not in numbers
+    assert Decimal("7.5") in numbers and Decimal("1250.5") in numbers
+
+
+def test_boundary_flip_ignores_shift_and_arrow_operators():
+    from encodebench_verifier.mutator import _BOUNDARY_RE
+
+    assert _BOUNDARY_RE.findall("a << b >> c -> d => e <> f >= g < h") == [">=", "<"]
+    artifact = _artifact_with(formulas={1: "mask << 2 and bits >> 1", 2: "x"})
+    assert all(
+        m is None for m in _all_seeds(artifact, _window(PROVISION), "boundary_flipped")
+    )
+
+
+def test_and_or_inside_string_literals_are_not_operators():
+    literal = 'country == "Bosnia and Herzegovina" and resident'
+    artifact = _artifact_with(formulas={1: literal, 2: "x > 1"})
+    dropped = {
+        m.defective_document["rules"][1]["versions"][0]["formula"]
+        for m in _all_seeds(artifact, _window(PROVISION), "conjunct_dropped")
+        if m and m.locator.rule_index == 1
+    }
+    assert dropped == {"resident", 'country == "Bosnia and Herzegovina"'}
+    swapped = {
+        m.defective_document["rules"][1]["versions"][0]["formula"]
+        for m in _all_seeds(artifact, _window(PROVISION), "polarity_swapped")
+        if m and m.locator.rule_index == 1
+    }
+    assert swapped == {'country == "Bosnia and Herzegovina" or resident'}
+    only_literal = _artifact_with(formulas={1: "name == 'rock or roll'", 2: "x > 1"})
+    assert all(
+        m is None
+        for m in _all_seeds(only_literal, _window(PROVISION), "polarity_swapped")
+    )
+
+
+@pytest.mark.parametrize("formula", ["a and b if c else d", "if c then a and b else d"])
+def test_conjunct_dropped_skips_colon_free_conditionals(formula):
+    artifact = _artifact_with(formulas={1: formula, 2: "x > 1"})
+    assert all(
+        m is None for m in _all_seeds(artifact, _window(PROVISION), "conjunct_dropped")
+    )
+
+
+def test_conjunct_dropped_keeps_the_rest_of_the_formula_layout():
+    control = "(\n  aluminum\n  or steel\n)\nand not exempt\nand covered"
+    artifact = _artifact_with(formulas={1: control, 2: "x > 1"})
+    seen = set()
+    for m in _all_seeds(artifact, _window(PROVISION), "conjunct_dropped", range(40)):
+        if m and m.locator.rule_index == 1:
+            seen.add(m.defective_document["rules"][1]["versions"][0]["formula"])
+    assert seen == {
+        "not exempt\nand covered",
+        "(\n  aluminum\n  or steel\n)\nand covered",
+        "(\n  aluminum\n  or steel\n)\nand not exempt",
+    }
+
+
+def test_mutation_through_a_yaml_alias_is_refused():
+    # Two rules share one versions list via an anchor; one assignment would
+    # change both rules, so the edit is not a single-leaf defect.
+    aliased = """format: rulespec/v1
+module:
+  summary: x
+rules:
+- name: a
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  versions: &v
+  - effective_from: '2026-01-01'
+    formula: x >= 10
+- name: b
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Year
+  versions: *v
+"""
+    assert all(
+        m is None for m in _all_seeds(aliased, _window(PROVISION), "boundary_flipped")
+    )
+    unaliased = aliased.replace("&v", "").replace(
+        "versions: *v",
+        "versions:\n  - effective_from: '2026-01-01'\n    formula: y >= 10",
+    )
+    assert all(
+        m is not None
+        for m in _all_seeds(unaliased, _window(PROVISION), "boundary_flipped")
+    )
+
+
+def test_a_round_trip_failure_skips_only_that_kind(monkeypatch):
+    from encodebench_verifier.mutator import RoundTripError
+    from encodebench_verifier.sources import synthetic
+
+    real_mutate = synthetic.mutate
+
+    def flaky(artifact_text, window, kind, *, rng):
+        if kind == "amount_changed":
+            raise RoundTripError("canonical dump did not round-trip")
+        return real_mutate(artifact_text, window, kind, rng=rng)
+
+    monkeypatch.setattr(synthetic, "mutate", flaky)
+    suite, report = build_synthetic_suite(
+        _artifacts(12),
+        name="unit",
+        source_kind="test",
+        source_identity={"n": 12},
+        provision_chars=24_000,
+        truncate=truncate_provision,
+        per_kind=2,
+        seed=5,
+    )
+    assert report["skipped_round_trip"] > 0
+    assert report["skipped_unparseable"] == 0
+    assert report["short_of_quota"] == {"amount_changed": 2}
+    by_kind = suite.summary()["defective_by_kind"]
+    assert "amount_changed" not in by_kind or by_kind["amount_changed"] == 0
+    assert all(by_kind[k] == 2 for k in DEFECT_KINDS if k != "amount_changed")
+
+
+# -- audit: re-checking planted pairs under the current guards ------------------
+
+_ATOMS = (
+    "income >= 10",
+    "age < 65",
+    "rate <= 0.25",
+    "size > 200",
+    "is_resident",
+    "not is_exempt",
+    'country == "Bosnia and Herzegovina"',
+    "name == 'rock or roll'",
+    "(a or b)",
+    "flags << 2",
+)
+_WINDOW_WORDS = (
+    "each individual",
+    "every household",
+    "an employer",
+    "per day",
+    "monthly",
+    "for the year",
+    "weekly",
+    "eastern daylight time",
+    "personal property",
+    "in 2026",
+    "$10",
+    "200 dollars",
+    "65 years",
+    "Heading 7202.11.10",
+)
+
+
+def _random_artifact(rng):
+    document = load_yaml_document(ARTIFACT)
+    for rule in document["rules"]:
+        rule["period"] = rng.choice(("Year", "Month", "Week", "Day"))
+        rule["entity"] = rng.choice(("Person", "Household", "Employer", "Business"))
+        atoms = rng.sample(_ATOMS, rng.randint(1, 4))
+        joiners = [rng.choice((" and ", " or ", "\nand ")) for _ in atoms[1:]]
+        formula = atoms[0] + "".join(j + a for j, a in zip(joiners, atoms[1:]))
+        rule["versions"][0]["formula"] = formula
+        if rng.random() < 0.3:
+            rule["versions"][0]["effective_from"] = "2026-01-01"
+    window = ". ".join(rng.sample(_WINDOW_WORDS, rng.randint(2, 7))) + "."
+    return dump_yaml_document(document), window
+
+
+def test_audit_accepts_every_edit_the_current_mutator_plants():
+    # Invariant: the audit is sound relative to the mutator. Any edit this
+    # version plants passes this version's audit, differs in exactly one
+    # leaf, and a control audited against itself is refused.
+    from encodebench_verifier.mutator import audit_planted_edit
+
+    rng = random.Random(20261003)
+    planted = dict.fromkeys(DEFECT_KINDS, 0)
+    for _ in range(150):
+        artifact, window = _random_artifact(rng)
+        for kind in DEFECT_KINDS:
+            mutation = mutate(artifact, window, kind, rng=random.Random(rng.random()))
+            if mutation is None:
+                continue
+            planted[kind] += 1
+            diffs = leaf_differences(
+                mutation.control_document, mutation.defective_document
+            )
+            assert len(diffs) == 1, (kind, diffs)
+            reason = audit_planted_edit(
+                mutation.control_text, mutation.defective_text, window, kind
+            )
+            assert reason is None, (kind, mutation.locator, window, reason)
+            assert (
+                audit_planted_edit(
+                    mutation.control_text, mutation.control_text, window, kind
+                )
+                == "changes 0 leaves, not one"
+            )
+    assert min(planted.values()) >= 30, planted
+
+
+def test_audit_names_why_a_planted_edit_fails_the_current_guards():
+    from encodebench_verifier.mutator import audit_planted_edit
+
+    def edited(**changes):
+        return _artifact_with(**changes)
+
+    control = edited(periods={1: "Day"})
+    daylight = "Entered before 12:01 a.m. eastern daylight time. Rates apply."
+    reason = audit_planted_edit(
+        control, edited(periods={1: "Month"}), daylight, "date_or_period_wrong"
+    )
+    assert reason == "window does not state the original period Day"
+    assert (
+        audit_planted_edit(
+            control, edited(periods={1: "Month"}), "Each day.", "date_or_period_wrong"
+        )
+        is None
+    )
+    assert "also states the replacement" in audit_planted_edit(
+        control,
+        edited(periods={1: "Month"}),
+        "Each day, monthly.",
+        "date_or_period_wrong",
+    )
+    two = edited(periods={1: "Month", 2: "Month"})
+    assert audit_planted_edit(control, two, "Each day.", "date_or_period_wrong") == (
+        "changes 2 leaves, not one"
+    )
+    # Amounts: the replacement must not be stated; codes are not amounts.
+    base = edited(formulas={1: "income >= 60000"})
+    stated = "Income of $60,000 or $75,000."
+    assert audit_planted_edit(
+        base, edited(formulas={1: "income >= 75000"}), stated, "amount_changed"
+    ).startswith("no amount")
+    assert (
+        audit_planted_edit(
+            base,
+            edited(formulas={1: "income >= 75000"}),
+            "Income of $60,000.",
+            "amount_changed",
+        )
+        is None
+    )
+    # Operators: a flip, a swap outside literals, a cut of a pure conjunction.
+    assert (
+        audit_planted_edit(
+            base, edited(formulas={1: "income > 60000"}), stated, "boundary_flipped"
+        )
+        is None
+    )
+    assert (
+        audit_planted_edit(
+            base, edited(formulas={1: "income < 60000"}), stated, "boundary_flipped"
+        )
+        == "not a flip of a comparison operator"
+    )
+    quoted = edited(formulas={1: 'c == "A and B" and d'})
+    assert (
+        audit_planted_edit(
+            quoted,
+            edited(formulas={1: 'c == "A or B" and d'}),
+            stated,
+            "polarity_swapped",
+        )
+        == "not a swap of an and/or operator outside string literals"
+    )
+    conditional = edited(formulas={1: "a and b if c else d"})
+    assert (
+        audit_planted_edit(
+            conditional,
+            edited(formulas={1: "b if c else d"}),
+            stated,
+            "conjunct_dropped",
+        )
+        == "formula is not a pure conjunction this version may cut"
+    )
+    # A 1.0.1 reflowed cut passes: layout changed, meaning did not.
+    layout = edited(formulas={1: "a\nand not b\nand c"})
+    assert (
+        audit_planted_edit(
+            layout, edited(formulas={1: "a and c"}), stated, "conjunct_dropped"
+        )
+        is None
+    )
+    # Entities and dates.
+    person = edited(entities={1: "Person"})
+    assert (
+        audit_planted_edit(
+            person,
+            edited(entities={1: "Household"}),
+            "Personal property.",
+            "entity_wrong",
+        )
+        == "window does not mention the original entity Person"
+    )
+    assert (
+        audit_planted_edit(
+            person, edited(entities={1: "Household"}), "Each person.", "entity_wrong"
+        )
+        is None
+    )
+    dated = ARTIFACT
+    shifted = ARTIFACT.replace(
+        "effective_from: 2026-01-01", "effective_from: 2027-01-01"
+    )
+    assert (
+        audit_planted_edit(dated, shifted, "In 2026.", "date_or_period_wrong") is None
+    )
+    assert "shifted year" in audit_planted_edit(
+        dated, shifted, "In 2026 and 2027.", "date_or_period_wrong"
+    )
+    with pytest.raises(ValueError, match="unknown defect kind"):
+        audit_planted_edit(dated, shifted, "In 2026.", "nope")
+
+
+def test_cli_audit_suite_reports_failing_pairs_and_ids(tmp_path, capsys):
+    import dataclasses
+
+    suite = _suite_for_board()
+    suite.write(tmp_path / "clean")
+    assert verifier_cli.main(["audit-suite", str(tmp_path / "clean")]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["pairs_checked"] == len(suite.cases) // 2
+    assert report["failing"] == []
+    assert report["audited_with_mutator"] == MUTATOR_VERSION
+    # Blank one pair's window: its planted edit is no longer supported.
+    target = next(c for c in suite.cases if c.defect_kind == "amount_changed")
+    cases = [
+        dataclasses.replace(c, provision_text="Nothing is stated here.")
+        if c.pair_id == target.pair_id
+        else c
+        for c in suite.cases
+    ]
+    broken = dataclasses.replace(suite, cases=cases)
+    broken.write(tmp_path / "broken")
+    assert verifier_cli.main(["audit-suite", str(tmp_path / "broken"), "--ids"]) == 1
+    assert capsys.readouterr().out.split() == [target.pair_id]
+    real_like = dataclasses.replace(suite, mutator=None)
+    real_like.write(tmp_path / "real")
+    assert verifier_cli.main(["audit-suite", str(tmp_path / "real")]) == 2
+
+
+def test_reassemble_matches_run_and_needs_no_judge(tmp_path):
+    import shutil
+
+    from encodebench_verifier.results import reassemble_results
+
+    parent = _suite_for_board()
+    runner = ReplayRunner(_replay_file(tmp_path, parent, "p"), name="p")
+    price = Price("fake-p", 1.0, 5.0, "unit")
+    run_suite(parent, runner, tmp_path / "parent", price=price)
+    dropped = parent.cases[0].pair_id
+    child = parent.filtered(
+        name="child",
+        keep_pair=lambda case: case.pair_id != dropped,
+        description={"drop_pairs": [dropped], "reason": "test"},
+    )
+    # Differential: the judge-free path and the run path agree exactly.
+    via_reassemble = reassemble_results(child, tmp_path / "parent", tmp_path / "re")
+    shutil.copytree(tmp_path / "parent", tmp_path / "via_run")
+    via_run = run_suite(child, runner, tmp_path / "via_run", price=price)
+    assert via_reassemble["payload_sha256"] == via_run["payload_sha256"]
+    assert via_reassemble["coverage"]["complete"] is True
+    assert via_reassemble["suite"]["sha256"] == child.sha256
+    assert (
+        load_results(tmp_path / "re")["runner"]
+        == load_results(tmp_path / "parent")["runner"]
+    )
+    assert len(read_rows(tmp_path / "re" / "cases.jsonl")) == len(child.cases)
+    board_module.fold_verifier_board([tmp_path / "re"])
+    # Refusals: an occupied --out, and a suite not derived from the run's suite.
+    with pytest.raises(ResultsError, match="already holds a run"):
+        reassemble_results(child, tmp_path / "parent", tmp_path / "re")
+    stranger = _suite_for_board(seed=4).filtered(
+        name="stranger", keep_pair=lambda case: True, description={}
+    )
+    with pytest.raises(ResultsError, match="not derived from"):
+        reassemble_results(stranger, tmp_path / "parent", tmp_path / "s")
+    child.write(tmp_path / "child")
+    argv = ["reassemble", "--suite", str(tmp_path / "child")]
+    argv += ["--from", str(tmp_path / "parent"), "--out", str(tmp_path / "cli")]
+    assert verifier_cli.main(argv) == 0
+    assert verifier_cli.main(argv) == 2
+
+
 def test_cli_filter_suite_drop_pair_requires_reason_and_known_ids(tmp_path):
     suite = _suite_for_board()
     suite.write(tmp_path / "suite")
@@ -1453,17 +1955,12 @@ def test_resume_never_reuses_rows_from_another_judge_or_another_artifact(tmp_pat
     judge_a = ReplayRunner(_replay_file(tmp_path, suite, "a"), name="judge-a")
     run_suite(suite, judge_a, tmp_path / "shared", price=None)
 
-    class Counting(ReplayRunner):
-        calls = 0
-
-        def judge(self, case):
-            Counting.calls += 1
-            return super().judge(case)
-
     # A different judge into the same --out re-judges everything.
-    judge_b = Counting(_replay_file(tmp_path, suite, "b", sharp=False), name="judge-b")
+    judge_b = _CountingReplay(
+        _replay_file(tmp_path, suite, "b", sharp=False), name="judge-b"
+    )
     payload = run_suite(suite, judge_b, tmp_path / "shared", price=None)
-    assert Counting.calls == len(suite.cases)
+    assert judge_b.calls == len(suite.cases)
     assert payload["runner"]["name"] == "judge-b"
     assert all(row["runner_name"] == "judge-b" for row in payload["results"])
     assert all(row["model"] == "fake-b" for row in payload["results"])
@@ -1472,8 +1969,7 @@ def test_resume_never_reuses_rows_from_another_judge_or_another_artifact(tmp_pat
     other = _suite_for_board(seed=4)
     shared_ids = {c.case_id for c in suite.cases} & {c.case_id for c in other.cases}
     assert shared_ids, "fixture suites must share case ids for this test"
-    Counting.calls = 0
-    judge_b2 = Counting(
+    judge_b2 = _CountingReplay(
         _replay_file(tmp_path, other, "b2", sharp=False), name="judge-b"
     )
     run_suite(other, judge_b2, tmp_path / "shared", price=None)
@@ -1482,8 +1978,8 @@ def test_resume_never_reuses_rows_from_another_judge_or_another_artifact(tmp_pat
             tmp_path / "shared", suite=other, runner_identity_digest=None
         )
     )
-    assert Counting.calls >= len(other.cases) - reused
-    assert Counting.calls > 0
+    assert judge_b2.calls >= len(other.cases) - reused
+    assert judge_b2.calls > 0
 
 
 def test_results_loader_refuses_rows_from_a_different_runner_identity(tmp_path):
@@ -1669,8 +2165,6 @@ def test_derived_suite_provenance_is_digest_bound_and_shown_on_the_board(tmp_pat
 
 
 def test_cases_jsonl_tolerates_one_truncated_tail_and_unicode_separators(tmp_path):
-    from encodebench_verifier.results import read_rows
-
     suite = _suite_for_board()
     responses = json.loads(_replay_file(tmp_path, suite, "u").read_text())
     for entry in responses["responses"].values():
@@ -1700,6 +2194,38 @@ def test_cases_jsonl_tolerates_one_truncated_tail_and_unicode_separators(tmp_pat
         read_rows(jsonl)
 
 
+def test_resume_trims_a_truncated_tail_so_later_resumes_still_read(tmp_path):
+    # A crash mid-write leaves a fragment; the next append must not land on
+    # the same line, or every later read refuses the file as corrupt.
+    suite = _suite_for_board()
+    first = suite.cases[0].case_id
+    erroring = _replay_file(tmp_path, suite, "t1", error=(first,))
+    run_suite(suite, ReplayRunner(erroring, name="t"), tmp_path / "t", price=None)
+    jsonl = tmp_path / "t" / "cases.jsonl"
+    finished = jsonl.read_bytes()
+    jsonl.write_bytes(finished + b'{"index": 7, "case_id": "x')
+    fixed = _replay_file(tmp_path, suite, "t2")
+    with pytest.warns(UserWarning) as caught:
+        payload = run_suite(
+            suite, ReplayRunner(fixed, name="t"), tmp_path / "t", price=None
+        )
+    messages = [str(w.message) for w in caught]
+    assert any("dropped one truncated trailing row" in m for m in messages)
+    assert any("trimmed 26 bytes" in m for m in messages)
+    assert payload["coverage"]["complete"] is True
+    assert payload["coverage"]["errors"] == 0
+    # The fragment is gone and the new rows follow the finished ones intact.
+    text = jsonl.read_bytes()
+    assert text.startswith(finished) and text.endswith(b"\n")
+    assert b'"case_id": "x' not in text
+    rows = len(read_rows(jsonl))
+    # The second resume reads the file and reuses every row: nothing appended.
+    again = run_suite(suite, ReplayRunner(fixed, name="t"), tmp_path / "t", price=None)
+    assert again["coverage"]["complete"] is True
+    assert again["payload_sha256"] == payload["payload_sha256"]
+    assert len(read_rows(jsonl)) == rows
+
+
 def test_fresh_rotates_instead_of_deleting_and_limit_keeps_finished_rows(tmp_path):
     suite = _suite_for_board()
     runner = ReplayRunner(_replay_file(tmp_path, suite, "f"), name="f")
@@ -1721,22 +2247,15 @@ def test_interrupt_cancels_queued_cases_and_keeps_finished_rows(tmp_path):
     suite = _suite_for_board()
     replay = _replay_file(tmp_path, suite, "i")
 
-    class Interrupting(ReplayRunner):
-        calls = 0
-
-        def judge(self, case):
-            Interrupting.calls += 1
-            if Interrupting.calls == 3:
-                raise KeyboardInterrupt
-            return super().judge(case)
-
-    runner = Interrupting(replay, name="i")
+    runner = _CountingReplay(replay, name="i", interrupt_at=3)
     with pytest.raises(KeyboardInterrupt):
         run_suite(suite, runner, tmp_path / "i", price=None, workers=1)
-    assert Interrupting.calls < len(suite.cases)
+    # The worker stops the run itself: no queued case starts after the
+    # interrupt, however slowly the main thread notices it.
+    assert runner.calls == 3
     partial = json.loads((tmp_path / "i" / "results.json").read_text())
     assert partial["coverage"]["complete"] is False
-    assert 0 < len(partial["results"]) < len(suite.cases)
+    assert len(partial["results"]) == 2
 
 
 def test_replay_runner_fails_closed_on_schema_drift(tmp_path):
@@ -1904,8 +2423,6 @@ def test_referee_records_generator_and_same_family_instead_of_refusing():
 
 
 def test_jev_runner_fail_closed_variants():
-    pytest.importorskip("typesafe_sdk")
-
     def make(answers=None, model="jev-1.13.0", usage=(2500, 0)):
         class Client:
             def system_one(self, *, state, questions):
@@ -1938,23 +2455,29 @@ def test_jev_runner_fail_closed_variants():
     # Missing Noul -> error, never a partial score.
     missing = dict(base)
     missing.pop("date_or_period_wrong")
-    r = JevRunner("jev-1.13.0", client=make(missing)).judge(_case())
+    r = JevRunner("jev-1.13.0", questions={}, client=make(missing)).judge(_case())
     assert r.verdict == "error" and "date_or_period_wrong" in r.error["message"]
     # Served model other than the pinned one -> error; alias accepted.
-    r = JevRunner("jev-1.13.0", client=make(model="jev-1.14.0")).judge(_case())
+    r = JevRunner("jev-1.13.0", questions={}, client=make(model="jev-1.14.0")).judge(
+        _case()
+    )
     assert r.verdict == "error" and r.error["type"] == "served_model_mismatch"
-    r = JevRunner("jev-latest", client=make(model="jev-1.14.0")).judge(_case())
+    r = JevRunner("jev-latest", questions={}, client=make(model="jev-1.14.0")).judge(
+        _case()
+    )
     assert r.ok and r.model == "jev-1.14.0"
     # Unrecognised choice -> error without scores.
     odd = dict(base)
     odd["verdict"] = _FakeAnswer(
         choice="unsure", confidence=0.5, probabilities={"pass": 0.5, "flag": 0.5}
     )
-    r = JevRunner("jev-1.13.0", client=make(odd)).judge(_case())
+    r = JevRunner("jev-1.13.0", questions={}, client=make(odd)).judge(_case())
     assert r.verdict == "error" and r.verdict_score is None
     assert all(v is None for v in r.kind_scores.values())
     # Unreported usage stays None, and costs nothing rather than $0.
-    r = JevRunner("jev-1.13.0", client=make(usage=(None, None))).judge(_case())
+    r = JevRunner("jev-1.13.0", questions={}, client=make(usage=(None, None))).judge(
+        _case()
+    )
     assert r.ok and r.tokens_input is None and r.tokens_output is None
     assert (
         cost_usd(Price("jev-1.13.0", 0.042, 0.0, "s"), r.tokens_input, r.tokens_output)
@@ -1966,7 +2489,7 @@ def test_jev_runner_fail_closed_variants():
         def __init__(self):
             raise RuntimeError("No API key was provided")
 
-    runner = JevRunner("jev-1.13.0")
+    runner = JevRunner("jev-1.13.0", questions={})
     runner._get_client = lambda: NoKey()  # type: ignore[assignment]
     r = runner.judge(_case())
     assert r.verdict == "error" and r.error["type"] == "RuntimeError"
@@ -2272,19 +2795,14 @@ def test_keep_errors_reassembles_without_rejudging(tmp_path):
     first = suite.cases[0].case_id
     replay = _replay_file(tmp_path, suite, "ke", error=(first,))
 
-    class Counting(ReplayRunner):
-        calls = 0
-
-        def judge(self, case):
-            Counting.calls += 1
-            return super().judge(case)
-
-    runner = Counting(replay, name="ke")
+    runner = _CountingReplay(replay, name="ke")
     run_suite(suite, runner, tmp_path / "ke", price=None)
-    judged = Counting.calls
+    judged = runner.calls
     # Default resume re-judges the error row; --keep-errors does not.
     run_suite(suite, runner, tmp_path / "ke", price=None, retry_errors=False)
-    assert Counting.calls == judged
+    assert runner.calls == judged
+    jsonl = tmp_path / "ke" / "cases.jsonl"
+    rows_before = jsonl.read_text(encoding="utf-8").count("\n")
     assert (
         verifier_cli.main(
             [
@@ -2303,11 +2821,142 @@ def test_keep_errors_reassembles_without_rejudging(tmp_path):
         )
         == 1
     )
-    assert (
-        Counting.calls == judged or True
-    )  # the CLI builds its own runner; the payload is what matters
+    # The CLI builds its own runner; it appended no row, so it judged nothing.
+    assert jsonl.read_text(encoding="utf-8").count("\n") == rows_before
     payload = load_results(tmp_path / "ke")
     assert payload["coverage"]["errors"] == 1
+
+
+# -- review round two: contract and docs fixes ------------------------------------
+
+
+def test_limit_keeps_error_rows_outside_the_limit(tmp_path):
+    suite = _suite_for_board()
+    last = suite.cases[-1].case_id
+    erroring = ReplayRunner(_replay_file(tmp_path, suite, "l", error=(last,)), name="l")
+    full = run_suite(suite, erroring, tmp_path / "l", price=None)
+    assert full["coverage"]["errors"] == 1
+    # A spot check of the first two cases neither re-judges nor drops the
+    # error row beyond them: its error count (and cost) stays in the payload.
+    spot = run_suite(suite, erroring, tmp_path / "l", price=None, limit=2)
+    assert spot["coverage"]["errors"] == 1
+    assert len(spot["results"]) == len(suite.cases)
+
+
+def test_other_kind_without_scored_rows_is_verdict_fallback():
+    from encodebench_verifier.board import _kind_stats
+
+    assert _kind_stats("other:other", [], 0.1).channel == "verdict_fallback"
+    assert _kind_stats("amount_changed", [], 0.1).channel == "native"
+
+
+def test_replay_identity_binds_the_response_file_content(tmp_path):
+    from encodebench_verifier.results import runner_identity_sha256
+
+    suite = _suite_for_board()
+    first, second = tmp_path / "a", tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    sharp = _replay_file(first, suite, "same")
+    noisy = _replay_file(second, suite, "same", sharp=False)
+    assert sharp.name == noisy.name
+    a, b = ReplayRunner(sharp, name="r"), ReplayRunner(noisy, name="r")
+    assert a.identity()["response_count"] == b.identity()["response_count"]
+    assert runner_identity_sha256(a) != runner_identity_sha256(b)
+    # So a second recording into the same --out re-judges instead of reusing.
+    run_suite(suite, a, tmp_path / "out", price=None)
+    payload = run_suite(suite, b, tmp_path / "out", price=None)
+    assert all(row["verdict"] == "flag" for row in payload["results"])
+
+
+def test_breakdown_diff_is_the_changed_line_share_and_confidence_has_unknown():
+    from encodebench_verifier.breakdown import _properties, changed_line_fraction
+
+    module = "".join(f"line {i}\n" for i in range(1000))
+    rewritten = "".join(f"LINE {i}\n" for i in range(1000))
+    assert changed_line_fraction(module, rewritten) == 1.0  # same length, all new
+    one = module.replace("line 500\n", "line 500 fixed\n")
+    assert changed_line_fraction(module, one) == pytest.approx(0.001)
+    block = module.replace("line 500\n", "line 500\n" + "added\n" * 400)
+    assert changed_line_fraction(module, block) == pytest.approx(400 / 1400)
+    assert changed_line_fraction(module, module) == 0.0
+    extract, buckets = _properties()["confidence"]
+
+    class Case:
+        origin: dict = {}
+
+    assert extract(Case(), Case()) is None
+    labels = [label for label, member in buckets if member(None)]
+    assert labels == ["unknown"]
+    assert [label for label, member in buckets if member(0.0)] == ["0.00 to 0.60"]
+
+
+def test_referee_records_unreported_usage_as_unpriced():
+    class ZeroUsage(_FakeJudgeClient):
+        def call(self, **kwargs):
+            from axiom_encode.judges import JudgeError
+
+            self.calls.append(kwargs)
+            return JudgeCall(
+                payload=None,
+                model=self.model,
+                escalated=False,
+                tokens=TokenCounts(),
+                error=JudgeError(type="rate_limit", message="boom"),
+            )
+
+    runner = RefereeRunner(
+        "claude-haiku-4-5-20251001", client_factory=lambda **_: ZeroUsage()
+    )
+    response = runner.judge(_case())
+    assert response.verdict == "error"
+    assert response.tokens_input is None and response.tokens_output is None
+    price = Price("claude-haiku-4-5-20251001", 1.0, 5.0, "s")
+    row = result_row(1, _case(), response, price=price)
+    assert row["cost_usd"] is None
+    # A call that did report usage keeps it, error or not.
+    reported = RefereeRunner(
+        "claude-haiku-4-5-20251001",
+        client_factory=lambda **_: _FakeJudgeClient(error="parse_error"),
+    ).judge(_case())
+    assert reported.tokens_input == 1 and reported.tokens_output == 0
+
+
+def test_localization_matches_whole_words_and_is_recomputed_at_assembly(tmp_path):
+    from encodebench_verifier.results import _sign, assemble_results
+
+    def at(**fields):
+        return Locator(
+            path=fields.pop("path", "rules[3].versions[0].formula"), **fields
+        )
+
+    def finding(rule_path="", explanation=""):
+        return [{"rule_path": rule_path, "explanation": explanation}]
+
+    named = at(rule_name="income", rule_index=3)
+    assert localize(named, finding("net_income_limit"))[0] is False
+    assert localize(named, finding("module.income.versions[0]"))[0] is True
+    amount = at(rule_name="x", rule_index=3, token="75")
+    assert localize(amount, finding(explanation="the cap is 750"))[0] is False
+    assert localize(amount, finding(explanation="the rate is 1.75"))[0] is False
+    assert localize(amount, finding(explanation="the cap is $75."))[0] is True
+    entity = at(path="rules[0].entity", rule_name="x", rule_index=0, token="Household")
+    assert localize(entity, finding(explanation="the household rule"))[0] is False
+    assert localize(at(rule_name="x", rule_index=1), finding("rules[10]"))[0] is False
+    # A row stored with an old (substring) verdict is re-derived on assembly.
+    suite = _suite_for_board()
+    runner = ReplayRunner(_replay_file(tmp_path, suite, "loc"), name="loc")
+    payload = run_suite(suite, runner, tmp_path / "loc", price=None)
+    rows = {row["case_id"]: row for row in payload["results"]}
+    case = next(c for c in suite.cases if c.is_defective)
+    stale = dict(rows[case.case_id])
+    stale["findings"] = [{"rule_path": "unrelated", "explanation": "nothing"}]
+    stale["localized"] = True
+    stale["localization_evidence"] = "substring match"
+    rows[case.case_id] = _sign(stale)
+    rebuilt = assemble_results(suite, runner, rows, price=None)
+    row = next(r for r in rebuilt["results"] if r["case_id"] == case.case_id)
+    assert row["localized"] is False and row["localization_evidence"] is None
 
 
 # -- committed boards reproduce -----------------------------------------------

@@ -8,10 +8,10 @@ right?
 
 Two case sources are first class:
 
-* ``synthetic`` — a versioned, seeded mutator plants one defect inside a
+* ``synthetic``: a versioned, seeded mutator plants one defect inside a
   known-good artifact. Every defective case ships with its unmodified original
   as the control, so ground truth is known by construction.
-* ``real`` — pre-fix / post-fix artifact pairs recorded from actual repair
+* ``real``: pre-fix / post-fix artifact pairs recorded from actual repair
   rounds (``benchmarks/verifier/real_defects_v0/``, produced by another
   session). Post-fix artifacts are controls that are *not* guaranteed clean.
 

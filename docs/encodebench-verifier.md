@@ -171,8 +171,10 @@ when the suite's controls are gate-verified; on a real-defects suite, whose
 controls are post-fix artifacts not proven clean, the board says so and
 unranks no one for flagging them. Defect kinds outside the synthetic
 taxonomy (`other:<kind>` from a real corpus) get their own columns, scored on
-every judge's verdict channel. Tokens, latency and cost cover every call,
-errors included.
+every judge's verdict channel. Tokens, latency and cost cover every row in
+the results, errors included. A retried error row is replaced by its retry,
+so the failed call's own spend is not in the results; `cases.jsonl` keeps
+every row, and the spend totals below are deduplicated by row.
 
 An `error` verdict (API failure, parse failure, cross-family guard) is never
 a pass and never a score: it is counted, excluded from AUC and pairs, and
