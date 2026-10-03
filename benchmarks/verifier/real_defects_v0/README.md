@@ -277,7 +277,18 @@ uv run python scripts/verify_real_defects.py \
 uv run pytest -q tests/test_real_defects_corpus.py
 ```
 
-The test runs the shipped-file tier always and the Git tiers when the
-sibling checkouts exist (`AXIOM_REAL_DEFECTS_RULESPEC_US`,
-`AXIOM_REAL_DEFECTS_RULESPEC_UK`, `AXIOM_REAL_DEFECTS_AXIOM_CORPUS` override
-the locations).
+The test always runs the shipped-file tier. It runs the rulespec Git tier
+when the sibling checkouts exist (`AXIOM_REAL_DEFECTS_RULESPEC_US` and
+`AXIOM_REAL_DEFECTS_RULESPEC_UK` override the locations). The axiom-corpus
+tier is opt-in: it runs only with `AXIOM_REAL_DEFECTS_CORPUS_TIER=1` and an
+axiom-corpus checkout (`AXIOM_REAL_DEFECTS_AXIOM_CORPUS` overrides the
+location), because it streams about 140 MB of provision blobs out of a
+multi-gigabyte pack.
+
+The Git and corpus tiers read objects through one `git cat-file --batch`
+process per repository. Each distinct provision file is read once, hashed in
+1 MiB chunks, and only the row lines the cases name are parsed. On
+2026-10-03, on a heavily loaded machine (load average about 118 on 18 cores),
+the full run without `--with-release` took 76 s of wall time and 3.4 s of
+CPU, against 149 s and 45.7 s for the per-case `git show` version it
+replaced. Peak memory footprint was 54 MB, against 101 MB before.

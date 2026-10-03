@@ -15,6 +15,12 @@ Tiers (each one is skipped, and reported as skipped, when its inputs are absent)
                  provision file at the release's corpus commit hashes to the
                  release artifact digest and the row body hashes to the stored
                  body digest.
+
+The ``git`` and ``corpus`` tiers read objects through one long-lived
+``git cat-file --batch`` process per repository. Each distinct
+``(corpus_commit, provision_file)`` pair is read once for all the cases that
+cite it: the blob is hashed in bounded chunks and only the row lines those
+cases name are kept, so memory stays at one chunk plus the longest line.
 * ``release``  - the signed release object is fetched from the public registry
                  (or a local cache) and the provision text is re-resolved
                  through ``axiom_encode.corpus_resolver``; the resolved text
@@ -39,10 +45,12 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +132,149 @@ def git_blob(repo: Path | str, commit: str, path: str) -> bytes | None:
         return git(repo, "show", f"{commit}:{path}", binary=True)
     except subprocess.CalledProcessError:
         return None
+
+
+class GitObjectReader:
+    """Stream blobs from one repository through ``git cat-file --batch``.
+
+    One process serves every request, so a run costs one fork per repository
+    instead of one per object, and a blob arrives in chunks of at most
+    ``CHUNK_BYTES`` rather than as one buffer.
+    """
+
+    CHUNK_BYTES = 1 << 20
+
+    def __init__(self, repo: Path | str) -> None:
+        self.repo = Path(repo)
+        self._process: subprocess.Popen[bytes] | None = None
+
+    def __enter__(self) -> GitObjectReader:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        process, self._process = self._process, None
+        if process is None:
+            return
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.close()
+        process.stdout.close()
+        process.wait()
+
+    def _pipes(self) -> tuple[Any, Any]:
+        if self._process is None:
+            self._process = subprocess.Popen(
+                ["git", "-C", str(self.repo), "cat-file", "--batch"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+        assert self._process.stdin is not None and self._process.stdout is not None
+        return self._process.stdin, self._process.stdout
+
+    def blob_chunks(self, commit: str, path: str) -> Iterator[bytes] | None:
+        """Return an iterator over the blob's bytes, or None when it is absent.
+
+        The iterator must be consumed (or closed) before the next request; an
+        early close drains the rest of the object from the pipe.
+        """
+
+        if "\n" in path or "\n" in commit:
+            raise ValueError("object names must not contain newlines")
+        stdin, stdout = self._pipes()
+        stdin.write(f"{commit}:{path}\n".encode())
+        stdin.flush()
+        header = stdout.readline().decode("utf-8", errors="replace").split()
+        if len(header) != 3:
+            # "<name> missing" or "<name> ambiguous": no content follows.
+            return None
+        size = int(header[2])
+        if header[1] != "blob":
+            self._drain(stdout, size)
+            return None
+        return self._chunks(stdout, size)
+
+    def _chunks(self, stdout: Any, size: int) -> Iterator[bytes]:
+        remaining = size
+        try:
+            while remaining:
+                chunk = stdout.read(min(self.CHUNK_BYTES, remaining))
+                if not chunk:
+                    raise RuntimeError(f"git cat-file ended early in {self.repo}")
+                remaining -= len(chunk)
+                yield chunk
+        finally:
+            self._drain(stdout, remaining)
+
+    @staticmethod
+    def _drain(stdout: Any, remaining: int) -> None:
+        while remaining:
+            chunk = stdout.read(min(GitObjectReader.CHUNK_BYTES, remaining))
+            if not chunk:
+                raise RuntimeError("git cat-file ended early")
+            remaining -= len(chunk)
+        if stdout.read(1) != b"\n":
+            raise RuntimeError("git cat-file output is out of sync")
+
+    def blob_sha256(self, commit: str, path: str) -> str | None:
+        chunks = self.blob_chunks(commit, path)
+        if chunks is None:
+            return None
+        digest = hashlib.sha256()
+        for chunk in chunks:
+            digest.update(chunk)
+        return digest.hexdigest()
+
+
+# Line boundaries str.splitlines() honours besides "\n" (UTF-8 encoded). The
+# corpus resolver numbers JSONL rows with str.splitlines(), so a streaming
+# reader that split on "\n" alone could disagree with it on these.
+_EXTRA_LINE_BREAKS = re.compile(
+    rb"[\r\x0b\x0c\x1c\x1d\x1e]|\xc2\x85|\xe2\x80[\xa8\xa9]"
+)
+
+
+def scan_lines(
+    chunks: Iterator[bytes], wanted: set[int]
+) -> tuple[str, int, dict[int, str]]:
+    """Hash a blob and keep only the wanted lines, without holding the blob.
+
+    Returns ``(sha256, line_count, {line_number: text})``. Line numbers are
+    1-based and match ``raw.decode("utf-8").splitlines()`` exactly: segments
+    are cut at ``"\n"`` (which never occurs inside a UTF-8 sequence) and only
+    a segment carrying another line boundary is decoded and re-split.
+    """
+
+    digest = hashlib.sha256()
+    found: dict[int, str] = {}
+    count = 0
+    carry = b""
+
+    def emit(segment: bytes, terminated: bool) -> None:
+        nonlocal count
+        if _EXTRA_LINE_BREAKS.search(segment) is None:
+            count += 1
+            if count in wanted:
+                found[count] = segment.decode("utf-8")
+            return
+        text = segment.decode("utf-8")
+        for piece in (text + "\n" if terminated else text).splitlines():
+            count += 1
+            if count in wanted:
+                found[count] = piece
+
+    for chunk in chunks:
+        digest.update(chunk)
+        data = carry + chunk if carry else chunk
+        start = 0
+        while (end := data.find(b"\n", start)) >= 0:
+            emit(data[start:end], True)
+            start = end + 1
+        carry = data[start:]
+    if carry:
+        emit(carry, False)
+    return digest.hexdigest(), count, found
 
 
 # --------------------------------------------------------------------------
@@ -457,56 +608,146 @@ def check_shipped(case_dir: Path, case: dict[str, Any], report: Report) -> None:
         report.fail(f"{cid}: confidence must be within [0, 1]")
 
 
+def commit_parents(repo: Path, commits: list[str]) -> dict[str, list[str]]:
+    """Map each commit to its parent list with one ``git rev-list`` call."""
+
+    if not commits:
+        return {}
+    out = git(repo, "rev-list", "--no-walk=unsorted", "--parents", *commits)
+    parents: dict[str, list[str]] = {}
+    for line in out.splitlines():
+        sha, *rest = line.split()
+        parents[sha] = rest
+    return parents
+
+
 def check_git(
-    case: dict[str, Any], repos: dict[str, Path], report: Report, main_ref: str
+    cases: list[dict[str, Any]], repos: dict[str, Path], report: Report, main_ref: str
+) -> None:
+    """Git tier: parentage, ancestry, and the module bytes on both sides.
+
+    Commit metadata and main-branch ancestry are read once per repository;
+    module blobs stream through one ``git cat-file --batch`` process.
+    """
+
+    by_jurisdiction: dict[str, list[dict[str, Any]]] = {}
+    for case in cases:
+        if repos.get(case.get("jurisdiction", "")) is None:
+            report.skip("git")
+            continue
+        by_jurisdiction.setdefault(case["jurisdiction"], []).append(case)
+    for jurisdiction, group in by_jurisdiction.items():
+        repo = repos[jurisdiction]
+        commits = sorted({str(case.get("commit")) for case in group})
+        try:
+            parents = commit_parents(repo, commits)
+        except subprocess.CalledProcessError as exc:
+            for case in group:
+                report.fail(f"{case['id']}: git tier error: {exc}")
+            continue
+        on_main: set[str] | None = None
+        if main_ref:
+            try:
+                on_main = set(git(repo, "rev-list", main_ref).split())
+            except subprocess.CalledProcessError:
+                on_main = set()
+        with GitObjectReader(repo) as reader:
+            for case in group:
+                try:
+                    _check_git_case(case, parents, on_main, main_ref, reader, report)
+                except (KeyError, RuntimeError, ValueError) as exc:
+                    report.fail(f"{case.get('id')}: git tier error: {exc}")
+
+
+def _check_git_case(
+    case: dict[str, Any],
+    parents: dict[str, list[str]],
+    on_main: set[str] | None,
+    main_ref: str,
+    reader: GitObjectReader,
+    report: Report,
 ) -> None:
     cid = case["id"]
-    repo = repos.get(case["jurisdiction"])
-    if repo is None:
-        report.skip("git")
-        return
     commit = case["commit"]
     parent = case["parent_commit"]
-    first_parent = git(repo, "rev-list", "--parents", "-n", "1", commit).split()
-    if len(first_parent) < 2 or first_parent[1] != parent:
+    if parents.get(commit, [None])[:1] != [parent]:
         report.fail(f"{cid}: parent_commit is not the first parent of commit")
-    if main_ref:
-        probe = subprocess.run(
-            ["git", "-C", str(repo), "merge-base", "--is-ancestor", commit, main_ref]
-        )
-        if probe.returncode != 0:
-            report.fail(f"{cid}: commit {commit[:10]} is not on {main_ref}")
+    if on_main is not None and commit not in on_main:
+        report.fail(f"{cid}: commit {commit[:10]} is not on {main_ref}")
     for label, ref, key in (
         ("pre_fix", parent, "pre_fix_artifact_sha256"),
         ("post_fix", commit, "post_fix_artifact_sha256"),
     ):
-        raw = git_blob(repo, ref, case["module_path"])
-        if raw is None:
+        digest = reader.blob_sha256(ref, case["module_path"])
+        if digest is None:
             report.fail(f"{cid}: {label} module missing at {ref[:10]}")
-            continue
-        if sha256_bytes(raw) != case[key]:
+        elif digest != case[key]:
             report.fail(f"{cid}: {label} artifact digest does not reproduce")
 
 
-def check_corpus(case: dict[str, Any], corpus_repo: Path | None, report: Report):
-    cid = case["id"]
+def check_corpus(
+    cases: list[dict[str, Any]], corpus_repo: Path | None, report: Report
+) -> None:
+    """Corpus tier: the provision file and row each case names reproduce.
+
+    Cases are grouped by ``(corpus_commit, provision_file)``; each pair is
+    streamed once through :func:`scan_lines`, which hashes the whole blob and
+    keeps only the row lines the group's cases point at.
+    """
+
     if corpus_repo is None:
-        report.skip("corpus")
+        for _case in cases:
+            report.skip("corpus")
         return
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for case in cases:
+        try:
+            pair = (
+                case["corpus_commit"],
+                case["provision_resolution"]["provision_file"],
+            )
+        except KeyError as exc:
+            report.fail(f"{case.get('id')}: corpus tier error: {exc}")
+            continue
+        groups.setdefault(pair, []).append(case)
+    with GitObjectReader(corpus_repo) as reader:
+        for (commit, provision_file), group in sorted(groups.items()):
+            try:
+                wanted = {
+                    int(case["provision_resolution"]["line_number"]) for case in group
+                }
+                chunks = reader.blob_chunks(commit, provision_file)
+                scanned = None if chunks is None else scan_lines(chunks, wanted)
+            except (KeyError, RuntimeError, ValueError) as exc:
+                for case in group:
+                    report.fail(f"{case['id']}: corpus tier error: {exc}")
+                continue
+            for case in group:
+                try:
+                    _check_corpus_case(case, scanned, report)
+                except (KeyError, ValueError) as exc:
+                    report.fail(f"{case['id']}: corpus tier error: {exc}")
+
+
+def _check_corpus_case(
+    case: dict[str, Any],
+    scanned: tuple[str, int, dict[int, str]] | None,
+    report: Report,
+) -> None:
+    cid = case["id"]
     resolution = case["provision_resolution"]
-    raw = git_blob(corpus_repo, case["corpus_commit"], resolution["provision_file"])
-    if raw is None:
+    if scanned is None:
         report.fail(f"{cid}: provision file missing at corpus commit")
         return
-    if sha256_bytes(raw) != resolution["provision_file_sha256"]:
+    file_sha256, line_count, lines = scanned
+    if file_sha256 != resolution["provision_file_sha256"]:
         report.fail(f"{cid}: provision file digest does not reproduce")
         return
-    lines = raw.decode("utf-8").splitlines()
     number = resolution["line_number"]
-    if number < 1 or number > len(lines):
+    if number < 1 or number > line_count:
         report.fail(f"{cid}: provision row line {number} is out of range")
         return
-    record = json.loads(lines[number - 1])
+    record = json.loads(lines[number])
     if record.get("citation_path") != resolution["resolved_citation_path"]:
         report.fail(f"{cid}: provision row citation_path does not match")
     body = record.get("body")
@@ -566,26 +807,23 @@ def verify(
 ) -> Report:
     report = Report()
     seen: set[str] = set()
-    for case_dir, case in load_cases(corpus_dir):
+    loaded = load_cases(corpus_dir)
+    for case_dir, case in loaded:
         report.checked += 1
         cid = case.get("id", case_dir.name)
         if cid in seen:
             report.fail(f"{cid}: duplicate id")
         seen.add(cid)
         check_shipped(case_dir, case, report)
-        try:
-            check_git(case, repos, report, main_ref)
-        except (subprocess.CalledProcessError, KeyError) as exc:
-            report.fail(f"{cid}: git tier error: {exc}")
-        try:
-            check_corpus(case, corpus_repo, report)
-        except (subprocess.CalledProcessError, KeyError, ValueError) as exc:
-            report.fail(f"{cid}: corpus tier error: {exc}")
+    cases = [case for _case_dir, case in loaded]
+    check_git(cases, repos, report, main_ref)
+    check_corpus(cases, corpus_repo, report)
+    for case in cases:
         if with_release:
             try:
                 check_release(case, corpus_repo, release_cache, roots_dir, report)
             except Exception as exc:  # noqa: BLE001
-                report.fail(f"{cid}: release tier error: {exc}")
+                report.fail(f"{case.get('id')}: release tier error: {exc}")
         else:
             report.skip("release")
     return report

@@ -1,10 +1,25 @@
-"""The real-defects verifier corpus must reproduce from Git and the release objects."""
+"""The real-defects verifier corpus must reproduce from Git and the release objects.
+
+Tiers, as in ``scripts/verify_real_defects.py``:
+
+* shipped files: always run.
+* rulespec Git: runs when the rulespec-us and rulespec-uk checkouts are found
+  (siblings of this checkout, or ``AXIOM_REAL_DEFECTS_RULESPEC_US`` and
+  ``AXIOM_REAL_DEFECTS_RULESPEC_UK``).
+* axiom-corpus Git: opt-in. It streams about 140 MB of provision blobs out of
+  a multi-gigabyte pack, so it runs only when ``AXIOM_REAL_DEFECTS_CORPUS_TIER=1``
+  is set and the axiom-corpus checkout is found (sibling, or
+  ``AXIOM_REAL_DEFECTS_AXIOM_CORPUS``).
+"""
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
+import random
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -112,6 +127,13 @@ def test_artifacts_reproduce_from_rulespec_git():
     assert report.failures == []
 
 
+CORPUS_TIER_ENV = "AXIOM_REAL_DEFECTS_CORPUS_TIER"
+
+
+@pytest.mark.skipif(
+    os.environ.get(CORPUS_TIER_ENV) != "1",
+    reason=f"corpus tier is opt-in; set {CORPUS_TIER_ENV}=1 to run it",
+)
 @pytest.mark.skipif(
     _sibling_checkout("AXIOM_REAL_DEFECTS_AXIOM_CORPUS", "axiom-corpus") is None,
     reason="axiom-corpus checkout is not available",
@@ -128,3 +150,86 @@ def test_provision_rows_reproduce_from_corpus_git():
         main_ref="",
     )
     assert report.failures == []
+
+
+# --------------------------------------------------------------------------
+# The streaming reader the git and corpus tiers use
+# --------------------------------------------------------------------------
+
+# Characters str.splitlines() treats as line boundaries, plus ordinary text.
+_ALPHABET = ["a", "b", "{", "}", '"', " ", "\n", "\r", "\r\n", "\x0b", "\x0c"]
+_ALPHABET += ["\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029", "é", "€", "😀"]
+
+
+def _chunked(raw: bytes, size: int):
+    for start in range(0, len(raw), size):
+        yield raw[start : start + size]
+
+
+def test_scan_lines_matches_splitlines_for_any_text_and_chunking():
+    """Property: for every text and chunk size, scan_lines reports the blob's
+    sha256, the str.splitlines() line count, and exactly the wanted lines."""
+
+    rng = random.Random(1659)
+    for trial in range(3000):
+        text = "".join(rng.choice(_ALPHABET) for _ in range(rng.randrange(0, 60)))
+        raw = text.encode("utf-8")
+        lines = text.splitlines()
+        wanted = {rng.randrange(1, len(lines) + 3) for _ in range(3)}
+        size = rng.choice([1, 2, 3, 5, 7, 64, 1 << 20])
+        digest, count, found = verify_real_defects.scan_lines(
+            _chunked(raw, size), wanted
+        )
+        assert digest == hashlib.sha256(raw).hexdigest(), trial
+        assert count == len(lines), (trial, text)
+        assert found == {n: lines[n - 1] for n in wanted if n <= len(lines)}, (
+            trial,
+            text,
+        )
+
+
+def test_git_object_reader_streams_blobs_and_reports_missing(tmp_path):
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    payload = ("row one\r\nrow\u2028two\n" * 50_000).encode("utf-8")
+    (repo / "big.jsonl").write_bytes(payload)
+    (repo / "small.txt").write_bytes(b"x")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit",
+            "-qm",
+            "init",
+        ],
+        check=True,
+    )
+    with verify_real_defects.GitObjectReader(repo) as reader:
+        reader.CHUNK_BYTES = 4096
+        assert reader.blob_chunks("HEAD", "absent.txt") is None
+        assert reader.blob_chunks("HEAD", "") is None  # a tree, not a blob
+        chunks = reader.blob_chunks("HEAD", "big.jsonl")
+        assert chunks is not None
+        sizes = []
+        digest, count, found = verify_real_defects.scan_lines(
+            (sizes.append(len(c)) or c for c in chunks), {1, 3}
+        )
+        assert max(sizes) <= 4096
+        text = payload.decode("utf-8")
+        assert digest == hashlib.sha256(payload).hexdigest()
+        assert count == len(text.splitlines())
+        assert found == {1: "row one", 3: "two"}
+        # An abandoned iterator drains, so the next request stays in sync.
+        partial = reader.blob_chunks("HEAD", "big.jsonl")
+        assert partial is not None
+        next(partial)
+        partial.close()
+        assert (
+            reader.blob_sha256("HEAD", "small.txt") == hashlib.sha256(b"x").hexdigest()
+        )
