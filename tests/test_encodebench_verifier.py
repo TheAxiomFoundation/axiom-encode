@@ -85,7 +85,10 @@ from encodebench_verifier.sources import real as real_source  # noqa: E402
 from encodebench_verifier.sources.synthetic import build_synthetic_suite  # noqa: E402
 
 from axiom_encode.judges import JudgeCall, TokenCounts, statutory_fidelity  # noqa: E402
-from axiom_encode.judges.client import truncate_provision  # noqa: E402
+from axiom_encode.judges.client import (  # noqa: E402
+    DEFAULT_MAX_TOKENS,
+    truncate_provision,
+)
 
 FIXTURE_REAL = VERIFIER_ROOT / "fixtures" / "real_defects_example"
 
@@ -2419,7 +2422,7 @@ def test_referee_records_generator_and_same_family_instead_of_refusing():
     )
     response = runner.judge(unknown)
     assert response.ok and response.raw["same_family_as_generator"] is None
-    assert runner.identity()["max_tokens"] == 2048
+    assert runner.identity()["max_tokens"] == DEFAULT_MAX_TOKENS
 
 
 def test_jev_runner_fail_closed_variants():
@@ -2737,16 +2740,18 @@ def test_cli_filter_suite_by_max_case_chars(tmp_path):
 
 
 def test_max_tokens_is_plumbed_and_part_of_referee_identity():
+    # The default follows the production JudgeClient value (16,000 since
+    # axiom-encode #1759; the committed runs record 2,048 or 8,192).
     default = make_runner("referee:claude-haiku-4-5-20251001")
-    bigger = make_runner("referee:claude-haiku-4-5-20251001", max_tokens=8192)
-    assert default.identity()["max_tokens"] == 2048
-    assert bigger.identity()["max_tokens"] == 8192
-    assert default.identity() != bigger.identity()
+    pinned = make_runner("referee:claude-haiku-4-5-20251001", max_tokens=8192)
+    assert default.identity()["max_tokens"] == DEFAULT_MAX_TOKENS
+    assert pinned.identity()["max_tokens"] == 8192
+    assert default.identity() != pinned.identity()
     assert (
         make_runner("referee:claude-haiku-4-5-20251001", max_tokens=None).identity()[
             "max_tokens"
         ]
-        == 2048
+        == DEFAULT_MAX_TOKENS
     )
 
 
@@ -3048,3 +3053,29 @@ def test_committed_real_boards_reproduce_from_the_committed_corpus():
         == derived["dropped_pairs"]
     )
     assert rebuilt.sha256 == child["sha256"]
+
+
+def test_runbook_boards_block_is_generated_from_the_committed_boards():
+    from encodebench_verifier.report import current_block, load_board, render_block
+
+    runbook = (REPO_ROOT / "docs" / "encodebench-verifier.md").read_text()
+    boards = [load_board(BOARDS_ROOT / "synthetic_us_v1")]
+    # Regenerate with: verifier.py report --board benchmarks/verifier/boards/...
+    assert current_block(runbook) == render_block(boards)
+
+
+def test_cli_report_checks_and_regenerates_the_block(tmp_path):
+    from encodebench_verifier.report import BEGIN, END
+
+    runbook = tmp_path / "runbook.md"
+    runbook.write_text(f"# r\n\n{BEGIN}\nstale\n{END}\n\nafter\n")
+    argv = ["report", "--board", str(BOARDS_ROOT / "synthetic_us_v1")]
+    argv += ["--runbook", str(runbook)]
+    assert verifier_cli.main(argv + ["--check"]) == 1
+    assert verifier_cli.main(argv) == 0
+    text = runbook.read_text()
+    assert "stale" not in text and text.endswith("after\n")
+    assert "| jev" in text and "Computed from the board:" in text
+    assert verifier_cli.main(argv + ["--check"]) == 0
+    runbook.write_text("no block here\n")
+    assert verifier_cli.main(argv) == 2
