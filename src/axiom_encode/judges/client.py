@@ -11,6 +11,8 @@ guard and the fail-closed contract:
   banned; the caller turns that into a ``verdict == "error"`` event.
 * Low-confidence verdicts escalate once from Haiku to Sonnet.
 * Provision windows are truncated to a bounded budget; token counts are logged.
+* A reply cut off by the output budget (``stop_reason == "max_tokens"``) is a
+  ``max_tokens`` error naming the budget, not a generic parse error.
 
 The client is deliberately generic: it takes a JSON schema and returns the
 parsed payload plus call metadata. Each stage owns the prompt and the mapping
@@ -37,7 +39,28 @@ from .run_log import JudgeError, TokenCounts
 # overridden. Head+tail are kept so both the operative opening and any closing
 # boundary clauses survive.
 DEFAULT_PROVISION_CHARS = 24_000
-DEFAULT_MAX_TOKENS = 2048
+# The anthropic SDK (0.83.0, ``_calculate_nonstreaming_timeout``) refuses a
+# non-streaming request whose max_tokens implies more than ten minutes
+# (3,600 * max_tokens / 128,000 > 600), i.e. above 21,333 tokens. It also caps
+# the models in its ``MODEL_NONSTREAMING_TOKENS`` table (Opus 4 and 4.1) at
+# 8,192; neither judge default is in that table. A refusal is reported as a
+# named ``max_tokens_config`` judge error.
+NONSTREAMING_MAX_TOKENS = 21_333
+# Output budget for one judge call. 2,048 truncated the statutory-fidelity
+# referee's findings JSON on large modules (about 30k input tokens) and 8,192
+# still truncated one Haiku 4.5 reply on a 34k-token module (EncodeBench verifier
+# track, 2026-09-19). 16,000 leaves room under NONSTREAMING_MAX_TOKENS. Output is
+# billed per token generated, so the higher ceiling costs nothing on replies
+# that finish sooner.
+DEFAULT_MAX_TOKENS = 16_000
+# Stop reasons meaning the reply was cut off before it finished, mapped to the
+# judge error type reported when that leaves no complete JSON payload.
+# ``model_context_window_exceeded`` is a beta stop reason in anthropic 0.83.0
+# (``BetaStopReason``); listing it is harmless on calls that never return it.
+TRUNCATION_STOP_REASONS = {
+    "max_tokens": "max_tokens",
+    "model_context_window_exceeded": "context_window_exceeded",
+}
 DEFAULT_ESCALATE_BELOW = 0.6
 DEFAULT_RETRY_SECONDS = 90.0
 DEFAULT_MAX_ATTEMPTS = 2
@@ -315,7 +338,7 @@ class JudgeClient:
         last_error: Optional[JudgeError] = None
         for attempt in range(self.max_attempts):
             try:
-                text, tokens = self._invoke(
+                text, tokens, stop_reason = self._invoke(
                     client, model, json_system, messages, schema, anthropic
                 )
             except Exception as exc:  # noqa: BLE001 - normalized below
@@ -333,6 +356,37 @@ class JudgeClient:
                 )
 
             payload = _extract_json(text)
+            missing = (
+                [k for k in schema.get("required", []) if k not in payload]
+                if payload is not None
+                else None
+            )
+            truncation = TRUNCATION_STOP_REASONS.get(stop_reason or "")
+            if truncation and (payload is None or missing):
+                # The reply was cut off before its JSON closed. It is a
+                # fail-closed error like a parse failure, but named, so the
+                # cause (a budget, not the model) is visible in the run log.
+                if truncation == "max_tokens":
+                    message = (
+                        f"judge reply hit the {self.max_tokens}-token output "
+                        f"budget before its JSON closed ({tokens.output} output "
+                        "tokens); raise AXIOM_JUDGE_MAX_TOKENS (non-streaming judge "
+                        f"calls allow at most {NONSTREAMING_MAX_TOKENS:,})"
+                    )
+                else:
+                    message = (
+                        "judge reply stopped at the model's context window before "
+                        f"its JSON closed ({tokens.input} input tokens); lower "
+                        "AXIOM_JUDGE_PROVISION_CHARS"
+                    )
+                return JudgeCall(
+                    payload=None,
+                    model=model,
+                    escalated=False,
+                    tokens=tokens,
+                    error=JudgeError(type=truncation, message=message),
+                    raw_text=text,
+                )
             if payload is None:
                 # A parse failure is a fail-closed error, never a pass.
                 return JudgeCall(
@@ -346,7 +400,6 @@ class JudgeClient:
                     ),
                     raw_text=text,
                 )
-            missing = [k for k in schema.get("required", []) if k not in payload]
             if missing:
                 # Valid JSON that omits required keys is still not a usable
                 # verdict — treat it as an error, never let it fall through to a
@@ -386,8 +439,8 @@ class JudgeClient:
         messages: list[dict[str, Any]],
         schema: dict[str, Any],
         anthropic_mod: Any,
-    ) -> tuple[str, TokenCounts]:
-        """Make one Messages API request; return (text, tokens).
+    ) -> tuple[str, TokenCounts, Optional[str]]:
+        """Make one Messages API request; return (text, tokens, stop_reason).
 
         Tries structured outputs first, falls back to a plain request if the
         SDK/model rejects ``output_config``.
@@ -424,7 +477,8 @@ class JudgeClient:
             input=getattr(usage, "input_tokens", 0) or 0,
             output=getattr(usage, "output_tokens", 0) or 0,
         )
-        return text, tokens
+        stop_reason = getattr(response, "stop_reason", None)
+        return text, tokens, stop_reason if isinstance(stop_reason, str) else None
 
 
 def _payload_confidence(payload: Optional[dict[str, Any]]) -> Optional[float]:
@@ -454,6 +508,18 @@ def _classify_exception(anthropic_mod: Any, exc: Exception) -> tuple[bool, Judge
         code = getattr(exc, "status_code", None)
         retryable = code is not None and code >= 500
         return retryable, JudgeError(type=f"api_status_{code}", message=str(exc))
+    if isinstance(exc, ValueError) and "Streaming is required" in str(exc):
+        # The SDK refused the non-streaming request before sending it because
+        # the output budget is too large for it (see NONSTREAMING_MAX_TOKENS).
+        return False, JudgeError(
+            type="max_tokens_config",
+            message=(
+                "the anthropic SDK refused a non-streaming judge call at this "
+                f"output budget (at most {NONSTREAMING_MAX_TOKENS:,} tokens, and "
+                "8,192 for the Opus 4 and 4.1 models); lower "
+                f"AXIOM_JUDGE_MAX_TOKENS. SDK said: {exc}"
+            ),
+        )
     return False, JudgeError(type="unexpected", message=f"{type(exc).__name__}: {exc}")
 
 
