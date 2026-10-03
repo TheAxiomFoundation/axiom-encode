@@ -517,6 +517,47 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "elderly_disabled_credit",
+      "elderly_disabled_preceding_credits",
+      "elderly_disabled_credit_credit_limit",
+      "section_22_nontaxable_pension_benefit_reduction",
+      "section_22_initial_amount_cap",
+      "section_22_married_filing_requirement_satisfied"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "It is a scope reduction, not a correction",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "any amount treated as a social security benefit under section 86(d)(3)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 2,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

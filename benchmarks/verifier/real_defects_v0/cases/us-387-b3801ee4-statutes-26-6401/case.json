@@ -125,6 +125,76 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "income_tax_refundable_credits",
+      "section_33_credit_treated_as_refundable_credit",
+      "refundable_credit_excess_overpayment",
+      "income_tax",
+      "limitation_period_overpayment_part",
+      "tax_payment_can_be_overpayment_despite_no_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "limitation_period_overpayment_part.versions[0].effective_from",
+          "refundable_credit_excess_overpayment.versions[0].effective_from",
+          "section_33_credit_treated_as_refundable_credit.versions[0].effective_from",
+          "tax_payment_can_be_overpayment_despite_no_tax_liability.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "only if an election under subsection (g) or (h) of section 6013 is in effect",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "tax imposed by subtitle A (reduced by the credits allowable under subparts A, B, D, and G)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount allowable as credits under subpart C of part IV of subchapter A of chapter 1",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

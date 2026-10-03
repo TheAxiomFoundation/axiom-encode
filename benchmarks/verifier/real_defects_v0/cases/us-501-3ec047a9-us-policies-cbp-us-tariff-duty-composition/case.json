@@ -347,6 +347,255 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "section_338_entry_component_rate",
+      "section_338_chapter_98_exclusion_applies",
+      "section_338_reduced_duty_base_applies",
+      "section_338_alcohol_additional_duty_rate",
+      "ieepa_component_rate",
+      "ieepa_component_rate_with_declared_exceptions",
+      "section_338_component_rate",
+      "section_201_component_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on August 19, 2026",
+        "where": [
+          "section_338_alcohol_additional_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For heading 9802.00.80, the additional duties apply to the value of the article assembled abroad, less the cost or value of such products of the United States, as described.",
+        "where": [
+          "section_338_reduced_duty_base_applies.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For subheadings 9802.00.40, 9802.00.50 and 9802.00.60, the additional duties apply to the value of repairs, alterations or processing performed, as described in the applicable subheading.",
+        "where": [
+          "section_338_reduced_duty_base_applies.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duty imposed by this heading shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule",
+        "where": [
+          "section_338_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duty imposed by this heading shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection (“CBP”), and whenever CBP agrees that entry under such a provision is appropriate",
+        "where": [
+          "section_338_chapter_98_exclusion_applies.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The duty provided in the applicable subheading + 50%",
+        "where": [
+          "section_338_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-6",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except for goods entered under subchapter XXIII of chapter 98 of the tariff schedule, subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80",
+        "where": [
+          "section_338_chapter_98_exclusion_applies.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "section_338_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-08-18",
+        "where": [
+          "section_338_chapter_98_exclusion_applies.versions[0].effective_to",
+          "section_338_entry_component_rate.versions[0].effective_to",
+          "section_338_reduced_duty_base_applies.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-08-18",
+          "August 18, 2026",
+          "18 August 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-08-19",
+        "where": [
+          "section_338_alcohol_additional_duty_rate.versions[0].effective_from",
+          "section_338_chapter_98_exclusion_applies.versions[1].effective_from",
+          "section_338_entry_component_rate.versions[1].effective_from",
+          "section_338_reduced_duty_base_applies.versions[1].effective_from"
+        ],
+        "forms": [
+          "2026-08-19",
+          "August 19, 2026",
+          "19 August 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-23",
+        "where": [
+          "ieepa_component_rate.versions[1].effective_to",
+          "ieepa_component_rate_with_declared_exceptions.versions[1].effective_to"
+        ],
+        "forms": [
+          "2026-02-23",
+          "February 23, 2026",
+          "23 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-24",
+        "where": [
+          "ieepa_component_rate.versions[2].effective_from",
+          "ieepa_component_rate_with_declared_exceptions.versions[2].effective_from"
+        ],
+        "forms": [
+          "2026-02-24",
+          "February 24, 2026",
+          "24 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Effective ... on or after 12:01 a.m. eastern time on August 19, 2026",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "except for goods entered under subchapter XXIII of chapter 98 of the tariff schedule, subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "heading 9903.03.12 imposes an additional ad valorem rate of duty on imports of products of Canada enumerated in subdivision (b) of this note",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "on or after 12:01 a.m. eastern time on August 19, 2026",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under subchapter XXIII ... subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the additional duties apply to the value of repairs, alterations or processing performed",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 17,
+    "post_side_matched": 0,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

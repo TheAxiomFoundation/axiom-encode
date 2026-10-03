@@ -196,6 +196,169 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "il_pit_2026_directly_encoded_subtractions",
+      "il_pit_2026_input_domain_is_valid",
+      "il_pit_2026_filing_status_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The adjusted gross income referred to in paragraph (1) shall be modified by adding thereto",
+        "where": [
+          "il_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/203-current/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "all amounts included in such total which are exempt from taxation by this State",
+        "where": [
+          "il_pit_2026_directly_encoded_subtractions.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/203-current/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "an amount equal to all social security benefits and railroad retirement benefits included in such total",
+        "where": [
+          "il_pit_2026_directly_encoded_subtractions.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/203-current/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "included in such total as distributions under the provisions of any retirement or disability plan for employees of any governmental agency or unit",
+        "where": [
+          "il_pit_2026_directly_encoded_subtractions.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/203-current/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "spouses filing a joint federal tax return",
+        "where": [
+          "il_pit_2026_filing_status_is_valid.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/204-current/block-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(N) An amount equal to all amounts included in such total which are exempt from taxation by this State ... by reason of the Constitution, treaties or statutes of the United States",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "An amount equal to all amounts included in such total which are exempt from taxation by this State either by reason of its statutes or Constitution or by reason of the Constitution, treaties or statutes of the United States",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "all amounts included in such total which are exempt from taxation by this State",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "all amounts included in such total which are exempt from taxation by this State ... by reason of the Constitution, treaties or statutes of the United States",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "and by deducting from the total so obtained the sum of the following amounts",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "federal-tax-exempt United States obligation interest is added then subtracted",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is federal AGI after the (A)-(D-26) additions (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "limited to ... federally included United States obligation income",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "qualifying surviving spouse uses the supported nonjoint branch",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 14,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

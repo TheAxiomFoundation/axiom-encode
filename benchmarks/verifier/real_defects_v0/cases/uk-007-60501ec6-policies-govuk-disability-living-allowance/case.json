@@ -253,6 +253,205 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "dla_mobility_component_weekly_amount",
+      "dla_care_component_weekly_amount",
+      "disability_living_allowance_weekly_amount",
+      "disability_living_allowance_annual_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "3 years or over",
+        "where": [
+          "dla_mobility_component_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children/rates",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "5 years or over",
+        "where": [
+          "dla_mobility_component_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children/rates",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The DLA rate is between £30.30 and £194.60 a week",
+        "where": [
+          "disability_living_allowance_weekly_amount.versions[0].formula",
+          "disability_living_allowance_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "frequent help or continual supervision during the day",
+        "where": [
+          "dla_care_component_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children/rates",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "help for some of the day",
+        "where": [
+          "dla_care_component_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children/rates",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "help or supervision throughout both day and night",
+        "where": [
+          "dla_care_component_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/disability-living-allowance-children/rates",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "disability_living_allowance_annual_amount.versions[0].effective_from",
+          "disability_living_allowance_weekly_amount.versions[0].effective_from",
+          "dla_care_component_weekly_amount.versions[0].effective_from",
+          "dla_mobility_component_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-04-06",
+        "where": [
+          "disability_living_allowance_annual_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-06",
+          "April 6, 2026",
+          "6 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". (2) The age conditions do exist in the source added by this same commit: data/corpus/provisions/uk/guidance/2026-06-10-uk-govuk-dla-children-rates.jsonl body reads",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In regulation 4 of the Social Security (Disability Living Allowance) Regulations 1991 (rate of benefit)— in paragraph (1)(a) for",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Mobility component weekly rates: lower £30.30 where the child is 5 years or over; higher £80.00 where the child is 3 years or over",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This PolicyEngine-alignment surface ... used by PolicyEngine UK and HBAI",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "derived from another model rather than from law",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for monthly housing-cost equivalents) — not a DLA annualization rule. The fix only edited the excerpt string (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "on uk/regulation/uksi/2013/376/schedule/4/paragraph/7, which resolves to the Universal Credit renters' provision (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— amounts only, no conditions, so nothing in the old cited source was",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 15,
+    "post_side_matched": 1,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

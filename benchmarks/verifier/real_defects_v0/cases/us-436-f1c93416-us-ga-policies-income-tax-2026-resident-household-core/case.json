@@ -154,6 +154,165 @@
     "requested_citation_path": "us-ga/statute/48/48-7-20",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ga_2026_resident_low_income_credit_before_cap",
+      "ga_2026_resident_low_income_exemption_units",
+      "ga_2026_resident_low_income_age_units",
+      "ga_2026_resident_low_income_credit_band",
+      "ga_2026_resident_child_and_dependent_care_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code",
+        "where": [
+          "ga_2026_resident_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2025/hb136/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A husband and wife filing a joint return shall each be deemed a dependent for purposes of such joint return",
+        "where": [
+          "ga_2026_resident_low_income_exemption_units.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/48/48-7A-3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Credit Table: Federal Adjusted Gross Income Credit",
+        "where": [
+          "ga_2026_resident_low_income_credit_band.versions[0].formula"
+        ],
+        "cites": "us-ga/form/it-511/2025/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Each taxpayer 65 years of age or over may claim double the tax credit.",
+        "where": [
+          "ga_2026_resident_low_income_age_units.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/48/48-7A-3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Enter 1 if you or your spouse is 65 or older; enter 2 if you and your spouse are 65 or older",
+        "where": [
+          "ga_2026_resident_low_income_age_units.versions[0].formula"
+        ],
+        "cites": "us-ga/form/it-511/2025/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Exemptions are self, spouse and natural or legally adopted children",
+        "where": [
+          "ga_2026_resident_low_income_exemption_units.versions[0].formula"
+        ],
+        "cites": "us-ga/form/it-511/2025/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "dependents do not include those unborn with a detectable heartbeat",
+        "where": [
+          "ga_2026_resident_low_income_exemption_units.versions[0].formula"
+        ],
+        "cites": "us-ga/form/it-511/2025/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "ga_2026_resident_low_income_age_units.versions[0].effective_from",
+          "ga_2026_resident_low_income_exemption_units.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "ga_2026_resident_low_income_age_units.versions[0].effective_to",
+          "ga_2026_resident_low_income_exemption_units.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A husband and wife filing a joint return shall each be deemed a dependent for purposes of such joint return",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Enter the number of exemptions. Exemptions are self, spouse and natural or legally adopted children.......... Note: For purposes of the low income credit, dependents do not include those unborn with a detectable heartbeat",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You may claim the Low Income Credit if your Federal adjusted gross income is less than $20,000",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

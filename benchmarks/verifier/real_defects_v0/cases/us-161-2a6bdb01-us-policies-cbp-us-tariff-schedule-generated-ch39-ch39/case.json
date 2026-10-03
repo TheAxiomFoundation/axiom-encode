@@ -223,6 +223,120 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "entry_is_line_a",
+      "entry_is_line_b",
+      "entry_is_line_c",
+      "entry_is_line_d",
+      "entry_is_line_e"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-15",
+        "where": [
+          "entry_is_line_a.versions[0].from",
+          "entry_is_line_b.versions[0].from",
+          "entry_is_line_c.versions[0].from",
+          "entry_is_line_d.versions[0].from",
+          "entry_is_line_e.versions[0].from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2203.00.00.30",
+        "where": [
+          "entry_is_line_d.versions[0].formula"
+        ],
+        "forms": [
+          "2203.00.00.30"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "7202.11.10.00",
+        "where": [
+          "entry_is_line_a.versions[0].formula"
+        ],
+        "forms": [
+          "7202.11.10.00"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "7601.10.30.00",
+        "where": [
+          "entry_is_line_b.versions[0].formula"
+        ],
+        "forms": [
+          "7601.10.30.00"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "8541.42.00.10",
+        "where": [
+          "entry_is_line_e.versions[0].formula"
+        ],
+        "forms": [
+          "8541.42.00.10"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "9506.62.40.40",
+        "where": [
+          "entry_is_line_c.versions[0].formula"
+        ],
+        "forms": [
+          "9506.62.40.40"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is stale — it deletes five rules and their proof atoms, so mechanical does not survive. Only refutation I could mount was",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 1,
+    "post_side_matched": 0,
+    "pre_side_tested": 6,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

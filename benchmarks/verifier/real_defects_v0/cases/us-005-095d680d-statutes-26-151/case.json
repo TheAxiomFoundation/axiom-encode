@@ -420,6 +420,168 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "exemption_phaseout_applicable_percentage",
+      "exemption_individual_eligible",
+      "senior_deduction_modified_adjusted_gross_income",
+      "senior_deduction_eligible",
+      "exemption_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "An exemption of the exemption amount for the taxpayer; and an additional exemption of the exemption amount for the spouse of the taxpayer if a joint return is not made by the taxpayer and his spouse, and if the spouse ... has no gross income and is not the dependent of another taxpayer.",
+        "where": [
+          "exemption_individual_eligible.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except as otherwise provided in this subsection, the term “exemption amount” means $2,000.",
+        "where": [
+          "exemption_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the taxpayer is a married individual (within the meaning of section 7703), this subparagraph shall apply only if the taxpayer and the taxpayer’s spouse file a joint return for the taxable year.",
+        "where": [
+          "senior_deduction_eligible.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of a taxable year beginning after December 31, 2017 — (A) Exemption amount The term “exemption amount” means zero.",
+        "where": [
+          "exemption_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of a taxable year beginning before January 1, 2029",
+        "where": [
+          "senior_deduction_eligible.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "No exemption shall be allowed under this section with respect to any individual unless the TIN of such individual is included on the return claiming the exemption.",
+        "where": [
+          "exemption_individual_eligible.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "modified adjusted gross income means the adjusted gross income for the taxable year increased by any amount excluded from gross income under section 911, 931, or 933.",
+        "where": [
+          "senior_deduction_modified_adjusted_gross_income.versions[0].formula"
+        ],
+        "cites": "us/statute/26/151",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "exemption_phaseout_applicable_percentage.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(3) Phaseout (A) In general In the case of any taxpayer whose adjusted gross income for the taxable year exceeds the applicable amount in effect under section 68(b), 1 1 See References in Text note below.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(c) Additional exemption for dependents An exemption of the exemption amount for each individual who is a dependent (as defined in section 152)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "2 percentage points for each $2,500 (or fraction thereof)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "leaves this phaseout percentage non-executable rather than preserving a local cross-reference placeholder",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the applicable amount in effect under section 68(b), 1 1 See References in Text note below",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 10,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

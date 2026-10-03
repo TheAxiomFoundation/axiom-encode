@@ -141,6 +141,206 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "forced_labor_south_korea_floor_heading_applies",
+      "general_duty_rate_after_forced_labor_south_korea_floor_overlay",
+      "special_duty_rate_after_forced_labor_south_korea_floor_overlay",
+      "forced_labor_south_korea_floor_column_1_rate_threshold",
+      "forced_labor_south_korea_floor_duty_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.05.85–9903.05.92",
+        "where": [
+          "forced_labor_south_korea_floor_heading_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): 12.5%",
+        "where": [
+          "general_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula",
+          "forced_labor_south_korea_floor_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "general_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.70",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-Special): 12.5%",
+        "where": [
+          "special_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula",
+          "forced_labor_south_korea_floor_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-Special): The duty provided in the applicable subheading",
+        "where": [
+          "special_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.70",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "articles the product of South Korea",
+        "where": [
+          "forced_labor_south_korea_floor_heading_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "less than 12.5 percent",
+        "where": [
+          "forced_labor_south_korea_floor_column_1_rate_threshold.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 12.5 percent",
+        "where": [
+          "general_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula",
+          "special_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.70",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 12.5 percent",
+        "where": [
+          "forced_labor_south_korea_floor_heading_applies.versions[0].formula",
+          "general_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula",
+          "special_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.125",
+        "where": [
+          "forced_labor_south_korea_floor_column_1_rate_threshold.versions[0].formula",
+          "forced_labor_south_korea_floor_duty_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.125",
+          "12.5 percent",
+          "12.5 per cent",
+          "12.5%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-24",
+        "where": [
+          "forced_labor_south_korea_floor_column_1_rate_threshold.versions[0].effective_from",
+          "forced_labor_south_korea_floor_duty_rate.versions[0].effective_from",
+          "forced_labor_south_korea_floor_heading_applies.versions[0].effective_from",
+          "general_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].effective_from",
+          "special_duty_rate_after_forced_labor_south_korea_floor_overlay.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-07-24",
+          "July 24, 2026",
+          "24 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except for products described in headings 9903.05.85–9903.05.92, articles the product of South Korea, with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 12.5 percent, as provided for in U.S. note 52 to this subchapter / Rates of duty (1-General): 12.5% / Rates of duty (1-Special): 12.5%",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except for products described in headings 9903.05.85–9903.05.92, articles the product of South Korea, with an ad valorem ... rate of duty under column 1 less than 12.5 percent ... Rates of duty (1-General): 12.5% / (1-Special): 12.5% / (2): No change",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "as provided for in U.S. note 52 to this subchapter",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "used a local name that collides with a sibling RuleSpec export",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 15,
+    "post_side_matched": 8,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

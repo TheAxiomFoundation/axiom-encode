@@ -117,6 +117,75 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "hospital_insurance_employer_tax",
+      "hospital_insurance_employer_tax_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "equal to 1.45 percent",
+        "where": [
+          "hospital_insurance_employer_tax_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3111",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "wages (as defined in section 3121(a)) paid by the employer with respect to employment (as defined in section 3121(b))",
+        "where": [
+          "hospital_insurance_employer_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3111",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(b) Hospital insurance ... there is hereby imposed on every employer an excise tax ... equal to 1.45 percent of the wages ... paid by the employer",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", and the same section's (e)(5)(A) defines a",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an employer that is an organization described in section 501(c)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -91,6 +91,196 @@
     "requested_citation_path": "us/statute/26/199A",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "pipeline_qbi_phasein_range",
+      "pipeline_trade_or_business_phasein_reduction",
+      "pipeline_trade_or_business_deductible_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Filing Status Threshold amount Phase-in range amount Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-22",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "threshold amount plus $75,000 ($150,000 in the case of a joint return)",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Modifications to limit based on taxable income",
+        "where": [
+          "pipeline_trade_or_business_deductible_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "bears the same ratio to the excess amount as",
+        "where": [
+          "pipeline_trade_or_business_phasein_reduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "150000",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].formula"
+        ],
+        "forms": [
+          "150000",
+          "150,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "75000",
+        "where": [
+          "pipeline_qbi_phasein_range.versions[0].formula"
+        ],
+        "forms": [
+          "75000",
+          "75,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ") shows the pipeline already claimed status-4 coverage and was internally inconsistent pre-fix, which rules out",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "0 single/other, 1 joint, 2 married filing separately, 3 head of household, 4 surviving spouse",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Married Individuals Filing Joint Returns $403,500 $553,500 ... All Other Returns $201,750 $276,750",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Status 4 is a surviving-spouse return, not a joint return",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Status 4 is a surviving-spouse return, not a joint return.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fix: key QBID phase-in width to return status",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "threshold amount plus $75,000 ($150,000 in the case of a joint return)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -94,6 +94,81 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_standard_deduction_amount_under_subsection_f",
+      "spouse_aged_additional_amount_entitlement",
+      "spouse_blind_additional_amount_entitlement"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The taxpayer shall be entitled to an additional amount of $600",
+        "where": [
+          "additional_standard_deduction_amount_under_subsection_f.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "paragraphs (1) and (2) shall be applied by substituting “$750” for “$600”",
+        "where": [
+          "additional_standard_deduction_amount_under_subsection_f.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2018-01-01",
+        "where": [
+          "additional_standard_deduction_amount_under_subsection_f.versions[0].effective_from"
+        ],
+        "forms": [
+          "2018-01-01",
+          "January 1, 2018",
+          "1 January 2018"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "so current child-module input slots and cross-module proof hashes resolve cleanly",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the sum of each additional amount to which the taxpayer is entitled under subsection (f)",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

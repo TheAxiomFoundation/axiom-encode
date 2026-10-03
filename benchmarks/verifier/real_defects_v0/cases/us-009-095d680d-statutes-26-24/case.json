@@ -153,6 +153,98 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ctc_phaseout_threshold_base",
+      "ctc_qualifying_child",
+      "ctc_modified_adjusted_gross_income",
+      "ctc_phaseout_threshold",
+      "ctc_maximum_before_phaseout",
+      "ctc_after_advance_payments"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(2) Threshold amount ... (A) $110,000 in the case of a joint return, (B) $75,000 in the case of an individual who is not married, and (C) $55,000 in the case of a married individual filing a separate return. For purposes of this paragraph, marital status shall be determined under section 7703.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(A) $110,000 in the case of a joint return, (B) $75,000 in the case of an individual who is not married, and (C) $55,000 in the case of a married individual filing a separate return. For purposes of this paragraph, marital status shall be determined under section 7703.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "generated test/input drift ... input slots and cross-module proof hashes resolve cleanly",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "joint return or surviving spouse (as defined in section 2(a))",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "joint return under section 6013 or a surviving spouse (as defined in section 2(a))",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "marital status shall be determined under section 7703",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the fix deletes an encoding that disagreed with the source, even incidentally",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

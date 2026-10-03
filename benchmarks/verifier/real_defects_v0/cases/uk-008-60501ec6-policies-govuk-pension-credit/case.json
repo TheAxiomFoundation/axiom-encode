@@ -161,6 +161,158 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "guarantee_credit_weekly_top_up",
+      "guarantee_credit_annual_amount",
+      "pension_credit_weeks_in_year"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The top up and extra amounts are known as 'Guarantee Credit'",
+        "where": [
+          "guarantee_credit_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/pension-credit/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "calculated as a monthly amount",
+        "where": [
+          "pension_credit_weeks_in_year.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2013/376/schedule/4/paragraph/7",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "tops up: your weekly income to £238 if you're single",
+        "where": [
+          "guarantee_credit_weekly_top_up.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/pension-credit/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you've reached State Pension age",
+        "where": [
+          "guarantee_credit_weekly_top_up.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/pension-credit/eligibility",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "guarantee_credit_annual_amount.versions[0].effective_from",
+          "guarantee_credit_weekly_top_up.versions[0].effective_from",
+          "pension_credit_weeks_in_year.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "52",
+        "where": [
+          "pension_credit_weeks_in_year.versions[0].formula"
+        ],
+        "forms": [
+          "52"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(or to both, if he satisfies both the condition mentioned in paragraph (a) ...)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A claimant is entitled to state pension credit if",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Ah I see I should have got the encoder to do this rather than claude... will refile",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fails because formulas, entity, period and rule set all changed, and",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "pension credit guarantee top-up over the reg 6 minimum guarantee",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "removes or re-grounds a branch with no basis in the cited source",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

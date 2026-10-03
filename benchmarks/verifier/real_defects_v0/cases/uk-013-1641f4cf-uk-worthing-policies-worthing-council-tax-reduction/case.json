@@ -88,6 +88,119 @@
     "requested_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "worthing_council_tax_reduction_award_conditions_met",
+      "worthing_council_tax_reduction_percent_divisor"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount",
+        "where": [
+          "worthing_council_tax_reduction_percent_divisor.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "in respect of whom amount A exceeds amount B where—",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "who has made an application.",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "whose income (if any) for the relevant week is less than his applicable amount,",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "whose income for the relevant week is greater than his applicable amount;",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "source is silent at equality, so the old text was a policy choice",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose income (if any) for the relevant week is less than his applicable amount",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose income (if any) for the relevant week is less than his applicable amount,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose income for the relevant week is greater than his applicable amount",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

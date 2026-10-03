@@ -113,6 +113,87 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "taxable_income",
+      "taxable_income_general_rule",
+      "taxable_income_for_individual_who_does_not_itemize",
+      "deductions_referred_to_in_subsection_b",
+      "itemized_deductions",
+      "itemized_deduction_allowed_for_taxable_year"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "deductions_referred_to_in_subsection_b.versions[0].effective_from",
+          "itemized_deduction_allowed_for_taxable_year.versions[0].effective_from",
+          "itemized_deductions.versions[0].effective_from",
+          "taxable_income.versions[0].effective_from",
+          "taxable_income_for_individual_who_does_not_itemize.versions[0].effective_from",
+          "taxable_income_general_rule.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "). The remaining substantive edit is the summary being refreshed to match the corpus text verbatim (adding the (c) and (f) text and the",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", and the squash bullets are validation-driven (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The chapter-wide deduction inventory is not yet encoded",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the broader gross-income and deduction surface is available",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

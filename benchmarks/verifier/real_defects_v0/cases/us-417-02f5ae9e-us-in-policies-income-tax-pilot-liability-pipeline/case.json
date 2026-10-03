@@ -170,6 +170,138 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "in_pit_pilot_income_tax_liability",
+      "in_pit_pilot_schedule_tax",
+      "in_pit_pilot_taxable_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For taxable years beginning after December 31, 2025",
+        "where": [
+          "in_pit_pilot_income_tax_liability.versions[0].effective_from"
+        ],
+        "cites": "us-in/statute/6-3-2-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "and before January 1, 2027",
+        "where": [
+          "in_pit_pilot_income_tax_liability.versions[0].effective_to"
+        ],
+        "cites": "us-in/statute/6-3-2-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For taxable years beginning after December 31, 2025, and before January 1, 2027, two and ninety-five hundredths percent (2.95%).",
+        "where": [
+          "in_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-in/statute/6-3-2-1",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "in_pit_pilot_income_tax_liability.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "in_pit_pilot_schedule_tax.versions[0].effective_from",
+          "in_pit_pilot_taxable_income.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", corrected to (b)(7) one commit later at b1e588b77",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "IC 6-3-2-1, tax imposed on Indiana adjusted gross income",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a tax at the following rate of adjusted gross income ... upon the adjusted gross income of every resident person",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "definition, (b) is the individual flat-rate list, (b)(7) =",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "promotes Indiana 2026 personal income tax to one completed-return Indiana AGI boundary",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 4,
+    "pre_side_tested": 1,
+    "pre_side_matched": 1,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

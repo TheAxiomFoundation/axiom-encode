@@ -215,6 +215,88 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "sd_pit_2026_credit_stage_applies",
+      "sd_pit_2026_nonrefundable_credit_source_hold_applies",
+      "sd_pit_2026_refundable_credit_source_hold_applies",
+      "sd_pit_2026_net_liability_source_hold_applies",
+      "sd_pit_2026_resident_personal_income_tax_after_nonrefundable_credits",
+      "sd_pit_2026_resident_refundable_personal_income_tax_credits",
+      "sd_pit_2026_resident_net_personal_income_tax_liability_before_payments"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "South Dakota does not have a corporate, unitary, or personal income tax",
+        "where": [
+          "sd_pit_2026_nonrefundable_credit_source_hold_applies.versions[0].formula",
+          "sd_pit_2026_refundable_credit_source_hold_applies.versions[0].formula",
+          "sd_pit_2026_net_liability_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "sd_pit_2026_net_liability_source_hold_applies.versions[0].effective_to",
+          "sd_pit_2026_nonrefundable_credit_source_hold_applies.versions[0].effective_to",
+          "sd_pit_2026_refundable_credit_source_hold_applies.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "South Dakota does not have a corporate, unitary, or personal income tax",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The pinned authority does not establish the absence of independently refundable credits or a complete signed net-liability surface.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "credit, refund, and terminal-liability zeros remain fail-closed sentinels behind typed holds",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

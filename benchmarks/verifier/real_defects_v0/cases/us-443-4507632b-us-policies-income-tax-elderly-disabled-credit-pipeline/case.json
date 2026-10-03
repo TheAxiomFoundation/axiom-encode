@@ -84,6 +84,75 @@
     "requested_citation_path": "us/statute/26/22",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "federal_elderly_disabled_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "No reduction shall be made under clause (i)(III) for any amount described in section 104(a)(4).",
+        "where": [
+          "federal_elderly_disabled_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/22",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "an amount equal to 15 percent of such individual’s section 22 amount",
+        "where": [
+          "federal_elderly_disabled_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/22",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "104(a)(4) payment relation must be empty (over-application defect #1054)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Every expected value is the statutory section 22 credit",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "No reduction shall be made under clause (i)(III) for any amount described in section 104(a)(4).",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -161,6 +161,117 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit",
+      "cpeo_information_furnishing_required_for_customer_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for which the certified professional employer organization receives payment from the customer",
+        "where": [
+          "customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3511",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "paid by the certified professional employer organization with respect to the work site employee",
+        "where": [
+          "customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3511",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the certified professional employer organization shall furnish the customer and the Secretary with any information necessary for the customer to claim such credit",
+        "where": [
+          "cpeo_information_furnishing_required_for_customer_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3511",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the customer, and not the certified professional employer organization, shall take into account wages and employment taxes",
+        "where": [
+          "customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3511",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(d) Treatment of credits (1) In general For purposes of any credit specified in paragraph (2)— (A) ... (B) ... (C) ...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For purposes of any credit specified in paragraph (2)—",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For purposes of any credit specified in paragraph (2)— (A) ... (B) ... (C) ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for which the certified professional employer organization receives payment from the customer",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "paid by the certified professional employer organization with respect to the work site employee",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

@@ -557,6 +557,899 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "or_pit_2026_earned_income_credit_base_rate",
+      "or_pit_2026_earned_income_credit_young_dependent_rate",
+      "or_pit_2026_profile_candidate_refundable_earned_income_credit",
+      "or_pit_2026_profile_candidate_dependent_care_credit",
+      "or_pit_2026_dependent_care_rate",
+      "or_pit_2026_dependent_care_rate_selector",
+      "or_pit_2026_disability_credit_amount",
+      "or_pit_2026_elderly_disabled_credit_rate",
+      "or_pit_2026_profile_candidate_other_supported_nonrefundable_credits",
+      "or_pit_2026_profile_candidate_total_nonrefundable_credits",
+      "or_pit_2026_profile_candidate_supported_additions",
+      "or_pit_2026_profile_candidate_supported_subtractions",
+      "or_pit_2026_profile_candidate_military_subtraction",
+      "or_pit_2026_profile_candidate_standard_deduction",
+      "or_pit_2026_profile_candidate_additional_standard_deduction",
+      "or_pit_2026_profile_candidate_personal_exemption_credit",
+      "or_pit_2026_profile_candidate_additional_exemption_credits",
+      "or_pit_2026_bounded_profile_applies",
+      "or_pit_2026_input_domain_is_valid",
+      "or_pit_2026_new_jobs_credit_source_hold_applies",
+      "or_pit_2026_pass_through_entity_tax_source_hold_applies",
+      "or_pit_2026_dependent_exemption_source_hold_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "14 percent of the earned income credit allowable",
+        "where": [
+          "or_pit_2026_earned_income_credit_base_rate.versions[0].formula",
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Full-year residents and nonresidents: Enter the amount from line 5S",
+        "where": [
+          "or_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Sections 2 and 5 ... apply to tax years beginning on or after January 1, 2026",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "additional exemption is allowable to the taxpayer for such spouse",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amount of the excess shall be refunded",
+        "where": [
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "applies to tax years beginning on or after January 1, 2026, and before January 1, 2032",
+        "where": [
+          "or_pit_2026_new_jobs_credit_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "apply to tax years beginning on or after January 1, 2026",
+        "where": [
+          "or_pit_2026_earned_income_credit_base_rate.versions[0].formula",
+          "or_pit_2026_earned_income_credit_young_dependent_rate.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "before January 1, 2028",
+        "where": [
+          "or_pit_2026_pass_through_entity_tax_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1510/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "dependent under the age of three ... 17 percent",
+        "where": [
+          "or_pit_2026_earned_income_credit_young_dependent_rate.versions[0].formula",
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "difference between the amount allowable as a deduction under section 168(k)",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "eligible for the credit allowed under section 8",
+        "where": [
+          "or_pit_2026_pass_through_entity_tax_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1510/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "engaged in a qualified industry as a primary business",
+        "where": [
+          "or_pit_2026_new_jobs_credit_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/hb4084/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "exemption credit is $0 if your federal AGI is over $100,000",
+        "where": [
+          "or_pit_2026_profile_candidate_personal_exemption_credit.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for each new job in Oregon created by the taxpayer",
+        "where": [
+          "or_pit_2026_new_jobs_credit_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/hb4084/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "gain from the exchange or sale of qualified small business stock",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "labor rebate ... included in federal taxable income",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.698",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "number of exemptions",
+        "where": [
+          "or_pit_2026_dependent_exemption_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "pass-through entity may elect to be liable for and pay a pass-through business alternative income tax",
+        "where": [
+          "or_pit_2026_pass_through_entity_tax_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1510/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "qualified passenger vehicle loan interest paid by the taxpayer and deducted",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "qualifying child under section 152 of the Internal Revenue Code",
+        "where": [
+          "or_pit_2026_dependent_exemption_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.099",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "required to receive written certification of eligibility",
+        "where": [
+          "or_pit_2026_new_jobs_credit_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "spouses in a marriage filing a separate return where the other spouse has claimed itemized deductions",
+        "where": [
+          "or_pit_2026_profile_candidate_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "standard deduction referred to in subparagraph (A) of this paragraph shall be zero",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "total amount of potential tax credits ... may not exceed $12.5 million",
+        "where": [
+          "or_pit_2026_new_jobs_credit_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "voluntary contributions in money",
+        "where": [
+          "or_pit_2026_profile_candidate_other_supported_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Full-year residents: Complete only the Oregon column.",
+        "where": [
+          "or_pit_2026_bounded_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of a joint return, each spouse who has a severe disability",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_exemption_credits.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.765",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Interest or dividends, exempt from federal income tax, on obligations or securities of any foreign state",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.680",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Nonrefundable credits ... may reduce your tax liability to zero",
+        "where": [
+          "or_pit_2026_profile_candidate_total_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Personal exemption credit ($260 x number of exemptions",
+        "where": [
+          "or_pit_2026_profile_candidate_personal_exemption_credit.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Service not otherwise qualified ... not to exceed $6,000 per year",
+        "where": [
+          "or_pit_2026_profile_candidate_military_subtraction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.792",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Social Security benefits ... included in gross income for federal income tax purposes",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.054",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "add the amount deducted to federal taxable income",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.821",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "add the amount excluded to federal taxable income",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.837",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "added to federal taxable income any amount deducted ... under section 965(c)(1)",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.853",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "additional personal exemption credit for the taxpayer",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_exemption_credits.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.758",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount allowable as a deduction under section 199A(a)",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.859",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "attained age 65 before the close of the taxpayer’s tax year",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "blind at the close of the tax year",
+        "where": [
+          "or_pit_2026_profile_candidate_additional_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "entire taxable income of every resident of this state",
+        "where": [
+          "or_pit_2026_bounded_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.037",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "federal adjusted gross income in excess of $150,000 on a joint return or $75,000",
+        "where": [
+          "or_pit_2026_profile_candidate_other_supported_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.102",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "income derived from sources within the boundaries of federally recognized Indian country",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.777",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "interest or dividends on obligations of ... The State of Oregon ... [or] A public body",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.056",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "interest or dividends on obligations of the United States",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.680",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "may not exceed the taxpayer’s total military pay included in federal taxable income",
+        "where": [
+          "or_pit_2026_profile_candidate_military_subtraction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.792",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "national service educational award",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.847",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "purchase price shall be added to federal taxable income",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_additions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.861",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "reduced rate for qualified business income, the farm capital gain rate, or farm income averaging",
+        "where": [
+          "or_pit_2026_bounded_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "scholarship ... used for housing expenses",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.846",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "standard deduction” means the sum of the basic standard deduction and the additional standard deduction",
+        "where": [
+          "or_pit_2026_profile_candidate_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.695",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "taxpayer deposits to an individual development account",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.848",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "traveling expenses ... incurred by a construction worker during the first year",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.812",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "traveling expenses incurred by a logger in job-related travel",
+        "where": [
+          "or_pit_2026_profile_candidate_supported_subtractions.versions[0].formula"
+        ],
+        "cites": "us-or/statute/316.832",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.14",
+        "where": [
+          "or_pit_2026_earned_income_credit_base_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.14",
+          "14 percent",
+          "14 per cent",
+          "14%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.17",
+        "where": [
+          "or_pit_2026_earned_income_credit_young_dependent_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.17",
+          "17 percent",
+          "17 per cent",
+          "17%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.04",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.04",
+          "4 percent",
+          "4 per cent",
+          "4%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.05",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.05",
+          "5 percent",
+          "5 per cent",
+          "5%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.06",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.06",
+          "6 percent",
+          "6 per cent",
+          "6%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.08",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.08",
+          "8 percent",
+          "8 per cent",
+          "8%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.09",
+        "where": [
+          "or_pit_2026_earned_income_credit_base_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.09",
+          "9 percent",
+          "9 per cent",
+          "9%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.12",
+        "where": [
+          "or_pit_2026_earned_income_credit_young_dependent_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.12",
+          "12 percent",
+          "12 per cent",
+          "12%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.15",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.15",
+          "15 percent",
+          "15 per cent",
+          "15%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.3",
+        "where": [
+          "or_pit_2026_dependent_care_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.3",
+          "30 percent",
+          "30 per cent",
+          "30%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.4",
+        "where": [
+          "or_pit_2026_elderly_disabled_credit_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.4",
+          "40 percent",
+          "40 per cent",
+          "40%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "50",
+        "where": [
+          "or_pit_2026_disability_credit_amount.versions[0].formula"
+        ],
+        "forms": [
+          "50"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Credits under ORS 316.078, 316.079, and 316.087 are excluded because their statutory notes prohibit claims for tax years beginning on or after January 1, 2016.",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "SECTION 10. (1) Sections 2 and 5 of this 2026 Act and the amendments to ORS 315.266 by section 3 of this 2026 Act apply to tax years beginning on or after January 1, 2026.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "SECTION 3. ORS 315.266 is amended to read: 315.266. (1)(a) ... an amount equal to [nine] 14 percent of the earned income credit allowable",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The repair gates EITC on the bounded profile...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an amount equal to [nine] 14 percent of the earned income credit allowable",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "standard deduction referred to in subparagraph (A) of this paragraph shall be zero",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amendments to ORS 315.266 by sec-tion 3 of this 2026 Act apply to tax years begin-ning on or after January 1, 2026",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "pre",
+        "text": "40 percent of the credit for the elderly",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 34,
+    "post_side_matched": 3,
+    "pre_side_tested": 11,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

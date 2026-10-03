@@ -284,6 +284,82 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "net_investment_income_tax",
+      "niit_estate_or_trust_tax_base",
+      "niit_estate_or_trust_excess_adjusted_gross_income",
+      "niit_individual_tax_base",
+      "net_investment_income_gross_items"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2013-01-01",
+        "where": [
+          "net_investment_income_gross_items.versions[0].effective_from",
+          "net_investment_income_tax.versions[0].effective_from",
+          "niit_estate_or_trust_excess_adjusted_gross_income.versions[0].effective_from",
+          "niit_estate_or_trust_tax_base.versions[0].effective_from",
+          "niit_individual_tax_base.versions[0].effective_from"
+        ],
+        "forms": [
+          "2013-01-01",
+          "January 1, 2013",
+          "1 January 2013"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "net_investment_income_gross_items.versions[0].effective_from",
+          "net_investment_income_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(2) a trust all of the unexpired interests in which are devoted to one or more of the purposes described in section 170(c)(2)(B)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "imposes the 3.8 percent Net Investment Income Tax on individuals",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 1,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

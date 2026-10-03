@@ -155,6 +155,101 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "brazil_section_301_additional_duty_rate",
+      "heading_applies",
+      "general_duty_rate_after_brazil_section_301_overlay",
+      "special_duty_rate_after_brazil_section_301_overlay"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-22",
+        "where": [
+          "brazil_section_301_additional_duty_rate.versions[0].effective_from",
+          "general_duty_rate_after_brazil_section_301_overlay.versions[0].effective_from",
+          "heading_applies.versions[0].effective_from",
+          "special_duty_rate_after_brazil_section_301_overlay.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-07-22",
+          "July 22, 2026",
+          "22 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-07-23",
+        "where": [
+          "brazil_section_301_additional_duty_rate.versions[0].effective_from",
+          "general_duty_rate_after_brazil_section_301_overlay.versions[0].effective_from",
+          "heading_applies.versions[0].effective_from",
+          "special_duty_rate_after_brazil_section_301_overlay.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-07-23",
+          "July 23, 2026",
+          "23 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...on or after 12:01 eastern time on July 22, 2026",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "pre",
+        "text": "Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22 (grid has no 07-22 date; not exercised).",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

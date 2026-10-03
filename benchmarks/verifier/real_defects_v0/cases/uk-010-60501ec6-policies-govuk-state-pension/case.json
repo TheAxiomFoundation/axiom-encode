@@ -224,6 +224,263 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "new_state_pension_weekly_amount",
+      "basic_state_pension_weekly_amount",
+      "state_pension_weekly_amount",
+      "new_state_pension_full_rate_qualifying_years",
+      "new_state_pension_minimum_qualifying_years",
+      "basic_state_pension_full_rate_qualifying_years"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "10 qualifying years on your National Insurance record to get any new State Pension",
+        "where": [
+          "new_state_pension_minimum_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/eligibility",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "30 qualifying years if you were born between 1945 and 1951",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The full basic State Pension is £184.90 per week",
+        "where": [
+          "basic_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The full rate of new State Pension is £241.30 a week",
+        "where": [
+          "new_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the following proportion of the full rate— 1/35 × the person's number of qualifying years",
+        "where": [
+          "new_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/statute/ukpga/2014/19/3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you will need 35 qualifying years to get the full rate",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/new-state-pension/what-youll-get",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you'll get the new State Pension instead",
+        "where": [
+          "state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "your basic State Pension will be less than £184.90 per week",
+        "where": [
+          "basic_state_pension_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/state-pension/how-much-you-get",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10",
+        "where": [
+          "new_state_pension_minimum_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "10"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2010-04-06",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].effective_from",
+          "basic_state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2010-04-06",
+          "April 6, 2010",
+          "6 April 2010"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2016-04-06",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].effective_from",
+          "new_state_pension_minimum_qualifying_years.versions[0].effective_from",
+          "new_state_pension_weekly_amount.versions[0].effective_from",
+          "state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2016-04-06",
+          "April 6, 2016",
+          "6 April 2016"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "30",
+        "where": [
+          "basic_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "30"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "35",
+        "where": [
+          "new_state_pension_full_rate_qualifying_years.versions[0].formula"
+        ],
+        "forms": [
+          "35"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-04-06",
+        "where": [
+          "state_pension_weekly_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-06",
+          "April 6, 2026",
+          "6 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", i.e. it was a knowingly-labeled model wrapper rather than a misread of law, and the PR title frames it as",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In section 44(4) of the Contributions and Benefits Act ... for \\",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The fix removes them and re-grounds on Pensions Act 2014 s.3, whose resolved text (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is the strongest counter-reading, since the pre-fix summary openly said",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is untenable — formulas, rule names, effective dates and the output set all changed. (2)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 19,
+    "post_side_matched": 3,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

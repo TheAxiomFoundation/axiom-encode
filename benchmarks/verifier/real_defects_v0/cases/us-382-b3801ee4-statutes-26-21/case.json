@@ -595,6 +595,77 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "cdcc_qualifying_individual",
+      "cdcc_earned_income_limit",
+      "cdcc_claim_requirements_satisfied",
+      "treated_as_not_married_under_section_21",
+      "cdcc_married_filing_requirement_satisfied",
+      "cdcc_creditable_expenses",
+      "cdcc_rate",
+      "cdcc"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "cdcc_creditable_expenses.versions[0].effective_from",
+          "cdcc_earned_income_limit.versions[0].effective_from",
+          "cdcc_married_filing_requirement_satisfied.versions[0].effective_from",
+          "treated_as_not_married_under_section_21.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "An individual shall not be treated as having the same principal place of abode of the taxpayer if ... the relationship between the individual and the taxpayer is in violation of local law",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "No credit is allowed for payments to specified related individuals, for failures to provide service-provider identifying information absent due diligence, or for failures to include the qualifying individual's TIN",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall not be treated as a qualifying individual with respect to the noncustodial parent",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

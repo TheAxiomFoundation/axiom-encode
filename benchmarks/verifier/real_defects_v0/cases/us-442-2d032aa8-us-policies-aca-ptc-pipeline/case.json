@@ -179,6 +179,165 @@
     "requested_citation_path": "us/statute/26/36B",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "aca_ptc_applicable_percentage",
+      "applicable_percentage_for_taxable_year",
+      "monthly_premiums_for_exchange_qualified_health_plans_covering_taxpayer_spouse_or_dependents",
+      "adjusted_monthly_premium_for_applicable_second_lowest_cost_silver_plan",
+      "aca_ptc_full_year_runtime_inputs_valid",
+      "aca_ptc_required_monthly_contribution",
+      "aca_ptc_monthly_premium_assistance_amount",
+      "aca_ptc_annual_premium_assistance_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall increase, on a sliding scale in a linear manner, from the initial premium percentage to the final premium percentage",
+        "where": [
+          "aca_ptc_applicable_percentage.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the adjusted monthly premium for such month for the applicable second lowest cost silver plan",
+        "where": [
+          "adjusted_monthly_premium_for_applicable_second_lowest_cost_silver_plan.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the applicable percentage with respect to the taxpayer for the taxable year",
+        "where": [
+          "applicable_percentage_for_taxable_year.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the monthly premiums for such month for 1 or more qualified health plans",
+        "where": [
+          "monthly_premiums_for_exchange_qualified_health_plans_covering_taxpayer_spouse_or_dependents.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the sum of the premium assistance amounts determined under paragraph (2) with respect to all coverage months",
+        "where": [
+          "aca_ptc_annual_premium_assistance_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with respect to all coverage months of the taxpayer occurring during the taxable year",
+        "where": [
+          "aca_ptc_full_year_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(5) Source check via the pinned release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda): Rev. Proc. 2025-25 sec. 3.01 reads",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "every public percentage, contribution, and assistance output fails closed unless that candidate already equals its nearest-0.01-percentage-point value",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fail-closed computability boundary pending ingestion of 26 CFR 1.36B-3(g)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "increase, on a sliding scale in a linear manner",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "published a value the module disclaimed the ability to compute",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— literally true pre-fix; the fix widens that sentence to",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 6,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

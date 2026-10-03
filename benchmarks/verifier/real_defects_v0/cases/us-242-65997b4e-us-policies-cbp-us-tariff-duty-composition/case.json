@@ -278,6 +278,339 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "forced_labor_section_301_entry_component_rate",
+      "forced_labor_in_transit_safe_harbor_applies",
+      "forced_labor_usmca_exception_applies",
+      "forced_labor_chapter_98_exclusion_applies",
+      "forced_labor_section_301_component_rate",
+      "origin_is_korea"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Aluminum, not alloyed",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada, as provided for in subdivision (g) of U.S. note 52 to this subchapter",
+        "where": [
+          "forced_labor_usmca_exception_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.93",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles the product of Mexico, as provided for in subdivision (h) of U.S. note 52 to this subchapter",
+        "where": [
+          "forced_labor_usmca_exception_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.94",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except as provided in headings 9903.05.85–9903.06.21 and in subdivisions (b) through (k) of this note, and other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula",
+          "forced_labor_in_transit_safe_harbor_applies.versions[1].formula",
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.93",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by headings 9903.05.20–9903.05.84 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection (“CBP”), and whenever CBP agrees that entry under such a provision is appropriate",
+        "where": [
+          "forced_labor_chapter_98_exclusion_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Unwrought aluminum",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "are entered for consumption, or withdrawn from warehouse for consumption, before 12:01 a.m. eastern time on July 28, 2026",
+        "where": [
+          "forced_labor_in_transit_safe_harbor_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "articles the product of South Korea",
+        "where": [
+          "origin_is_korea.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.71",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except for goods entered under subheadings 9802.00.40, 9802.00.50 or 9802.00.60 or heading 9802.00.80",
+        "where": [
+          "forced_labor_chapter_98_exclusion_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "headings 9903.05.20–9903.05.84 impose additional ad valorem rates of duty on imports of all products of the countries provided for in these headings",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the additional duties imposed by heading 9903.05.29 shall not apply to any products of Canada entered free of duty under the United States-Mexico-Canada Agreement",
+        "where": [
+          "forced_labor_usmca_exception_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-566",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the additional duties imposed by heading 9903.05.55 shall not apply to any products of Mexico entered free of duty under the United States-Mexico-Canada Agreement",
+        "where": [
+          "forced_labor_usmca_exception_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-566",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "were loaded onto a vessel at the port of loading and in transit on the final mode of transit prior to entry into the United States before 12:01 a.m. eastern time on July 24, 2026",
+        "where": [
+          "forced_labor_in_transit_safe_harbor_applies.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 10 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.38",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 12.5 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.48",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "forced_labor_chapter_98_exclusion_applies.versions[0].effective_from",
+          "forced_labor_in_transit_safe_harbor_applies.versions[0].effective_from",
+          "forced_labor_section_301_entry_component_rate.versions[0].effective_from",
+          "forced_labor_usmca_exception_applies.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-23",
+        "where": [
+          "forced_labor_chapter_98_exclusion_applies.versions[0].effective_to",
+          "forced_labor_in_transit_safe_harbor_applies.versions[0].effective_to",
+          "forced_labor_section_301_entry_component_rate.versions[0].effective_to",
+          "forced_labor_usmca_exception_applies.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-07-23",
+          "July 23, 2026",
+          "23 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-24",
+        "where": [
+          "forced_labor_chapter_98_exclusion_applies.versions[1].effective_from",
+          "forced_labor_in_transit_safe_harbor_applies.versions[1].effective_from",
+          "forced_labor_section_301_entry_component_rate.versions[1].effective_from",
+          "forced_labor_usmca_exception_applies.versions[1].effective_from"
+        ],
+        "forms": [
+          "2026-07-24",
+          "July 24, 2026",
+          "24 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-27",
+        "where": [
+          "forced_labor_in_transit_safe_harbor_applies.versions[1].effective_to"
+        ],
+        "forms": [
+          "2026-07-27",
+          "July 27, 2026",
+          "27 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-28",
+        "where": [
+          "forced_labor_in_transit_safe_harbor_applies.versions[2].effective_from"
+        ],
+        "forms": [
+          "2026-07-28",
+          "July 28, 2026",
+          "28 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Articles that (1) were loaded onto a vessel at the port of loading and in transit on the final mode of transit prior to entry into the United States before 12:01 a.m. eastern time on July 24, 2026; and (2) are entered for consumption, or withdrawn from warehouse for consumption, before 12:01 a.m. eastern time on July 28, 2026",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Articles the product of Canada, as provided for in subdivision (g) of U.S. note 52 to this subchapter",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Forced labor section 301 overlay composition under headings 9903.05.20 through 9903.05.84",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "entered for consumption ... before 12:01 a.m. eastern time on July 28, 2026",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "loaded onto a vessel ... before 12:01 a.m. eastern time on July 24, 2026",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 26,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

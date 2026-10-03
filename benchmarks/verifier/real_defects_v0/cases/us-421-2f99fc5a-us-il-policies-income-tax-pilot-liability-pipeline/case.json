@@ -154,6 +154,135 @@
     "requested_citation_path": "us-il/statute/35/5/201",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "il_pit_pilot_income_tax_liability",
+      "il_pit_pilot_taxable_income",
+      "il_pit_pilot_standard_exemption",
+      "il_pit_pilot_net_income_after_exemption"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A tax measured by net income is hereby imposed on every individual",
+        "where": [
+          "il_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/201",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the tax imposed under subsections (a) and (b) of this Section for such taxable year shall be increased",
+        "where": [
+          "il_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/201",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for taxable years beginning on or after July 1, 2017, an amount equal to 4.95%",
+        "where": [
+          "il_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-il/statute/35/5/201",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "il_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "il_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", but the resolved text limits (h)(6) recapture to",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "35 ILCS 5/201(b) ... before section 201/212 credits",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "deliberately excludes the section 201 investment ... credits",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "recapture clauses, including the (h) paragraph (6) text the post-fix atom quotes. (6) Commit body is empty (just a newline); the PR (TheAxiomFoundation/rulespec-us#958) has no reviews, review comments, or issue comments, so the only narrative evidence is the PR summary bullets. (7) Follow-up commit 4652444ae",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the tax imposed under subsections (a) and (b) of this Section for such taxable year shall be increased",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "while proving against us-il/statute/35/5/204 (net income is 35 ILCS 5/202), a grounding mismatch on a rule the fix deletes rather than repairs; and the fix's new source line cites",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

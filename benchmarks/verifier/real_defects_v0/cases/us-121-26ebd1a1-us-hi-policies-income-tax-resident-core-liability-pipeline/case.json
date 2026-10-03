@@ -182,6 +182,353 @@
     "requested_citation_path": "us-hi/statute/235-2.3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "hi_pit_2026_tax_table_source_hold_applies",
+      "hi_pit_2026_supported_profile_tax_before_credits",
+      "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits",
+      "hi_pit_2026_supported_profile_net_income_tax_liability",
+      "hi_pit_2026_supported_profile_refundable_excess_before_payments",
+      "hi_pit_2026_supported_profile_applies",
+      "hi_pit_2026_refundable_child_and_dependent_care_credit",
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_refundable_food_excise_tax_credit",
+      "hi_pit_2026_refundable_low_income_renter_credit",
+      "hi_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Certain married individuals living apart",
+        "where": [
+          "hi_pit_2026_refundable_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like",
+        "where": [
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In lieu of the tax imposed by section 235-51",
+        "where": [
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-53",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Internal Revenue Code of 1986, as amended as of December 31, 2024",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-2.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a person for whom exemption is claimed has been physically present in the State for more than nine months",
+        "where": [
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "adjusted gross income of less than $30,000",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount (not less than $20,000) determined by the director",
+        "where": [
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-53",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount equal to the applicable percentage of the employment-related expenses",
+        "where": [
+          "hi_pit_2026_refundable_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "basic standard deduction",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-2.4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "claim for credit shall be based upon a pro rata share of the rent paid",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "credited against the tax payable",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "every resident of the State",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "followed by nonrefundable tax credits",
+        "where": [
+          "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-91.5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "multiplied by the number of qualified exemptions",
+        "where": [
+          "hi_pit_2026_refundable_food_excise_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "offsetting of a taxpayer's income tax liability",
+        "where": [
+          "hi_pit_2026_supported_profile_net_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-91.5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall not be available to",
+        "where": [
+          "hi_pit_2026_refundable_food_excise_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "tax credit of $50 multiplied by the number of qualified exemptions",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the excess of credit over payments due shall be refunded",
+        "where": [
+          "hi_pit_2026_supported_profile_refundable_excess_before_payments.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.75",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the tax imposed by this section shall not exceed",
+        "where": [
+          "hi_pit_2026_supported_profile_tax_before_credits.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-51",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "upon the taxable income of every resident of the State",
+        "where": [
+          "hi_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "who maintains a household which includes as a member one or more qualifying individuals",
+        "where": [
+          "hi_pit_2026_refundable_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(2) Ceiling amount defined. ... the term \\",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "[i]n lieu of the tax imposed by section 235-51",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "category; (c) the food/excise and renter credits ignored the 235-55.85(b) and 235-55.7(e) provisos that separate filers",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "means, with respect to any taxpayer, the amount (not less than $20,000) determined by the director for the tax rate category in which such taxpayer falls.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "rather than assuming $20,000 is the ceiling or substituting continuous §235-51 schedules",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount (not less than $20,000) determined by the director",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount (not less than $20,000) determined by the director for the tax rate category in which such taxpayer falls",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the credit shall be allowed under subsection (a) only if the taxpayer and the taxpayer's spouse file a joint return",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 11,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

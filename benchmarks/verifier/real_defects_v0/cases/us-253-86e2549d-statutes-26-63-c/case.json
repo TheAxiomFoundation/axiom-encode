@@ -457,6 +457,237 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "basic_standard_deduction_before_dependent_limitation",
+      "basic_standard_deduction",
+      "basic_standard_deduction_limited_for_dependents",
+      "head_of_household_basic_standard_deduction_amount",
+      "other_case_basic_standard_deduction_amount",
+      "additional_standard_deduction",
+      "additional_std_ded_amount",
+      "num_additional_standard_deduction_conditions",
+      "standard_deduction",
+      "standard_deduction_ineligible"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$3,000 in any other case",
+        "where": [
+          "basic_standard_deduction_before_dependent_limitation.versions[0].formula",
+          "other_case_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$4,400 in the case of a head of household",
+        "where": [
+          "basic_standard_deduction_before_dependent_limitation.versions[0].formula",
+          "head_of_household_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If any increase under this clause is not a multiple of $50, such increase shall be rounded to the next lowest multiple of $50.",
+        "where": [
+          "head_of_household_basic_standard_deduction_amount.versions[0].formula",
+          "other_case_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of a taxable year beginning after 2025, the $23,625 and $15,750 amounts in subparagraph (A) shall each be increased by an amount equal to— (I) such dollar amount, multiplied by (II) the cost-of-living adjustment determined under section 1(f)(3)",
+        "where": [
+          "head_of_household_basic_standard_deduction_amount.versions[0].formula",
+          "other_case_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of— (A) a married individual filing a separate return where either spouse itemizes deductions, (B) a nonresident alien individual, (C) an individual making a return under section 443(a)(1) for a period of less than 12 months on account of a change in his annual accounting period, or (D) an estate or trust, common trust fund, or partnership, the standard deduction shall be zero.",
+        "where": [
+          "standard_deduction_ineligible.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "by substituting “$15,750” for “$3,000” in subparagraph (C)",
+        "where": [
+          "other_case_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "by substituting “$23,625” for “$4,400” in subparagraph (B)",
+        "where": [
+          "head_of_household_basic_standard_deduction_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the additional standard deduction is the sum of each additional amount to which the taxpayer is entitled under subsection (f).",
+        "where": [
+          "additional_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the basic standard deduction applicable to such individual for such individual’s taxable year shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual’s earned income.",
+        "where": [
+          "basic_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the basic standard deduction is— (A) 200 percent of the dollar amount in effect under subparagraph (C) for the taxable year in the case of— (i) a joint return, or (ii) a surviving spouse",
+        "where": [
+          "basic_standard_deduction_before_dependent_limitation.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the standard deduction shall be zero.",
+        "where": [
+          "standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “standard deduction” means the sum of— (A) the basic standard deduction, and (B) the additional standard deduction.",
+        "where": [
+          "standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2018-01-01",
+        "where": [
+          "additional_standard_deduction.versions[0].effective_from",
+          "basic_standard_deduction.versions[0].effective_from",
+          "basic_standard_deduction_before_dependent_limitation.versions[0].effective_from",
+          "head_of_household_basic_standard_deduction_amount.versions[0].effective_from",
+          "other_case_basic_standard_deduction_amount.versions[0].effective_from",
+          "standard_deduction.versions[0].effective_from",
+          "standard_deduction_ineligible.versions[0].effective_from"
+        ],
+        "forms": [
+          "2018-01-01",
+          "January 1, 2018",
+          "1 January 2018"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "additional_std_ded_amount.versions[0].effective_from",
+          "basic_standard_deduction_limited_for_dependents.versions[0].effective_from",
+          "num_additional_standard_deduction_conditions.versions[0].effective_from",
+          "standard_deduction.versions[0].effective_from",
+          "standard_deduction_ineligible.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ") than to an added clause. The reader's own reading concedes the surviving-spouse gap is",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "200 percent of the dollar amount in effect under subparagraph (C)",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxable year beginning after December 31, 2017",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 16,
+    "post_side_matched": 14,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

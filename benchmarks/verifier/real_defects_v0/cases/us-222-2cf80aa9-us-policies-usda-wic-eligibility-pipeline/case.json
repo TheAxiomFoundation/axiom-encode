@@ -69,6 +69,94 @@
     "requested_citation_path": "us/regulation/7/246/7/c",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "wic_income_eligible"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "pregnant women",
+        "where": [
+          "wic_income_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/c",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Persons who are adjunctively income eligible",
+        "where": [
+          "wic_income_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/d",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "); the scoping language lives in (d)(2)(vii), not (c). (5) The first reader's justification quote,",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", which this guard does not encode, but that extension was never encoded in the imported (d) rule either, so it is a pre-existing gap rather than something this commit introduced. This commit is a repair round inside PR #1010 (merged 2026-07-26); the separate blind-review finding about the 185%-FPG vs operative State guideline is fixed by the later commit fc95ef853",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero. The same increased family size may also be used for any of the pregnant woman's categorically eligible family members.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines...",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The same increased family size may also be used for any of the pregnant woman's categorically eligible family members,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

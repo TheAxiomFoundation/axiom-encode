@@ -102,6 +102,77 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_initial_month_prorated_allotment",
+      "snap_initial_month_allotment_after_minimum_issuance",
+      "snap_allotment",
+      "snap_maximum_allotment_for_household_size",
+      "snap_maximum_allotment_for_one_person_household",
+      "household_initial_month",
+      "state_agency_rounds_thirty_percent_net_income_up"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-10-01",
+        "where": [
+          "household_initial_month.versions[0].effective_from",
+          "snap_initial_month_allotment_after_minimum_issuance.versions[0].effective_from",
+          "snap_maximum_allotment_for_household_size.versions[0].effective_from",
+          "snap_maximum_allotment_for_one_person_household.versions[0].effective_from",
+          "state_agency_rounds_thirty_percent_net_income_up.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Eligible households are entitled to a full month allotment for all months except an initial month of application",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Multiply by the full month's benefits the household is eligible to receive ... Divide by the number of days in the application month",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "repair initial-month proration and 4.401 separate-household source scope through signed encoder provenance",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

@@ -62,6 +62,770 @@
     "requested_citation_path": "us/statute/hts/chapter-99/page-236",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "s232_steel_primary_heading_membership",
+      "s232_steel_primary_subheading6_membership"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7206",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7207",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7208",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7209",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7210",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7211",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7212",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7213",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7214",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7215",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7217",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7218",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7219",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7220",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7221",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7222",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7223",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7224",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7225",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7226",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7227",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7228",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7229",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7302.10",
+        "where": [
+          "s232_steel_primary_subheading6_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7302.90",
+        "where": [
+          "s232_steel_primary_subheading6_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7304",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7305",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7306",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-236",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-08-03",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].effective_from",
+          "s232_steel_primary_subheading6_membership.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-08-03",
+          "August 3, 2026",
+          "3 August 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7206",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7206",
+          "7,206"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7207",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7207",
+          "7,207"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7208",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7208",
+          "7,208"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7209",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7209",
+          "7,209"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7210",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7210",
+          "7,210"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7211",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7211",
+          "7,211"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7212",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7212",
+          "7,212"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7213",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7213",
+          "7,213"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7214",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7214",
+          "7,214"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7215",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7215",
+          "7,215"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7217",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7217",
+          "7,217"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7218",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7218",
+          "7,218"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7219",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7219",
+          "7,219"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7220",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7220",
+          "7,220"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7221",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7221",
+          "7,221"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7222",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7222",
+          "7,222"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7223",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7223",
+          "7,223"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7224",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7224",
+          "7,224"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7225",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7225",
+          "7,225"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7226",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7226",
+          "7,226"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7227",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7227",
+          "7,227"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7228",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7228",
+          "7,228"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7229",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7229",
+          "7,229"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "730210",
+        "where": [
+          "s232_steel_primary_subheading6_membership.versions[0].values"
+        ],
+        "forms": [
+          "730210",
+          "730,210"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "730290",
+        "where": [
+          "s232_steel_primary_subheading6_membership.versions[0].values"
+        ],
+        "forms": [
+          "730290",
+          "730,290"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7304",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7304",
+          "7,304"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7305",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7305",
+          "7,305"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7306",
+        "where": [
+          "s232_steel_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7306",
+          "7,306"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b).",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 60,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

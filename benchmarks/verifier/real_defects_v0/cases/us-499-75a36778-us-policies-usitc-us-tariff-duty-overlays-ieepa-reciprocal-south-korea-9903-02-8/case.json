@@ -166,6 +166,194 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold",
+      "reciprocal_south_korea_below_floor_heading_product_exception_applies",
+      "reciprocal_south_korea_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_south_korea_floor_duty_applies",
+      "reciprocal_south_korea_below_floor_general_duty_rate",
+      "reciprocal_south_korea_below_floor_special_duty_rate",
+      "reciprocal_south_korea_below_floor_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.30–9903.01.33, 9903.02.78, and 9903.02.81",
+        "where": [
+          "reciprocal_south_korea_below_floor_heading_product_exception_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): 15%",
+        "where": [
+          "reciprocal_south_korea_below_floor_general_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-Special): 15%",
+        "where": [
+          "reciprocal_south_korea_below_floor_special_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (2): The duty provided in the applicable subheading",
+        "where": [
+          "reciprocal_south_korea_below_floor_column_2_duty_change.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "articles the product of South Korea",
+        "where": [
+          "reciprocal_south_korea_floor_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "as provided for in subdivision (v)(xxiv)(a) of U.S. note 2 to this subchapter",
+        "where": [
+          "reciprocal_south_korea_floor_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except as provided for in headings 9903.01.34, 9903.02.01",
+        "where": [
+          "reciprocal_south_korea_below_floor_otherwise_provision_exception_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "rate of duty under column 1-General or column 1-Special less than 15 percent",
+        "where": [
+          "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General or column 1-Special less than 15 percent",
+        "where": [
+          "reciprocal_south_korea_floor_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.15",
+        "where": [
+          "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "0.15",
+          "15 percent",
+          "15 per cent",
+          "15%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold.versions[0].effective_from",
+          "reciprocal_south_korea_below_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_south_korea_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_south_korea_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_south_korea_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_south_korea_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_south_korea_floor_duty_applies.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "column 1-General or column 1-Special less than 15 percent",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "rate of duty under column 1-General or column 1-Special less than 15 percent",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the five floor stub modules are complete encodings",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 14,
+    "post_side_matched": 12,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

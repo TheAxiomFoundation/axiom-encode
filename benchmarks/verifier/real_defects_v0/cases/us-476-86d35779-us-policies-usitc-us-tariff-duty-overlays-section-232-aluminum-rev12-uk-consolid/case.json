@@ -128,6 +128,72 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "section_232_uk_aluminum_steel_derivative_articles_additional_duty_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-21",
+        "where": [
+          "section_232_uk_aluminum_steel_derivative_articles_additional_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-07-21",
+          "July 21, 2026",
+          "21 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-07-23",
+        "where": [
+          "section_232_uk_aluminum_steel_derivative_articles_additional_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-07-23",
+          "July 23, 2026",
+          "23 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Articles of aluminum or of steel and derivative aluminum or steel articles the product of the United Kingdom, as provided for in subdivisions (c)(i)-(iv) and (d) of U.S. note 16 to this subchapter / Rates of duty (1-General): The duty provided in the applicable subheading + 25%",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "leaving entries on 07-21 and 07-22 without the UK overlay",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -97,6 +97,101 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion",
+      "clause_i_compensation_excess_excluded_for_section_3211_a_hospital_insurance_rate_portion"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Clause (i) shall not apply to... so much of the rate applicable under section 3201(a) or 3221(a)",
+        "where": [
+          "clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3231",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Clause (i) shall not apply to... so much of the rate applicable under section 3211(a)",
+        "where": [
+          "clause_i_compensation_excess_excluded_for_section_3211_a_hospital_insurance_rate_portion.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3231",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1990-01-01",
+        "where": [
+          "clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion.versions[0].effective_from",
+          "clause_i_compensation_excess_excluded_for_section_3211_a_hospital_insurance_rate_portion.versions[0].effective_from"
+        ],
+        "forms": [
+          "1990-01-01",
+          "January 1, 1990",
+          "1 January 1990"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(iii) Hospital insurance taxes Clause (i) shall not apply to— (I) so much of the rate applicable under section 3201(a) or 3221(a) as does not exceed the rate of tax in effect under section 3101(b), and (II) so much of the rate applicable under section 3211(a) as does not exceed the rate of tax in effect under section 1401(b).",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Clause (i) shall not apply to- (I) so much of the rate applicable under section 3201(a) or 3221(a) as does not exceed the rate of tax in effect under section 3101(b), and (II) so much of the rate applicable under section 3211(a) as does not exceed the rate of tax in effect under section 1401(b).",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "source states it, encoding lacks it, fix adds it",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "with an empty body, and the PR describes only",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

@@ -339,6 +339,174 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ny_snap_categorically_eligible",
+      "ny_snap_public_assistance_categorically_eligible",
+      "ny_snap_all_members_public_assistance_categorical_path_satisfied",
+      "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status",
+      "family_assistance_or_safety_net_minimum_payable_grant_amount",
+      "ny_snap_standard_gross_income_categorically_eligible",
+      "ny_snap_residual_130_percent_categorical_path_satisfied",
+      "ny_snap_categorical_eligibility_130_percent_fpl_ratio",
+      "ny_snap_categorical_gross_income_limit_130_percent_fpl",
+      "snap_income_eligible",
+      "snap_income_limit_exemption_for_categorically_eligible_household",
+      "ny_snap_categorical_disqualification_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Categorically eligible households are exempted from the gross and net income limits",
+        "where": [
+          "snap_income_limit_exemption_for_categorically_eligible_household.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Under no circumstances can any household be considered categorically eligible for SNAP if any member of that household is disqualified",
+        "where": [
+          "ny_snap_categorically_eligible.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "grant is less than $10",
+        "where": [
+          "family_assistance_or_safety_net_minimum_payable_grant_amount.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "gross household income at or below 130 percent of the Federal poverty limit",
+        "where": [
+          "ny_snap_categorical_eligibility_130_percent_fpl_ratio.versions[0].formula",
+          "ny_snap_categorical_gross_income_limit_130_percent_fpl.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1.3",
+        "where": [
+          "ny_snap_categorical_eligibility_130_percent_fpl_ratio.versions[0].formula"
+        ],
+        "forms": [
+          "1.3"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10",
+        "where": [
+          "family_assistance_or_safety_net_minimum_payable_grant_amount.versions[0].formula"
+        ],
+        "forms": [
+          "10"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Clause (a) covers households in which all members are recipients of family assistance, nonemergency safety net assistance and/or SSI benefits, including authorized-but-unpaid, suspended or recouped, and under-$10 grant cases.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Individuals ineligible to participate in SNAP cannot be included in any household which is otherwise categorically eligible for SNAP.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "authorized to receive ... but who have not yet received payment",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "households not meeting one or more of clauses (a) through (d)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "households not meeting one or more of the definitions set forth in clauses ( a ) through ( d ) above",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "individuals determined eligible ... but who are not paid such benefits because the grant is less than $10",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "individuals whose ... benefits are suspended or being recouped",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 10,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

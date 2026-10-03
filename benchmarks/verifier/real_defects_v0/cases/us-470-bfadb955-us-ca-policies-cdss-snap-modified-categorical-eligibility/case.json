@@ -149,6 +149,159 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "calfresh_mce_canonical_member_of_household",
+      "calfresh_mce_household_exclusion_applies",
+      "calfresh_mce_status_conferred"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "No person shall be included as a member in any household which is otherwise categorically eligible if that person is:",
+        "where": [
+          "calfresh_mce_canonical_member_of_household.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "No person shall be included as a member in any household which is otherwise categorically eligible if that person is:",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Receipt of the PUB 275, in and of itself, does not confer MCE status.",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/guidance/cdss/acl-2014-14-56/page-3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The department shall establish a program of categorical eligibility for CalFresh",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/statute/wic/18901.5",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The entire household is disqualified because one or more of its members failed to comply with workfare in accordance with § 273.22",
+        "where": [
+          "calfresh_mce_household_exclusion_applies.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Under no circumstances shall any household be considered categorically eligible if:",
+        "where": [
+          "calfresh_mce_household_exclusion_applies.versions[0].formula",
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with gross income at or below 200 percent of the FPL must be conferred MCE status if they are issued or have online access to the TANF-funded “Family Planning – PUB 275” brochure and meet all other conditions of eligibility for CalFresh",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/guidance/cdss/acl-2015-15-42/page-2",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-10-01",
+        "where": [
+          "calfresh_mce_canonical_member_of_household.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "No person shall be included as a member in any household which is otherwise categorically eligible if that person is:",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Preserve the established runtime convention: current entity in slot 1, related entity in slot 0",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation. Replaced that alias with a private, tautological derived relation whose executable source is the fully qualified federal state-plan relation; both MCE aggregations now range over this complete canonical projection.",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

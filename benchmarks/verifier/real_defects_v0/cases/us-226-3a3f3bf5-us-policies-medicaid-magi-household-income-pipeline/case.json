@@ -73,6 +73,139 @@
     "requested_citation_path": "us/regulation/42/435/603/b",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "medicaid_scalar_contract_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Federal poverty level for the applicable family size",
+        "where": [
+          "medicaid_scalar_contract_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/42/435/603/d",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the agency may adopt a reasonable method to include a prorated portion of reasonably predictable future income",
+        "where": [
+          "medicaid_scalar_contract_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/42/435/603/h",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the pregnant woman is counted, at State option, as either 1 or 2 person(s) or as herself plus the number of children she is expected to deliver",
+        "where": [
+          "medicaid_scalar_contract_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/42/435/603/b",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Family-size key returned by the authoritative HHS poverty-guideline lookup for the determination year and region; it must equal the applicable family size.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Federal poverty level for the applicable family size",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes",
+          "triage.verifier_justification",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Required attestation that family size and annual FPL correspond to each other…",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "State elections under 435.603 … get explicit election inputs that fail closed — no assumed defaults",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The true attestation cannot override the structural lookup mismatch",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The true attestation cannot override the structural lookup mismatch.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "subtract an amount equivalent to 5 percentage points of the Federal poverty level for the applicable family size",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 11,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

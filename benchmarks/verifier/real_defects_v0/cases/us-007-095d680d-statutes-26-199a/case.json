@@ -111,6 +111,131 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "cooperative_reduction",
+      "qbi_deduction_before_minimum_active_qbi",
+      "cooperative_production_deduction_before_wage_limit",
+      "cooperative_production_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "9 percent of the lesser of— (i) the qualified production activities income ... or (ii) the taxable income",
+        "where": [
+          "cooperative_production_deduction_before_wage_limit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation",
+        "where": [
+          "qbi_deduction_before_minimum_active_qbi.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall be reduced by the lesser of— (A) 9 percent ... or (B) 50 percent",
+        "where": [
+          "cooperative_reduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall not exceed 50 percent of the W–2 wages of the taxpayer",
+        "where": [
+          "cooperative_production_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "there shall be allowed as a deduction ... the lesser of— (1) the combined qualified business income amount ... or (2) ...",
+        "where": [
+          "qbi_deduction_before_minimum_active_qbi.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a negative statutory reduction that increases the deduction",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an amount equal to 9 percent of the lesser of— (i) ... or (ii) ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "occurs zero times in the resolved 26 USC 199A text (corpus release us-rulespec-2026-07-13, body sha256 0af6c1cc…), and the one relevant",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be reduced by the lesser of— (A) 9 percent ... or (B) 50 percent ...",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall not exceed 50 percent of the W-2 wages",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

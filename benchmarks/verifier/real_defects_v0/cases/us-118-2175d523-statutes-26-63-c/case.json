@@ -159,6 +159,105 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "standard_deduction",
+      "basic_standard_deduction_limited_for_dependents",
+      "num_additional_standard_deduction_conditions",
+      "member_of_tax_unit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except as otherwise provided in this subsection, the term “standard deduction” means the sum of— (A) the basic standard deduction, and (B) the additional standard deduction.",
+        "where": [
+          "standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For purposes of paragraph (1), the additional standard deduction is the sum of each additional amount to which the taxpayer is entitled under subsection (f).",
+        "where": [
+          "num_additional_standard_deduction_conditions.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For purposes of paragraph (1), the basic standard deduction is— ... (B) $4,400 in the case of a head of household ... or (C) $3,000 in any other case.",
+        "where": [
+          "basic_standard_deduction_limited_for_dependents.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of an individual with respect to whom a deduction under section 151 is allowable to another taxpayer ... the basic standard deduction applicable to such individual ... shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual’s earned income.",
+        "where": [
+          "basic_standard_deduction_limited_for_dependents.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of— ... the standard deduction shall be zero.",
+        "where": [
+          "standard_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "basic_standard_deduction_limited_for_dependents.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of an individual with respect to whom a deduction under section 151 is allowable to another taxpayer ... the basic standard deduction applicable to such individual ... shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

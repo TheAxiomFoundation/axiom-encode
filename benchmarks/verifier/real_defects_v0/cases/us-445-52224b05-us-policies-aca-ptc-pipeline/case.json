@@ -98,6 +98,183 @@
     "requested_citation_path": "us/statute/26/36B",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "aca_ptc_full_year_runtime_inputs_valid",
+      "aca_ptc_applicable_percentage_rounding_grid_increment",
+      "aca_ptc_annual_premium_tax_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is",
+        "where": [
+          "aca_ptc_applicable_percentage_rounding_grid_increment.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-25",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with respect to all coverage months of the taxpayer occurring during the taxable year",
+        "where": [
+          "aca_ptc_full_year_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/statute/26/36B",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.0001",
+        "where": [
+          "aca_ptc_applicable_percentage_rounding_grid_increment.versions[0].formula"
+        ],
+        "forms": [
+          "0.0001",
+          "0.01 percent",
+          "0.01 per cent",
+          "0.01%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "aca_ptc_applicable_percentage_rounding_grid_increment.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "aca_ptc_applicable_percentage_rounding_grid_increment.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "): the pre-fix module did export a PTC amount that disagrees with real-world law, and the framework lists",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Required fixtures use table endpoints, constant bands, or an exact midpoint, so this missing operation does not change their rates",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The pinned corpus resolver finds no provision for 26 CFR 1.36B-3(g), so this module does not claim to compute the general rounded rate.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fix: express ACA PTC grid guard as judgment logic",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fix: gate ACA PTC public arithmetic off grid",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "only became gated two commits later in 2d032aa87",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall increase, on a sliding scale in a linear manner, from the initial premium percentage to the final premium percentage",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— so the pre-fix raw linear interpolation matched the cited source text exactly, and the module had already declared the rounded rate a deferred output. The fix does not encode the source rule it invokes; by its own words the regulation is un-ingested (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

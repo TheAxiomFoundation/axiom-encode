@@ -322,6 +322,294 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mfn_ad_valorem_rate",
+      "origin_is_russia",
+      "russia_heading_9903_90_09_rate_of_duty",
+      "line_b_special_rate_applies",
+      "ieepa_component_rate",
+      "section_232_aluminum_component_rate",
+      "brazil_section_301_component_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7202.11.10",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-545",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7601.10.30",
+        "where": [
+          "mfn_ad_valorem_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-509",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles the product of the Russian Federation, as provided for in U.S. note 30(c) to this subchapter",
+        "where": [
+          "origin_is_russia.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.90.09",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "As provided in heading 9903.05.03, the additional duty imposed by heading 9903.05.01 shall not apply to articles the product of Brazil that are classifiable in the following subheadings of the HTSUS",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-542",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "As provided in heading 9903.05.07, the additional duty imposed by heading 9903.05.01 shall not apply to: (1) articles of aluminum, of steel or of copper",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.20, products of China and Hong Kong, which have been entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 am eastern standard time February 4, 2025, and prior to 12:01 a.m. eastern standard time on March 4, 2025",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption, or withdrawn from warehouse for consumption on or after 12:01 a.m., eastern standard time on November 10, 2025",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-176",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-Special): Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA, OM,P,PA,PE,S,SG)",
+        "where": [
+          "line_b_special_rate_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (2): 70%",
+        "where": [
+          "mfn_ad_valorem_rate.versions[0].formula",
+          "russia_heading_9903_90_09_rate_of_duty.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.90.09",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by heading 9903.01.77 shall not apply to products of aluminum provided for in heading 9903.85.02.",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-219",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "articles that are the product of the Russian Federation, as provided for in subdivisions (c) and (d) of this note, shall be subject to a 70 percent ad valorem rate of duty in lieu of the rates of duty provided for such articles in column 2 of the HTSUS in chapters 1 to 97",
+        "where": [
+          "mfn_ad_valorem_rate.versions[0].formula",
+          "russia_heading_9903_90_09_rate_of_duty.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-508",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "as soon as practicable, terminate the collection of the additional ad valorem duties described in section 1 of this order",
+        "where": [
+          "ieepa_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-02-25/2026-03832",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "additional duty is applicable with respect to products that are entered  for consumption, or withdrawn from warehouse for consumption, on or  after 12:01 eastern time on July 22, 2026",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-20/2026-14542",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the rates of duty in column 1 are rates which are applicable to all products other than those of countries enumerated in paragraph (b) of this note",
+        "where": [
+          "mfn_ad_valorem_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/general-note-3/page-1",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.7",
+        "where": [
+          "russia_heading_9903_90_09_rate_of_duty.versions[0].formula"
+        ],
+        "forms": [
+          "0.7",
+          "70 percent",
+          "70 per cent",
+          "70%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "line_b_special_rate_applies.versions[0].effective_from",
+          "origin_is_russia.versions[0].effective_from",
+          "russia_heading_9903_90_09_rate_of_duty.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-20",
+        "where": [
+          "section_232_aluminum_component_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-07-20",
+          "July 20, 2026",
+          "20 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-07-21",
+        "where": [
+          "brazil_section_301_component_rate.versions[0].effective_to",
+          "section_232_aluminum_component_rate.versions[1].effective_from"
+        ],
+        "forms": [
+          "2026-07-21",
+          "July 21, 2026",
+          "21 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-07-23",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].effective_from",
+          "section_232_aluminum_component_rate.versions[1].effective_from"
+        ],
+        "forms": [
+          "2026-07-23",
+          "July 23, 2026",
+          "23 July 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ": no existing numeric parameter was corrected (18.5% remains right for Cuba); the fix adds a source clause (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Articles the product of the Russian Federation, as provided for in U.S. note 30(c)... Rates of duty (2): 70%",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "pre",
+        "text": "Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 18,
+    "post_side_matched": 1,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

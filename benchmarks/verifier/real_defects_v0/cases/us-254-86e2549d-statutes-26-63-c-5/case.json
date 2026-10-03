@@ -120,6 +120,159 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "dependent_standard_deduction",
+      "dependent_basic_standard_deduction_statutory_limit",
+      "dependent_basic_standard_deduction_limitation_applies",
+      "dependent_basic_standard_deduction_statutory_floor_amount",
+      "dependent_basic_standard_deduction_statutory_earned_income_addition_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "(B) the sum of $250 and such individual’s earned income.",
+        "where": [
+          "dependent_basic_standard_deduction_statutory_limit.versions[0].formula",
+          "dependent_basic_standard_deduction_statutory_earned_income_addition_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of an individual with respect to whom a deduction under section 151 is allowable to another taxpayer for a taxable year beginning in the calendar year in which the individual’s taxable year begins",
+        "where": [
+          "dependent_basic_standard_deduction_limitation_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the basic standard deduction applicable to such individual for such individual’s taxable year shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual’s earned income.",
+        "where": [
+          "dependent_basic_standard_deduction_statutory_limit.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the greater of— (A) $500",
+        "where": [
+          "dependent_basic_standard_deduction_statutory_limit.versions[0].formula",
+          "dependent_basic_standard_deduction_statutory_floor_amount.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "250",
+        "where": [
+          "dependent_basic_standard_deduction_statutory_earned_income_addition_amount.versions[0].formula"
+        ],
+        "forms": [
+          "250"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "500",
+        "where": [
+          "dependent_basic_standard_deduction_statutory_floor_amount.versions[0].formula"
+        ],
+        "forms": [
+          "500"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Annual inflation-adjusted dollar amounts are imported from the IRS tax-year authority, not encoded in the statute file",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "and is structural alignment with the TaxUnit-scoped consumer, so the",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "deduction under section 151 allowable to another taxpayer",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "each dollar amount contained in paragraph (2)(B), (2)(C), or (5)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "encode 26 USC 63(c) standard deduction through the encoder apply flow",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the basic standard deduction applicable to such individual",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 8,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

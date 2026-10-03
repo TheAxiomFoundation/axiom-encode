@@ -141,6 +141,164 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_south_korea_floor_heading_product_exception_applies",
+      "reciprocal_south_korea_floor_otherwise_provision_exception_applies",
+      "reciprocal_south_korea_floor_met_or_exceeded_applies",
+      "reciprocal_south_korea_floor_general_duty_rate",
+      "reciprocal_south_korea_floor_special_duty_rate",
+      "reciprocal_south_korea_floor_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.30–9903.01.33, 9903.02.78, and 9903.02.81",
+        "where": [
+          "reciprocal_south_korea_floor_heading_product_exception_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "reciprocal_south_korea_floor_general_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-Special): The duty provided in the applicable subheading",
+        "where": [
+          "reciprocal_south_korea_floor_special_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (2): The duty provided in the applicable subheading",
+        "where": [
+          "reciprocal_south_korea_floor_column_2_duty_change.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "articles the product of South Korea",
+        "where": [
+          "reciprocal_south_korea_floor_met_or_exceeded_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "as provided for in subdivision (v)(xxiv)(a) of U.S. note 2 to this subchapter",
+        "where": [
+          "reciprocal_south_korea_floor_met_or_exceeded_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except as provided for in headings 9903.01.34, 9903.02.01",
+        "where": [
+          "reciprocal_south_korea_floor_otherwise_provision_exception_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "reciprocal_south_korea_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_south_korea_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_south_korea_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_south_korea_floor_met_or_exceeded_applies.versions[0].effective_from",
+          "reciprocal_south_korea_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_south_korea_floor_special_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.30–9903.01.33, 9903.02.78, and 9903.02.81, and except as provided for in headings 9903.01.34, 9903.02.01, articles the product of South Korea, with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General or column 1-Special equal to or greater than 15 percent, as provided for in subdivision (v)(xxiv)(a) of U.S. note 2 to this subchapter.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Sibling-collision renames: 9903.02.79 and 9903.02.87 rules take the floor_* prefix (jp-72/ch-82 precedent) because their terminated predecessors export the plain names.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a clause the source states was missing from the encoding (the fix adds it),",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "heading-product exception now includes 9903.02.78 per the rev12 heading text",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 8,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

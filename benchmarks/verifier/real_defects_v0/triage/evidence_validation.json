@@ -1,0 +1,360 @@
+{
+ "about": "Hand calls used to validate tools/check_evidence.py. A call is present when the provision text carries the evidence that the pre-fix module is wrong, so a judge given provision.txt and pre_fix.yaml could detect the defect, and absent otherwise. tests/test_real_defects_corpus.py recomputes each set's agreement with the committed evidence_in_provision values.",
+ "method": "changed_rule_strings_v1",
+ "sets": [
+  {
+   "name": "review_round2",
+   "labeller": "the 2026-10-03 round-two reviewer of PR #1659 (Claude, read-only), by grepping each provision for the phrase the case's pre_fix_wrong_because cites",
+   "role": "calibration: in-sample. The first version of the method agreed on 12 of 15; it was revised after these disagreements were read.",
+   "labels": {
+    "uk-001-105a10d6-uk-policies-govuk-student-loan-repayments": {
+     "label": "absent"
+    },
+    "uk-002-2d8fded7-uk-barnsley-policies-barnsley-council-tax-reduction": {
+     "label": "present"
+    },
+    "uk-013-1641f4cf-uk-worthing-policies-worthing-council-tax-reduction": {
+     "label": "absent"
+    },
+    "us-001-044e91ad-us-statutes-42-415-i": {
+     "label": "present"
+    },
+    "us-015-17c4a96d-us-regulations-7-cfr-273-10": {
+     "label": "absent"
+    },
+    "us-018-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch01-ch01": {
+     "label": "absent"
+    },
+    "us-402-ca94764e-regulations-18-nycrr-387-12-f-3-v-c": {
+     "label": "present"
+    },
+    "us-410-1e0518cb-statutes-26-3101-b-2": {
+     "label": "present"
+    },
+    "us-412-0db0731a-regulations-7-cfr-273-10": {
+     "label": "present"
+    },
+    "us-415-77c74778-us-statutes-42-1396a-a-10": {
+     "label": "absent"
+    },
+    "us-459-d1ed1b59-us-nc-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "absent"
+    },
+    "us-464-48da39b8-us-sc-policies-dss-snap-policy-manual-page-163": {
+     "label": "present"
+    },
+    "us-475-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-232-aluminum-rev12-consolidati": {
+     "label": "absent"
+    },
+    "us-479-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-brazil-9903-0": {
+     "label": "absent"
+    },
+    "us-487-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-liechtenstein-9903-02": {
+     "label": "absent"
+    }
+   }
+  },
+  {
+   "name": "blind_round1",
+   "labeller": "a Claude Opus 5.5 agent on a Subfleet lane, given the case files and triage reasoning and asked whether provision.txt carries the evidence; not shown the method",
+   "role": "development: the method was revised after these were scored (17 of 24 before the revision). The evidence fields were written into the case.json files while the labeller worked, and it was told to read only other keys, so blindness is not guaranteed.",
+   "labels": {
+    "uk-008-60501ec6-policies-govuk-pension-credit": {
+     "label": "present",
+     "decisive_phrase": "Pension Credit tops up: your weekly income to £238 if you're single; your joint weekly income to £363.25 if you have a partner",
+     "found_in_provision": true,
+     "why": "provision.txt describes Guarantee Credit as a top-up of weekly income to a set minimum. The pre-fix formula ignores that and returns an outside entitlement amount whenever a 'would claim' flag is true, a condition the provision never mentions. The state-pension-age condition is not in the provision."
+    },
+    "uk-014-97c58907-uk-middlesbrough-policies-middlesbrough-council-tax-reduction": {
+     "label": "present",
+     "decisive_phrase": "discount will be awarded at Band 1 level except where the authority determines that 8 below applies. 8. ... the authority has evidence or there has been a failure to respond to a request for evidence ... then no discount may be granted",
+     "found_in_provision": true,
+     "why": "Paragraphs 7 and 8 are both in provision.txt. The pre-fix module gives Band 1 to every passported applicant with no paragraph-8 path to zero discount."
+    },
+    "us-236-5474dca0-us-ga-statutes-48-48-7-26": {
+     "label": "absent",
+     "decisive_phrase": "such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00",
+     "found_in_provision": false,
+     "why": "provision.txt is the 2022-11-01 text of O.C.G.A. 48-7-26 and only gives the $3,000 dependent exemption from 2003. None of '125', '6,000', '2027' or the HB 463 proviso appears in it, so nothing there shows that the open-ended $5,000 version should end after 2026."
+    },
+    "us-257-89024d70-regulations-10-ccr-2506-1-4-401": {
+     "label": "present",
+     "decisive_phrase": "The combined income of the others with whom the individual ... resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level",
+     "found_in_provision": true,
+     "why": "The 4.401(A)(4) clause is in provision.txt and ties the 165% poverty test to the group of co-residents. A careful judge could see that the pre-fix comparison against the SNAP household's limit, set on entity Person, is the wrong group. The size keying of that imported limit is not visible in pre_fix.yaml, so spotting this takes some inference."
+    },
+    "us-267-a495db32-regulations-18-nycrr-387-14-a-1": {
+     "label": "present",
+     "decisive_phrase": "in the case of a migrant or seasonal farmworker household, the first month for which a household is certified ... following a period of more than 30 days",
+     "found_in_provision": true,
+     "why": "The full 387.14(a)(1) text is short, and it only sets initial-month proration and defines 'initial month'. It has no 'job stream' limit, no floor rounding, and no whole-allotment branching, so a judge could see that the pre-fix additions have no basis in it."
+    },
+    "us-382-b3801ee4-statutes-26-21": {
+     "label": "present",
+     "decisive_phrase": "the relationship between the individual and the taxpayer is in violation of local law; shall not be treated as a qualifying individual with respect to the noncustodial parent",
+     "found_in_provision": true,
+     "why": "Both the 21(e)(1) local-law clause and the 21(e)(5) noncustodial-parent clause appear verbatim in provision.txt. The pre-fix qualifying-individual test omits both, so a judge can see the gap."
+    },
+    "us-384-b3801ee4-statutes-26-24-d": {
+     "label": "present",
+     "decisive_phrase": "(iii) 50 percent of the taxes imposed by section 3211(a) ... (C) Any amounts paid pursuant to an agreement under section 3121( l ) ... shall be treated as taxes",
+     "found_in_provision": true,
+     "why": "provision.txt contains the full 24(d)(2) definition of social security taxes, including the section 3211(a) railroad half-share and the section 3121(l) foreign-affiliate rule. The pre-fix ctc_social_security_tax has no term for either."
+    },
+    "us-386-b3801ee4-statutes-26-32": {
+     "label": "present",
+     "decisive_phrase": "(C) Exception for individual claiming benefits under section 911 ... (D) Limitation on eligibility of nonresident aliens",
+     "found_in_provision": true,
+     "why": "provision.txt is the full 26 USC 32, including the 32(c)(1) eligible-individual conditions (section 911 exception, nonresident-alien bar and the rest). The pre-fix eitc_demographic_eligible checks only child count or any member's age."
+    },
+    "us-387-b3801ee4-statutes-26-6401": {
+     "label": "present",
+     "decisive_phrase": "amount allowable as credits under subpart C of part IV of subchapter A of chapter 1; section 33 credit ... only if an election under subsection (g) or (h) of section 6013 is in effect ... shall not apply to any credit so allowed by reason of section 1446",
+     "found_in_provision": true,
+     "why": "6401(b)(1)'s general subpart C definition and the 6401(b)(2) section 33 election condition are both in provision.txt. A judge can see that the hard-coded credit list (including refundable_payroll_tax_credit) has no basis in the text and that the section 33 condition is missing."
+    },
+    "us-392-c294a83e-us-nc-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "present",
+     "decisive_phrase": "The amount allowed as a deduction for charitable contributions under section 170 of the Code ... A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision",
+     "found_in_provision": true,
+     "why": "Both clauses are in provision.txt. Together they show the amount to remove is the section 170 deduction for the donation, not the donation's value, which is what the pre-fix input subtracts. Spotting this takes some inference, but the text is there."
+    },
+    "us-401-c6db535b-us-ga-statutes-48-48-7a-3": {
+     "label": "present",
+     "decisive_phrase": "Each taxpayer 65 years of age or over may claim double the tax credit; A husband and wife filing a joint return shall each be deemed a dependent",
+     "found_in_provision": true,
+     "why": "Both sentences are present, and they show the pre-fix error of ignoring a 65-or-over spouse on a joint return. The other half of the fix (one added unit instead of doubling the whole credit) rests on DOR IT-511 guidance that is not in the file, and the literal 'double the tax credit' wording arguably supports the pre-fix doubling."
+    },
+    "us-409-5cdc45e5-policies-irs-rev-proc-2025-32-standard-deduction": {
+     "label": "absent",
+     "decisive_phrase": "The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse",
+     "found_in_provision": true,
+     "why": "The sentence is in provision.txt, but the pre-fix condition (individual_is_unmarried_and_not_surviving_spouse) restates it word for word, so the source supports the pre-fix. The defect is that the condition is a free input instead of being derived from the module's own filing_status, which the source text cannot show."
+    },
+    "us-422-5ea2b6c1-us-ga-policies-income-tax-pilot-liability-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "48-7-27(a): taxable net income = federal AGI less itemized/standard deduction, age-65/blind additions, 48-7-26 exemptions, retirement exclusions",
+     "found_in_provision": false,
+     "why": "provision.txt is 48-7-20 and only refers to taxable net income 'as defined in Code Section 48-7-27'. The 48-7-27(a) list of subtractions that shows 'AGI minus standard deduction' is wrong is not in the file."
+    },
+    "us-427-044fe328-us-policies-usda-wic-eligibility-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero (7 CFR 246.7(d)(2)(vii))",
+     "found_in_provision": false,
+     "why": "provision.txt is 246.7(c), covering eligibility criteria and certification procedures. 'pregnant' appears only in the category list and the proof-of-pregnancy text; 'embryo' and 'fetus' do not appear, and the (d)(2)(vii) adjustment is absent."
+    },
+    "us-429-34c7fec4-us-nd-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "present",
+     "decisive_phrase": "excess of the taxpayer's net long-term capital gain ... over the net short-term capital loss ... as computed for purposes of the Internal Revenue Code ... allowed only to the extent the net long-term capital gain is allocated to this state",
+     "found_in_provision": true,
+     "why": "57-38-30.3(2)(d)(1) appears verbatim at provision lines 101-105, and the 2(i) 'only once for each instance of organ donation' clause is also present. Both contradict the pre-fix allocated-minus-allocated netting and the single flat cap. Caveat: the case's anchor rule is the annual-table gate, and its (10) text is permissive ('may prescribe'), so that part alone would not be detectable."
+    },
+    "us-438-00425856-us-policies-income-tax-lifetime-learning-credit-pipeline": {
+     "label": "present",
+     "decisive_phrase": "(5) Denial of double benefit No credit shall be allowed under this section for any expense for which a deduction is allowed under any other provision of this chapter",
+     "found_in_provision": true,
+     "why": "25A(g)(5) is in provision.txt. The pre-fix pipeline passes the credit through on gross qualified tuition and has no input or condition for expenses already deducted elsewhere."
+    },
+    "us-446-53f4f061-us-il-policies-income-tax-2026-full-year-resident-core": {
+     "label": "absent",
+     "decisive_phrase": "(N) An amount equal to all amounts included in such total which are exempt from taxation by this State ... by reason of the Constitution, treaties or statutes of the United States",
+     "found_in_provision": false,
+     "why": "provision.txt is 35 ILCS 5/201 (rates and credits), not section 203. Grep found no '(N)', no 'such total which are exempt' and no US-obligation text, so nothing shows the 'federally included' restriction is too narrow."
+    },
+    "us-447-58a81fbd-us-policies-income-tax-elderly-disabled-credit-pipeline": {
+     "label": "present",
+     "decisive_phrase": "who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled",
+     "found_in_provision": true,
+     "why": "The 22(b)(2) clause is in provision.txt. The pre-fix pipeline's inputs cover only current-year impairment facts and nothing about disability at the time of retirement, so a judge could flag the missing condition."
+    },
+    "us-448-791ff29e-us-policies-income-tax-net-investment-income-tax-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "The term 'net investment income' shall not include any distribution from a plan ... ; shall not include any item ... on which a tax is imposed by section 1401(b)",
+     "found_in_provision": true,
+     "why": "The 1411(c)(5)/(6) exclusion text is in provision.txt, but the pre-fix module's formula just passes through the imported net_investment_income_tax. The wrong subtraction of excluded items lives in the imported module, which pre_fix.yaml does not show, so this file and the provision alone contain no visible contradiction."
+    },
+    "us-467-4ce32e95-us-ca-policies-cdss-snap-modified-categorical-eligibility": {
+     "label": "absent",
+     "decisive_phrase": "Any member of that household is ineligible ... under § 273.11(s) for having a conviction of certain crimes and not being in compliance with the sentence",
+     "found_in_provision": false,
+     "why": "provision.txt is Cal. WIC 18901.5 (CalFresh categorical-eligibility intent language). The 7 CFR 273.2(j)(2)(vii)(D) 'any member' text that makes the conviction-and-noncompliance test apply to one member is not there, and grep found no '273.11', 'conviction' or 'compliance with the sentence'."
+    },
+    "us-478-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-annex-9903-05": {
+     "label": "absent",
+     "decisive_phrase": "on or after 12:01 a.m. eastern time on July 24, 2026 (FR 2026-15181 DATES)",
+     "found_in_provision": false,
+     "why": "provision.txt is the 347-character 9903.05.86 heading text (article description and rates) and has no date. Only FR 2026-15181 makes 2026-07-23 wrong, and that notice is not in the file."
+    },
+    "us-482-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-vietnam-9903-": {
+     "label": "absent",
+     "decisive_phrase": "on or after 12:01 a.m. eastern time on July 24, 2026",
+     "found_in_provision": false,
+     "why": "provision.txt is only the five-line HTS 9903.05.84 heading (article description and the +12.5% rates) and contains no date at all. The July 24, 2026 entry date comes from FR 2026-15181, which is not included."
+    },
+    "us-485-426f1a72-us-policies-cbp-us-tariff-duty-composition": {
+     "label": "absent",
+     "decisive_phrase": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15 / 9903.01.02 ... 9903.01.05; potash +10%",
+     "found_in_provision": false,
+     "why": "provision.txt is the same General Note 3 page 1 text as us-501. It contains none of the 9903.01.01/9903.01.10 exception clauses or the potash +10% rates."
+    },
+    "us-501-3ec047a9-us-policies-cbp-us-tariff-duty-composition": {
+     "label": "absent",
+     "decisive_phrase": "other than products for personal use included in accompanied baggage ... except for goods entered under subchapter XXIII of chapter 98 ... 9802.00.80 (U.S. note 51(a))",
+     "found_in_provision": false,
+     "why": "provision.txt is HTS General Note 3 page 1, which covers column 1/2 rates and insular possessions. It contains none of the note 51(a) baggage, chapter 98 or 9802 reduced-base text that the fix relies on."
+    }
+   }
+  },
+  {
+   "name": "blind_round2",
+   "labeller": "the same labelling brief, run by Claude Opus 5.5 agents on a copy of the 24 cases whose case.json held only the defect kind, locator, citation path and triage reasoning",
+   "role": "held out: a fresh deterministic sample of fidelity representatives, scored once with the frozen method.",
+   "labels": {
+    "us-014-1716a4a0-us-policies-usitc-us-tariff-duty-overlays-ieepa-fentanyl-energy-9903-01-13": {
+     "label": "absent",
+     "decisive_phrase": "whenever CBP agrees that entry under such a provision is appropriate / do not qualify as originating under ... USMCA ... transshipped",
+     "found_in_provision": false,
+     "why": "provision.txt is only the 9903.01.13 heading row (energy goods, +10%). It does not contain the note 2(j) or 2(m) conjuncts the fix adds."
+    },
+    "us-123-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch01-ch01": {
+     "label": "absent",
+     "decisive_phrase": "7202.11.10.00 / 7601.10.30.00 / 9506.62.40.40 / 2203.00.00.30 / 8541.42.00.10 (out-of-chapter exemplar lines)",
+     "found_in_provision": false,
+     "why": "provision.txt is HTS General Note 3 page 1, which only covers column 1/2 rates and insular possessions. It says nothing about those statistical lines, chapter 01 scope, or the section 301/122 gating, so nothing in it shows the exemplar-flag rules are wrongly grounded."
+    },
+    "us-239-623ad4b0-us-va-policies-income-tax-pilot-liability-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed / $11,950 (§ 58.1-321)",
+     "found_in_provision": false,
+     "why": "provision.txt has only the § 58.1-320 rate schedule. It does not contain the § 58.1-321(A) no-tax/no-return exemption that the fix adds as a gate."
+    },
+    "us-246-68b3063a-us-sc-policies-income-tax-2026-full-year-resident-core": {
+     "label": "absent",
+     "decisive_phrase": "hereby specifically not allowed or adopted / South Carolina Income Adjusted Deduction / but not to exceed two hundred dollars",
+     "found_in_provision": false,
+     "why": "provision.txt holds only the definitions in SC Code 12-6-30 (Taxpayer, Resident individual, etc.). It has none of the Act 110 text from 12-6-50(21), 12-6-1140(15) or 12-6-3632 that the fix relies on."
+    },
+    "us-249-752ee8e2-us-tn-regulations-1240-01-04-27-block-1": {
+     "label": "present",
+     "decisive_phrase": "Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+     "found_in_provision": true,
+     "why": "Table IV-A's open-ended \"6+\" bucket is in provision.txt, and the sibling tables run to 10. That shows the pre-fix table, which stops at key 6, leaves households of 7 to 10 without a value."
+    },
+    "us-255-8765a05d-us-de-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "present",
+     "decisive_phrase": "or such lesser amount as the Director may determine but in any event not less than $20,000",
+     "found_in_provision": true,
+     "why": "provision.txt contains the full 1102(d)(1) clause, which shows the table ceiling can be anywhere between $20,000 and $60,000. The pre-fix module drops the Director-lesser-amount qualifier and asserts the table method across the whole band."
+    },
+    "us-258-8d3d0f5e-us-la-policies-income-tax-2026-resident-core": {
+     "label": "absent",
+     "decisive_phrase": "joint return / filing status (exactly one valid status; IT-540ESi line 3)",
+     "found_in_provision": false,
+     "why": "provision.txt is La. R.S. 47:32, which says only that the individual rate is 3 percent. It says nothing about filing-status validity or joint-only spouse items, so the fail-open guard cannot be judged against it."
+    },
+    "us-269-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch01-ch01": {
+     "label": "absent",
+     "decisive_phrase": "section 122 surcharge exemptions (9903.03.03 subdivision (aa)(ii) exclusion list; section 232 aluminum/steel/copper articles)",
+     "found_in_provision": false,
+     "why": "provision.txt is General Note 3 page 1 (column 1/2 rates, insular possessions). It has no section 122, 232 or 301 text, so it cannot show the entry_is_line_a/b exemption gate is the wrong population."
+    },
+    "us-372-abc82d7a-statutes-26-3101-b-1": {
+     "label": "present",
+     "decisive_phrase": "imposed on the income of every individual a tax equal to 1.45 percent of the wages ... received by him",
+     "found_in_provision": true,
+     "why": "Section 3101(b)(1) in provision.txt imposes the tax per individual, which contradicts the pre-fix entity: TaxUnit."
+    },
+    "us-373-abc82d7a-statutes-26-3111-a": {
+     "label": "present",
+     "decisive_phrase": "there is hereby imposed on every employer an excise tax",
+     "found_in_provision": true,
+     "why": "Section 3111(a) in provision.txt puts the tax on 'every employer', which conflicts with the pre-fix entity: Business. A judge can see the taxed population is employers, not businesses."
+    },
+    "us-377-adae20d1-statutes-26-63-c": {
+     "label": "present",
+     "decisive_phrase": "the standard deduction shall be zero; (2) Additional amount for blind",
+     "found_in_provision": true,
+     "why": "provision.txt contains both the 63(c)(6) zero-out and the 63(f)(2) blind additional amount. Those are the two clauses missing from the pre-fix module, which counts aged members only and has no ineligibility gate."
+    },
+    "us-378-b08ec83a-statutes-26-164-f": {
+     "label": "present",
+     "decisive_phrase": "(f) Deduction for one-half of self-employment taxes (1) In general In the case of an individual",
+     "found_in_provision": true,
+     "why": "Section 164(f)(1) in provision.txt makes the half-SECA deduction per individual, conflicting with the pre-fix entity: TaxUnit on both derived rules. The underlying per-person SECA base change sits in 1401/1402, which are not in the provision, but the entity defect can be seen without them."
+    },
+    "us-391-bdf6b696-us-ri-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years",
+     "found_in_provision": false,
+     "why": "provision.txt is the RI ADV 2025-22 guidance page and does not contain the § 44-30-12(c)(10) per-investment opportunity-zone text."
+    },
+    "us-416-b53ce208-us-regulations-7-cfr-273-10": {
+     "label": "present",
+     "decisive_phrase": "Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents",
+     "found_in_provision": true,
+     "why": "The (e)(1)(ii) rounding election is in provision.txt, including '(B) ... round the final shelter deduction amount'. The pre-fix module carries cents through the net-income and shelter chain with no rounding."
+    },
+    "us-420-28b65a58-us-nc-statutes-105-105-153-7": {
+     "label": "present",
+     "decisive_phrase": "In 2024 4.5% In 2025 4.25% After 2025 3.99%",
+     "found_in_provision": true,
+     "why": "The statutory rate table in provision.txt makes 3.99% the 2026 rate. The pre-fix module encodes 4.6%/4.5%/4.25%, a year late, and quotes rows that do not exist in the table."
+    },
+    "us-428-1924f56d-us-pa-policies-income-tax-resident-core-liability-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "a tax upon each dollar of income received by that resident / each of the classes of income (§ 302(a))",
+     "found_in_provision": false,
+     "why": "provision.txt holds the § 301 definitions. It does not have the § 302 per-class imposition language that supports the per-class max(0, ·) floor, and nothing in it bars offsetting losses across classes."
+    },
+    "us-436-f1c93416-us-ga-policies-income-tax-2026-resident-household-core": {
+     "label": "absent",
+     "decisive_phrase": "A husband and wife filing a joint return shall each be deemed a dependent / Exemptions are self, spouse ... dependents do not include those unborn",
+     "found_in_provision": false,
+     "why": "provision.txt does not contain the § 48-7A-3(a)(1) spouse-deemed-dependent clause or the IT-511 self/spouse/unborn worksheet text, so the defect in the credit units cannot be seen from it."
+    },
+    "us-439-08e28741-us-policies-income-tax-additional-medicare-tax-pipeline": {
+     "label": "absent",
+     "decisive_phrase": "Coordination with FICA ... wages taken into account in determining the tax imposed under section 3121(b)(2)",
+     "found_in_provision": false,
+     "why": "provision.txt is 26 USC 3101, not the 1401(b)(2)(B) record the defect depends on. The coordination sentence that shows the pre-fix excerpt is not verbatim is absent; only 3101(b)(2)'s 0.9% wage tax appears."
+    },
+    "us-441-16dfb94d-us-nj-policies-income-tax-2026-resident-ordinary-core": {
+     "label": "absent",
+     "decisive_phrase": "Gross income shall not include lottery winnings from the New Jersey Lottery ... exceeding $10,000",
+     "found_in_provision": false,
+     "why": "provision.txt is § 54A:1-2 and has no lottery, gambling or $10,000 text, so the missing § 54A:6-11 exclusion and § 54A:5-2 netting cannot be seen from it."
+    },
+    "us-461-d1ed1b59-us-nc-statutes-105-105-153-5-a1": {
+     "label": "present",
+     "decisive_phrase": "Married, filing jointly/ Up to $40,000 $3,000 ... Over $120,000 Up to $140,000 500.00 Over $140,000 0",
+     "found_in_provision": true,
+     "why": "provision.txt prints the current seven-band schedule with a $3,000 top amount. That directly contradicts the pre-fix six-band, $2,500 table applied with no time limit."
+    },
+    "us-470-bfadb955-us-ca-policies-cdss-snap-modified-categorical-eligibility": {
+     "label": "absent",
+     "decisive_phrase": "No person shall be included as a member in any household which is otherwise categorically eligible / Any member of that household (7 CFR 273.2(j)(2))",
+     "found_in_provision": false,
+     "why": "provision.txt is Cal. WIC § 18901.5 and does not contain the 7 CFR member-scoped text. The defect is also a relation-binding failure (an unresolved member_of_household name), which no source text would expose."
+    },
+    "us-473-32b2dae5-us-statutes-26-55": {
+     "label": "absent",
+     "decisive_phrase": "25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence)",
+     "found_in_provision": false,
+     "why": "provision.txt is § 26(b), the definition of regulatory tax liability. It does not contain the § 55(d)(2) language requiring the MFS increment to be computed on full AMTI."
+    },
+    "us-500-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-switzerland-9903-02-5": {
+     "label": "present",
+     "decisive_phrase": "[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+     "found_in_provision": true,
+     "why": "provision.txt marks heading 9903.02.58 as terminated, but every pre-fix version is open-ended with no effective_to. The exact end date 2026-02-14 is not in the text, but the defect (no termination bound at all) can still be seen."
+    },
+    "us-504-a70eb634-us-policies-usitc-us-tariff-incidence-generated-note16-232-steel": {
+     "label": "absent",
+     "decisive_phrase": "(iii) Articles of steel: 7209 7208 7207 7206 ... 7302.10 ... 7306 7305 7304",
+     "found_in_provision": false,
+     "why": "provision.txt is the Rev-3 page-236 text (note 16(r)-(t), derivative steel). It does not contain the note 16(c)(iii) list with the 4- and 6-digit headings the fix adds."
+    }
+   }
+  }
+ ]
+}

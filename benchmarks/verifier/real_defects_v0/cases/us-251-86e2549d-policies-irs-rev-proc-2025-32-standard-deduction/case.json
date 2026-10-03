@@ -287,6 +287,90 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "basic_standard_deduction_amount",
+      "basic_standard_deduction_by_filing_status",
+      "additional_standard_deduction_per_condition_amount",
+      "single_basic_standard_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Heads of Households (§ 1(j)(2)(B)) $24,150",
+        "where": [
+          "basic_standard_deduction_by_filing_status.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married Individuals Filing Joint Returns and Surviving Spouses (§ 1(j)(2)(A)) $32,200",
+        "where": [
+          "basic_standard_deduction_by_filing_status.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married Individuals Filing Separate Returns (§ 1(j)(2)(D)) $16,100",
+        "where": [
+          "basic_standard_deduction_by_filing_status.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Unmarried Individuals (other than Surviving Spouses and Heads of Households) (§ 1(j)(2)(C)) $16,100",
+        "where": [
+          "basic_standard_deduction_by_filing_status.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the standard deduction amounts under § 63(c)(2) are as follows",
+        "where": [
+          "basic_standard_deduction_by_filing_status.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Married Individuals Filing Joint Returns and Surviving Spouses (§ 1(j)(2)(A)) $32,200",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 6,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

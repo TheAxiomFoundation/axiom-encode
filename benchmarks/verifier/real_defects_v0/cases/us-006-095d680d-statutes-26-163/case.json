@@ -133,6 +133,196 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "qualified_passenger_vehicle_loan_interest_applies",
+      "applicable_passenger_vehicle",
+      "passenger_vehicle_loan_interest_before_phaseout",
+      "passenger_vehicle_loan_interest_phaseout_amount",
+      "qualified_passenger_vehicle_loan_interest_deduction",
+      "passenger_vehicle_loan_interest_modified_adjusted_gross_income",
+      "passenger_vehicle_loan_interest_phaseout_threshold",
+      "passenger_vehicle_loan_interest_cap",
+      "passenger_vehicle_loan_interest_phaseout_reduction",
+      "passenger_vehicle_loan_interest_phaseout_increment",
+      "passenger_vehicle_loan_interest_phaseout_threshold_other",
+      "passenger_vehicle_loan_interest_phaseout_threshold_joint",
+      "applicable_passenger_vehicle_minimum_wheels",
+      "applicable_passenger_vehicle_gvwr_limit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "1000",
+        "where": [
+          "passenger_vehicle_loan_interest_phaseout_increment.versions[0].formula"
+        ],
+        "forms": [
+          "1000",
+          "1,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "10000",
+        "where": [
+          "passenger_vehicle_loan_interest_cap.versions[0].formula"
+        ],
+        "forms": [
+          "10000",
+          "10,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "100000",
+        "where": [
+          "passenger_vehicle_loan_interest_phaseout_threshold_other.versions[0].formula"
+        ],
+        "forms": [
+          "100000",
+          "100,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "14000",
+        "where": [
+          "applicable_passenger_vehicle_gvwr_limit.versions[0].formula"
+        ],
+        "forms": [
+          "14000",
+          "14,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "200",
+        "where": [
+          "passenger_vehicle_loan_interest_phaseout_reduction.versions[0].formula"
+        ],
+        "forms": [
+          "200"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "200000",
+        "where": [
+          "passenger_vehicle_loan_interest_phaseout_threshold_joint.versions[0].formula"
+        ],
+        "forms": [
+          "200000",
+          "200,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2025-01-01",
+        "where": [
+          "applicable_passenger_vehicle.versions[0].effective_from",
+          "applicable_passenger_vehicle_gvwr_limit.versions[0].effective_from",
+          "applicable_passenger_vehicle_minimum_wheels.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_before_phaseout.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_cap.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_modified_adjusted_gross_income.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_amount.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_increment.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_reduction.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_threshold.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_threshold_joint.versions[0].effective_from",
+          "passenger_vehicle_loan_interest_phaseout_threshold_other.versions[0].effective_from",
+          "qualified_passenger_vehicle_loan_interest_applies.versions[0].effective_from",
+          "qualified_passenger_vehicle_loan_interest_deduction.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-01-01",
+          "January 1, 2025",
+          "1 January 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "), and the corrected encoding lives in sibling files of the same commit rather than in this diff. A reviewer who requires the defect to be visible inside module 16 alone could legitimately hold this at",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is the strongest surviving counter-argument and is why I hold confidence at 0.62 rather than higher: module 16's own message frames the cause as an executable-schema limitation (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "means any interest which is paid or accrued ... on indebtedness incurred by the taxpayer,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the term 'applicable passenger vehicle' means any vehicle—",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "pre",
+        "text": "$200,000 in the case of a joint return",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 8,
+    "pre_side_matched": 7,
+    "reason": "provision_supports_pre_fix"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

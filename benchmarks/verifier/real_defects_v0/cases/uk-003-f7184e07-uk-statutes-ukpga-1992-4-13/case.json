@@ -94,6 +94,114 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "class_3_weekly_contribution_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Class 3 rate £18.40",
+        "where": [
+          "class_3_weekly_contribution_amount.versions[1].formula"
+        ],
+        "cites": "uk/guidance/govuk/national-insurance-rates/rates-and-allowances/block-11",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "new National Insurance rates and thresholds from 6 April 2026",
+        "where": [
+          "class_3_weekly_contribution_amount.versions[1].effective_from"
+        ],
+        "cites": "uk/guidance/govuk/national-insurance-rates/rates-and-allowances/block-13",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "£ per week 2026 to 2027",
+        "where": [
+          "class_3_weekly_contribution_amount.versions[1].effective_from"
+        ],
+        "cites": "uk/guidance/govuk/national-insurance-rates/rates-and-allowances/block-11",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "18.4",
+        "where": [
+          "class_3_weekly_contribution_amount.versions[1].formula"
+        ],
+        "forms": [
+          "18.4"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-04-06",
+        "where": [
+          "class_3_weekly_contribution_amount.versions[1].effective_from"
+        ],
+        "forms": [
+          "2026-04-06",
+          "April 6, 2026",
+          "6 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "subject to the following provisions of this section, the amount of a Class 3 contribution shall be £17.75",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount of a Class 3 contribution applicable at the time of payment differs from...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount of a Class 3 contribution shall be £17.75",
+        "where": [
+          "triage.verifier_justification",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

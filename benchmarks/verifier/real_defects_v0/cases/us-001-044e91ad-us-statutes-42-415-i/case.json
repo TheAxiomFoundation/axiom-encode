@@ -86,6 +86,106 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "unrounded_pia_after_cost_of_living_increase"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "by multiplying each of the amounts described",
+        "where": [
+          "unrounded_pia_after_cost_of_living_increase.versions[0].formula"
+        ],
+        "cites": "us/statute/42/415/i/2",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "by the applicable increase percentage",
+        "where": [
+          "unrounded_pia_after_cost_of_living_increase.versions[0].formula"
+        ],
+        "cites": "us/statute/42/415/i/2",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "determines that the base quarter in any year is a cost-of-living computation quarter",
+        "where": [
+          "unrounded_pia_after_cost_of_living_increase.versions[0].formula"
+        ],
+        "cites": "us/statute/42/415/i/2",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the primary insurance amount of each other individual",
+        "where": [
+          "unrounded_pia_after_cost_of_living_increase.versions[0].formula"
+        ],
+        "cites": "us/statute/42/415/i/2",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The Commissioner of Social Security shall determine each year beginning with 1975 ... whether the base quarter ... is a cost-of-living computation quarter",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a value with no basis in the cited source (the fix removes or re-grounds it), including formulas grounded on the wrong provision",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "baked one determination year into a year-general statute module",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the structural win is that the statute no longer carries any year",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

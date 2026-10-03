@@ -235,6 +235,503 @@
     "requested_citation_path": "us-mo/statute/143.011",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mo_pit_pilot_income_tax_before_credits_indiv",
+      "mo_pit_pilot_schedule_tax",
+      "mo_pit_pilot_bracket",
+      "mo_pit_pilot_bracket_upper",
+      "mo_pit_pilot_bracket_floor",
+      "mo_pit_pilot_bracket_base",
+      "mo_pit_pilot_bracket_rate",
+      "mo_pit_pilot_taxable_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$0 to $1,348: $0",
+        "where": [
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A tax is hereby imposed for every taxable year on the Missouri taxable income of every resident.",
+        "where": [
+          "mo_pit_pilot_income_tax_before_credits_indiv.versions[0].formula"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Over $1,348 but not over $2,696: 2.0% of excess over $1,348",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Over $8,088 but not over $9,436: $202 plus 4.5% of excess over $8,088",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Over $9,436: $263 plus 4.7% of excess over $9,436",
+        "where": [
+          "mo_pit_pilot_income_tax_before_credits_indiv.versions[0].formula",
+          "mo_pit_pilot_bracket_floor.versions[0].values"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The tax shall be determined by applying the tax table or the rate provided in section 143.021",
+        "where": [
+          "mo_pit_pilot_bracket.versions[0].formula"
+        ],
+        "cites": "us-mo/statute/143.011",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Every resident having a taxable income shall determine his or her tax from the rates provided in section 143.011",
+        "where": [
+          "mo_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-mo/statute/143.021",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.02",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.02",
+          "2 percent",
+          "2 per cent",
+          "2%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.025",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.025",
+          "2.5 percent",
+          "2.5 per cent",
+          "2.5%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.03",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.03",
+          "3 percent",
+          "3 per cent",
+          "3%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.035",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.035",
+          "3.5 percent",
+          "3.5 per cent",
+          "3.5%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.04",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.04",
+          "4 percent",
+          "4 per cent",
+          "4%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.045",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.045",
+          "4.5 percent",
+          "4.5 per cent",
+          "4.5%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.047",
+        "where": [
+          "mo_pit_pilot_bracket_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.047",
+          "4.7 percent",
+          "4.7 per cent",
+          "4.7%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "101",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "101"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1348",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "1348",
+          "1,348"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "148",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "148"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "202",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "202"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "mo_pit_pilot_bracket.versions[0].effective_to",
+          "mo_pit_pilot_bracket_base.versions[0].effective_to",
+          "mo_pit_pilot_bracket_floor.versions[0].effective_to",
+          "mo_pit_pilot_bracket_rate.versions[0].effective_to",
+          "mo_pit_pilot_bracket_upper.versions[0].effective_to",
+          "mo_pit_pilot_income_tax_before_credits_indiv.versions[0].effective_to",
+          "mo_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "263",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "263"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2696",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "2696",
+          "2,696"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "27",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "27"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "4044",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "4044",
+          "4,044"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "5392",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "5392",
+          "5,392"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "61",
+        "where": [
+          "mo_pit_pilot_bracket_base.versions[0].values"
+        ],
+        "forms": [
+          "61"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "6740",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "6740",
+          "6,740"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "8088",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "8088",
+          "8,088"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "9436",
+        "where": [
+          "mo_pit_pilot_bracket_floor.versions[0].values",
+          "mo_pit_pilot_bracket_upper.versions[0].values"
+        ],
+        "forms": [
+          "9436",
+          "9,436"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "All tax-law amounts are inputs so the composition is source-grounded without embedding an unencoded annual schedule",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Draft only. Independent review-fix cycle is pending and required before readiness.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Every resident having a taxable income shall determine his or her tax",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Every resident having a taxable income shall determine his or her tax from the rates provided in section 143.011",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Over $9,436: $263 plus 4.7% of excess over $9,436",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "accepts completed-return Missouri taxable income and the active bracket's cumulative base tax, floor, and marginal rate as caller-supplied current-authority inputs",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "imposed ... on the Missouri taxable income of every resident",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "on the Missouri taxable income of every resident",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 35,
+    "post_side_matched": 26,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

@@ -156,6 +156,75 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "or_pit_2026_profile_candidate_refundable_earned_income_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "14 percent of the earned income credit allowable",
+        "where": [
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount of the excess shall be refunded",
+        "where": [
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "dependent under the age of three ... 17 percent",
+        "where": [
+          "or_pit_2026_profile_candidate_refundable_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-or/statute/session-laws/2026/sb1507/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an eligi- ble resident individual ... a credit ... equal to [nine] 14 percent of the earned income credit allowable",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for a taxpayer with a dependent under the age of three at the close of the tax year",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

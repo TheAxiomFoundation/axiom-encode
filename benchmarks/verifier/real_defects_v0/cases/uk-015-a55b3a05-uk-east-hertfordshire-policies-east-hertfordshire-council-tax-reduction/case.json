@@ -88,6 +88,117 @@
     "requested_citation_path": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "east_hertfordshire_council_tax_reduction_award_conditions_met",
+      "east_hertfordshire_council_tax_reduction_maximum_weekly"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "person’s income10 is more than their applicable amount11;",
+        "where": [
+          "east_hertfordshire_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-9",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "person’s income4 is less than their applicable amount5",
+        "where": [
+          "east_hertfordshire_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-8",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "be a person in respect of whom amount A exceeds amount B where;",
+        "where": [
+          "east_hertfordshire_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-9",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the amount of a person’s maximum council tax reduction in respect of a day for which he is liable to pay council tax, shall be 91.5 per cent, of the amount A divided by B where;",
+        "where": [
+          "east_hertfordshire_council_tax_reduction_maximum_weekly.versions[0].formula"
+        ],
+        "cites": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "less any deductions in respect of non-dependants which fall to be made under section 58",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "person’s income10 is more than their applicable amount11;",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "person’s income4 is less than their applicable amount5",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the person's income10 is more than their applicable amount11",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the person's income4 is less than their applicable amount5",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

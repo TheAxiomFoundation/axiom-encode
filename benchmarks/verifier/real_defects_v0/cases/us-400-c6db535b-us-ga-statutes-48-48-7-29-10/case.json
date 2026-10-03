@@ -133,6 +133,142 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "child_and_dependent_care_credit_percentage"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Section 1-1 of this Act shall be applicable to all taxable years beginning on or after January 1, 2025",
+        "where": [
+          "child_and_dependent_care_credit_percentage.versions[3].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2025/hb136/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code",
+        "where": [
+          "child_and_dependent_care_credit_percentage.versions[3].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2025/hb136/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.5",
+        "where": [
+          "child_and_dependent_care_credit_percentage.versions[3].formula"
+        ],
+        "forms": [
+          "0.5",
+          "50 percent",
+          "50 per cent",
+          "50%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2024-12-31",
+        "where": [
+          "child_and_dependent_care_credit_percentage.versions[2].effective_to"
+        ],
+        "forms": [
+          "2024-12-31",
+          "December 31, 2024",
+          "31 December 2024"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-01-01",
+        "where": [
+          "child_and_dependent_care_credit_percentage.versions[3].effective_from"
+        ],
+        "forms": [
+          "2025-01-01",
+          "January 1, 2025",
+          "1 January 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Section 1-1 of this Act shall be applicable to all taxable years beginning on or after January 1, 2025.",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Thirty percent for all taxable years beginning on or after January 1, 2008",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "applicable to all taxable years beginning on or after January 1, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "repair Georgia PIT law through 2027, including 2026 standard/dependent amounts, the 2027 retirement-income exclusion, the 2025 child-care credit transition",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

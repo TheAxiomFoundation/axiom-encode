@@ -214,6 +214,147 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mi_pit_pilot_income_tax_liability",
+      "mi_pit_pilot_schedule_tax",
+      "mi_pit_pilot_taxable_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Individuals and fiduciaries subject to tax under Part 1 of the Income Tax Act",
+        "where": [
+          "mi_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the rate in effect under Section 51 for the 2026 tax year is 4.25%",
+        "where": [
+          "mi_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "mi_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "mi_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "mi_pit_pilot_schedule_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(b) Except as otherwise provided under subdivision (c), on and after October 1, 2012, 4.25%",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The encoded Treasury determination supplies the final 2026 rate of 4.25 per cent rather than accepting a policy-bearing rate from the caller.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a branch, condition, or value with no basis in the cited source ... the fix removes or re-grounds it",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "subject to the following adjustments under this section",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the credit is zero for the childless wage-earner grid",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the tax imposed ... upon the taxable income of every person other than a corporation",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "there is levied and imposed under this part upon the taxable income of every person other than a corporation a tax at the following rates.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 2,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -101,6 +101,106 @@
     "requested_citation_path": "us-hi/statute/235-2.3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like",
+        "where": [
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a person for whom exemption is claimed has been physically present in the State for more than nine months",
+        "where": [
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "upon the taxable income of every resident of the State",
+        "where": [
+          "hi_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-4",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Distinct minor children not already in federal exemptions who receive Hawaii Department of Human Services support, Social Security survivor benefits, or both; each child is counted once across the union.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption of the parent or guardian",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "each child is counted once across the union",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "support, not already federal exemptions); what was wrong is the aggregation — a multiset sum over two overlapping categories instead of a union cardinality. If the taxonomy allowed it,",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

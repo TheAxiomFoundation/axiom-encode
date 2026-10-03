@@ -81,6 +81,117 @@
     "requested_citation_path": "us/statute/26/26/b",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "amt_separate_addition",
+      "section_55_verified_domain_is_satisfied"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "If, for any taxable year, any amount is excluded from gross income of a taxpayer under subsection (a), then, notwithstanding sections 1 and 55",
+        "where": [
+          "section_55_verified_domain_is_satisfied.versions[0].formula"
+        ],
+        "cites": "us/statute/26/911/f",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of a taxpayer described in paragraph (1)(C), alternative minimum taxable income shall be increased",
+        "where": [
+          "amt_separate_addition.versions[0].formula"
+        ],
+        "cites": "us/statute/26/55/d/2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation",
+        "where": [
+          "section_55_verified_domain_is_satisfied.versions[0].formula"
+        ],
+        "cites": "us/statute/26/55/b/1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The term “regular tax liability” means the tax imposed by this chapter for the taxable year.",
+        "where": [
+          "section_55_verified_domain_is_satisfied.versions[0].formula"
+        ],
+        "cites": "us/statute/26/26/b",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Changed the section 55(d)(2) base to complete pre-increment AMTI, including the section 151 exemption and senior adjustments and every adopted signed section 57, 58, and 59 amount",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "alternative minimum taxable income (determined without regard to this sentence)",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the lesser of (i) 25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero, or (ii) such exemption amount",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

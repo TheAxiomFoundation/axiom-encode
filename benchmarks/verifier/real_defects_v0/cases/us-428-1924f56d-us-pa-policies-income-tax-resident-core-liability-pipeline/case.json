@@ -159,6 +159,116 @@
     "requested_citation_path": "us-pa/statute/act-1971-2/article-3/section-301",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "pa_pit_resident_income_before_annual_deductions"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a tax upon each dollar of income received by that resident",
+        "where": [
+          "pa_pit_resident_income_before_annual_deductions.versions[0].formula"
+        ],
+        "cites": "us-pa/statute/act-1971-2/article-3/section-302",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The classes of income referred to above are as follows",
+        "where": [
+          "pa_pit_resident_income_before_annual_deductions.versions[0].formula"
+        ],
+        "cites": "us-pa/statute/act-1971-2/article-3/section-303",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Independent review found six source/scope/test issues ... including per-class nonnegative treatment and a negative-class regression",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Raw section 303(a)(3) net gains less net losses from dispositions",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a loss in one class may not offset another class",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a tax upon each dollar of income received by that resident",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for the privilege of receiving each of the classes of income hereinafter enumerated in section 303, a tax upon each dollar of income received",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "other (per-class loss-offset prohibition implied by the imposition provision)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall pay for the privilege of receiving each of the classes of income hereinafter enumerated in section 303, a tax upon each dollar of income received by that resident",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

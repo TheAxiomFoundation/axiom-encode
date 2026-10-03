@@ -181,6 +181,168 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_allotment",
+      "snap_initial_month_prorated_allotment",
+      "snap_initial_month_proration_exception",
+      "snap_initial_month_proration_start_date",
+      "snap_initial_month_proration_applies",
+      "snap_days_in_application_month",
+      "snap_initial_month_proration_days",
+      "snap_initial_month_proration_factor",
+      "initial_month_of_certification",
+      "initial_month_benefit_level"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Initial month means: (i) the first month for which the household is certified",
+        "where": [
+          "initial_month_of_certification.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "migrant or seasonal farmworker household",
+        "where": [
+          "initial_month_of_certification.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "prorated from the day of application to the end of the initial month",
+        "where": [
+          "initial_month_benefit_level.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "prorated from the day of the applicant's release from the institution",
+        "where": [
+          "initial_month_benefit_level.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "resident of a public institution who applies jointly for SSI and food stamps",
+        "where": [
+          "initial_month_benefit_level.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "pre",
+        "text": "following a period of more than 30 days",
+        "where": [
+          "initial_month_of_certification.versions[0].formula"
+        ],
+        "cites": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "initial_month_benefit_level.versions[0].effective_from",
+          "initial_month_of_certification.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2025-10-01",
+        "where": [
+          "snap_allotment.versions[0].effective_from",
+          "snap_days_in_application_month.versions[0].effective_from",
+          "snap_initial_month_prorated_allotment.versions[0].effective_from",
+          "snap_initial_month_proration_applies.versions[0].effective_from",
+          "snap_initial_month_proration_days.versions[0].effective_from",
+          "snap_initial_month_proration_exception.versions[0].effective_from",
+          "snap_initial_month_proration_factor.versions[0].effective_from",
+          "snap_initial_month_proration_start_date.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "30",
+        "where": [
+          "snap_initial_month_proration_exception.versions[0].formula"
+        ],
+        "forms": [
+          "30"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "following any period during which the household was not certified",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— it says nothing about household eligibility, regular (non-initial) month allotments, rounding, $10 minimum issuance, or a",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 6,
+    "pre_side_tested": 3,
+    "pre_side_matched": 2,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

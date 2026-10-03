@@ -189,6 +189,250 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mt_pit_pilot_income_tax_liability",
+      "mt_pit_pilot_taxable_income",
+      "mt_pit_pilot_bracket_tax",
+      "mt_pit_pilot_ordinary_income_tax",
+      "mt_pit_pilot_capital_gains_tax",
+      "mt_pit_pilot_filing_status_threshold",
+      "mt_pit_pilot_head_of_household_threshold",
+      "mt_pit_pilot_nonqualified_taxable_income",
+      "mt_pit_pilot_net_long_term_capital_gain",
+      "mt_pit_pilot_capital_gain_lower_band"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "\"Nonqualified taxable income\" means Montana taxable income that is not considered net long-term capital gains.",
+        "where": [
+          "mt_pit_pilot_nonqualified_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a tax on the brackets of taxable income as follows",
+        "where": [
+          "mt_pit_pilot_ordinary_income_tax.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for every head of household",
+        "where": [
+          "mt_pit_pilot_filing_status_threshold.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for every married individual who does not make a joint return",
+        "where": [
+          "mt_pit_pilot_filing_status_threshold.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for every married individual who files a joint return and for every surviving spouse",
+        "where": [
+          "mt_pit_pilot_filing_status_threshold.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "on the first $71,250 of Montana taxable income or any part of that income, 4.7%",
+        "where": [
+          "mt_pit_pilot_head_of_household_threshold.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "subject to a tax on the brackets of net long-term capital gains as follows",
+        "where": [
+          "mt_pit_pilot_capital_gains_tax.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "that portion of a taxpayer's Montana taxable income that consists of net long-term capital gains",
+        "where": [
+          "mt_pit_pilot_net_long_term_capital_gain.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the first $95,000 less nonqualified taxable income of net long-term capital gains",
+        "where": [
+          "mt_pit_pilot_capital_gain_lower_band.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "on the Montana taxable income of each taxpayer subject to this chapter",
+        "where": [
+          "mt_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "there must be levied, collected, and paid for each tax year",
+        "where": [
+          "mt_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "mt_pit_pilot_capital_gain_lower_band.versions[0].effective_to",
+          "mt_pit_pilot_capital_gains_tax.versions[0].effective_to",
+          "mt_pit_pilot_filing_status_threshold.versions[0].effective_to",
+          "mt_pit_pilot_head_of_household_threshold.versions[0].effective_to",
+          "mt_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "mt_pit_pilot_net_long_term_capital_gain.versions[0].effective_to",
+          "mt_pit_pilot_nonqualified_taxable_income.versions[0].effective_to",
+          "mt_pit_pilot_ordinary_income_tax.versions[0].effective_to",
+          "mt_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "71250",
+        "where": [
+          "mt_pit_pilot_head_of_household_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "71250",
+          "71,250"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(1) Except as provided in subsection (2), there must be levied...",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(Terminates December 31, 2026--sec. 7, Ch. 227, L. 2025.)",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Candidate 2026 ... pipeline for an ordinary full-year resident wage earner ... No capital gains or credits are active",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This pilot is limited to ordinary income for resident wage earners with no capital gains",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "encode the Montana 2026 ordinary income and net long-term-capital-gain schedules",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "silently return[ed] the 2026 rates for post-2026 periods.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 17,
+    "post_side_matched": 13,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

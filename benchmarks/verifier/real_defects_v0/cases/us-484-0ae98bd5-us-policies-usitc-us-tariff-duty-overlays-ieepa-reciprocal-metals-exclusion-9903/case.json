@@ -184,6 +184,157 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_metals_exclusion_applies",
+      "reciprocal_metals_exclusion_general_duty_rate",
+      "reciprocal_metals_exclusion_special_duty_rate",
+      "reciprocal_metals_exclusion_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "(ii) all articles and derivatives of steel and aluminum subject to the duties imposed pursuant to section 232 of the Trade Expansion Act of 1962",
+        "where": [
+          "reciprocal_metals_exclusion_applies.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-04-07/2025-06063",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "(iii) all automobiles and automotive parts subject to the additional duties imposed pursuant to section 232 of the Trade Expansion Act of 1962, as amended, and proclaimed in Proclamation 10908 of March 26, 2025 (Adjusting Imports of Automobiles and Automobile Parts Into the United States);",
+        "where": [
+          "reciprocal_metals_exclusion_applies.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-04-07/2025-06063",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025",
+        "where": [
+          "reciprocal_metals_exclusion_applies.versions[0].effective_from",
+          "reciprocal_metals_exclusion_general_duty_rate.versions[0].effective_from",
+          "reciprocal_metals_exclusion_special_duty_rate.versions[0].effective_from",
+          "reciprocal_metals_exclusion_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-04-07/2025-06063",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-04-05",
+        "where": [
+          "reciprocal_metals_exclusion_applies.versions[0].effective_from",
+          "reciprocal_metals_exclusion_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_metals_exclusion_general_duty_rate.versions[0].effective_from",
+          "reciprocal_metals_exclusion_special_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-04-05",
+          "April 5, 2025",
+          "5 April 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-15",
+        "where": [
+          "reciprocal_metals_exclusion_applies.versions[0].effective_from",
+          "reciprocal_metals_exclusion_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_metals_exclusion_general_duty_rate.versions[0].effective_from",
+          "reciprocal_metals_exclusion_special_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(ii) all articles and derivatives of steel and aluminum subject to the duties imposed pursuant to section 232...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(iii) all automobiles and automotive parts subject to the additional duties imposed pursuant to section 232...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "effective dates disagree with the source / dated from a snapshot of superseded text",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "on or after 12:01 a.m. eastern daylight time on April 5, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the ad valorem rates of duty under this order",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

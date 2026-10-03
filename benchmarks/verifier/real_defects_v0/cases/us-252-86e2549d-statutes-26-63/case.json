@@ -172,6 +172,140 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "taxable_income",
+      "taxable_income_deductions",
+      "taxable_income_deductions_if_itemizing",
+      "taxable_income_deductions_if_not_itemizing",
+      "deductions_referred_to_in_subsection_b",
+      "taxable_income_for_individual_who_does_not_itemize",
+      "taxable_income_general_rule",
+      "itemized_deductions",
+      "itemized_deduction_allowed_for_taxable_year"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except as provided in subsection (b)",
+        "where": [
+          "taxable_income.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of an individual who does not elect to itemize his deductions for the taxable year",
+        "where": [
+          "taxable_income.versions[0].formula",
+          "taxable_income_for_individual_who_does_not_itemize.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Unless an individual makes an election under this subsection for the taxable year, no itemized deduction shall be allowed for the taxable year.",
+        "where": [
+          "itemized_deduction_allowed_for_taxable_year.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "adjusted gross income, minus— (1) the standard deduction, (2) the deduction for personal exemptions provided in section 151, (3) any deduction provided in section 199A, (4) the deduction provided in section 170(p), (5) the deduction provided in section 224, (6) the deduction provided in section 225 and ... (7) so much of the deduction allowed by section 163(a) as is attributable to the exception under section 163(h)(4)(A).",
+        "where": [
+          "deductions_referred_to_in_subsection_b.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “itemized deductions” means the deductions allowable under this chapter",
+        "where": [
+          "itemized_deduction_allowed_for_taxable_year.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “itemized deductions” means the deductions allowable under this chapter other than— (1) the deductions allowable in arriving at adjusted gross income, and (2) any deduction referred to in any paragraph of subsection (b).",
+        "where": [
+          "itemized_deductions.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “taxable income” means adjusted gross income, minus—",
+        "where": [
+          "taxable_income_for_individual_who_does_not_itemize.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “taxable income” means gross income minus the deductions allowed by this chapter (other than the standard deduction).",
+        "where": [
+          "taxable_income.versions[0].formula",
+          "taxable_income_general_rule.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(3) any deduction provided in section 199A, (4) the deduction provided in section 170(p), (5) the deduction provided in section 224, (6) the deduction provided in section 225 and ... (7) so much of the deduction allowed by section 163(a) as is attributable to the exception under section 163(h)(4)(A)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "gross income minus the deductions allowed by this chapter (other than the standard deduction)",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 10,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

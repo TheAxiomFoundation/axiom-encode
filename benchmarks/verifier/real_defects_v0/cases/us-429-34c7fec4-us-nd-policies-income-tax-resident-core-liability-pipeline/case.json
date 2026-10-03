@@ -263,6 +263,314 @@
     "requested_citation_path": "us-nd/statute/57/57-38-30.3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nd_pit_2026_supported_profile_applies",
+      "nd_pit_2026_base_profile_applies",
+      "nd_pit_2026_annual_tax_table_authority_is_complete",
+      "nd_pit_2026_profile_candidate_tax_before_credits",
+      "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits",
+      "nd_pit_2026_profile_candidate_capital_and_dividend_reduction",
+      "nd_pit_2026_profile_candidate_organ_donation_reduction",
+      "nd_pit_2026_organ_donation_expense_cap",
+      "nd_pit_2026_profile_candidate_additions",
+      "nd_pit_2026_other_state_credit_denominator",
+      "nd_pit_2026_profile_candidate_other_state_credit",
+      "nd_pit_2026_supported_profile_other_state_credit",
+      "nd_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A tax is hereby imposed for each taxable year",
+        "where": [
+          "nd_pit_2026_base_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If an individual taxpayer engaged in a farming business elects to average farm income",
+        "where": [
+          "nd_pit_2026_base_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married individuals filing jointly shall compute the available reduction",
+        "where": [
+          "nd_pit_2026_base_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "entitled to the following tax credits",
+        "where": [
+          "nd_pit_2026_base_profile_applies.versions[0].formula",
+          "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "tax commissioner may prescribe tax tables",
+        "where": [
+          "nd_pit_2026_supported_profile_applies.versions[0].formula",
+          "nd_pit_2026_annual_tax_table_authority_is_complete.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the deduction amount must be adjusted annually",
+        "where": [
+          "nd_pit_2026_base_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Increased by an amount equal to the losses that are passed through",
+        "where": [
+          "nd_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Increased by the amount of a lump sum distribution",
+        "where": [
+          "nd_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "North Dakota taxable income means the federal taxable income",
+        "where": [
+          "nd_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Qualified dividends as defined under Internal Revenue Code section",
+        "where": [
+          "nd_pit_2026_profile_candidate_capital_and_dividend_reduction.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The same filing status used when filing federal income tax returns",
+        "where": [
+          "nd_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "excess of the taxpayer's net long-term capital gain",
+        "where": [
+          "nd_pit_2026_profile_candidate_capital_and_dividend_reduction.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "if taxed at a federal income tax rate that is lower",
+        "where": [
+          "nd_pit_2026_profile_candidate_capital_and_dividend_reduction.versions[0].formula"
+        ],
+        "cites": "us-nd/statute/57/57-38-30.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "10000",
+        "where": [
+          "nd_pit_2026_organ_donation_expense_cap.versions[0].formula"
+        ],
+        "forms": [
+          "10000",
+          "10,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A taxpayer may claim the reduction in this subdivision only once for each instance of organ donation during the taxable year",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Independent review found and required repairs for annual-table substitution, capital-gain sequencing, organ-donation grain, caller-completed classifications, other-state-credit mechanics, and filing-status threshold coverage.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Private reference calculation from the official 2026 estimated-tax schedule",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Repair North Dakota 2026 annual tax source holds",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The excess of the taxpayer's net long-term capital gain for the taxable year over the net short-term capital loss for that year, as computed for purposes of the Internal Revenue Code of 1986, as amended. The adjustment provided by this subdivision is allowed only to the extent the net long-term capital gain is allocated to this state",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The tax commissioner may prescribe tax tables, to be used in computing the tax according to subsection 1, if the amounts of the tax tables are based on the tax rates set forth in subsection 1. If prescribed by the tax commissioner, the tables must be followed",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "based on the tax rates set forth in subsection 1",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "federal capital loss offset precedes north dakota allocation cap",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "is equal to North Dakota taxable income multiplied by the rates in the applicable rate schedule in subdivisions a through d",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "must be followed by every individual, estate, or trust determining a tax under this section",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "only once for each instance of organ donation",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "only to the extent the net long-term capital gain is allocated to this state",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 18,
+    "post_side_matched": 14,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

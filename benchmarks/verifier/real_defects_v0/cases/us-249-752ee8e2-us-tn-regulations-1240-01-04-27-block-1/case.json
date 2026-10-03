@@ -94,6 +94,185 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_standard_deduction",
+      "sets_snap_standard_utility_allowance",
+      "sets_snap_limited_utility_allowance",
+      "sets_snap_individual_utility_allowance",
+      "snap_standard_utility_allowance_state_value",
+      "snap_limited_utility_allowance_state_value",
+      "snap_individual_utility_allowance_state_value"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+        "where": [
+          "snap_standard_deduction.versions[0].values"
+        ],
+        "cites": "us-tn/regulation/1240-01/04/27/block-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "snap_individual_utility_allowance_state_value.versions[0].effective_from",
+          "snap_limited_utility_allowance_state_value.versions[0].effective_from",
+          "snap_standard_utility_allowance_state_value.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10",
+        "where": [
+          "snap_standard_deduction.versions[0].values"
+        ],
+        "forms": [
+          "10"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1240",
+        "where": [
+          "sets_snap_individual_utility_allowance.source_relation",
+          "sets_snap_limited_utility_allowance.source_relation",
+          "sets_snap_standard_utility_allowance.source_relation"
+        ],
+        "forms": [
+          "1240",
+          "1,240"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "27",
+        "where": [
+          "sets_snap_individual_utility_allowance.source_relation",
+          "sets_snap_limited_utility_allowance.source_relation",
+          "sets_snap_standard_utility_allowance.source_relation"
+        ],
+        "forms": [
+          "27"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "273",
+        "where": [
+          "sets_snap_individual_utility_allowance.source_relation",
+          "sets_snap_limited_utility_allowance.source_relation",
+          "sets_snap_standard_utility_allowance.source_relation"
+        ],
+        "forms": [
+          "273"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "No. of Persons in Household 1 2 3 4 5 6 7 8 9 10",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Table I \"For each additional member add $406\"",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Table IV-A Standard Deduction / Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Table IV-A Standard Deduction\\n\\nHousehold Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "and are likewise truncated at 10), so the",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "clause is closed only within that domain; (4) the regenerated test file adds no size-7 standard-deduction assertion, so nothing enforces the corrected cells. If a reviewer rejects",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "excerpt: Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

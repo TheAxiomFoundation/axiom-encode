@@ -73,6 +73,123 @@
     "requested_citation_path": "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "kingston_upon_thames_council_tax_reduction_withdrawal_rate",
+      "kingston_upon_thames_council_tax_reduction_annual_taper_denominator",
+      "kingston_upon_thames_council_tax_reduction_daily_taper_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "2 6/7 per cent",
+        "where": [
+          "kingston_upon_thames_council_tax_reduction_withdrawal_rate.versions[0].formula",
+          "kingston_upon_thames_council_tax_reduction_daily_taper_rate.versions[0].formula"
+        ],
+        "cites": "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-28",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.02857142857142857142857142857",
+        "where": [
+          "kingston_upon_thames_council_tax_reduction_daily_taper_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.02857142857142857142857142857",
+          "2.857142857142857142857142857 percent",
+          "2.857142857142857142857142857 per cent",
+          "2.857142857142857142857142857%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.02857142857142857",
+        "where": [
+          "kingston_upon_thames_council_tax_reduction_daily_taper_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.02857142857142857",
+          "2.857142857142857 percent",
+          "2.857142857142857 per cent",
+          "2.857142857142857%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-04-01",
+        "where": [
+          "kingston_upon_thames_council_tax_reduction_annual_taper_denominator.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-01",
+          "April 1, 2026",
+          "1 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(ii) amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a value with no basis in the cited source (the fix removes or re-grounds it)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the withdrawal rate is transparently derived as daily rate x 7 rather than through the erroneous denominator.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -184,6 +184,150 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "entitled_to_scottish_child_payment_for_child",
+      "scottish_child_payment_weekly_amount_for_child",
+      "scottish_child_payment_annual_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "every child you look after who's under 16 years of age",
+        "where": [
+          "entitled_to_scottish_child_payment_for_child.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/scottish-child-payment",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you or your partner are getting one of the qualifying benefits",
+        "where": [
+          "entitled_to_scottish_child_payment_for_child.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/scottish-child-payment/who-should-apply",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "£28.20 that you can get for every child you look after",
+        "where": [
+          "scottish_child_payment_weekly_amount_for_child.versions[0].formula",
+          "scottish_child_payment_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/scottish-child-payment",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "entitled_to_scottish_child_payment_for_child.versions[0].effective_from",
+          "scottish_child_payment_annual_amount.versions[0].effective_from",
+          "scottish_child_payment_weekly_amount_for_child.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-04-06",
+        "where": [
+          "scottish_child_payment_annual_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-06",
+          "April 6, 2026",
+          "6 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Ah I see I should have got the encoder to do this rather than claude... will refile",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Only one person can get Scottish Child Payment for a child",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "as long as you live in Scotland... you or your partner are getting one of the qualifying benefits",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "every child you look after who's under 16 years of age",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "no basis in the Scottish Child Payment Regulations 2020 at all",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "you or your partner are getting one of the qualifying benefits",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 4,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

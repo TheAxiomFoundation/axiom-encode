@@ -137,6 +137,149 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "district_court_jurisdiction_to_compel_employer",
+      "district_court_jurisdiction_to_compel_employee_or_other_person"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "an application by the Attorney General on behalf of the Secretary to compel an employee or other person residing within the jurisdiction of the court or an employer subject to service of process within its jurisdiction to comply with any obligations imposed on such employee",
+        "where": [
+          "district_court_jurisdiction_to_compel_employee_or_other_person.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "an employer subject to service of process within its jurisdiction to comply with any obligations imposed on such employee",
+        "where": [
+          "district_court_jurisdiction_to_compel_employer.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "obligations imposed on such ... employer ... under the provisions of this chapter",
+        "where": [
+          "district_court_jurisdiction_to_compel_employer.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "obligations imposed on such employee ... or other person under the provisions of this chapter",
+        "where": [
+          "district_court_jurisdiction_to_compel_employee_or_other_person.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "an application by the Attorney General on behalf of the Secretary",
+        "where": [
+          "district_court_jurisdiction_to_compel_employer.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "an employee or other person residing within the jurisdiction of the court",
+        "where": [
+          "district_court_jurisdiction_to_compel_employee_or_other_person.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3232",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ") never lists 3232 among its fix bullets, and the commit body is empty — the only reason text is the generic subject",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...to compel an employee or other person residing within the jurisdiction of the court or an employer subject to service of process within its jurisdiction to comply with any obligations imposed on such employee, employer, or other person under the provisions of this chapter.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...to comply with any obligations imposed on such employee",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Chapter 22 railroad payroll validation sweep passed for generated statutes/26/3201-3241 files",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "obligations imposed on such employee, employer, or other person",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "to comply with any obligations imposed on such employee, employer, or other person under the provisions of this chapter",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 8,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

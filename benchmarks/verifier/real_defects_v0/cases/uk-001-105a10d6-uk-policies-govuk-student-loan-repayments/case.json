@@ -97,6 +97,105 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "student_loan_repayment"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full",
+        "where": [
+          "student_loan_repayment.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "You can ask for a refund if you have paid more than the total amount you owe.",
+        "where": [
+          "student_loan_repayment.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "You repay a percentage of your income over the income threshold for your type of loan.",
+        "where": [
+          "student_loan_repayment.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/student-loan-repayments/what-you-pay",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A borrower never repays more than they still owe",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full, but salary deductions can take around four weeks to stop, so you may pay back more than you owe.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "can take around four weeks to stop, so you may pay back more than you owe",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

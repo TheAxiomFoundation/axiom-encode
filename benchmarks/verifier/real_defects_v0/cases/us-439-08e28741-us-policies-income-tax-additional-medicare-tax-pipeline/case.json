@@ -196,6 +196,134 @@
     "requested_citation_path": "us/statute/26/3101",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_medicare_tax_pipeline_self_employment_domain_is_valid",
+      "wages_taken_into_account_for_additional_medicare_tax",
+      "pipeline_reduced_additional_medicare_self_employment_threshold",
+      "federal_additional_medicare_self_employment_tax"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.",
+        "where": [
+          "additional_medicare_tax_pipeline_self_employment_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_from",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_to",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2013-01-01",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_from",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2013-01-01",
+          "January 1, 2013",
+          "1 January 2013"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The amounts under clause (i), (ii), or (iii) (whichever is applicable) of subparagraph (A) shall be reduced (but not below zero) by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The lawful coordination sentence is absent from the current corpus pin: the record names section 3121(b)(2), not section 3101(b)(2).",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Two divergences from the pre-fix excerpt: the record has no",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the pinned §1401 record faithfully carries the enacted scrivener's error (cross-reference printed as 3121(b)(2); Treasury administers as 3101(b)(2) per 26 CFR 1.1401-1(d)(2) and Form 8959 — see TD 9645)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -129,6 +129,96 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "oasdi_wage_tax",
+      "oasdi_wage_tax_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "imposed on the income of every individual a tax equal to 6.2 percent of the wages",
+        "where": [
+          "oasdi_wage_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3101",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "tax equal to 6.2 percent",
+        "where": [
+          "oasdi_wage_tax_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3101",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "wages ... received by the individual with respect to employment",
+        "where": [
+          "oasdi_wage_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3101",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(a) ... there is hereby imposed on the income of every individual a tax equal to 6.2 percent of the wages (as defined in section 3121(a)) received by the individual with respect to employment",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a multi-earner tax unit would have had its members' wages pooled into one tax base instead of taxed person by person",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "there is hereby imposed on the income of every individual a tax equal to 6.2 percent of the wages ... received by the individual with respect to employment",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

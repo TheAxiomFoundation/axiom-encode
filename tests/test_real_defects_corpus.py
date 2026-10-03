@@ -348,3 +348,204 @@ def test_git_tier_checks_parent_bytes_and_commit_metadata(tmp_path):
         "us-002-test: post_fix artifact digest does not reproduce",
         "us-002-test: pre_fix artifact digest does not reproduce",
     ]
+
+
+# --------------------------------------------------------------------------
+# evidence_in_provision (tools/check_evidence.py)
+# --------------------------------------------------------------------------
+
+_EVIDENCE_SPEC = importlib.util.spec_from_file_location(
+    "check_evidence", CORPUS_DIR / "tools" / "check_evidence.py"
+)
+assert _EVIDENCE_SPEC is not None and _EVIDENCE_SPEC.loader is not None
+check_evidence = importlib.util.module_from_spec(_EVIDENCE_SPEC)
+_EVIDENCE_SPEC.loader.exec_module(check_evidence)
+
+
+def _module(rules: str) -> str:
+    return "format: rulespec/v1\nmodule:\n  summary: s\nrules:\n" + rules
+
+
+_PRE = _module(
+    """  - name: cap
+    kind: parameter
+    source: 7 CFR 273.10(e)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            source:
+              corpus_citation_path: us/regulation/7/273/10
+              excerpt: up to the maximum of $143.
+    versions:
+      - effective_from: '2025-10-01'
+        formula: '143'
+"""
+)
+
+
+def _case(rule_names, **triage):
+    return {
+        "artifacts_shipped": True,
+        "locator": {"rule_names": rule_names},
+        "triage": {
+            "pre_fix_wrong_because": "",
+            "triage_notes": "",
+            "verifier_justification": "",
+            "verifier_notes": "",
+            **triage,
+        },
+    }
+
+
+def test_evidence_removed_value_marks_the_provision_as_supporting_pre_fix():
+    post = _PRE.replace("formula: '143'", "formula: '198.99'")
+    status, check = check_evidence.check_case(
+        _case(["cap"]), _PRE, post, "Subtract the deduction up to the maximum of $143."
+    )
+    assert status == "absent"
+    assert check["reason"] == "provision_supports_pre_fix"
+    by_text = {s["text"]: s for s in check["strings"]}
+    assert by_text["143"]["side"] == "pre" and by_text["143"]["matched"]
+    assert by_text["198.99"]["side"] == "post" and not by_text["198.99"]["matched"]
+    # The unchanged excerpt carries the removed value, so it is pre-side too.
+    assert by_text["up to the maximum of $143."]["side"] == "pre"
+    status, _ = check_evidence.check_case(
+        _case(["cap"]), _PRE, post, "the maximum is $198.99 from October 1, 2025"
+    )
+    assert status == "present"
+
+
+def test_evidence_context_excerpt_counts_only_when_the_fix_added_nothing():
+    logic_pre = _PRE.replace("formula: '143'", "formula: x <= 143")
+    logic_post = _PRE.replace("formula: '143'", "formula: x < 143")
+    provision = "Applies when income is up to the maximum of $143. Other text."
+    status, check = check_evidence.check_case(
+        _case(["cap"]), logic_pre, logic_post, provision
+    )
+    assert status == "present"
+    [excerpt] = [s for s in check["strings"] if s["origin"] == "context_excerpt"]
+    assert excerpt["counts"] and excerpt["matched"]
+    added = logic_post.replace(
+        "              excerpt: up to the maximum of $143.\n",
+        "              excerpt: up to the maximum of $143.\n"
+        "          - path: versions[0].formula\n"
+        "            source:\n"
+        "              corpus_citation_path: us/statute/7/2014\n"
+        "              excerpt: adjusted annually for inflation\n",
+    )
+    status, check = check_evidence.check_case(
+        _case(["cap"]), logic_pre, added, provision
+    )
+    assert status == "absent"
+    context = [s for s in check["strings"] if s["origin"] == "context_excerpt"]
+    assert context and not any(s["counts"] for s in context)
+
+
+def test_evidence_unknown_for_metadata_only_and_untestable_cases():
+    status, check = check_evidence.check_case(_case(["cap"]), None, None, None)
+    assert (status, check["reason"]) == ("unknown", "metadata_only")
+    status, check = check_evidence.check_case(
+        _case(["no_such_rule"]), _PRE, _PRE.replace("summary: s", "summary: t"), "x"
+    )
+    assert (status, check["reason"]) == ("unknown", "nothing_to_test")
+    assert check["rules_missing"] == ["no_such_rule"]
+
+
+def test_evidence_quotes_match_whole_or_by_ordered_nearby_fragments():
+    provision = check_evidence.normalize(
+        "The combined income of the others with whom the individual resides "
+        "(excluding the income of the individual and spouse) must not exceed 165%."
+    )
+    assert check_evidence.text_in(
+        "the combined income of the others ... must not exceed 165%", provision
+    )
+    assert not check_evidence.text_in(
+        "must not exceed 165% ... the combined income of the others", provision
+    )
+    far = provision + " " + "x" * 400 + " tail words here"
+    assert not check_evidence.text_in("must not exceed 165% ... tail words here", far)
+    case = _case(
+        ["cap"],
+        verifier_notes='The source says "the combined income of the others with '
+        'whom the individual ... resides".',
+    )
+    status, check = check_evidence.check_case(
+        case, _PRE, _PRE.replace("summary: s", "summary: t"), provision
+    )
+    assert status == "present"
+    assert check["strings"][-1]["origin"] == "triage_quote"
+
+
+def test_evidence_number_forms_do_not_match_inside_other_numbers():
+    assert check_evidence.value_forms("0.15")[1:] == [
+        "15 percent",
+        "15 per cent",
+        "15%",
+    ]
+    assert "250,000" in check_evidence.value_forms("250000")
+    assert "November 14, 2025" in check_evidence.value_forms("2025-11-14")
+    text = check_evidence.normalize("rates of 1.15 and 150 and 2,150")
+    for form in check_evidence.value_forms("15"):
+        assert not check_evidence._form_pattern(form).search(text)
+    assert check_evidence.value_tokens("heading_9903_01_30 or 7") == set()
+    assert check_evidence.value_tokens("9903.01.77 and 165(d) on 2026-01-01") == {
+        "9903.01.77",
+        "165(d)",
+        "2026-01-01",
+    }
+
+
+def test_committed_evidence_fields_reproduce_and_obey_the_status_rules():
+    """Invariants for every case: the committed fields equal a fresh run, and
+    the status follows from the counts (present iff a post-side string
+    matched; absent iff something was tested and none did; unknown iff
+    nothing was tested or the case is metadata-only)."""
+
+    for entry in _index()["cases"]:
+        case_dir = CORPUS_DIR / "cases" / entry["id"]
+        case = json.loads((case_dir / "case.json").read_text(encoding="utf-8"))
+        status, check = check_evidence.check_case_dir(case_dir, case)
+        assert (case["evidence_in_provision"], case["evidence_check"]) == (
+            status,
+            check,
+        ), entry["id"]
+        assert entry["evidence_in_provision"] == status
+        tested = check["post_side_tested"] + check["pre_side_tested"]
+        if status == "present":
+            assert check["post_side_matched"] > 0
+        elif status == "absent":
+            assert tested > 0 and check["post_side_matched"] == 0
+            assert (check["reason"] == "provision_supports_pre_fix") == (
+                check["pre_side_matched"] > 0
+            )
+        else:
+            assert check["reason"] in {"metadata_only", "nothing_to_test"}
+            assert check["reason"] == "metadata_only" or tested == 0
+        assert (check["reason"] == "metadata_only") == (not case["artifacts_shipped"])
+
+
+def test_evidence_agreement_with_the_recorded_hand_calls():
+    """The agreement figures the README reports, recomputed from
+    triage/evidence_validation.json and the committed fields."""
+
+    record = json.loads(
+        (CORPUS_DIR / "triage" / "evidence_validation.json").read_text(encoding="utf-8")
+    )
+    assert record["method"] == check_evidence.METHOD
+    agreement = {}
+    for labelled in record["sets"]:
+        hits = 0
+        for case_id, call in labelled["labels"].items():
+            case = json.loads(
+                (CORPUS_DIR / "cases" / case_id / "case.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            hits += case["evidence_in_provision"] == call["label"]
+        agreement[labelled["name"]] = (hits, len(labelled["labels"]))
+    assert agreement == {
+        "review_round2": (14, 15),
+        "blind_round1": (19, 24),
+        "blind_round2": (20, 24),
+    }

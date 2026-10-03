@@ -20,6 +20,14 @@ output changes nothing. Stages, in order:
     entries in ``triage/screen.json``) get the same values, and the merged
     rows are re-sorted the way ``tools/merge_triage.py`` sorts them.
 
+``evidence``
+    ``evidence_in_provision`` and ``evidence_check`` from
+    ``tools/check_evidence.py``, placed after ``provision_resolution``.
+
+``index``
+    ``index.json`` regenerated from the case records with
+    ``build_real_defects.build_index`` (cases in id order).
+
 Usage (from the axiom-encode checkout)::
 
     uv run python benchmarks/verifier/real_defects_v0/tools/revise_corpus.py \\
@@ -50,6 +58,8 @@ def _load(name: str, path: Path) -> Any:
 
 lib = _load("verify_real_defects", ROOT / "scripts" / "verify_real_defects.py")
 merge = _load("merge_triage", TOOLS / "merge_triage.py")
+build = _load("build_real_defects", TOOLS / "build_real_defects.py")
+evidence = build.evidence
 
 
 def read_json(path: Path) -> Any:
@@ -82,6 +92,7 @@ class Corpus:
             for path in sorted((corpus_dir / "cases").glob("*/case.json"))
         }
         self._metadata: dict[str, dict[str, dict[str, Any]]] = {}
+        self.index: dict[str, Any] | None = None
 
     def commit_meta(self, jurisdiction: str, commit: str) -> dict[str, Any]:
         """``%cI``/``%s``/parents for a commit, read once per jurisdiction."""
@@ -130,6 +141,10 @@ class Corpus:
             path = self.dir / "cases" / case_id / "case.json"
             if write_json(path, case, indent=2):
                 changed.append(f"cases/{case_id}/case.json")
+        if self.index is not None and write_json(
+            self.dir / "index.json", self.index, indent=2
+        ):
+            changed.append("index.json")
         return changed
 
 
@@ -152,7 +167,26 @@ def stage_commit_metadata(corpus: Corpus) -> None:
         case["triage"]["screen_reason"] = corpus.row_for(case).get("screen_reason")
 
 
-STAGES = (("commit_metadata", stage_commit_metadata),)
+def stage_evidence(corpus: Corpus) -> None:
+    for case_id, case in corpus.cases.items():
+        status, check = evidence.check_case_dir(corpus.dir / "cases" / case_id, case)
+        corpus.cases[case_id] = evidence.with_evidence(case, status, check)
+
+
+def stage_index(corpus: Corpus) -> None:
+    build_log = read_json(corpus.triage_dir / "build_log.json")
+    corpus.index = build.build_index(
+        [corpus.cases[case_id] for case_id in sorted(corpus.cases)],
+        shipping_policy="verified",
+        dropped_at_build=len(build_log["dropped"]),
+    )
+
+
+STAGES = (
+    ("commit_metadata", stage_commit_metadata),
+    ("evidence", stage_evidence),
+    ("index", stage_index),
+)
 
 
 def main(argv: list[str] | None = None) -> int:

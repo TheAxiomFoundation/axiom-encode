@@ -333,6 +333,81 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ctc_other_dependent_under_subsection_h",
+      "ctc_child_credit_disallowed_by_ssn_requirement_under_subsection_h",
+      "ctc_child_ssn_requirement_satisfied_under_subsection_h",
+      "ctc_qualifying_child_under_subsection_h",
+      "ctc_child_amount_under_subsection_h",
+      "ctc_refundable_maximum_under_subsection_h"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2018-01-01",
+        "where": [
+          "ctc_child_amount_under_subsection_h.versions[0].effective_from",
+          "ctc_child_credit_disallowed_by_ssn_requirement_under_subsection_h.versions[0].effective_from",
+          "ctc_child_ssn_requirement_satisfied_under_subsection_h.versions[0].effective_from",
+          "ctc_other_dependent_under_subsection_h.versions[0].effective_from",
+          "ctc_qualifying_child_under_subsection_h.versions[0].effective_from",
+          "ctc_refundable_maximum_under_subsection_h.versions[0].effective_from"
+        ],
+        "forms": [
+          "2018-01-01",
+          "January 1, 2018",
+          "1 January 2018"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2200",
+        "where": [
+          "ctc_child_amount_under_subsection_h.versions[0].formula"
+        ],
+        "forms": [
+          "2200",
+          "2,200"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Exception for certain noncitizens Subparagraph (A) shall not apply with respect to any individual who would not be a dependent if subparagraph (A) of section 152(b)(3) were applied without regard to all that follows 'resident of the United States'.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Subparagraph (A) shall not apply with respect to certain noncitizens.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

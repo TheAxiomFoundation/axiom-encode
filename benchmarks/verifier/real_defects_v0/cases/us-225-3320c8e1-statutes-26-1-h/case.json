@@ -450,6 +450,119 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "net_capital_gain",
+      "capital_gains_28_percent_rate_gain_tax",
+      "adjusted_net_capital_gain_limited"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "28 percent of the amount of taxable income in excess of the sum of the amounts on which tax is determined under the preceding subparagraphs",
+        "where": [
+          "capital_gains_28_percent_rate_gain_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the adjusted net capital gain (or, if less, taxable income)",
+        "where": [
+          "adjusted_net_capital_gain_limited.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the net capital gain for any taxable year shall be reduced (but not below zero) by the amount which the taxpayer takes into account as investment income under section 163(d)(4)(B)(iii)",
+        "where": [
+          "net_capital_gain.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “28-percent rate gain” means the excess (if any) of",
+        "where": [
+          "capital_gains_28_percent_rate_gain_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “net capital gain” means net capital gain (determined without regard to this paragraph) increased by qualified dividend income",
+        "where": [
+          "net_capital_gain.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "28 percent of the amount of taxable income in excess of the sum of the amounts on which tax is determined under the preceding subparagraphs of this paragraph",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For purposes of this subsection, the net capital gain for any taxable year shall be reduced (but not below zero) by the amount which the taxpayer takes into account as investment income under section 163(d)(4)(B)(iii)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "amount of taxable income in excess of the sum of the amounts on which tax is determined under the preceding subparagraphs",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "from the 20% rate. Commit body is empty (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 8,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

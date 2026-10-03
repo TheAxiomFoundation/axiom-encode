@@ -261,6 +261,281 @@
     "requested_citation_path": "us-la/statute/47:32",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "la_2026_resident_disability_income_exemption",
+      "la_2026_resident_active_duty_outside_louisiana_exclusion",
+      "la_2026_resident_volunteer_deduction",
+      "la_2026_resident_standard_deduction",
+      "la_2026_resident_filing_status_selection_count",
+      "la_2026_resident_filing_status_selection_valid",
+      "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility",
+      "la_2026_resident_encoded_direct_deductions_before_held_adjustments",
+      "la_2026_resident_encoded_positive_exempt_income",
+      "la_2026_resident_partial_income_before_standard_and_encoded_deductions",
+      "la_2026_resident_partial_tax_table_income_before_held_adjustments",
+      "la_2026_resident_partial_income_tax_before_held_adjustments_and_credits"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Estimated Louisiana Income Tax (Multiply Line 4 by .03.)",
+        "where": [
+          "la_2026_resident_partial_income_tax_before_held_adjustments_and_credits.versions[0].formula"
+        ],
+        "cites": "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If your filing status is:",
+        "where": [
+          "la_2026_resident_filing_status_selection_count.versions[0].formula",
+          "la_2026_resident_filing_status_selection_valid.versions[0].formula"
+        ],
+        "cites": "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Income exempt from taxation under the laws of Louisiana",
+        "where": [
+          "la_2026_resident_encoded_positive_exempt_income.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Tax table income, for resident individuals, means adjusted gross income plus interest",
+        "where": [
+          "la_2026_resident_partial_income_before_standard_and_encoded_deductions.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Your Estimated Louisiana Taxable Income (Subtract Lines 2 and 3 from Line 1.)",
+        "where": [
+          "la_2026_resident_partial_tax_table_income_before_held_adjustments.versions[0].formula"
+        ],
+        "cites": "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amounts that a qualifying resident taxpayer receives in a taxable year through hardship distributions",
+        "where": [
+          "la_2026_resident_encoded_direct_deductions_before_held_adjustments.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:297.26",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "an amount equal to fifty percent of the cost paid or incurred by a taxpayer to voluntarily retrofit an existing residential structure",
+        "where": [
+          "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "exclude net income or losses received from an entity",
+        "where": [
+          "la_2026_resident_partial_income_before_standard_and_encoded_deductions.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:297.14",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives for the retrofitting cost paid",
+        "where": [
+          "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Enter on Line 3 the Louisiana estimated standard deduction",
+        "where": [
+          "la_2026_resident_standard_deduction.versions[0].formula"
+        ],
+        "cites": "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Six thousand dollars of annual disability income received by an individual shall be exempt",
+        "where": [
+          "la_2026_resident_disability_income_exemption.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:44.1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "serve as a volunteer for thirty or more hours during the taxable year",
+        "where": [
+          "la_2026_resident_volunteer_deduction.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "total compensation paid for services performed outside this state by the armed forces of the United States",
+        "where": [
+          "la_2026_resident_active_duty_outside_louisiana_exclusion.versions[0].formula"
+        ],
+        "cites": "us-la/statute/47:293",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "la_2026_resident_encoded_direct_deductions_before_held_adjustments.versions[0].effective_from",
+          "la_2026_resident_encoded_positive_exempt_income.versions[0].effective_from",
+          "la_2026_resident_filing_status_selection_count.versions[0].effective_from",
+          "la_2026_resident_filing_status_selection_valid.versions[0].effective_from",
+          "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility.versions[0].effective_from",
+          "la_2026_resident_partial_income_before_standard_and_encoded_deductions.versions[0].effective_from",
+          "la_2026_resident_partial_income_tax_before_held_adjustments_and_credits.versions[0].effective_from",
+          "la_2026_resident_partial_tax_table_income_before_held_adjustments.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "la_2026_resident_encoded_direct_deductions_before_held_adjustments.versions[0].effective_to",
+          "la_2026_resident_encoded_positive_exempt_income.versions[0].effective_to",
+          "la_2026_resident_filing_status_selection_count.versions[0].effective_to",
+          "la_2026_resident_filing_status_selection_valid.versions[0].effective_to",
+          "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility.versions[0].effective_to",
+          "la_2026_resident_partial_income_before_standard_and_encoded_deductions.versions[0].effective_to",
+          "la_2026_resident_partial_income_tax_before_held_adjustments_and_credits.versions[0].effective_to",
+          "la_2026_resident_partial_tax_table_income_before_held_adjustments.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an amount equal to fifty percent of the cost paid or incurred",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an amount equal to fifty percent of the cost paid or incurred ... less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "as a natural person who reaches the return only via the joint-return option (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "claimed on the return for the taxable year in which the work is completed",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives for the retrofitting cost paid",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the gate is defensive, spouse inputs would be zero anyway",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 17,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

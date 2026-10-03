@@ -408,6 +408,208 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "council_tax_reduction_annual_amount",
+      "council_tax_reduction_excess_income_taper_rate",
+      "council_tax_reduction_maximum_amount_for_year",
+      "council_tax_reduction_excess_income_for_year",
+      "council_tax_reduction_capital_eligible",
+      "council_tax_reduction_per_cent_unit",
+      "council_tax_reduction_taper_whole_per_cent",
+      "council_tax_reduction_taper_fraction_numerator",
+      "council_tax_reduction_days_in_week"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "100 per cent of the amount A/B",
+        "where": [
+          "council_tax_reduction_maximum_amount_for_year.versions[0].formula",
+          "council_tax_reduction_per_cent_unit.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/7",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent of the difference",
+        "where": [
+          "council_tax_reduction_annual_amount.versions[0].formula",
+          "council_tax_reduction_excess_income_taper_rate.versions[0].formula",
+          "council_tax_reduction_taper_whole_per_cent.versions[0].formula",
+          "council_tax_reduction_taper_fraction_numerator.versions[0].formula",
+          "council_tax_reduction_days_in_week.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "does not fall within a class of persons prescribed",
+        "where": [
+          "council_tax_reduction_annual_amount.versions[0].formula",
+          "council_tax_reduction_capital_eligible.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/2",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "less any deductions in respect of non-dependants",
+        "where": [
+          "council_tax_reduction_maximum_amount_for_year.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/7",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount found by deducting amount B from amount A",
+        "where": [
+          "council_tax_reduction_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/10",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "whose income for the relevant week is greater than his applicable amount",
+        "where": [
+          "council_tax_reduction_excess_income_for_year.versions[0].formula"
+        ],
+        "cites": "uk/regulation/uksi/2012/2885/schedule/1/paragraph/3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.01",
+        "where": [
+          "council_tax_reduction_per_cent_unit.versions[0].formula"
+        ],
+        "forms": [
+          "0.01",
+          "1 percent",
+          "1 per cent",
+          "1%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2013-04-01",
+        "where": [
+          "council_tax_reduction_annual_amount.versions[0].effective_from",
+          "council_tax_reduction_capital_eligible.versions[0].effective_from",
+          "council_tax_reduction_days_in_week.versions[0].effective_from",
+          "council_tax_reduction_excess_income_for_year.versions[0].effective_from",
+          "council_tax_reduction_excess_income_taper_rate.versions[0].effective_from",
+          "council_tax_reduction_maximum_amount_for_year.versions[0].effective_from",
+          "council_tax_reduction_per_cent_unit.versions[0].effective_from",
+          "council_tax_reduction_taper_fraction_numerator.versions[0].effective_from",
+          "council_tax_reduction_taper_whole_per_cent.versions[0].effective_from"
+        ],
+        "forms": [
+          "2013-04-01",
+          "April 1, 2013",
+          "1 April 2013"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0001-01-01",
+        "where": [
+          "council_tax_reduction_annual_amount.versions[0].effective_from",
+          "council_tax_reduction_capital_eligible.versions[0].effective_from",
+          "council_tax_reduction_excess_income_for_year.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", while the £16,000 in para 37 is the upper bound of the capital tariff (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". The pinned release confirms the law fixes the value the encoding left free: para 3(f)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This PolicyEngine-alignment surface returns the annual Council Tax Reduction amount used by PolicyEngine UK's national CTR framework",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "but its proof atom cites Sch 1 para 2 with the excerpt",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount found by deducting amount B from amount A",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 1,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {
