@@ -27,6 +27,7 @@ from .cases import CaseSuite, SuiteError
 from .judges import make_runner
 from .mutator import MUTATOR_VERSION, audit_planted_edit
 from .pricing import load_pricing, price_for
+from .report import ReportError, current_block, load_board, render_block, splice
 from .results import ResultsError, reassemble_results, run_suite
 from .sources import encodings_db, eval_suite, real, synthetic
 
@@ -272,6 +273,24 @@ def cmd_reassemble(args: argparse.Namespace) -> int:
         f"{suite.name!r}; complete={coverage['complete']}; judged nothing"
     )
     return 0 if coverage["complete"] else 1
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    boards = [load_board(Path(path)) for path in args.board]
+    block = render_block(boards)
+    runbook_path = Path(args.runbook)
+    runbook = runbook_path.read_text(encoding="utf-8")
+    if args.check:
+        if current_block(runbook) != block:
+            _eprint(
+                f"{runbook_path}: the generated boards block is stale; run "
+                "`verifier.py report` without --check to regenerate it"
+            )
+            return 1
+        return 0
+    runbook_path.write_text(splice(runbook, block), encoding="utf-8")
+    _eprint(f"wrote the boards block of {runbook_path} from {len(boards)} board(s)")
+    return 0
 
 
 def cmd_board(args: argparse.Namespace) -> int:
@@ -534,6 +553,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", required=True, help="an empty output directory")
     p.set_defaults(func=cmd_reassemble)
 
+    p = sub.add_parser(
+        "report", help="regenerate (or --check) the runbook's boards block"
+    )
+    p.add_argument(
+        "--board", nargs="+", required=True, help="committed board directories"
+    )
+    p.add_argument("--runbook", default="docs/encodebench-verifier.md")
+    p.add_argument("--check", action="store_true", help="exit 1 if the block is stale")
+    p.set_defaults(func=cmd_report)
+
     p = sub.add_parser("board", help="fold results into a leaderboard")
     p.add_argument("inputs", nargs="+")
     p.add_argument(
@@ -557,6 +586,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         real.RealDefectsError,
         eval_suite.EvalSuiteSourceError,
         ResultsError,
+        ReportError,
         ValueError,
         KeyError,
         OSError,

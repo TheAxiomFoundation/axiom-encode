@@ -19,7 +19,7 @@
     "jev-1.13.0": {
       "input_usd_per_million": 0.042,
       "output_usd_per_million": 0.0,
-      "source": "TypeSafe published price as recorded in the 2026-09-17 Jev judge pilot README (_axiom-runs/jev-judge-pilot-2026-09-17): $0.042 per million input tokens, output free"
+      "source": "TypeSafe models page https://docs.typesafe.ai/models, fetched 2026-10-03: Jev 1.13 (jev-1.13.0), $0.042 per million input tokens, output tokens free"
     },
     "claude-sonnet-4-5": {
       "input_usd_per_million": 3.0,

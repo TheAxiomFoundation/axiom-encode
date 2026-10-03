@@ -25,8 +25,11 @@ encodebench_verifier/
   localization.py               does a finding name the mutated rule or token?
   board.py                      fold + leaderboard; refuses non-comparable inputs
   agreement.py                  run-to-run self-agreement of one judge on identical text
-  breakdown.py                  paired detection by module size, diff, fix stage, kind
-  cli.py                        build-synthetic, build-real, filter-suite, show-suite, run, agreement, breakdown, board
+  breakdown.py                  paired detection by module size, changed-line share, fix stage, kind
+  report.py                     generates the runbook's boards block from committed board JSON
+  cli.py                        build-synthetic, build-real, filter-suite, audit-suite, show-suite,
+                                run, reassemble, agreement, breakdown, board, report
+boards/                         committed boards, each with the manifest of the suite it scored
 fixtures/real_defects_example/  two-case stand-in for real_defects_v0 (loader tests)
 ```
 

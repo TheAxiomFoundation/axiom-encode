@@ -66,9 +66,10 @@ Both members of a pair are produced by parsing the artifact, editing the
 parsed tree (only for the defective member) and re-serialising both through
 one canonical dumper. Consequences:
 
-- the two artifacts differ in exactly one leaf (a test asserts this for every
-  kind, and the full-pool dry run over 1,421 distinct citations found zero
-  multi-leaf diffs);
+- the two artifacts differ in exactly one leaf: `mutate` refuses any edit
+  that changes more than one (a YAML alias can make one assignment change
+  two paths), and tests assert it for every kind and for 150 generated
+  artifacts;
 - the defective artifact is always well-formed YAML (a line-splice mutator,
   which the pilot used, can cut a quoted multi-line formula in half);
 - formatting is normalised for both members, so the judged text is not
@@ -84,19 +85,32 @@ period; it never touches proof excerpts, source hashes, citations,
 reader of the window plus the artifact: an amount must equal a number the
 window states (numeric equality on whole numbers, so `60000` matches
 `$60,000.00` but `200` does not match inside `2008`) and its replacement must
-not; an effective date only moves when the window states the original year as
-a word of its own and not the shifted one; a period or entity only changes
-when the window mentions the original and not the replacement. Year-like
-numbers are never treated as amounts. Conjuncts are only dropped from pure
-conjunctions: a formula with a top-level `or` or an `if`/`else` is left
-alone, because deleting the text between two `and` tokens there would remove
-more than one condition. Each source artifact is used for at most one pair,
-and kinds are filled by deficit so the rarer sites get first pick.
+not; a dotted code such as `7202.11.10` is never an amount; an effective date
+only moves when the window states the original year as a word of its own and
+not the shifted one; a period or entity only changes when the window uses a
+word for the original (whole words, plurals allowed: "daylight" is not
+"day", "personal" is not "person") and none for the replacement. Year-like
+numbers are never treated as amounts, and `<<`, `>>`, `->` and `=>` are
+never boundaries. Operators inside a string literal (`"Bosnia and
+Herzegovina"`) are never edited. Conjuncts are only dropped from pure
+conjunctions: a formula with a top-level `or`, or any conditional (`if ...:`,
+`x if c else y`, `if c then x else y`), is left alone, because deleting the
+text between two `and` tokens there would remove more than one condition. A
+dropped conjunct is cut from the original text, so the rest of the formula
+keeps its layout. Each source artifact is used for at most one pair, and
+kinds are filled by deficit so the rarer sites get first pick.
 
-Mutator 1.0.0 matched amounts and years by substring. Two of the 180 pairs it
-built were undetectable for that reason (`200` found only inside `2008`, `11`
-only inside `3211(b)`); 1.0.1 closes the gap, and the first board drops those
-two pairs by a recorded filter rather than re-spending on a rebuild.
+Version history. Mutator 1.0.0 matched amounts and years by substring; two of
+its 180 pairs were undetectable for that reason (`200` found only inside
+`2008`, `11` only inside `3211(b)`), and that suite was superseded by a full
+1.0.1 rebuild. The committed board's suite was built by 1.0.1, whose period
+and entity guards matched word prefixes: four Day-to-Month pairs on tariff
+headings passed only because "eastern daylight time" contains "day". 1.0.1
+also reflowed a formula onto one line when it dropped a conjunct, a layout
+change with no change in meaning. 1.0.2 fixes both and the guard gaps above.
+Rather than rebuild and re-judge, `audit-suite` re-checks every committed pair
+against the 1.0.2 guards: exactly those four fail, and the board drops them by
+a recorded filter (see the boards section).
 
 The provision window is the referee's own truncation
 (`truncate_provision`, 24,000 characters, head and tail kept). Guards are
@@ -223,25 +237,47 @@ suite identity).
 built suite, derive a child suite by citation prefix and, where a case is
 later found unfair, by pair id with a stated reason; pairs are kept or
 dropped whole, and the child records its parent's digest, the filter, the
-reason and every dropped pair:
+reason and every dropped pair. When the mutator's guards tighten,
+`audit-suite` names the pairs the current version would not plant (exit 1 if
+any), and `--ids` prints them for the filter. This is how the committed
+board's child suite was made:
+
+```bash
+uv run python benchmarks/verifier/verifier.py audit-suite \
+  _axiom-runs/encodebench-verifier/synthetic_us_v1
+```
 
 ```bash
 uv run python benchmarks/verifier/verifier.py filter-suite \
   --suite _axiom-runs/encodebench-verifier/synthetic_us_v1 \
-  --drop-citation-prefix uk/ be/ \
-  --drop-pair amount_changed-cb832034 amount_changed-c1803dd0 \
-  --reason "US set only; two amount pairs fail the 1.0.1 numeric-equality guard" \
-  --name "EncodeBench verifier synthetic US v1 (US only, guard-checked)" \
-  --out _axiom-runs/encodebench-verifier/synthetic_us_v1_final
+  --drop-pair date_or_period_wrong-58d498f1 date_or_period_wrong-66ceaa04 \
+    date_or_period_wrong-73274712 date_or_period_wrong-aa3de659 \
+  --reason "fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'" \
+  --name "EncodeBench verifier synthetic US v1 (1.0.2 audit)" \
+  --out _axiom-runs/encodebench-verifier/synthetic_us_v1_audited
 ```
 
 `--max-case-chars N` drops pairs whose larger member (provision window plus
 artifact) exceeds N characters, for a like-for-like board when one judge has
 an input cap. A filter must never depend on judge outputs beyond such a
 stated, size-based rule. Rows already judged against the
-parent fold into the child without re-judging: point `run` at the child suite
-and the same `--out` directory, and it re-assembles `results.json` from
-`cases.jsonl`, re-stamping row positions. Parent-suite and child-suite runs
+parent fold into the child without re-judging. Use `reassemble`, which builds
+no judge and needs no keys:
+
+```bash
+uv run python benchmarks/verifier/verifier.py reassemble \
+  --suite _axiom-runs/encodebench-verifier/synthetic_us_v1_audited \
+  --from _axiom-runs/encodebench-verifier/runs/haiku \
+  --out _axiom-runs/encodebench-verifier/runs_audited/haiku
+```
+
+It checks that the child was derived from the run's own suite, keeps the
+run's rows whose content digests the child carries, and writes `results.json`
+and `cases.jsonl` under the run's recorded runner identity and price. Pointing
+`run` at the child suite and the parent's `--out` also re-assembles, but it
+rebuilds the judge first, and any drift in the judge's identity (an SDK
+upgrade, a changed default output budget) makes every row a stranger, so the
+whole suite is judged again and paid for. Parent-suite and child-suite runs
 carry different digests and never fold together.
 
 Run each judge into its own output directory (resumable; rows land in
@@ -289,17 +325,27 @@ same under different names, and any incomplete run without `--allow-partial`.
   derives its coverage counters from its rows. A hand edit to the runner
   name, the price source, the case list or a row is refused at load.
 - Errors never become passes. A runner that raises, an SDK that is missing
-  or unkeyed, a response without a verdict or without every kind's score, a
-  served model other than the pinned one, and an unparseable confidence are
-  all recorded as error rows with their cause, retried on the next run, and
-  keep the run incomplete until they clear.
+  or unkeyed, a response without a verdict or without every kind's score, an
+  unparseable confidence, and (for Jev) a served model other than the pinned
+  one are all recorded as error rows with their cause, retried on the next
+  run, and keep the run incomplete until they clear. The referee cannot check
+  its served model: `JudgeClient` reports the model it requested, not the one
+  the API answered with, so a referee's "served model" on the board is its
+  requested model id.
+- A crash can leave a half-written last line in `cases.jsonl`. The next read
+  drops it with a warning, and the next run trims it before appending, so the
+  run directory stays readable however many times it resumes.
 - An interrupt (Ctrl-C) cancels the queued cases, writes what finished, and
   exits 130; re-running the same command resumes. `--fresh` rotates the old
   `cases.jsonl` and `results.json` to `.bak` files rather than deleting them.
-  `--limit` judges only the first N cases but never downgrades a finished run.
-- Cost is recomputed at assembly from each row's reported tokens and the one
-  price the payload names; a row whose usage the provider did not report is
-  unpriced and counted as such, never charged zero.
+  `--limit` judges only the first N cases but never downgrades a finished
+  run, and keeps error rows outside the first N (with their cost) rather
+  than dropping them unjudged.
+- Cost and localization are recomputed at assembly from what the judge
+  returned (tokens, findings) under the one price the payload names and the
+  current matcher. A row whose usage the provider did not report is unpriced
+  and counted as such, never charged zero; for the referee, whose client
+  reports missing usage as zero tokens, a 0/0 reply is recorded as unknown.
 
 ## Self-agreement (test and retest)
 
@@ -326,8 +372,12 @@ configurations, not a retest).
 A board answers whether a judge separates defective from control; the
 breakdown answers where. It reports paired rise (the defective case scored
 strictly above its own control on the kind channel) and pooled AUC per
-bucket of module size, relative size of the fix, triage confidence, fix
-stage, kind or jurisdiction:
+bucket of module size, the share of the module's lines the fix changed
+(`diff`, from a line diff: a same-length rewrite of every line is 100
+percent, a one-line fix in a thousand-line module 0.1 percent), triage
+confidence, fix stage, kind or jurisdiction. A case without the metadata a
+property needs (a synthetic case has no triage confidence) lands in an
+`unknown` bucket:
 
 ```bash
 uv run python benchmarks/verifier/verifier.py breakdown \
@@ -335,10 +385,9 @@ uv run python benchmarks/verifier/verifier.py breakdown \
   --run _axiom-runs/encodebench-verifier/runs_real/jev --by size diff fix_stage
 ```
 
-It refuses a run judged against a different suite. On the real corpus this
-is the tool that shows the pattern behind a flat headline: a judge that is
-near chance overall may still separate large corrections cleanly and fail
-only on the one-line ones.
+It refuses a run judged against a different suite. It is the tool for the
+question a flat headline hides: whether a judge near chance overall still
+separates some kinds of case (large corrections, say) and fails on others.
 
 ## Adding a judge
 
@@ -354,8 +403,10 @@ must fall back to its verdict score and say so through
 ## Changing the suite
 
 Any change to the mutator's candidate selection, arithmetic, guards or the
-canonical dumper must bump `MUTATOR_VERSION`; the suite digest changes and
-old results stop folding, by design. Rebuilding with a different seed,
+canonical dumper must bump `MUTATOR_VERSION`; a suite built by the new
+version has a new digest and old results stop folding with it, by design. An
+existing suite keeps the version that built it; `audit-suite` says which of
+its pairs the new version would refuse. Rebuilding with a different seed,
 quota, source or generator model is a new suite. Keep the first board's
 manifest (`benchmarks/verifier/boards/synthetic_us_v1/suite.manifest.json`)
 as the record of which cases it scored.
@@ -398,167 +449,115 @@ as the record of which cases it scored.
   taxpayer, employer, ...) and is the weakest of the six; treat that column
   as indicative.
 - Cost is quoted only where a price is on file; blank is not zero.
-- The referee's production output budget truncates on large artifacts.
-  `JudgeClient` defaults to 2,048 output tokens; on the real corpus the
-  referee's findings list for modules of 30,000 input tokens and more ran
-  past it, the JSON was cut, and the case became a `parse_error` row (never
-  a pass). That is a finding about the production default worth carrying to
-  the judges package. The real-corpus referee runs use `--max-tokens 8192`,
-  recorded in the runner identity, so the board measures reading rather than
-  a token cap; the synthetic board ran at the production 2,048 and hit it
-  once in 1,080 referee calls.
+- The referee's output budget bounds what it can say. `JudgeClient`
+  defaulted to 2,048 output tokens when these runs were made; on real modules
+  of 30,000 input tokens and more the findings JSON ran past it, the reply
+  was cut, and the case became a `parse_error` row (never a pass). The
+  judges package now defaults to 16,000 and names a cut-off reply as a
+  `max_tokens` error (axiom-encode #1759). The output budget is recorded in
+  every referee's identity. On the committed synthetic board the three 4.x
+  referees ran at 2,048, and one of their 1,080 calls (Haiku, a 4,323-token
+  input) was cut at exactly 2,048 output tokens and retried. Opus 5 and
+  Sonnet 5 ran at 8,192, and Sonnet 5 was still cut there four times, each
+  retried.
 - Jev has an input cap. On the real corpus every case up to 100,670
   characters of provision window plus artifact was answered and every case
   from 101,617 characters up was refused with a 400 `max_tokens_exceeded`
   (about 25 to 30 thousand tokens). Those cases are error rows for Jev,
-  never passes, and the full real board folds them with `--allow-partial`
-  so the limitation shows. A like-for-like board over the cases every judge
-  could read is derived with `filter-suite --max-case-chars 100000`; both
-  boards are reported.
+  never passes, and a board folds them only with `--allow-partial`, so the
+  limitation shows. A like-for-like board over the cases every judge could
+  read is derived with `filter-suite --max-case-chars 100000`.
 - The first board is drawn from `encodings.db` generations by `gpt-5.5`,
   which is fine for the artifacts being judged but is not the pinned UK
   release; the UK synthetic set follows the encoder track's outputs.
 
-## Boards (2026-09-19)
+## Boards (2026-10-03)
 
-Three boards are committed under `benchmarks/verifier/boards/`, each with its
-markdown, JSON, CSV and the suite manifest that identifies exactly which cases
-it scored. Full suite texts and per-run rows live in
-`_axiom-runs/encodebench-verifier-2026-09-17/`. The roster is the same on all
-three: TypeSafe Jev 1.13.0 and the incumbent referee on Haiku 4.5, Sonnet 4.5,
-Sonnet 5, Opus 4.6 (the repo's pinned default) and Opus 5. Referee runs on the
-real corpus used `--max-tokens 8192`; the synthetic runs used the production
-2,048 for the 4.x models and 8,192 for Opus 5 and Sonnet 5, whose adaptive
-thinking counts against the same budget. Every judge's configuration is in its
-results payload. Real API spend for everything below, including the
-superseded mutator 1.0.0 run and the runs stopped for the output-budget fix,
-was $190.95 (deduplicated by row).
+One board is committed, under `benchmarks/verifier/boards/synthetic_us_v1/`,
+with its markdown, JSON, CSV and the suite manifest that identifies exactly
+which cases it scored. Full suite texts and per-run rows live in
+`_axiom-runs/encodebench-verifier-2026-09-17/`. The roster: TypeSafe Jev
+1.13.0, and the incumbent referee on Haiku 4.5, Sonnet 4.5, Sonnet 5, Opus 4.6
+(the repo's pinned default) and Opus 5. Each judge's configuration, output
+budget included, is in its results payload.
 
-### Synthetic US v1
+The judging ran on 2026-09-18 and 2026-09-19. On 2026-10-03 the board was
+re-derived from those recorded rows without judging anything again:
+`audit-suite` found four pairs that the 1.0.2 guards refuse, `filter-suite`
+dropped them with that reason recorded, `reassemble` folded each judge's rows
+onto the child suite, and localization was recomputed under the whole-word
+matcher. The block below is generated from the committed `board.json` by
+`verifier.py report`, and a test fails if it drifts from the board.
+
+A real-defects board was also folded on 2026-09-19, over the 172
+family-representative fidelity pairs of the PR #1659 corpus. It is held out
+of this PR. Review found that about 60 percent of the sampled fidelity cases
+ship a provision window without the defect's evidence, because only the first
+citation is resolved. That board would measure the corpus as much as the
+judges, so it comes back only once the corpus checks for the evidence. The
+board and its reproduction test are on branch
+`encodebench-verifier-real-board`.
+
+<!-- begin generated boards: verifier.py report; edit boards, not this -->
+
+### EncodeBench verifier synthetic US v1 (1.0.2 audit)
+
+176 pairs (352 cases), suite `bc57111f0129`, source `encodings_db`, built with mutator 1.0.1, provision window 24,000 characters.
+Filtered from suite `5b228af3d17c` (EncodeBench verifier synthetic US v1): 4 pair(s) dropped, because they fail the mutator 1.0.2 period guard (audit-suite): the window states no daily period; 1.0.1 matched 'day' inside 'daylight'.
 
 | judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
 |---|---|---|---|---|---|---|---|---|---|
-| jev† | jev-1.13.0 | 72% | 95% | 0.908 | 0.779 | blank by construction | 0.19 | $0.00013 | $0.05 |
-| opus-5† | claude-opus-5 | 51% | 89% | 0.785 ‡ | 0.809 | 86% | 14.13 | $0.05288 | $19.04 |
-| sonnet† | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | $0.01472 | $5.30 |
-| sonnet-5† | claude-sonnet-5 | 65% | 86% | 0.708 ‡ | 0.720 | 73% | 20.71 | $0.03290 | $11.84 |
-| opus† | claude-opus-4-6 | 63% | 86% | 0.705 ‡ | 0.752 | 80% | 11.11 | $0.02800 | $10.08 |
-| haiku† | claude-haiku-4-5-20251001 | 72% | 89% | 0.680 ‡ | 0.639 | 69% | 3.88 | $0.00514 | $1.85 |
+| jev† | jev-1.13.0 | 71% | 95% | 0.911 | 0.783 | blank by construction | 0.19 | $0.00013 | $0.05 |
+| opus-5† | claude-opus-5 | 52% | 91% | 0.790 ‡ | 0.814 | 86% | 14.41 | $0.05305 | $18.67 |
+| sonnet† | claude-sonnet-4-5 | 39% | 78% | 0.741 ‡ | 0.730 | 69% | 5.55 | $0.01480 | $5.21 |
+| sonnet-5† | claude-sonnet-5 | 66% | 88% | 0.709 ‡ | 0.722 | 75% | 20.31 | $0.03267 | $11.50 |
+| opus† | claude-opus-4-6 | 65% | 88% | 0.708 ‡ | 0.755 | 82% | 11.26 | $0.02822 | $9.93 |
+| haiku† | claude-haiku-4-5-20251001 | 72% | 89% | 0.684 ‡ | 0.642 | 69% | 3.88 | $0.00513 | $1.81 |
 
-Per-kind kind-channel AUC (jev / opus-5 / sonnet / sonnet-5 / opus / haiku): amount (n=30) 0.998 / 0.983 / 0.983 / 1.000 / 0.950 / 0.983; boundary (n=30) 0.924 / 0.983 / 0.800 / 0.950 / 0.783 / 0.700; conjunct (n=30) 0.753 / 0.667 / 0.650 / 0.567 / 0.583 / 0.467; polarity (n=30) 0.979 / 0.767 / 0.800 / 0.617 / 0.717 / 0.683; date or period (n=30) 0.853 / 0.696 ‡ / 0.622 ‡ / 0.588 ‡ / 0.642 ‡ / 0.659 ‡; entity (n=30) 0.942 / 0.614 ‡ / 0.570 ‡ / 0.524 ‡ / 0.557 ‡ / 0.588 ‡.
+Per-kind kind-channel AUC (jev / opus-5 / sonnet / sonnet-5 / opus / haiku): amount (n=30) 0.998 / 0.983 / 0.983 / 1.000 / 0.950 / 0.983; boundary (n=30) 0.924 / 0.983 / 0.800 / 0.950 / 0.783 / 0.700; conjunct (n=30) 0.753 / 0.667 / 0.650 / 0.567 / 0.583 / 0.467; polarity (n=30) 0.979 / 0.767 / 0.800 / 0.617 / 0.717 / 0.683; date or period (n=26) 0.868 / 0.724 ‡ / 0.642 ‡ / 0.598 ‡ / 0.660 ‡ / 0.681 ‡; entity (n=30) 0.942 / 0.614 ‡ / 0.570 ‡ / 0.524 ‡ / 0.557 ‡ / 0.588 ‡.
+
+Computed from the board:
+
+- No judge ranks: every judge flags more than 10% of the clean controls at its native verdict. The lowest rate is sonnet's, at 39%.
+- Highest mean kind-channel AUC: jev (0.911), at $0.00013 and 0.19 s a case. The best referee configuration is opus-5 (0.790), at $0.05305 and 14.41 s.
+- jev's weakest kinds: conjunct (0.753) and date or period (0.868).
+- Best localization: opus-5, 86% of defective cases with a finding naming the mutated rule or token.
+- Slowest median call: sonnet-5, 20.31 s.
+- Coerced verdicts (a raw pass that carried findings): 0 in total.
+- Spend recorded in this board's results: $47.17.
+
+<!-- end generated boards -->
 
 How to read it:
 
-- **Nobody ranks.** Every judge flags far more than 10 percent of the clean
-  controls at its native verdict (sonnet the fewest at
-  38%), so the headline gate
-  excludes them all. As a pass/flag gate none of these is usable yet. Part of
-  that rate is real defects the compile and CI gates cannot see: the judges
-  agree with each other on which controls to flag, and sampled findings on
-  controls are plausible fidelity complaints. Native FAR is an upper bound.
-- **On the kind channel Jev separates defective from control far better than
-  any referee configuration** (0.908 against
-  0.785 for opus-5), at
-  $0.00013 a case against
-  $0.05288, and in
-  0.19 s against
-  14.13 s. Its weakest
-  kinds are dropped conjuncts (0.753)
-  and wrong dates or periods (0.853).
-- **Opus 5 is the best referee configuration** and localizes best
-  (86% of its defective-case findings
-  name the mutated rule or token). Sonnet 4.5 has the lowest false-alarm rate
-  of any judge. Sonnet 5 is no better than Sonnet 4.5 on the kind channel here
-  and is the slowest judge on the board, because its thinking runs long.
-- **The referee's kind channel is binary**, so its per-kind AUC is a balanced
-  accuracy and its detection at the ceiling is often zero: when it names a
-  kind on more than a tenth of the controls, the channel has no operating
-  point under the ceiling. Its two ‡ kinds fall back to the verdict score.
-- **No coerced verdicts.** With the structured-output schema, no referee
-  answer was a raw pass with findings.
-- **Self-agreement.** Twenty-nine texts were judged twice by Haiku and by
-  Jev, once in a superseded 1.0.0 build and once here, identical provision
-  and artifact bytes. Jev repeated its verdict on 28 of 29 (median change in
-  P(flag) 0.03, maximum 0.07); Haiku repeated its verdict on 23 of 29 and
-  produced the same set of finding kinds on only 8 of 29.
+- **No judge is usable as a pass/flag gate yet.** Every judge flags far more
+  than a tenth of the gate-passing controls. Part of that rate may be real
+  defects the compile and CI gates cannot see. The judges agree with each
+  other on which controls to flag more often than chance (mean pairwise
+  Cohen's kappa 0.34 over the 176 controls, from 0.16 to 0.49), so the native
+  false-alarm rate is an upper bound on true false alarms, not a measurement
+  of them.
+- **The referee's kind channel is binary.** The kind score is 1 when a
+  finding names the mapped kind and 0 otherwise, so the referee's per-kind AUC
+  is a balanced accuracy. Its detection at the ceiling is often zero: once it
+  names a kind on more than a tenth of the controls, the channel has no
+  operating point under the ceiling. Its two ‡ kinds (date or period, entity)
+  fall back to the verdict score, because the referee asks no question about
+  them. Jev's kind channel is continuous.
+- **Thinking models spend their output budget.** Sonnet 5 and Opus 5 write
+  replies several times longer than the 4.x referees (mean output tokens are
+  in `board.md`), which is where their latency and cost go.
+- **Self-agreement.** 29 texts were judged twice by Haiku and by Jev: once in
+  the superseded 1.0.0 build and once here, with identical provision and
+  artifact bytes (joined on the texts' sha256). Jev repeated its verdict on 28
+  of 29, with a median change in P(flag) of 0.03 and a maximum of 0.07. Haiku
+  repeated its verdict on 23 of 29 and gave the same set of finding kinds on
+  only 8. The 1.0.0 runs predate the results digest, so `agreement` refuses
+  them; these figures were computed from the two runs' rows directly.
 
-### Real defects v0
-
-The corpus (axiom-encode PR #1659, branch head `0fee8ddf`) holds 520 cases
-mined from rulespec-us and rulespec-uk fix history. The suite keeps the 172
-family representatives with `triage_status: fidelity`; controls are the
-post-fix modules and are not proven clean, so the false-alarm ceiling is not
-applied and no judge is unranked. Two boards: the full suite, on which Jev
-refused 33 cases over its input cap and Sonnet 5 lost
-16 to output truncation (both shown
-as errors, folded with `--allow-partial`), and a like-for-like child over the
-154 pairs under 100,000 characters that every
-judge could read.
-
-Full suite:
-
-| judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
-|---|---|---|---|---|---|---|---|---|---|
-| jev | jev-1.13.0 | 94% | 95% | 0.655 ‡ | 0.480 | blank by construction | 0.24 | $0.00030 | $0.09 (311/344 scored) |
-| opus-5 | claude-opus-5 | 82% | 86% | 0.632 ‡ | 0.611 | 34% | 26.11 | $0.13120 | $45.13 |
-| opus | claude-opus-4-6 | 88% | 91% | 0.586 ‡ | 0.516 | 24% | 18.93 | $0.07361 | $25.32 |
-| sonnet | claude-sonnet-4-5 | 48% | 52% | 0.518 ‡ | 0.496 | 17% | 6.84 | $0.03977 | $13.68 |
-| haiku | claude-haiku-4-5-20251001 | 87% | 89% | 0.412 ‡ | 0.510 | 22% | 5.69 | $0.01431 | $4.92 |
-| sonnet-5§ | claude-sonnet-5 | 92% | 96% | — | 0.554 | 26% | 33.50 | $0.06520 | $22.43 (328/344 scored) |
-
-Per-kind kind-channel AUC (jev / opus-5 / opus / sonnet / haiku / sonnet-5): amount (n=4) 0.889 / 0.750 / 0.500 / 0.625 / 0.250 / 0.500; boundary (n=1) 1.000 / 0.500 / 1.000 / 0.000 / 0.500 / 0.500; polarity (n=7) 0.514 / 0.500 / 0.500 / 0.429 / 0.429 / 0.500; date or period (n=33) 0.555 / 0.547 ‡ / 0.476 ‡ / 0.519 ‡ / 0.535 ‡ / 0.520 ‡; entity (n=24) 0.580 / 0.533 ‡ / 0.508 ‡ / 0.562 ‡ / 0.468 ‡ / 0.554 ‡; other (n=1) 0.500 ‡ / 1.000 ‡ / 0.500 ‡ / 1.000 ‡ / 0.000 ‡ / —; unrepresented clause (n=64) 0.576 ‡ / 0.559 ‡ / 0.598 ‡ / 0.540 ‡ / 0.586 ‡ / 0.544 ‡; untraceable branch (n=38) 0.629 ‡ / 0.668 ‡ / 0.607 ‡ / 0.470 ‡ / 0.526 ‡ / 0.583 ‡.
-
-Under 100,000 characters:
-
-| judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
-|---|---|---|---|---|---|---|---|---|---|
-| jev | jev-1.13.0 | 94% | 95% | 0.654 ‡ | 0.478 | blank by construction | 0.24 | $0.00030 | $0.09 |
-| opus-5 | claude-opus-5 | 80% | 84% | 0.644 ‡ | 0.600 | 37% | 24.25 | $0.10361 | $31.91 |
-| opus | claude-opus-4-6 | 87% | 90% | 0.589 ‡ | 0.520 | 27% | 17.79 | $0.05374 | $16.55 |
-| sonnet | claude-sonnet-4-5 | 49% | 54% | 0.524 ‡ | 0.512 | 19% | 6.38 | $0.02812 | $8.66 |
-| haiku | claude-haiku-4-5-20251001 | 90% | 92% | 0.429 ‡ | 0.520 | 23% | 5.49 | $0.01033 | $3.18 |
-| sonnet-5§ | claude-sonnet-5 | 90% | 95% | — | 0.567 | 29% | 31.51 | $0.05500 | $16.94 (293/308 scored) |
-
-Per-kind kind-channel AUC (jev / opus-5 / opus / sonnet / haiku / sonnet-5): amount (n=3) 0.889 / 0.833 / 0.500 / 0.667 / 0.333 / 0.500; boundary (n=1) 1.000 / 0.500 / 1.000 / 0.000 / 0.500 / 0.500; polarity (n=6) 0.514 / 0.500 / 0.500 / 0.417 / 0.500 / 0.500; date or period (n=33) 0.555 / 0.547 ‡ / 0.476 ‡ / 0.519 ‡ / 0.535 ‡ / 0.520 ‡; entity (n=20) 0.580 / 0.521 ‡ / 0.500 ‡ / 0.560 ‡ / 0.477 ‡ / 0.568 ‡; other (n=1) 0.500 ‡ / 1.000 ‡ / 0.500 ‡ / 1.000 ‡ / 0.000 ‡ / —; unrepresented clause (n=59) 0.574 ‡ / 0.565 ‡ / 0.593 ‡ / 0.544 ‡ / 0.575 ‡ / 0.558 ‡; untraceable branch (n=31) 0.621 ‡ / 0.683 ‡ / 0.646 ‡ / 0.485 ‡ / 0.514 ‡ / 0.595 ‡.
-
-How to read it:
-
-- **Real corrections are much harder than planted edits, for every judge.**
-  Jev drops from 0.908 on the synthetic suite to
-  0.655 here, and its verdict-channel AUC is
-  0.480: its pass/flag verdict does not tell a
-  pre-fix module from its own fix. The best referee configuration
-  (opus-5) reaches 0.632;
-  Haiku is below chance. Every judge except Sonnet 4.5 flags eight or nine in
-  ten of the post-fix controls.
-- **The per-kind numbers with a kind channel rest on tiny samples** (amount 4,
-  boundary 1, polarity 7). The kinds that carry the corpus, unrepresented
-  clause (64
-  pairs) and untraceable branch
-  (38 pairs),
-  have no kind-specific question in either judge family and are scored on the
-  verdict channel, where everyone is near 0.5 to 0.65.
-- **Where the signal is.** The breakdown by relative diff size shows the
-  pattern the headline hides: paired rise for fixes that changed under 2
-  percent of the module against fixes that changed 30 percent or more is
-  31% against 66%
-  for Jev, 30% against
-  66% for Opus 5 and
-  15% against 30%
-  for Sonnet 4.5. Post-merge corrections separate better than pre-merge review
-  fixes for every judge (Jev 64% against
-  47%). One-line corrections inside
-  large modules are where all of these judges fail.
-- **Input and output caps are part of the result.** Jev cannot read a case
-  over about 100,000 characters; Sonnet 5's thinking consumed the 8,192-token
-  output budget on a share of the largest modules even after one retry pass;
-  the production 2,048-token budget truncated Haiku and Sonnet 4.5 on the
-  largest modules before the runs were restarted at 8,192.
-- **The like-for-like board moves almost nothing.** Dropping the 18 largest
-  pairs changes each judge's mean kind AUC by at most a few hundredths, so the
-  full-suite comparison stands.
-
-What these boards do not say: nothing about the UK release (the synthetic
-suite is US generations from the run log), nothing about multi-edit synthetic
-defects, and nothing about judges given the diff rather than the whole module,
-which is the obvious next experiment given the diff-size pattern.
+Real API spend for the whole build was $190.99. That figure was recomputed on
+2026-10-03 from every recorded row in the run directory, `.bak` rotations
+included, deduplicated by judging event and priced from `pricing.json`. It
+covers the superseded 1.0.0 run, the runs stopped for the output-budget fix
+and the real-corpus runs, so it is larger than the spend the board above
+records.
