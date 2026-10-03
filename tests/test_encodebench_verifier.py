@@ -354,7 +354,7 @@ def test_canonical_dump_round_trips_multiline_and_quoted_scalars():
 
 
 def test_mutator_version_is_pinned():
-    assert MUTATOR_VERSION == "1.0.2"
+    assert MUTATOR_VERSION == "1.0.3"
 
 
 # -- synthetic suite -------------------------------------------------------------
@@ -2962,6 +2962,144 @@ def test_localization_matches_whole_words_and_is_recomputed_at_assembly(tmp_path
     rebuilt = assemble_results(suite, runner, rows, price=None)
     row = next(r for r in rebuilt["results"] if r["case_id"] == case.case_id)
     assert row["localized"] is False and row["localization_evidence"] is None
+
+
+# -- delta review: mutator 1.0.3 and stricter audit ------------------------------
+
+
+def test_nothing_inside_a_string_literal_is_edited():
+    window = "Section 11 applies. The cap is $60,000."
+    literal = _artifact_with(
+        formulas={0: "'5'", 1: 'state_code == "11" and label == "a > b"', 2: "x"}
+    )
+    assert all(m is None for m in _all_seeds(literal, window, "amount_changed"))
+    assert all(m is None for m in _all_seeds(literal, window, "boundary_flipped"))
+    # A formula with ``#`` outside a literal is left alone by every formula kind.
+    commented = _artifact_with(
+        formulas={0: "'5'", 1: "a >= 60000 and b  # it's\nor c  # it's", 2: "x"}
+    )
+    for kind in (
+        "amount_changed",
+        "boundary_flipped",
+        "conjunct_dropped",
+        "polarity_swapped",
+    ):
+        assert all(m is None for m in _all_seeds(commented, window, kind)), kind
+    # Compound shift-assignments are not comparisons.
+    from encodebench_verifier.mutator import _BOUNDARY_RE
+
+    assert _BOUNDARY_RE.findall("x >>= 1; y <<= 2; z >= 3") == [">="]
+
+
+def test_irregular_plurals_count_as_mentions():
+    artifact = _artifact_with(entities={1: "Person", 2: "Person"})
+    families = "Temporary assistance for needy families. Each individual applies."
+    afters = {
+        m.locator.after
+        for m in _all_seeds(artifact, families, "entity_wrong", range(60))
+        if m
+    }
+    assert afters and "Family" not in afters
+    people = "People who reside here are taxed."
+    assert all(m is not None for m in _all_seeds(artifact, people, "entity_wrong"))
+
+
+def test_dropping_an_end_conjunct_keeps_the_formula_whitespace():
+    from encodebench_verifier.mutator import _conjunct_sites, _drop_conjunct
+
+    raw = "\na and b and c\n"
+    ands = _conjunct_sites(raw)
+    assert [_drop_conjunct(raw, ands, drop)[1] for drop in range(3)] == [
+        "\nb and c\n",
+        "\na and c\n",
+        "\na and b\n",
+    ]
+
+
+def test_audit_refuses_edits_the_mutator_cannot_plant():
+    from encodebench_verifier.mutator import audit_planted_edit
+
+    stated = "Income of $60,000. Each person, daily."
+    base = _artifact_with(formulas={1: "x * 60000"}, periods={1: "Day"})
+
+    def audit(defective, kind, control=base):
+        return audit_planted_edit(control, defective, stated, kind)
+
+    # Amounts: a non-number, and the same amount reformatted.
+    for formula in ("x * foo", "x * 60,000"):
+        reason = audit(
+            _artifact_with(formulas={1: formula}, periods={1: "Day"}), "amount_changed"
+        )
+        assert reason and reason.startswith("no amount"), formula
+    # Entities: outside the mutator's pool, and at a nested path.
+    reason = audit(
+        _artifact_with(
+            formulas={1: "x * 60000"}, periods={1: "Day"}, entities={1: "Banana"}
+        ),
+        "entity_wrong",
+    )
+    assert reason and "is not a replacement" in reason
+    nested_control = load_yaml_document(base)
+    nested_control["rules"][1]["inputs"] = [{"entity": "Person"}]
+    nested_control["rules"][1]["meta"] = {"period": "Day"}
+    nested_control["rules"][1]["meta"]["effective_from"] = "2026-01-01"
+    control = dump_yaml_document(nested_control)
+    for path, value, kind in (
+        (("inputs", 0, "entity"), "Household", "entity_wrong"),
+        (("meta", "period"), "Month", "date_or_period_wrong"),
+        (("meta", "effective_from"), "2027-01-01", "date_or_period_wrong"),
+    ):
+        edited = load_yaml_document(control)
+        node = edited["rules"][1]
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+        reason = audit(dump_yaml_document(edited), kind, control=control)
+        assert reason and reason.startswith("edits rules[1]."), (path, reason)
+    # Edits inside a string literal are never operator or amount sites.
+    quoted = _artifact_with(formulas={1: 'label == "a > b"'})
+    assert (
+        audit_planted_edit(
+            quoted,
+            _artifact_with(formulas={1: 'label == "a >= b"'}),
+            stated,
+            "boundary_flipped",
+        )
+        == "not a flip of a comparison operator"
+    )
+
+
+def test_trim_restores_the_newline_of_a_finished_last_row(tmp_path):
+    # A crash can cut only the newline of a complete row. read_rows keeps
+    # that row, so the trim must not delete it (a later resume would pay to
+    # judge the case again).
+    suite = _suite_for_board()
+    runner = _CountingReplay(_replay_file(tmp_path, suite, "n"), name="n")
+    run_suite(suite, runner, tmp_path / "n", price=None)
+    jsonl = tmp_path / "n" / "cases.jsonl"
+    whole = jsonl.read_bytes()
+    jsonl.write_bytes(whole[:-1])
+    for _ in range(2):
+        payload = run_suite(suite, runner, tmp_path / "n", price=None)
+        assert payload["coverage"]["complete"] is True
+    assert runner.calls == len(suite.cases)
+    assert jsonl.read_bytes() == whole
+
+
+def test_localization_number_is_not_matched_inside_a_grouped_number():
+    amount = Locator(path="rules[0].versions[0].formula", rule_name="x", token="75")
+    explanation = [{"rule_path": "", "explanation": "the cap is $75,000"}]
+    assert localize(amount, explanation)[0] is False
+
+
+def test_report_renders_a_missing_latency():
+    from encodebench_verifier.report import load_board, render_board
+
+    board = load_board(BOARDS_ROOT / "synthetic_us_v1")
+    for runner in board["runners"]:
+        runner["median_latency_seconds"] = None
+    text = render_board(board)
+    assert "n/a a case" in text and "Slowest median call" not in text
 
 
 # -- committed boards reproduce -----------------------------------------------

@@ -44,8 +44,8 @@ judge can be measured against, and that is what this track supplies.
     `untraceable_branch` and `other` keep their own `other:` columns on the
     verdict channel. By default the loader keeps family representatives only
     and `triage_status: fidelity` only, skipping metadata-only records.
-- **Defect kinds**: `amount_changed` (a number that also appears verbatim in
-  the provision window), `boundary_flipped` (`>=` and `>`, `<=` and `<`, both
+- **Defect kinds**: `amount_changed` (a number equal to one the provision
+  window states), `boundary_flipped` (`>=` and `>`, `<=` and `<`, both
   directions), `conjunct_dropped` (one `and` conjunct deleted),
   `polarity_swapped` (`and` for `or` or the reverse), `date_or_period_wrong`
   (a version's effective date moved a year, or a rule's period changed),
@@ -88,16 +88,20 @@ window states (numeric equality on whole numbers, so `60000` matches
 not; a dotted code such as `7202.11.10` is never an amount; an effective date
 only moves when the window states the original year as a word of its own and
 not the shifted one; a period or entity only changes when the window uses a
-word for the original (whole words, plurals allowed: "daylight" is not
-"day", "personal" is not "person") and none for the replacement. Year-like
-numbers are never treated as amounts, and `<<`, `>>`, `->` and `=>` are
-never boundaries. Operators inside a string literal (`"Bosnia and
-Herzegovina"`) are never edited. Conjuncts are only dropped from pure
-conjunctions: a formula with a top-level `or`, or any conditional (`if ...:`,
-`x if c else y`, `if c then x else y`), is left alone, because deleting the
-text between two `and` tokens there would remove more than one condition. A
-dropped conjunct is cut from the original text, so the rest of the formula
-keeps its layout. Each source artifact is used for at most one pair, and
+word for the original (whole words, regular plurals plus "families",
+"people" and "children": "daylight" is not "day", "personal" is not "person")
+and none for the replacement. Year-like numbers are never treated as amounts,
+and `<<`, `>>`, `->`, `=>`, `>>=` and `<<=` are never boundaries. Nothing
+inside a string literal is edited: not `and`/`or` (`"Bosnia and
+Herzegovina"`), not a comparison (`"a > b"`), not a number (`"11"`). A formula
+with a `#` outside a literal is left alone by every formula kind, because the
+mutator does not parse whether it starts a comment. Conjuncts are only
+dropped from pure conjunctions: a formula with a top-level `or`, a colon, or
+a top-level conditional keyword (`x if c else y`, `if c then x else y`) is
+left alone, because deleting the text between two `and` tokens there would
+remove more than one condition. A dropped conjunct is cut from the original
+text, so the rest of the formula keeps its layout and its leading and
+trailing whitespace. Each source artifact is used for at most one pair, and
 kinds are filled by deficit so the rarer sites get first pick.
 
 Version history. Mutator 1.0.0 matched amounts and years by substring; two of
@@ -107,10 +111,13 @@ its 180 pairs were undetectable for that reason (`200` found only inside
 and entity guards matched word prefixes: four Day-to-Month pairs on tariff
 headings passed only because "eastern daylight time" contains "day". 1.0.1
 also reflowed a formula onto one line when it dropped a conjunct, a layout
-change with no change in meaning. 1.0.2 fixes both and the guard gaps above.
-Rather than rebuild and re-judge, `audit-suite` re-checks every committed pair
-against the 1.0.2 guards: exactly those four fail, and the board drops them by
-a recorded filter (see the boards section).
+change with no change in meaning. 1.0.2 fixed both. 1.0.3 closed what an
+executed review of 1.0.2 found: comparisons and numbers inside string
+literals, `#` comments, `>>=`, the irregular plurals and the end-conjunct
+whitespace. Rather than rebuild and re-judge, `audit-suite` re-checks every
+committed pair against the current guards. Under 1.0.2 exactly those four
+pairs failed, and the board drops them by a recorded filter (see the boards
+section); the remaining 176 pass the 1.0.3 audit unchanged.
 
 The provision window is the referee's own truncation
 (`truncate_provision`, 24,000 characters, head and tail kept). Guards are
@@ -302,7 +309,7 @@ Fold the board:
 ```bash
 uv run python benchmarks/verifier/verifier.py board \
   _axiom-runs/encodebench-verifier/runs/haiku _axiom-runs/encodebench-verifier/runs/jev \
-  --false-alarm-ceiling 0.25 --markdown-out board.md --json-out board.json --csv-out board.csv
+  --markdown-out board.md --json-out board.json --csv-out board.csv
 ```
 
 The board refuses two inputs whose suite sha256 differs (the digest binds
@@ -456,8 +463,8 @@ as the record of which cases it scored.
   judges package now defaults to 16,000 and names a cut-off reply as a
   `max_tokens` error (axiom-encode #1759). The output budget is recorded in
   every referee's identity. On the committed synthetic board the three 4.x
-  referees ran at 2,048, and one of their 1,080 calls (Haiku, a 4,323-token
-  input) was cut at exactly 2,048 output tokens and retried. Opus 5 and
+  referees ran at 2,048, and one call across their 1,080 cases (Haiku, a
+  4,323-token input) was cut at exactly 2,048 output tokens and retried. Opus 5 and
   Sonnet 5 ran at 8,192, and Sonnet 5 was still cut there four times, each
   retried.
 - Jev has an input cap. On the real corpus every case up to 100,670
@@ -477,13 +484,14 @@ One board is committed, under `benchmarks/verifier/boards/synthetic_us_v1/`,
 with its markdown, JSON, CSV and the suite manifest that identifies exactly
 which cases it scored. Full suite texts and per-run rows live in
 `_axiom-runs/encodebench-verifier-2026-09-17/`. The roster: TypeSafe Jev
-1.13.0, and the incumbent referee on Haiku 4.5, Sonnet 4.5, Sonnet 5, Opus 4.6
-(the repo's pinned default) and Opus 5. Each judge's configuration, output
+1.13.0, and the incumbent referee on Haiku 4.5 (the judges package's default
+judge model), Sonnet 4.5, Sonnet 5, Opus 4.6 and Opus 5. Each judge's configuration, output
 budget included, is in its results payload.
 
 The judging ran on 2026-09-18 and 2026-09-19. On 2026-10-03 the board was
 re-derived from those recorded rows without judging anything again:
-`audit-suite` found four pairs that the 1.0.2 guards refuse, `filter-suite`
+`audit-suite` found four pairs that the 1.0.2 guards refuse (the other 176
+also pass 1.0.3), `filter-suite`
 dropped them with that reason recorded, `reassemble` folded each judge's rows
 onto the child suite, and localization was recomputed under the whole-word
 matcher. The block below is generated from the committed `board.json` by

@@ -186,8 +186,9 @@ def _trim_truncated_tail(path: Path) -> None:
 
     ``read_rows`` drops that fragment with a warning, but the next append
     would land on the same line and leave interior corruption that every
-    later read refuses. The fragment is never a finished row: rows are
-    written with their newline in one call and fsynced.
+    later read refuses. A tail that parses as a JSON object is a finished
+    row that lost only its newline (``read_rows`` keeps it), so it gets the
+    newline back instead of being cut.
     """
 
     if not path.is_file():
@@ -202,6 +203,16 @@ def _trim_truncated_tail(path: Path) -> None:
         handle.seek(0)
         data = handle.read()
         cut = data.rfind(b"\n") + 1
+        try:
+            finished = isinstance(json.loads(data[cut:].decode("utf-8")), dict)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            finished = False
+        if finished:
+            handle.seek(size)
+            handle.write(b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+            return
         warnings.warn(
             f"{path}: trimmed {size - cut} bytes of a truncated trailing row "
             "before appending",

@@ -44,6 +44,10 @@ def _money(value: Optional[float], places: int = 5) -> str:
     return "n/a" if value is None else f"${value:.{places}f}"
 
 
+def _secs(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"{value:.2f} s"
+
+
 def _kind_label(kind: str) -> str:
     if kind.startswith("other:"):
         return kind.split(":", 1)[1].replace("_", " ")
@@ -174,7 +178,7 @@ def _facts(board: dict[str, Any]) -> list[str]:
         sentence = (
             f"Highest mean kind-channel AUC: {top['runner']} "
             f"({_auc(top['mean_kind_auc'])}), at {_money(top.get('mean_cost_usd'))} "
-            f"and {top.get('median_latency_seconds'):.2f} s a case."
+            f"and {_secs(top.get('median_latency_seconds'))} a case."
         )
         referees = [r for r in scored if r.get("family") == "referee" and r is not top]
         if referees:
@@ -183,7 +187,7 @@ def _facts(board: dict[str, Any]) -> list[str]:
                 f" The best referee configuration is {best['runner']} "
                 f"({_auc(best['mean_kind_auc'])}), at "
                 f"{_money(best.get('mean_cost_usd'))} and "
-                f"{best.get('median_latency_seconds'):.2f} s."
+                f"{_secs(best.get('median_latency_seconds'))}."
             )
         facts.append(sentence)
         kind_aucs = [

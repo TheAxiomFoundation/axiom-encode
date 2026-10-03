@@ -30,14 +30,14 @@ def _norm(text: Any) -> str:
 def _whole(token: str) -> re.Pattern[str]:
     """``token`` as a whole identifier, word or number, never a fragment.
 
-    A number must not sit inside a longer number (``75`` in ``750`` or
-    ``1.75``); an identifier must not sit inside a longer identifier, though
-    it may follow a dot (``module.rule_name``).
+    A number must not sit inside a longer number (``75`` in ``750``,
+    ``1.75`` or ``$75,000``); an identifier must not sit inside a longer
+    identifier, though it may follow a dot (``module.rule_name``).
     """
 
     escaped = re.escape(token)
     if re.fullmatch(r"[\d.,]+", token):
-        return re.compile(rf"(?<![\w.]){escaped}(?![\w]|\.\d)")
+        return re.compile(rf"(?<![\w.,]){escaped}(?![\w]|[.,]\d)")
     return re.compile(rf"(?<!\w){escaped}(?!\w)")
 
 
