@@ -46,6 +46,12 @@ Version history:
   colon-free conditionals (``x if c else y``, ``if c then x else y``), cuts a
   dropped conjunct from the original text so the formula keeps its layout,
   and refuses an edit that changes more than one leaf (YAML aliases).
+* 1.0.3 edits nothing inside a string literal (1.0.2 still flipped a
+  comparison or changed a number there), leaves alone any formula with a
+  ``#`` outside a literal (a comment or a reference: this module does not
+  parse which), does not read ``>>=``/``<<=`` as a comparison, knows the
+  irregular plurals "families" and "people", and keeps a formula's leading
+  and trailing whitespace when it drops the first or last conjunct.
 
 Bump :data:`MUTATOR_VERSION` for any change to candidate selection, edit
 arithmetic, guards or the canonical dump: boards refuse to fold runs whose
@@ -66,7 +72,7 @@ from . import DEFECT_KINDS
 from .canonical import dump_yaml_document, load_yaml_document
 from .cases import Locator
 
-MUTATOR_VERSION = "1.0.2"
+MUTATOR_VERSION = "1.0.3"
 
 _YEAR_RE = re.compile(r"^(19|20)\d\d$")
 # A number inside formula text. A dotted code such as ``"7202.11.10.00"`` is
@@ -76,10 +82,12 @@ _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _AND_RE = re.compile(r"\band\b")
 _OR_RE = re.compile(r"\bor\b")
 _DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
-# A comparison operator; ``->``, ``=>``, ``<>``, ``<<`` and ``>>`` are not.
-_BOUNDARY_RE = re.compile(r">=|<=|(?<![-=<>])>(?![=>])|(?<![<>])<(?![=<>-])")
+# A comparison operator; ``->``, ``=>``, ``<>``, ``<<``, ``>>``, ``>>=`` and
+# ``<<=`` are not.
+_BOUNDARY_RE = re.compile(
+    r"(?<![<>])>=|(?<![<>])<=|(?<![-=<>])>(?![=>])|(?<![<>])<(?![=<>-])"
+)
 _CONDITIONAL_RE = re.compile(r"\b(?:if|else|then)\b")
-_QUOTED_RE = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
 
 _BOUNDARY_FLIP = {">=": ">", ">": ">=", "<=": "<", "<": "<="}
 _PERIOD_SWAP = {"Year": "Month", "Month": "Year", "Week": "Month", "Day": "Month"}
@@ -95,13 +103,14 @@ _ENTITY_WORDS = {
         "person",
         "taxpayer",
         "employee",
+        "people",
         "child",
         "children",
         "applicant",
     ),
     "Household": ("household",),
     "TaxUnit": ("taxpayer", "joint return", "tax unit", "spouse"),
-    "Family": ("family",),
+    "Family": ("family", "families"),
     "Employer": ("employer",),
     "Business": ("business", "businesses", "trade"),
     "Asset": ("asset", "property", "properties", "vehicle", "resource"),
@@ -240,13 +249,49 @@ def _mask_quotes(text: str) -> str:
     """``text`` with every quoted string literal's contents blanked out.
 
     Positions are preserved, so a match found in the masked text slices the
-    original. Operators inside a literal (``"Bosnia and Herzegovina"``) are
-    never treated as operators.
+    original. Nothing inside a literal (``"Bosnia and Herzegovina"``,
+    ``"a > b"``, ``"11"``) is ever treated as an operator or an amount. An
+    unterminated quote is left as it is.
     """
 
-    return _QUOTED_RE.sub(
-        lambda m: m.group(0)[0] + "_" * (len(m.group(0)) - 2) + m.group(0)[-1], text
-    )
+    out: list[str] = []
+    position, length = 0, len(text)
+    while position < length:
+        char = text[position]
+        if char in "\"'":
+            end = position + 1
+            while end < length and text[end] != char:
+                end += 2 if text[end] == "\\" else 1
+            if end < length:
+                out.append(char + "_" * (end - position - 1) + char)
+                position = end + 1
+                continue
+        out.append(char)
+        position += 1
+    return "".join(out)
+
+
+def _editable(raw: str) -> Optional[str]:
+    """The quote-masked text to look for edit sites in, or ``None``.
+
+    A ``#`` outside a string literal may start a comment or sit inside a
+    reference; this module does not parse which, and an edit after a comment
+    marker would change nothing a reader can check. Such a formula is left
+    alone by every formula kind.
+    """
+
+    masked = _mask_quotes(raw)
+    return None if "#" in masked else masked
+
+
+def _number_sites(text: str) -> list[re.Match[str]]:
+    masked = _editable(text)
+    return [] if masked is None else list(_NUMBER_RE.finditer(masked))
+
+
+def _boundary_sites(raw: str) -> list[re.Match[str]]:
+    masked = _editable(raw)
+    return [] if masked is None else list(_BOUNDARY_RE.finditer(masked))
 
 
 def _depth0_matches(text: str, pattern: re.Pattern[str]) -> list[re.Match[str]]:
@@ -304,7 +349,7 @@ def _mutate_amount(
     candidates: list[tuple[int, str, list[Any], str, re.Match[str]]] = []
     for rule_index, path, slot, raw in iter_formula_targets(document):
         text = str(raw)
-        for match in _NUMBER_RE.finditer(text):
+        for match in _number_sites(text):
             token = match.group(1)
             if _YEAR_RE.match(token):
                 continue
@@ -346,7 +391,7 @@ def _mutate_boundary(
     for rule_index, path, slot, raw in iter_formula_targets(document):
         if not isinstance(raw, str):
             continue
-        for match in _BOUNDARY_RE.finditer(raw):
+        for match in _boundary_sites(raw):
             candidates.append((rule_index, path, slot, raw, match))
     if not candidates:
         return None
@@ -374,7 +419,9 @@ def _conjunct_sites(raw: str) -> list[re.Match[str]]:
     ``raw`` and an ``and`` inside a string literal is never an operator.
     """
 
-    masked = _mask_quotes(raw)
+    masked = _editable(raw)
+    if masked is None:
+        return []
     # ``if ...:`` / ``else:`` formulas interleave branches with conditions;
     # splitting them at depth zero could delete a branch head. Skip them,
     # and the colon-free ``x if c else y`` / ``if c then x else y`` forms.
@@ -391,15 +438,21 @@ def _drop_conjunct(raw: str, ands: list[re.Match[str]], drop: int) -> tuple[str,
     """``(removed, remaining)`` after dropping conjunct ``drop`` (0-based).
 
     The original text is cut at the operator positions, so the rest of the
-    formula keeps its layout and only the dropped conjunct changes.
+    formula keeps its layout and only the dropped conjunct changes. The
+    formula's own leading and trailing whitespace stays (a lost trailing
+    newline would also flip a YAML block scalar's chomping indicator).
     """
 
+    lead = raw[: len(raw) - len(raw.lstrip())]
+    trail = raw[len(raw.rstrip()) :]
     if drop == 0:
-        return raw[: ands[0].start()], raw[ands[0].end() :].lstrip()
+        return raw[: ands[0].start()], lead + raw[ands[0].end() :].lstrip()
     end = ands[drop].start() if drop < len(ands) else len(raw)
     removed = raw[ands[drop - 1].end() : end]
     kept = raw[: ands[drop - 1].start()]
-    return removed, (kept + raw[end:]) if drop < len(ands) else kept.rstrip()
+    if drop < len(ands):
+        return removed, kept + raw[end:]
+    return removed, kept.rstrip() + trail
 
 
 def _mutate_conjunct(
@@ -438,7 +491,9 @@ def _mutate_conjunct(
 def _polarity_sites(raw: str) -> list[re.Match[str]]:
     """Every ``and`` then every ``or``, never inside a string literal."""
 
-    masked = _mask_quotes(raw)
+    masked = _editable(raw)
+    if masked is None:
+        return []
     return [m for pattern in (_AND_RE, _OR_RE) for m in pattern.finditer(masked)]
 
 
@@ -668,6 +723,9 @@ def mutate(
 
 
 _PATH_TOKEN_RE = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+_RULE_PERIOD_PATH = re.compile(r"rules\[\d+\]\.period")
+_RULE_ENTITY_PATH = re.compile(r"rules\[\d+\]\.entity")
+_VERSION_DATE_PATH = re.compile(r"rules\[\d+\]\.versions\[\d+\]\.effective_from")
 
 
 def _leaf(document: Any, path: str) -> Any:
@@ -688,8 +746,10 @@ def audit_planted_edit(
 
     Re-checks a pair built by an earlier mutator version: the defective
     artifact must differ from its control in exactly one leaf, and that edit
-    must be one this version could plant for ``kind`` under the same window
-    (the original stated, the replacement not, the site a real operator).
+    must sit where this version plants ``kind`` (a formula or value leaf, a
+    rule's ``period`` or ``entity``, a version's ``effective_from``) and pass
+    this version's guards under the same window (the original stated, the
+    replacement not, the site a real operator outside any string literal).
     A suite built under looser guards can then drop the pairs that fail by a
     recorded filter instead of being rebuilt and re-judged. A dropped
     conjunct that differs from this version's cut only in whitespace passes:
@@ -716,15 +776,17 @@ def audit_planted_edit(
             return f"edits {path}, not a formula or value"
         stated = provision_numbers(provision_window)
         old, new = str(before), str(after)
-        for match in _NUMBER_RE.finditer(old):
+        for match in _number_sites(old):
             token = match.group(1)
             if _YEAR_RE.match(token) or _as_decimal(token) not in stated:
                 continue
             head, tail = old[: match.start(1)], old[match.end(1) :]
             if not (new.startswith(head) and new.endswith(tail)):
                 continue
-            replacement = new[len(head) : len(new) - len(tail)]
-            if replacement and _as_decimal(replacement) not in stated:
+            replacement = _as_decimal(new[len(head) : len(new) - len(tail)])
+            if replacement is None or replacement == _as_decimal(token):
+                continue  # not a number, or the same amount reformatted
+            if replacement not in stated:
                 return None
         return "no amount the window states changes to one it does not"
 
@@ -734,7 +796,7 @@ def audit_planted_edit(
         if not isinstance(after, str):
             return f"edit at {path} changes the leaf type"
         if kind == "boundary_flipped":
-            for match in _BOUNDARY_RE.finditer(before):
+            for match in _boundary_sites(before):
                 flipped = _BOUNDARY_FLIP[match.group(0)]
                 if before[: match.start()] + flipped + before[match.end() :] == after:
                     return None
@@ -754,7 +816,7 @@ def audit_planted_edit(
         return "not one dropped conjunct of the formula"
 
     if kind == "date_or_period_wrong":
-        if path.endswith(".period"):
+        if _RULE_PERIOD_PATH.fullmatch(path):
             if not isinstance(before, str) or _PERIOD_SWAP.get(before) != after:
                 return f"period {before!r} -> {after!r} is not this version's swap"
             if not _mentions(lower, _PERIOD_WORDS[before]):
@@ -762,7 +824,7 @@ def audit_planted_edit(
             if _mentions(lower, _PERIOD_WORDS[after]):
                 return f"window also states the replacement period {after}"
             return None
-        if path.endswith(".effective_from"):
+        if _VERSION_DATE_PATH.fullmatch(path):
             old = before.isoformat() if isinstance(before, datetime.date) else before
             new = after.isoformat() if isinstance(after, datetime.date) else after
             if type(before) is not type(after) or _shift_year(str(old)) != new:
@@ -775,12 +837,17 @@ def audit_planted_edit(
         return f"edits {path}, not a period or effective date"
 
     # entity_wrong
-    if not path.endswith(".entity") or not isinstance(before, str):
-        return f"edits {path}, not an entity"
+    if not _RULE_ENTITY_PATH.fullmatch(path) or not isinstance(before, str):
+        return f"edits {path}, not a rule's entity"
     words = _ENTITY_WORDS.get(before)
     if not words or not _mentions(lower, words):
         return f"window does not mention the original entity {before}"
-    if not isinstance(after, str) or after == before:
+    pool = set(_CANONICAL_ENTITIES) | {
+        rule.get("entity")
+        for rule in control["rules"]
+        if isinstance(rule, dict) and isinstance(rule.get("entity"), str)
+    }
+    if not isinstance(after, str) or after == before or after not in pool:
         return f"entity {before!r} -> {after!r} is not a replacement"
     if _mentions(lower, _ENTITY_WORDS.get(after, (after.lower(),))):
         return f"window also mentions the replacement entity {after}"
