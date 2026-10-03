@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2078"')
+        .startswith('__version__ = "0.2.2086"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2078"
+    assert encoder_package["version"] == "0.2.2086"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2078"
+    assert project["project"]["version"] == "0.2.2086"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2078"')
+        .startswith('__version__ = "0.2.2086"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2078"
+    assert encoder_package["version"] == "0.2.2086"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2078"
+    assert project["project"]["version"] == "0.2.2086"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2078"')
+        .startswith('__version__ = "0.2.2086"')
     )
 
 
@@ -37504,6 +37504,104 @@ rules:
     assert dataset["inputs"][0]["name"] == input_key
 
 
+@pytest.mark.parametrize(
+    (
+        "slot_entities",
+        "query_entity",
+        "query_id",
+        "related_id",
+        "expected_tuple",
+        "related_entity",
+    ),
+    [
+        (
+            ("Payment", "Asset"),
+            "Payment",
+            "payment-1",
+            "asset-1",
+            ["payment-1", "asset-1"],
+            "Asset",
+        ),
+        (
+            ("Person", "TaxUnit"),
+            "TaxUnit",
+            "tax-1",
+            "person-1",
+            ["person-1", "tax-1"],
+            "Person",
+        ),
+        (
+            ("Person", "Person"),
+            "Person",
+            "person-2",
+            "person-1",
+            ["person-1", "person-2"],
+            "Person",
+        ),
+    ],
+)
+def test_rulespec_dataset_uses_compiled_relation_slot_order(
+    tmp_path,
+    slot_entities,
+    query_entity,
+    query_id,
+    related_id,
+    expected_tuple,
+    related_entity,
+):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    relation_name = "related_item"
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            relation_name: [
+                {
+                    "id": related_id,
+                    "qualifies": True,
+                }
+            ]
+        },
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        query_entity=query_entity,
+        query_entity_id=query_id,
+        require_legal_input_keys=False,
+        declared_relation_names={relation_name},
+        declared_relation_slots={relation_name: slot_entities},
+    )
+
+    assert dataset["relations"][0]["tuple"] == expected_tuple
+    assert dataset["inputs"][0]["entity"] == related_entity
+
+
+def test_rulespec_dataset_rejects_relation_without_query_entity(tmp_path):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    with pytest.raises(ValueError, match="neither of which matches query entity"):
+        pipeline._build_rulespec_dataset(
+            {"related_item": [{"id": "asset-1"}]},
+            period={
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            query_entity="Household",
+            query_entity_id="household-1",
+            declared_relation_slots={"related_item": ("Payment", "Asset")},
+        )
+
+
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
@@ -42515,6 +42613,34 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: is_eligible_household_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_does_not_treat_person_living_with_the_household_as_unit():
+    content = """format: rulespec/v1
+module:
+  summary: The household may designate a responsible person as its head.
+rules:
+  - name: person_is_head_of_household
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              excerpt: |-
+                If the only responsible person living with the household is
+                an ineligible member or a disqualified member, this individual
+                shall be designated as head of the household.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_only_responsible_member_in_household
 """
 
     assert find_source_scope_consistency_issues(content) == []
@@ -52724,6 +52850,45 @@ def test_composition_owner_stops_at_match_but_preserves_multiple_owners(
     assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
 
 
+def test_composition_owner_reuses_verified_snapshot_within_one_validation(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    reads: list[Path] = []
+
+    def recording_read(path, *args, **kwargs):
+        reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", recording_read)
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        first_reads = len(reads)
+        assert first_reads > 0
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        assert len(reads) == first_reads
+
+
+def test_composition_owner_cached_snapshot_rejects_mutation(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        program_spec.write_text(program_spec.read_text() + "\n# changed\n")
+        with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+            pipeline._owning_program_specs(rules_file)
+
+
 @pytest.mark.parametrize(
     "mutation", ["program_edit", "module_edit", "new_program", "module_symlink"]
 )
@@ -52846,3 +53011,64 @@ def test_composition_owner_snapshot_deduplicates_shared_cycle_and_refreshes(
     outer.write_text("imports: []\n")
     assert pipeline._owning_program_specs(rules_file) == ()
     assert len(calls) == 2
+
+
+def test_composition_owner_ignores_program_specs_outside_checkout_programs_root(
+    tmp_path, monkeypatch
+):
+    # CI checks dependency repositories out inside the rules checkout, so a
+    # second rulespec-us sits at _axiom/rulespec-us with the same ProgramSpecs.
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    checkout = policy_repo.parent
+    dependency_spec = (
+        checkout / "_axiom/rulespec-us" / program_spec.relative_to(checkout)
+    )
+    dependency_spec.parent.mkdir(parents=True)
+    dependency_spec.write_text(program_spec.read_text())
+    nested_spec = policy_repo / "policies/example/programs/nested.yaml"
+    nested_spec.parent.mkdir(parents=True)
+    nested_spec.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    read: list[Path] = []
+
+    def recording_read(path, *args, **kwargs):
+        read.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", recording_read)
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+    assert dependency_spec not in read
+    assert nested_spec not in read
+
+
+def test_composition_owner_without_programs_root_has_no_owner(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    shutil.rmtree(program_spec.parents[2])
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(rules_file) == ()
+
+
+def test_composition_owner_rejects_symlinked_programs_root(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    programs_root = program_spec.parents[2]
+    elsewhere = tmp_path / "elsewhere-programs"
+    programs_root.rename(elsewhere)
+    programs_root.symlink_to(elsewhere, target_is_directory=True)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)

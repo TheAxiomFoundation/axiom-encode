@@ -61,6 +61,7 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
+from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -236,6 +237,14 @@ class _CachedTargetFile:
     file_stamp: _PathMutationStamp
 
 
+@dataclass(frozen=True)
+class _CachedProgramOwners:
+    owners: tuple[Path, ...]
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    file_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    admitted_roots: tuple[Path, ...]
+
+
 @dataclass
 class _RuleSpecResolutionCache:
     """Successful filesystem admissions retained for one validation operation."""
@@ -246,6 +255,9 @@ class _RuleSpecResolutionCache:
     active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
     symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
     target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+    program_owners: dict[tuple[Path, Path, tuple[Path, ...]], _CachedProgramOwners] = (
+        field(default_factory=dict)
+    )
 
 
 _RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
@@ -22820,7 +22832,7 @@ _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
     r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
-    r"(?:a\s+)?household\b",
+    r"(?:(?:a|the)\s+)?household\b",
     flags=re.IGNORECASE,
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
@@ -34781,6 +34793,29 @@ def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[s
     }
 
 
+def _rulespec_declared_relation_slots(
+    compiled_payload: dict[str, Any],
+) -> dict[str, tuple[str, ...]]:
+    """Return the compiled slot order for explicitly typed relations."""
+    program = (
+        compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
+    )
+    if not isinstance(program, dict):
+        return {}
+    slots_by_name: dict[str, tuple[str, ...]] = {}
+    for relation in program.get("relations", []):
+        if not isinstance(relation, dict) or not relation.get("name"):
+            continue
+        slot_entities = relation.get("slot_entities")
+        if (
+            isinstance(slot_entities, list)
+            and len(slot_entities) == 2
+            and all(isinstance(entity, str) and entity for entity in slot_entities)
+        ):
+            slots_by_name[str(relation["name"])] = tuple(slot_entities)
+    return slots_by_name
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -35719,6 +35754,24 @@ class ValidatorPipeline:
         root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
         cache = _RULESPEC_RESOLUTION_CACHE.get()
         assert cache is not None
+        cache_key = (root, rules_file, self.rulespec_dependency_roots)
+        cached = cache.program_owners.get(cache_key)
+        if cached is not None:
+            for checkout in cached.admitted_roots:
+                _reject_rulespec_checkout_symlinks(
+                    checkout, label="Program ownership checkout"
+                )
+            if any(
+                _path_mutation_stamp(directory) != stamp
+                for directory, stamp in cached.directory_stamps
+            ) or any(
+                path.is_symlink() or _path_mutation_stamp(path) != stamp
+                for path, stamp in cached.file_stamps
+            ):
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during validation"
+                )
+            return cached.owners
         directory_stamps: dict[Path, _PathMutationStamp] = {}
         file_stamps: dict[Path, _PathMutationStamp] = {}
         admitted_roots: set[Path] = set()
@@ -35766,10 +35819,15 @@ class ValidatorPipeline:
             f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
         )
         owners: list[Path] = []
-        for candidate in sorted(root.rglob("*.yaml")):
-            relative = candidate.relative_to(root)
-            if "programs" not in relative.parts:
-                continue
+        # ProgramSpecs live only under this checkout's top-level programs/
+        # root. CI checks dependency repositories out inside the rules
+        # checkout (for example _axiom/rulespec-us); a whole-checkout scan
+        # read their ProgramSpecs as second owners of every composition.
+        programs_root = root / RULESPEC_COMPOSITION_SPEC_ROOT
+        candidates = (
+            sorted(programs_root.rglob("*.yaml")) if programs_root.is_dir() else []
+        )
+        for candidate in candidates:
             if candidate.is_symlink() or not candidate.is_file():
                 continue
             try:
@@ -35884,7 +35942,14 @@ class ValidatorPipeline:
                 raise UnsafeRulespecContextPath(
                     "Program ownership file changed during discovery"
                 )
-        return tuple(owners)
+        result = tuple(owners)
+        cache.program_owners[cache_key] = _CachedProgramOwners(
+            owners=result,
+            directory_stamps=tuple(directory_stamps.items()),
+            file_stamps=tuple(file_stamps.items()),
+            admitted_roots=tuple(sorted(admitted_roots)),
+        )
+        return result
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
@@ -36139,6 +36204,8 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]] | None = None,
         module_target: str | None = None,
         declared_relation_names: set[str] | None = None,
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        executable_directions: dict[str, tuple[int, str | None]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -36151,6 +36218,8 @@ class ValidatorPipeline:
         relations: list[dict[str, Any]] = []
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
+        declared_relation_slots = declared_relation_slots or {}
+        executable_directions = executable_directions or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -36178,7 +36247,44 @@ class ValidatorPipeline:
                     and relation_name not in relation_request_names
                 ):
                     relation_request_names.append(relation_name)
-                related_entity = self._related_entity_from_relation(relation_name)
+                slots = declared_relation_slots.get(
+                    relation_request_name
+                ) or declared_relation_slots.get(relation_name)
+                current_slot = None
+                if slots is not None:
+                    matching_slots = [
+                        index
+                        for index, entity in enumerate(slots)
+                        if entity == query_entity
+                    ]
+                    if not matching_slots:
+                        raise ValueError(
+                            f"relation `{name}` has declared slots {slots!r}, "
+                            f"neither of which matches query entity `{query_entity}`"
+                        )
+                    if len(matching_slots) == 1:
+                        current_slot = matching_slots[0]
+                related_entity = (
+                    slots[1 - current_slot]
+                    if slots is not None and current_slot is not None
+                    else query_entity
+                    if slots is not None
+                    else self._related_entity_from_relation(relation_name)
+                )
+                matches = {
+                    executable_directions[name]
+                    for name in relation_request_names
+                    if name in executable_directions
+                }
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"conflicting executable relation aliases for {input_key}"
+                    )
+                direction = next(iter(matches), None)
+                if direction is not None:
+                    current_slot, executable_entity = direction
+                    if executable_entity is not None:
+                        related_entity = executable_entity
                 for item_index, item in enumerate(value, 1):
                     if not isinstance(item, dict):
                         raise ValueError(
@@ -36189,11 +36295,14 @@ class ValidatorPipeline:
                         or item.get("entity_id")
                         or f"{query_entity_id}-{name}-{item_index}"
                     )
+                    relation_tuple = [related_id, query_entity_id]
+                    if current_slot == 0:
+                        relation_tuple.reverse()
                     for current_relation_name in relation_request_names:
                         relations.append(
                             {
                                 "name": current_relation_name,
-                                "tuple": [related_id, query_entity_id],
+                                "tuple": relation_tuple,
                                 "interval": interval,
                             }
                         )
@@ -36662,6 +36771,8 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]],
         module_target: str | None,
         declared_relation_names: set[str],
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        compiled_relations: list[dict] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -36669,6 +36780,14 @@ class ValidatorPipeline:
             case, query_entity, case_index
         )
         try:
+            executable_directions = executable_relation_directions(
+                derived_by_key,
+                output_names,
+                period,
+                query_entity,
+                declared_relation_slots or {},
+                compiled_relations,
+            )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
                 case_tables=case.get("tables"),
@@ -36679,6 +36798,8 @@ class ValidatorPipeline:
                 legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                 module_target=module_target,
                 declared_relation_names=declared_relation_names,
+                declared_relation_slots=declared_relation_slots,
+                executable_directions=executable_directions,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -36896,6 +37017,7 @@ class ValidatorPipeline:
         require_legal_input_keys = _rulespec_program_has_legal_ids(compiled_payload)
         module_target = _rulespec_module_target(compiled_payload)
         declared_relation_names = _rulespec_declared_relation_names(compiled_payload)
+        declared_relation_slots = _rulespec_declared_relation_slots(compiled_payload)
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -37048,6 +37170,10 @@ class ValidatorPipeline:
                         legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                         module_target=module_target,
                         declared_relation_names=declared_relation_names,
+                        declared_relation_slots=declared_relation_slots,
+                        compiled_relations=compiled_payload.get("program", {}).get(
+                            "relations", []
+                        ),
                     )
                 )
                 issues.extend(execution_issues)

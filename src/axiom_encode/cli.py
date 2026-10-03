@@ -98,6 +98,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
@@ -266,6 +267,7 @@ from .harness.validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
+    _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_payload_from_file,
@@ -4414,9 +4416,11 @@ def _fingerprint_validation_waiver_modules_parallel(
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over a contiguous slice of
-    the sorted module list with its own pipelines, temporary directory, and
-    compile cache; fingerprints are stable across the split because outcome
+    Each worker runs the unchanged serial executor over an interleaved slice
+    of the sorted module list with its own pipelines, temporary directory, and
+    compile cache. Interleaving prevents adjacent expensive modules from
+    landing on the same worker (for example tariff chapters in a validation
+    shard). Fingerprints are stable across the split because outcome
     canonicalization replaces every process-specific path. A worker failure
     fails the whole audit; results are re-sorted so output order matches the
     serial code path exactly.
@@ -4442,11 +4446,7 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
-    chunks = [
-        ordered[start : start + chunk_size]
-        for start in range(0, len(ordered), chunk_size)
-    ]
+    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
@@ -5429,6 +5429,7 @@ def _execute_rulespec_test_file(
         for relation in artifact.get("program", {}).get("relations", [])
         if isinstance(relation, dict) and relation.get("name")
     }
+    declared_relation_slots = _rulespec_declared_relation_slots(artifact)
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -5446,6 +5447,8 @@ def _execute_rulespec_test_file(
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
+                    declared_relation_slots=declared_relation_slots,
+                    compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
                 )
             )
@@ -5484,12 +5487,31 @@ def _execute_rulespec_test_case(
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
+    declared_relation_slots: dict[str, tuple[str, ...]],
+    compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
+    expected = case.get("output") or {}
+    query_entity = next(
+        (
+            str(derived_by_id[str(output)].get("entity") or "Case")
+            for output in expected
+            if str(output) in derived_by_id
+        ),
+        "Case",
+    )
+    executable_directions = executable_relation_directions(
+        derived_by_id,
+        list(expected),
+        period,
+        query_entity,
+        declared_relation_slots,
+        compiled_relations,
+    )
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
@@ -5511,15 +5533,52 @@ def _execute_rulespec_test_case(
                     and unqualified_name not in relation_names
                 ):
                     relation_names.append(unqualified_name)
+            slots = declared_relation_slots.get(
+                relation_name
+            ) or declared_relation_slots.get(
+                unqualified_name if "#relation." in relation_name else relation_name
+            )
+            current_slot = None
+            if slots is not None:
+                matching_slots = [
+                    slot for slot, entity in enumerate(slots) if entity == query_entity
+                ]
+                if not matching_slots:
+                    raise ValueError(
+                        f"relation `{key}` has declared slots {slots!r}, "
+                        f"neither of which matches query entity `{query_entity}`"
+                    )
+                if len(matching_slots) == 1:
+                    current_slot = matching_slots[0]
+            related_entity = (
+                slots[1 - current_slot]
+                if slots is not None and current_slot is not None
+                else query_entity
+                if slots is not None
+                else "Entity"
+            )
+            matches = {
+                executable_directions[name]
+                for name in relation_names
+                if name in executable_directions
+            }
+            if len(matches) > 1:
+                raise ValueError(f"conflicting executable relation aliases for {key}")
+            direction = next(iter(matches), None)
+            if direction is not None:
+                current_slot, executable_entity = direction
+                if executable_entity is not None:
+                    related_entity = executable_entity
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
-                # The current relation slot convention is related entity first,
-                # enclosing entity second.
+                relation_tuple = [related_id, root_entity_id]
+                if current_slot == 0:
+                    relation_tuple.reverse()
                 for current_relation_name in relation_names:
                     relations.append(
                         {
                             "name": current_relation_name,
-                            "tuple": [related_id, root_entity_id],
+                            "tuple": relation_tuple,
                             "interval": interval,
                         }
                     )
@@ -5536,7 +5595,7 @@ def _execute_rulespec_test_case(
                     inputs.append(
                         {
                             "name": str(row_key),
-                            "entity": "Entity",
+                            "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
                             "value": _rulespec_scalar_value(row_value),
@@ -5546,7 +5605,7 @@ def _execute_rulespec_test_case(
             inputs.append(
                 {
                     "name": key,
-                    "entity": "Entity",
+                    "entity": query_entity,
                     "entity_id": root_entity_id,
                     "interval": interval,
                     "value": _rulespec_scalar_value(value),
@@ -5606,7 +5665,6 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    expected = case.get("output") or {}
     parameter_expected = {
         str(key): value
         for key, value in expected.items()
