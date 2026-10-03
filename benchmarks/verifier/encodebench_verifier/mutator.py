@@ -28,6 +28,8 @@ the window states the original year as a word of its own and not the shifted
 one; periods and entities only change when the window mentions the original
 and not the replacement. Conjuncts are only dropped from pure conjunctions:
 a formula with a top-level ``or`` or an ``if``/``else`` is left alone.
+Nothing inside a string literal is edited, and a formula with ``#`` outside
+a literal is left alone by every formula kind.
 
 Version history:
 
@@ -723,6 +725,7 @@ def mutate(
 
 
 _PATH_TOKEN_RE = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+_PLAIN_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _RULE_PERIOD_PATH = re.compile(r"rules\[\d+\]\.period")
 _RULE_ENTITY_PATH = re.compile(r"rules\[\d+\]\.entity")
 _VERSION_DATE_PATH = re.compile(r"rules\[\d+\]\.versions\[\d+\]\.effective_from")
@@ -733,6 +736,10 @@ def _leaf(document: Any, path: str) -> Any:
     for key, position in _PATH_TOKEN_RE.findall(path):
         node = node[int(position)] if position else node[key]
     return node
+
+
+def _decimals(number: str) -> int:
+    return len(number.split(".")[1]) if "." in number else 0
 
 
 def _flat(text: str) -> str:
@@ -783,9 +790,16 @@ def audit_planted_edit(
             head, tail = old[: match.start(1)], old[match.end(1) :]
             if not (new.startswith(head) and new.endswith(tail)):
                 continue
-            replacement = _as_decimal(new[len(head) : len(new) - len(tail)])
-            if replacement is None or replacement == _as_decimal(token):
-                continue  # not a number, or the same amount reformatted
+            written = new[len(head) : len(new) - len(tail)]
+            # The mutator writes plain digits with the token's decimal places
+            # (a numeric leaf is re-typed, so only the shape is checked there).
+            if not _PLAIN_NUMBER_RE.fullmatch(written):
+                continue
+            if isinstance(before, str) and _decimals(written) != _decimals(token):
+                continue
+            replacement = _as_decimal(written)
+            if replacement == _as_decimal(token):
+                continue  # the same amount, reformatted
             if replacement not in stated:
                 return None
         return "no amount the window states changes to one it does not"
