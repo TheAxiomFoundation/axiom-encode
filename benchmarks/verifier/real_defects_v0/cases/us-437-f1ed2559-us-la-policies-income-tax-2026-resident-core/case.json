@@ -1,0 +1,284 @@
+{
+  "id": "us-437-f1ed2559-us-la-policies-income-tax-2026-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "f1ed255931bac6f288780ebd19e8123d234cbd62",
+  "parent_commit": "1086416c98b2807bba6f043bc6aaad1451a4d614",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Fix Louisiana resident core review findings",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1026",
+  "module_path": "us-la/policies/income_tax/2026_resident_core.yaml",
+  "corpus_citation_path": "us-la/statute/47:32",
+  "corpus_citation_paths_all": [
+    "us-la/statute/47:32",
+    "us-la/statute/47:44.1",
+    "us-la/statute/47:44.2",
+    "us-la/statute/47:293",
+    "us-la/statute/47:294",
+    "us-la/statute/47:295",
+    "us-la/statute/47:297.3",
+    "us-la/statute/47:297.4",
+    "us-la/statute/47:297.8",
+    "us-la/statute/47:297.10",
+    "us-la/statute/47:297.11",
+    "us-la/statute/47:297.12",
+    "us-la/statute/47:297.14",
+    "us-la/statute/47:297.17",
+    "us-la/statute/47:297.20",
+    "us-la/statute/47:297.21",
+    "us-la/statute/47:297.23",
+    "us-la/statute/47:297.26",
+    "us-la/statute/47:1675",
+    "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "Independent review found four initial issues: unqualified aggregate names, spouse items applied outside joint returns, incorrect retrofit operator ordering/unpinned regulatory eligibility, and filing-status fallback.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        68,
+        71
+      ],
+      [
+        73,
+        80
+      ],
+      [
+        83,
+        88
+      ],
+      [
+        328,
+        335
+      ],
+      [
+        368,
+        368
+      ],
+      [
+        406,
+        406
+      ],
+      [
+        415,
+        415
+      ],
+      [
+        497,
+        498
+      ],
+      [
+        504,
+        504
+      ],
+      [
+        518,
+        518
+      ],
+      [
+        523,
+        525
+      ],
+      [
+        527,
+        531
+      ],
+      [
+        533,
+        534
+      ],
+      [
+        569,
+        569
+      ],
+      [
+        590,
+        590
+      ],
+      [
+        594,
+        594
+      ],
+      [
+        620,
+        620
+      ],
+      [
+        623,
+        623
+      ],
+      [
+        642,
+        647
+      ],
+      [
+        649,
+        649
+      ],
+      [
+        674,
+        674
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        68,
+        74
+      ],
+      [
+        76,
+        84
+      ],
+      [
+        87,
+        94
+      ],
+      [
+        96,
+        114
+      ],
+      [
+        334,
+        402
+      ],
+      [
+        422,
+        426
+      ],
+      [
+        429,
+        430
+      ],
+      [
+        461,
+        462
+      ],
+      [
+        500,
+        501
+      ],
+      [
+        510,
+        510
+      ],
+      [
+        592,
+        596
+      ],
+      [
+        602,
+        602
+      ],
+      [
+        616,
+        621
+      ],
+      [
+        626,
+        629
+      ],
+      [
+        631,
+        632
+      ],
+      [
+        634,
+        634
+      ],
+      [
+        669,
+        669
+      ],
+      [
+        693,
+        693
+      ],
+      [
+        719,
+        719
+      ],
+      [
+        722,
+        722
+      ],
+      [
+        741,
+        749
+      ],
+      [
+        751,
+        751
+      ],
+      [
+        776,
+        776
+      ]
+    ],
+    "rule_names": [
+      "la_2026_resident_disability_income_exemption",
+      "la_2026_resident_active_duty_outside_louisiana_exclusion",
+      "la_2026_resident_volunteer_deduction",
+      "la_2026_resident_standard_deduction",
+      "la_2026_resident_filing_status_selection_count",
+      "la_2026_resident_filing_status_selection_valid",
+      "la_2026_resident_nominal_construction_code_retrofit_amount_before_regulatory_eligibility",
+      "la_2026_resident_encoded_direct_deductions_before_held_adjustments",
+      "la_2026_resident_encoded_positive_exempt_income",
+      "la_2026_resident_partial_income_before_standard_and_encoded_deductions",
+      "la_2026_resident_partial_tax_table_income_before_held_adjustments",
+      "la_2026_resident_partial_income_tax_before_held_adjustments_and_credits"
+    ],
+    "rule_path": "rules[la_2026_resident_disability_income_exemption].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e921b3dfdb047430ce743d135005ef624dd22a8193f824745829a71a89614b69",
+  "post_fix_artifact_sha256": "e2fa5fa13bcbf5e74fd4fe966da4d823660ffd08f2c26906c642574a77416375",
+  "provision_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+  "provision_chars": 427,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-la/statute/47:32",
+    "provision_file": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+    "provision_file_sha256": "5718e5920daf430b4529b156bbf88d6a00d00d1df510a91ea1654812989c1f15",
+    "line_number": 19,
+    "record_id": "064aa413-3f0d-5dae-ab7c-669c0090cd40",
+    "stored_body_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "resolved_text_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-22",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "dc965655f3b2a7ac39e58f426eaf86e73e331520",
+    "requested_citation_path": "us-la/statute/47:32",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module added the spouse's disability-income exemption, active-duty-outside-Louisiana exclusion, and volunteer deduction for any taxpayer regardless of filing status, so a single, head-of-household, or married-filing-separately return picked up spouse-level amounts that only exist on a joint return (and, separately, it computed the 47:293 retrofit amount as fifty percent of cost minus incentives and fell back to the single/separate standard deduction when no recognized status was selected).",
+    "triage_notes": "Single-module commit with three distinct fidelity defects fixed at once, plus a scope-honesty renaming pass; I labeled the kind by the broadest-footprint defect. (1) wrong_entity_or_scope: three spouse branches gained 'la_2026_resident_filing_status_joint and ...' guards. (2) amount_mismatch: retrofit formula changed from rate * max(0, cost - incentives) to max(0, rate*max(0,cost) - max(0,incentives)); I read us-la/statute/47:293 through the pinned corpus release and it reads 'an amount equal to fifty percent of the cost paid or incurred ... less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives', i.e. the incentive offset applies after the fifty percent, so the pre-fix ordering overstated the deduction whenever incentives were nonzero; the commit also adds a second proof atom quoting that 'less the value of...' clause. (3) polarity_or_logic: the pre-fix standard deduction had a fail-open else-branch returning the single/separate amount for any unrecognized or empty filing status; the fix adds selection_count/selection_valid rules and returns 0 (and zero partial tax-table income) unless exactly one status is set. The renames (positive_exempt_income -> encoded_positive_exempt_income, tax_table_income -> partial_tax_table_income_before_held_adjustments, etc.) plus the new deferred_outputs entries are scope-labeling/claim-narrowing, not meaning changes by themselves; but dropping the retrofit amount out of la_2026_resident_encoded_direct_deductions_before_held_adjustments does change the aggregate, and the retrofit rule also lost its 'if la_2026_resident_qualifying_retrofit_completed_in_tax_year' gate (which is itself grounded in 47:293(2)(b) 'claimed on the return for the taxable year in which the work is completed') because the rule is now nominal-only and excluded from aggregates - a reviewer may want to flag that as a coverage loss rather than a gain. Follow-up commits in the same PR: 8d3d0f5e3 'Fail closed Louisiana spouse components' (re-review found the spouse branches needed valid-status AND joint, not just joint) and bee5412e8 'Fix Louisiana EITC rate validation'. No PR reviews or review comments were captured in the bundle; the commit body is empty, so the quote comes from the PR body.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.88,
+    "verifier_justification": "The anchored rule's formula changed meaning exactly as described: each spouse-level branch in la_2026_resident_disability_income_exemption, la_2026_resident_active_duty_outside_louisiana_exclusion, and la_2026_resident_volunteer_deduction gained an `la_2026_resident_filing_status_joint and ...` conjunct, narrowing the population from any return to joint returns only. The companion fixture proves the pre-fix behavior was live and wrong, not defensive: the old case `disability_and_active_duty_caps_apply_per_spouse_at_and_above_boundary` set `filing_status_single: true` with spouse flags true and expected `disability_income_exemption: 12000` / `active_duty_outside_louisiana_exclusion: 100000`, and it was rewritten to `married_separate_ignores_spouse_disability_active_duty_and_volunteer_amounts` expecting 6000 / 50000 / volunteer 0. The pinned source supports the narrowing: 47:44.1(B) exempts disability income \"received by an individual,\" and 47:293(6) defines \"Individual\" as a natural person who reaches the return only via the joint-return option (\"a husband and wife may file a joint income tax return\"), so a single/HOH/MFS return cannot carry a spouse's individual amount. Filing status and household member set are precisely wrong_entity_or_scope, and no other listed kind fits the anchored formula change better.",
+    "verifier_quote": "+            if la_2026_resident_filing_status_joint\n+               and la_2026_resident_spouse_has_qualifying_permanent_total_disability_income:",
+    "verifier_notes": "Refutation attempts that failed: (1) \"the gate is defensive, spouse inputs would be zero anyway\" — refuted by the rewritten fixture, which had a single filer receiving 12000/100000 pre-fix; spouse flags are raw undeclared inputs with no zeroing rule in the module. (2) \"renames only\" — refuted; the renames (positive_exempt_income -> encoded_positive_exempt_income, tax_table_income -> partial_..._before_held_adjustments) are mechanical, but they sit alongside three formula changes with changed fixture values. (3) \"new coverage never claimed\" — refuted; the module claimed a filing-status-aware resident core and mis-scoped spouse items within it.\n\nReviewer caveats worth carrying: this commit bundles at least two ADDITIONAL, distinct fidelity defects that are not wrong_entity_or_scope, and if the corpus wants one kind per item they should probably be split out. (a) amount_mismatch in the retrofit rule: `la_2026_retrofit_deduction_rate * max(0, cost - incentives)` became `max(0, rate * max(0, cost) - max(0, incentives))`; the added proof atom excerpt is \"less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives for the retrofitting cost paid\", and 47:293(2)(a)(i) reads \"an amount equal to fifty percent of the cost paid or incurred\" — the new fixture `retrofit_incentive_is_subtracted_after_half_of_cost_before_cap` gives 3000 where the old ordering gave 4000 (cost 10000, incentives 2000). (b) polarity_or_logic in la_2026_resident_standard_deduction: the old `else` fell open to `la_2026_standard_deduction_single_or_separate` when no status was selected; it now returns 0 unless la_2026_resident_filing_status_selection_valid holds (new fixtures all_filing_statuses_false_fails_closed and conflicting_filing_statuses_fail_closed, plus two existing fixtures that had to flip `filing_status_single: false` -> `true` to keep their old outputs). The retrofit change also dropped the `la_2026_resident_qualifying_retrofit_completed_in_tax_year` input branch and removed retrofit from the aggregate because LAC 61:I.1937 is absent from the pinned corpus — that piece reads as untraceable_branch / deferral rather than wrong scope.\n\nProvenance caveat: f1ed255931 is a pre-merge review-fix commit inside PR #1026, the PR that ADDS this module (merged 2026-07-23). The defect was caught in review and never existed in a released module. It is still a real encoding defect with a real formula correction, but if the corpus is meant to hold post-release regressions only, this item is in scope by accident.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single-module commit with three distinct fidelity defects fixed at once, plus a scope-honesty renaming pass; I labeled the kind by the broadest-footprint defect. (1) wrong_entity_or_scope: three spouse branches gained 'la_2026_resident_filing_status_joint and ...' guards. (2) amount_mismatch: retrofit formula changed from rate * max(0, cost - incentives) to max(0, rate*max(0,cost) - max(0,incentives)); I read us-la/statute/47:293 through the pinned corpus release and it reads 'an amount equal to fifty percent of the cost paid or incurred ... less the value of any municipally sponsored, state-sponsored, or federally sponsored financial incentives', i.e. the incentive offset applies after the fifty percent, so the pre-fix ordering overstated the deduction whenever incentives were nonzero; the commit also adds a second proof atom quoting that 'less the value of...' clause. (3) polarity_or_logic: the pre-fix standard deduction had a fail-open else-branch returning the single/separate amount for any unrecognized or empty filing status; the fix adds selection_count/selection_valid rules and returns 0 (and zero partial tax-table income) unless exactly one status is set. The renames (positive_exempt_income -> encoded_positive_exempt_income, tax_table_income -> partial_tax_table_income_before_held_adjustments, etc.) plus the new deferred_outputs entries are scope-labeling/claim-narrowing, not meaning changes by themselves; but dropping the retrofit amount out of la_2026_resident_encoded_direct_deductions_before_held_adjustments does change the aggregate, and the retrofit rule also lost its 'if la_2026_resident_qualifying_retrofit_completed_in_tax_year' gate (which is itself grounded in 47:293(2)(b) 'claimed on the return for the taxable year in which the work is completed') because the rule is now nominal-only and excluded from aggregates - a reviewer may want to flag that as a coverage loss rather than a gain. Follow-up commits in the same PR: 8d3d0f5e3 'Fail closed Louisiana spouse components' (re-review found the spouse branches needed valid-status AND joint, not just joint) and bee5412e8 'Fix Louisiana EITC rate validation'. No PR reviews or review comments were captured in the bundle; the commit body is empty, so the quote comes from the PR body. | verifier confirmed at 0.88",
+  "family_id": "us-f1ed2559-b7f2f267dcbb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

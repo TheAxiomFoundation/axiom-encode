@@ -1,0 +1,370 @@
+{
+  "id": "us-501-3ec047a9-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "3ec047a9d1279cff2f0e47714210de5d6d376809",
+  "parent_commit": "94507fecea32c9c64dd3e84f6c76603828a274bc",
+  "commit_date": "2026-08-03",
+  "commit_subject": "Apply section 338 entry-level note 51(a) treatment and IEEPA proof fixes",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1200",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/2203.00.00",
+    "us/statute/hts/2203.00.00.30",
+    "us/statute/hts/7202",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/8541.42.00",
+    "us/statute/hts/8541.42.00.10",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.01",
+    "us/statute/hts/9903.01.02",
+    "us/statute/hts/9903.01.03",
+    "us/statute/hts/9903.01.04",
+    "us/statute/hts/9903.01.05",
+    "us/statute/hts/9903.01.10",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/9903.01.21",
+    "us/statute/hts/9903.01.22",
+    "us/statute/hts/9903.01.24",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.26",
+    "us/statute/hts/9903.01.27",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.02.19",
+    "us/statute/hts/9903.02.20",
+    "us/statute/hts/9903.02.72",
+    "us/statute/hts/9903.02.73",
+    "us/statute/hts/9903.02.79",
+    "us/statute/hts/9903.02.80",
+    "us/statute/hts/9903.02.82",
+    "us/statute/hts/9903.02.83",
+    "us/statute/hts/9903.02.87",
+    "us/statute/hts/9903.02.88",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.45.21",
+    "us/statute/hts/9903.85.08",
+    "us/statute/hts/9903.85.67",
+    "us/statute/hts/9903.88.03",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/9903.91.02",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/statute/hts/chapter-99/page-251",
+    "us/statute/hts/chapter-99/page-256",
+    "us/statute/hts/chapter-99/page-269",
+    "us/statute/hts/chapter-99/page-273",
+    "us/statute/hts/9903.05.20",
+    "us/statute/hts/9903.05.21",
+    "us/statute/hts/9903.05.22",
+    "us/statute/hts/9903.05.23",
+    "us/statute/hts/9903.05.24",
+    "us/statute/hts/9903.05.25",
+    "us/statute/hts/9903.05.26",
+    "us/statute/hts/9903.05.27",
+    "us/statute/hts/9903.05.28",
+    "us/statute/hts/9903.05.29",
+    "us/statute/hts/9903.05.30",
+    "us/statute/hts/9903.05.31",
+    "us/statute/hts/9903.05.32",
+    "us/statute/hts/9903.05.33",
+    "us/statute/hts/9903.05.34",
+    "us/statute/hts/9903.05.35",
+    "us/statute/hts/9903.05.36",
+    "us/statute/hts/9903.05.37",
+    "us/statute/hts/9903.05.38",
+    "us/statute/hts/9903.05.39",
+    "us/statute/hts/9903.05.40",
+    "us/statute/hts/9903.05.41",
+    "us/statute/hts/9903.05.42",
+    "us/statute/hts/9903.05.43",
+    "us/statute/hts/9903.05.44",
+    "us/statute/hts/9903.05.45",
+    "us/statute/hts/9903.05.46",
+    "us/statute/hts/9903.05.47",
+    "us/statute/hts/9903.05.49",
+    "us/statute/hts/9903.05.50",
+    "us/statute/hts/9903.05.51",
+    "us/statute/hts/9903.05.52",
+    "us/statute/hts/9903.05.53",
+    "us/statute/hts/9903.05.54",
+    "us/statute/hts/9903.05.55",
+    "us/statute/hts/9903.05.56",
+    "us/statute/hts/9903.05.57",
+    "us/statute/hts/9903.05.58",
+    "us/statute/hts/9903.05.59",
+    "us/statute/hts/9903.05.60",
+    "us/statute/hts/9903.05.61",
+    "us/statute/hts/9903.05.62",
+    "us/statute/hts/9903.05.63",
+    "us/statute/hts/9903.05.64",
+    "us/statute/hts/9903.05.65",
+    "us/statute/hts/9903.05.66",
+    "us/statute/hts/9903.05.67",
+    "us/statute/hts/9903.05.68",
+    "us/statute/hts/9903.05.69",
+    "us/statute/hts/9903.05.71",
+    "us/statute/hts/9903.05.72",
+    "us/statute/hts/9903.05.74",
+    "us/statute/hts/9903.05.76",
+    "us/statute/hts/9903.05.77",
+    "us/statute/hts/9903.05.78",
+    "us/statute/hts/9903.05.79",
+    "us/statute/hts/9903.05.80",
+    "us/statute/hts/9903.05.81",
+    "us/statute/hts/9903.05.82",
+    "us/statute/hts/9903.05.83",
+    "us/statute/hts/9903.05.84",
+    "us/statute/hts/9903.05.48",
+    "us/statute/hts/9903.05.70",
+    "us/statute/hts/9903.05.73",
+    "us/statute/hts/9903.05.75",
+    "us/statute/hts/9903.05.85",
+    "us/statute/hts/9903.05.91",
+    "us/statute/hts/9903.05.92",
+    "us/statute/hts/9903.05.93",
+    "us/statute/hts/9903.05.94",
+    "us/rulemaking/federal-register/2022-02-09/2022-02906/page-3",
+    "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+    "us/rulemaking/federal-register/2022-02-09/2022-02906/page-6",
+    "us/rulemaking/federal-register/2024-09-18/2024-21217",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-04-09/2026-06960",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-i/page-1",
+    "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1",
+    "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-2",
+    "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-3",
+    "us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-6",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "Add the legally complete section 338 entry path: a chapter 98 exclusion judgment with the subchapter XXIII and 9802 carve-outs, a 9802 reduced-duty-base judgment grounded in the note 51(a) base sentences, and section_338_entry_component_rate applying the accompanied-baggage and chapter 98 exclusions (mirroring the forced-labor entry rate)",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        456,
+        460
+      ],
+      [
+        559,
+        561
+      ],
+      [
+        2144,
+        2144
+      ],
+      [
+        2643,
+        2652
+      ],
+      [
+        2752,
+        2755
+      ],
+      [
+        2808,
+        2817
+      ],
+      [
+        2924,
+        2927
+      ],
+      [
+        2989,
+        2989
+      ],
+      [
+        3174,
+        3174
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        456,
+        463
+      ],
+      [
+        543,
+        567
+      ],
+      [
+        587,
+        596
+      ],
+      [
+        2178,
+        2182
+      ],
+      [
+        2184,
+        2184
+      ],
+      [
+        3001,
+        3001
+      ],
+      [
+        3186,
+        3186
+      ],
+      [
+        3245,
+        3344
+      ]
+    ],
+    "rule_names": [
+      "section_338_entry_component_rate",
+      "section_338_chapter_98_exclusion_applies",
+      "section_338_reduced_duty_base_applies",
+      "section_338_alcohol_additional_duty_rate",
+      "ieepa_component_rate",
+      "ieepa_component_rate_with_declared_exceptions",
+      "section_338_component_rate",
+      "section_201_component_rate"
+    ],
+    "rule_path": "rules[section_338_entry_component_rate].versions[1].formula"
+  },
+  "pre_fix_artifact_sha256": "087eb85603c2c416e26e5f33bb92250cd1ba584e567abab5458cb6113b95f88e",
+  "post_fix_artifact_sha256": "86e7d99b03c21506689d4d44149896e18c484aaca40cfa94ac073f7ec7699b8b",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "ed7d4e4f0ba519dc46d4727527331e02b5a547e9",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix encoding imposed the heading 9903.03.12 50 percent Canada alcohol duty with only the 9903.03.15/.16 product, section 232 aluminum-basis, and civil-aircraft exceptions, so it charged the duty on entries U.S. note 51(a) excludes — products for personal use in accompanied baggage, and goods properly claimed under chapter 98 with CBP agreement outside the subchapter XXIII and 9802.00.40/.50/.60/.80 carve-outs — and represented 9802 entries at a full-customs-value rate although the note reduces their duty base.",
+    "triage_notes": "Module is module.kind: composition but is a genuine RuleSpec v1 rule module (rules with formulas, versions, and proof atoms), so it is triaged as a rule module rather than not_a_rule_module. Provision WAS read: resolve_provision on us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1 (corpus release us-rulespec-2026-08-09-cutover-surface-union) returns note 51(a) verbatim, including 'other than products for personal use included in accompanied baggage of persons arriving in the United States', the chapter 98 exclusion 'except for goods entered under subchapter XXIII of chapter 98 of the tariff schedule, subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80', the two reduced-base sentences, and the 'on or after 12:01 a.m. eastern time on August 19, 2026' effective sentence — all three fix threads are confirmed against the source. This is a MULTI-DEFECT commit in one module; I picked the commit subject's primary thread (note 51(a)) as the kind. Secondary defects a reviewer may want split out: (1) wrong_period_or_effective_date — rules[section_338_alcohol_additional_duty_rate].versions[0].effective_from moves 2026-02-15 -> 2026-08-19 with a new effective_period atom citing the Annex II effective sentence; the pre-fix parameter output exposed 0.50 from 2026-02-15 although the duty took effect 2026-08-19 (section_338_component_rate was already date-gated at versions[0]/[1], so no component value changed, only the parameter's own output window); (2) untraceable_branch — both IEEPA outputs drop their redundant '2026-02-24' zero version (and the versions[2] atoms citing FR 2026-03829's replacement-regime date and EO 14389's 'as soon as practicable' collection directive), a version boundary with no basis in the IEEPA termination source; values are zero on both sides so behavior is unchanged. The fix also carries mechanical/provenance-only parts: the doctrine block and summary prose, the section 201 source-line 5.0 GW annotation, and the section_338_component_rate source-line relabel. Note that section_338_component_rate's formula itself is NOT changed — the panel projection still omits the note 51(a) exclusions by design (documented as a deliberate two-rate split mirroring the forced-labor family), and the correction is delivered by the new parallel entry-level rate; under the task rule that adding coverage the source requires is a fidelity correction, this is still unrepresented_clause. Companion tests (composition.test.yaml, not a module file) add four cases: baggage, ordinary chapter 98 with CBP agreement, subchapter XXIII remaining subject at 0.50, and 9802 reduced-base exposed without a flat proxy; the Feb 20 case is renamed to line_e_china_eo_14389_termination_day_... and gains an ieepa_component_rate_with_declared_exceptions: 0 assertion. PR #1200 carries the narrative but its 'reviews' and 'review_comments' arrays are empty in the bundle — the 'sol r1' review exists only as described in the commit/PR body. Follow-up 8aa569017 in the same PR renames one more test case and re-signs the manifest; it touches no module file.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The pinned corpus text of U.S. note 51(a) (FR 2026-14991 annex II page 1) states both carve-outs verbatim — \"other than products for personal use included in accompanied baggage of persons arriving in the United States\" and \"shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under subchapter XXIII ... subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80\" — and the pre-fix section 338 family encoded neither, even though its own proof atom quoted the tail of the same sentence (\"heading 9903.03.12 imposes an additional ad valorem rate of duty on imports of products of Canada enumerated in subdivision (b) of this note\") whose head carries the baggage exclusion. I tried to refute this as \"new coverage the module never claimed\", but the module already declared these exact facts as inputs and already applied the identical clauses for the fentanyl 9903.01.24 and forced-labor families, pairing each \"non-exempt panel projection\" with a \"legally complete CustomsEntry rate\"; section 338 was the only family whose rate carried no such counterpart and, pre-fix, no \"non-exempt\" label at all, so the module's only section 338 answer for a baggage or chapter 98 entry was 0.50. The fix adds the missing exclusions as encoded meaning (new judgments plus the entry rate), and the four added companion cases assert section_338_entry_component_rate: 0 where section_338_component_rate stays 0.50, so this is a fidelity correction adding a clause the source states, not a formatting or provenance change.",
+    "verifier_quote": "+          if entry_is_personal_use_accompanied_baggage\n+             or section_338_chapter_98_exclusion_applies\n+             or section_338_reduced_duty_base_applies: 0\n+          else: section_338_component_rate",
+    "verifier_notes": "Scope caveat for the reviewer: the panel-facing path is untouched. section_338_component_rate keeps its formula and still feeds us_tariff_total_ad_valorem_rate (post.yaml line 3816), and nothing consumes section_338_entry_component_rate, so no previously computed total changed; only the source-description string on the panel rate changed (relabel to \"explicitly non-exempt panel projection\"). The defect is therefore at the module's entry-level legal surface, not in a changed number. If the corpus intends \"unrepresented_clause\" to require a changed existing formula rather than an added legally complete sibling rule, this case would drop to unclear; under the stated rule that adding a missing source-required exception is unrepresented_clause, it is confirmed.\n\nTwo other candidate defects live in the same commit and are distinct from the anchored rule path: (1) section_338_alcohol_additional_duty_rate versions[0].effective_from moved 2026-02-15 -> 2026-08-19 with a new effective_period atom citing \"Effective ... on or after 12:01 a.m. eastern time on August 19, 2026\" — that is a clean wrong_period_or_effective_date candidate if the corpus wants a separate case. (2) The IEEPA collapse of the 2026-02-20/2026-02-23 and 2026-02-24 versions is behavior-neutral (both versions had the identical formula terminated_ieepa_additional_ad_valorem_duty_rate); it removes a version boundary and two proof atoms grounded in EO 14388's replacement date and EO 14389's collection directive, so it reads as untraceable_branch (re-grounding an ungrounded boundary), not as an amount or period change.\n\nResidual fidelity question in the post-fix text, not the pre-fix defect: note 51(a) says the 9802 entries remain subject with a reduced base (\"the additional duties apply to the value of repairs, alterations or processing performed\"), but section_338_entry_component_rate returns 0 for section_338_reduced_duty_base_applies. The module documents this as deliberate (exposing the judgment rather than misstating a full-customs-value ad valorem rate, mirroring beer's cents-per-liter and aluminum-content handling), but a strict reader could treat the zero as its own understatement.\n\nFiles read: bundle JSON and diff at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/3ec047a9d1/000.diff; pre/post copies at .../scratchpad/work/pre.yaml and .../scratchpad/work/post.yaml (git show of 94507fecea and 3ec047a9d1 for us/policies/cbp/us-tariff-duty/composition.yaml); provision resolved through the pinned release us-rulespec-2026-08-09-cutover-surface-union (note: fix_time_corpus_match = provision_file_absent_at_corpus_ref, so the text comes from the next later release, not the pinned toolchain ref ed7d4e4f).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Module is module.kind: composition but is a genuine RuleSpec v1 rule module (rules with formulas, versions, and proof atoms), so it is triaged as a rule module rather than not_a_rule_module. Provision WAS read: resolve_provision on us/rulemaking/federal-register/2026-07-23/2026-14991/annex-ii/page-1 (corpus release us-rulespec-2026-08-09-cutover-surface-union) returns note 51(a) verbatim, including 'other than products for personal use included in accompanied baggage of persons arriving in the United States', the chapter 98 exclusion 'except for goods entered under subchapter XXIII of chapter 98 of the tariff schedule, subheadings 9802.00.40, 9802.00.50 and 9802.00.60, and heading 9802.00.80', the two reduced-base sentences, and the 'on or after 12:01 a.m. eastern time on August 19, 2026' effective sentence — all three fix threads are confirmed against the source. This is a MULTI-DEFECT commit in one module; I picked the commit subject's primary thread (note 51(a)) as the kind. Secondary defects a reviewer may want split out: (1) wrong_period_or_effective_date — rules[section_338_alcohol_additional_duty_rate].versions[0].effective_from moves 2026-02-15 -> 2026-08-19 with a new effective_period atom citing the Annex II effective sentence; the pre-fix parameter output exposed 0.50 from 2026-02-15 although the duty took effect 2026-08-19 (section_338_component_rate was already date-gated at versions[0]/[1], so no component value changed, only the parameter's own output window); (2) untraceable_branch — both IEEPA outputs drop their redundant '2026-02-24' zero version (and the versions[2] atoms citing FR 2026-03829's replacement-regime date and EO 14389's 'as soon as practicable' collection directive), a version boundary with no basis in the IEEPA termination source; values are zero on both sides so behavior is unchanged. The fix also carries mechanical/provenance-only parts: the doctrine block and summary prose, the section 201 source-line 5.0 GW annotation, and the section_338_component_rate source-line relabel. Note that section_338_component_rate's formula itself is NOT changed — the panel projection still omits the note 51(a) exclusions by design (documented as a deliberate two-rate split mirroring the forced-labor family), and the correction is delivered by the new parallel entry-level rate; under the task rule that adding coverage the source requires is a fidelity correction, this is still unrepresented_clause. Companion tests (composition.test.yaml, not a module file) add four cases: baggage, ordinary chapter 98 with CBP agreement, subchapter XXIII remaining subject at 0.50, and 9802 reduced-base exposed without a flat proxy; the Feb 20 case is renamed to line_e_china_eo_14389_termination_day_... and gains an ieepa_component_rate_with_declared_exceptions: 0 assertion. PR #1200 carries the narrative but its 'reviews' and 'review_comments' arrays are empty in the bundle — the 'sol r1' review exists only as described in the commit/PR body. Follow-up 8aa569017 in the same PR renames one more test case and re-signs the manifest; it touches no module file. | verifier confirmed at 0.82",
+  "family_id": "us-3ec047a9-fdacd7f6d581",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

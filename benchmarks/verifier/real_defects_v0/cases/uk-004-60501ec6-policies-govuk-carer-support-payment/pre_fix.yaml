@@ -1,0 +1,82 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/regulation/ssi/2023/302/5
+      - uk/regulation/ssi/2023/302/16
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Carer Support Payment amount used by PolicyEngine UK and HBAI: the weekly Carer Support Payment rate plus Scottish Carer Supplement, annualized for people in Scotland after the benefit is in effect who meet the care-hours or reported-receipt gate, and nil otherwise.
+imports:
+  - uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
+  - uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate
+  - uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate
+rules:
+  - name: carer_support_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    source: Social Security (Claims and Payments) Regulations 1987 weekly-benefit annualization rule
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "weekly payments are multiplied by 52"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          52
+
+  - name: carer_support_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK carer_support_payment final receipt wrapper over Carer Support Payment Regulations 2023 regs. 5 and 16
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
+              output: carer_support_payment_minimum_weekly_care_hours
+              hash: sha256:49be89c4756cbc9b9f3b2f2301b70c82fe30a456b5a879d0e888b081fe8fd9b3
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate
+              output: carer_support_payment_weekly_rate
+              hash: sha256:733f3df1793f0dcb37e21f7e150a0ae103ddf6eab2746afdaebfdb39b36638a9
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate
+              output: scottish_carer_supplement_weekly_rate
+              hash: sha256:733f3df1793f0dcb37e21f7e150a0ae103ddf6eab2746afdaebfdb39b36638a9
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/ssi/2023/302/5
+              excerpt: "A carer must provide care for at least 35 hours in an award week"
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/ssi/2023/302/16
+              excerpt: "The weekly amount of Carer Support Payment is GBP 86.45."
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/ssi/2023/302/16
+              excerpt: "The weekly amount of Scottish Carer Supplement is GBP 11.70."
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if person_is_in_scotland and carer_support_payment_in_effect and (weekly_care_hours >= carer_support_payment_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): (carer_support_payment_weekly_rate + scottish_carer_supplement_weekly_rate) * carer_support_payment_weeks_in_year else: 0

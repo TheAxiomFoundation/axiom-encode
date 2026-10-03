@@ -1,0 +1,276 @@
+{
+  "id": "us-491-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-switzerland-9903-02-5",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-switzerland-9903-02-58.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.58",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.58",
+    "us/rulemaking/federal-register/2025-12-18/2025-23316"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "li-36 and ch-58 are terminated 2025-11-13 per Annex II of the implementing notice (90 FR 59281), which terminates headings 9903.02.36/.58 and inserts 9903.02.82-.91 effective November 14, 2025",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        191,
+        191
+      ],
+      [
+        216,
+        216
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        266,
+        266
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        67,
+        71
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        110,
+        114
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        144,
+        148
+      ],
+      [
+        151,
+        151
+      ],
+      [
+        179,
+        183
+      ],
+      [
+        186,
+        186
+      ],
+      [
+        216,
+        220
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        246,
+        250
+      ],
+      [
+        253,
+        253
+      ],
+      [
+        276,
+        280
+      ],
+      [
+        283,
+        283
+      ],
+      [
+        306,
+        310
+      ],
+      [
+        313,
+        313
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_switzerland_additional_duty_rate",
+      "reciprocal_switzerland_in_transit_exception_applies",
+      "reciprocal_switzerland_heading_product_exception_applies",
+      "reciprocal_switzerland_otherwise_provision_exception_applies",
+      "reciprocal_switzerland_additional_duty_applies",
+      "reciprocal_switzerland_additional_duty",
+      "reciprocal_switzerland_general_duty_rate",
+      "reciprocal_switzerland_special_duty_rate",
+      "reciprocal_switzerland_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_switzerland_general_duty_rate].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "22e45f8937f5d088f6262db43b49c4d7f7834341badece87e77b9fecf00a1583",
+  "post_fix_artifact_sha256": "34a99261750e9dbb7a500c8d94e725887ea6b53d072e682834f5eb60478832f1",
+  "provision_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+  "provision_chars": 896,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.58",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1218,
+    "record_id": "bc0f2c9b-020d-5240-8035-7839c1e2485b",
+    "stored_body_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+    "resolved_text_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.58",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All nine rules ended at the placeholder 2026-02-14, so the module kept charging the terminated heading 9903.02.58's +39% Switzerland duty for three months after Annex II terminated that heading for goods entered on or after 12:01 a.m. November 14, 2025.",
+    "triage_notes": "Same pattern as index 2 (li-36); the Switzerland rate is +39% rather than +15%, and the rate itself was not touched. Source verified in the same Annex II text (see index 2 notes), which names 9903.02.36 and 9903.02.58 together. Diff changes effective_to (9x), summary, corpus_citation_paths and adds one effective_period atom per rule; no formula change. This is the largest live-money window in the chunk, since the pre-fix module overstated Swiss duties by 39 points over the 2025-11-14 to 2026-02-14 span.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "I tried to refute this as provenance-only or as an unresolvable-date enhancement and could not: the diff changes the operative `effective_to` on all nine rules from '2026-02-14' to '2025-11-13', which is a version-window (meaning) change, not an excerpt or citation-string change. Reading the provision through the pinned release confirms the disagreement with the source: HTS 9903.02.58 carries \"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\" and FR Doc 2025-23316 (Pages 59281-59317), Annex II, states verbatim \"Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.\" So the pre-fix module charged Switzerland's +39% reciprocal duty (and its derived general/special/column-2 outputs and exception judgments) for goods entered from 2025-11-14 through 2026-02-14, three months after the heading was terminated. The old summary's self-labeled \"conservative no-later-than bound\" derived from the successors' \"2026-02-15 panel domain\" does not save it — the encoded window still asserted a duty for a period the cited source had terminated, which is exactly wrong_period_or_effective_date.",
+    "verifier_quote": "-        effective_to: '2026-02-14'\n+        effective_to: '2025-11-13'",
+    "verifier_notes": "Refutation attempts and residual doubt, for the reviewer: (1) Mechanical? No — nine operative version windows changed; the added corpus_citation_paths, summary rewrite, and new effective_period proof atoms are provenance riding along with a real meaning change. (2) Not-a-defect / new coverage? The originally cited source (the HTS compiler's note) gave no date itself, but it pointed at \"90 Fed. Reg. 59281\", which is the exact start page of the FR doc whose Annex II carries the date, so the 2026-02-14 value was never grounded in the source it cited. (3) Alternative kind: untraceable_branch is arguable, since the pre-fix date came from a successor heading's panel date rather than any source text and the fix re-grounds it; I kept wrong_period_or_effective_date because the more specific kind explicitly covers effective_to/version windows disagreeing with the source. boundary_direction does not fit — the inclusive-end choice (2025-11-13 as last effective day before a 12:01 a.m. Nov 14 start) is correct in both readings; the defect is the date being ~3 months off, not the strictness. amount_mismatch does not fit: the 0.39 rate is unchanged. (4) Related context from the same commit (not this module): ch-82, the successor, moved from a premature 2025-08-07 start to 2025-11-14, so pre-fix the terminated heading and its successor overlapped Aug 2025–Feb 2026 in the composition — additional evidence that the old window produced wrong duties rather than merely imprecise metadata. Corpus resolution used release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0); note the resolver reported fix_time_corpus_match \"provision_file_absent_at_corpus_ref\" for the HTS file, so the FR text may not have been in the corpus at the original encoding time — that mitigates blame but does not change that the encoded window disagreed with the source.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 2 (li-36); the Switzerland rate is +39% rather than +15%, and the rate itself was not touched. Source verified in the same Annex II text (see index 2 notes), which names 9903.02.36 and 9903.02.58 together. Diff changes effective_to (9x), summary, corpus_citation_paths and adds one effective_period atom per rule; no formula change. This is the largest live-money window in the chunk, since the pre-fix module overstated Swiss duties by 39 points over the 2025-11-14 to 2026-02-14 span. | verifier confirmed at 0.93",
+  "family_id": "us-4d2856a9-1a0d4561fe0a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

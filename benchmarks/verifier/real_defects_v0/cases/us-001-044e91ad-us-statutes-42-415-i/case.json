@@ -1,0 +1,109 @@
+{
+  "id": "us-001-044e91ad-us-statutes-42-415-i",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "044e91ad8afb28d8a3f89c451b908c199a71eb93",
+  "parent_commit": "c995778e461e891841f334796ed1cf0760c21930",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Corrects 42 USC 415(i) which 'baked one determination year into a year-general statute module' (scope/effective-period fix, replaces hard import with free input).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/554",
+  "module_path": "us/statutes/42/415/i.yaml",
+  "corpus_citation_path": "us/statute/42/415/i",
+  "corpus_citation_paths_all": [
+    "us/statute/42/415/i",
+    "us/statute/42/415/i",
+    "us/statute/42/415/i/2"
+  ],
+  "corpus_release": "us-rulespec-foundation-v3-2026-07-15",
+  "corpus_release_content_sha256": "ba72214963f45fea7099a096b943047c5b19da6f976db46225960fdbd9035084",
+  "corpus_commit": "f9b0ab7a08ad46ddd140b692a8c631e5f64871fb",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "The statute-level PIA cost-of-living module hard-imported the year-specific 2026 COLA policy and baked one determination year into a year-general statute module",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        4,
+        4
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        74,
+        79
+      ],
+      [
+        84,
+        84
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        13,
+        20
+      ],
+      [
+        84,
+        84
+      ]
+    ],
+    "rule_names": [
+      "unrounded_pia_after_cost_of_living_increase"
+    ],
+    "rule_path": "rules[unrounded_pia_after_cost_of_living_increase].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e65278f9114c1577020a5e2b029168b35eeefa4b45d4b1708e71dc1e9e846a72",
+  "post_fix_artifact_sha256": "6414eeaed24d55cb39390bc690113aacff850a573ac6b4967cbc83805356b7bd",
+  "provision_sha256": "354b6909ee74c98c6e9e0973c2538bd69462fbdc71a9af10cf32546b216c53c6",
+  "provision_chars": 16020,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/42/415/i",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-title-42.jsonl",
+    "provision_file_sha256": "89d4b956bd08d49b7d4283ca4cb0605c456e4e1486cf65ad649d79d67308712d",
+    "line_number": 234,
+    "record_id": "cb06f722-4fe9-5de0-a95c-a5310139aa8b",
+    "stored_body_sha256": "354b6909ee74c98c6e9e0973c2538bd69462fbdc71a9af10cf32546b216c53c6",
+    "resolved_text_sha256": "354b6909ee74c98c6e9e0973c2538bd69462fbdc71a9af10cf32546b216c53c6",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-26",
+    "source_as_of": "2026-06-26",
+    "corpus_commit": "f9b0ab7a08ad46ddd140b692a8c631e5f64871fb",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "7661f3c9a3655e93fc9b2420048d70d231e7d44b",
+    "requested_citation_path": "us/statute/42/415/i",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/42/415/i'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The single version window effective_from 1975-01-01 multiplied the primary insurance amount by the 2026 determination's percentage (2.8%) in every year, whereas 42 USC 415(i)(2)(A)(i) requires the applicable increase percentage to be determined by the Commissioner 'each year beginning with 1975', so the encoding applied one year's determination timelessly across all years.",
+    "triage_notes": "Provision read via resolve_provision.py on us/statute/42/415/i/2 (corpus pinned to the commit): confirmed 'The Commissioner of Social Security shall determine each year beginning with 1975 ... whether the base quarter ... is a cost-of-living computation quarter' and that the increase is 'by the applicable increase percentage' with no percentage stated in the statute, so the per-year-determination framing in the commit message is grounded. Decisive diff: the module-level import of us:policies/ssa/cola/2026#social_security_cola_2026_applicable_increase_percentage and its matching proof import-atom are removed, and the formula term changes from social_security_cola_2026_applicable_increase_percentage to the free input cola_applicable_increase_percentage; the summary gains an Input contract paragraph. Nothing else in the module changed: the dime-rounding parameter, the floor() rounding rule, effective_from dates, entity, period, dtype, and the 415(a) PIA import are identical. Kind is a judgment call between wrong_period_or_effective_date and untraceable_branch: no date/version field literally changed, but the defect is a single determination year baked into an all-years (1975-onward) window, which the commit and the screening label both frame as the year/effective-period problem; the untraceable_branch reading is that the percentage term was grounded in SSA guidance for one year rather than in the cited statute. Hence confidence held below 0.8 on kind, not on the fidelity classification. The PR notes only the 2026 determination exists in the corpus ('the structural win is that the statute no longer carries any year'), so no currently-executable output changes value today; the meaning change bites for any year other than 2026. Test file us/statutes/42/415/i.test.yaml changed comments only (hand-verification arithmetic restated, 3,263.20 x 1.028 = 3,354.5696 -> 3,354.50); the encoding manifest change is bookkeeping (hashes, encoder version 0.2.1153 -> 0.2.1155). No PR reviews or comments exist on #554, so the commit/PR body is the only stated-reason evidence.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The change is a real fidelity correction, but nothing period-shaped was actually edited: every version window in the module stays `effective_from: '1975-01-01'`, `period: Year` is unchanged, and no version was added, split, or closed. What the diff removes is a value with no basis in the cited source — the statute text resolved from the pinned corpus (`us/statute/42/415/i/2`) states only \"by the applicable increase percentage\" and fixes no number, yet the module imported the SSA-guidance-grounded 2.8% figure from `us/policies/ssa/cola/2026` and a proof atom of `kind: import` pointing at it. The fix deletes that import and re-grounds the term as the free input `cola_applicable_increase_percentage`, which is exactly untraceable_branch's stated shape (\"a value with no basis in the cited source (the fix removes or re-grounds it), including formulas grounded on the wrong provision\"), not an effective-date or version-window disagreement.",
+    "verifier_quote": "-  - us:policies/ssa/cola/2026#social_security_cola_2026_applicable_increase_percentage",
+    "verifier_notes": "Decisive diff lines (all verbatim from 001.diff): removal of the `imports:` line quoted above; removal of the proof atom block `- path: versions[0].formula / kind: import / import: / target: us:policies/ssa/cola/2026#social_security_cola_2026_applicable_increase_percentage`; and the formula swap `-          * (1 + social_security_cola_2026_applicable_increase_percentage)` / `+          * (1 + cola_applicable_increase_percentage)`.\n\nStrongest argument for the first reader's kind (why I am at 0.6, not higher): the imported parameter in `us/policies/ssa/cola/2026.yaml` is itself `effective_from: '2026-01-01'` while the importing rule's window opens 1975-01-01, so the pre-fix module did have a year-scope inconsistency, and the commit message frames it temporally (\"baked one determination year into a year-general statute module\"; \"each year beginning with 1975\"). But that parenthetical in wrong_period_or_effective_date (\"timeless encoding of superseded text\") does not fit: the statutory text here is current and genuinely year-general, and the repair touched no date, window, or period field. If the defect were period-shaped, the fix would have added or narrowed version windows; instead it deleted the ungrounded import.\n\nArgument a reviewer should weigh for not_a_defect / unclear: the PR itself frames the gain as architectural — \"Only the 2026 determination exists in the corpus (`corpus#212`), so 2026 is the sole grounded year; the structural win is that the statute no longer carries any year.\" For a 2026 run bound to the same policy the computed result is identical; the behavioral difference only shows up for other years. The companion-test diff is comment-only (the sole assertion remains `cola_pia_rounding_multiple_is_a_dime`), so no test pins the behavior change. I still call it fidelity because the statute module claimed coverage from 1975-01-01 and carried a percentage the cited provision does not state.\n\nNot mechanical: imports, a proof atom, and a formula operand all changed. Provenance checked: 42 USC 415(i)(2)(A)(ii) resolved at corpus release us-rulespec-foundation-v3-2026-07-15, body sha256 f4945409ed85cb7ac888157afc960854bd2a9052ca5933e8f379a18721efc8bd, expression date 2026-06-26 — no percentage appears anywhere in the provision.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read via resolve_provision.py on us/statute/42/415/i/2 (corpus pinned to the commit): confirmed 'The Commissioner of Social Security shall determine each year beginning with 1975 ... whether the base quarter ... is a cost-of-living computation quarter' and that the increase is 'by the applicable increase percentage' with no percentage stated in the statute, so the per-year-determination framing in the commit message is grounded. Decisive diff: the module-level import of us:policies/ssa/cola/2026#social_security_cola_2026_applicable_increase_percentage and its matching proof import-atom are removed, and the formula term changes from social_security_cola_2026_applicable_increase_percentage to the free input cola_applicable_increase_percentage; the summary gains an Input contract paragraph. Nothing else in the module changed: the dime-rounding parameter, the floor() rounding rule, effective_from dates, entity, period, dtype, and the 415(a) PIA import are identical. Kind is a judgment call between wrong_period_or_effective_date and untraceable_branch: no date/version field literally changed, but the defect is a single determination year baked into an all-years (1975-onward) window, which the commit and the screening label both frame as the year/effective-period problem; the untraceable_branch reading is that the percentage term was grounded in SSA guidance for one year rather than in the cited statute. Hence confidence held below 0.8 on kind, not on the fidelity classification. The PR notes only the 2026 determination exists in the corpus ('the structural win is that the statute no longer carries any year'), so no currently-executable output changes value today; the meaning change bites for any year other than 2026. Test file us/statutes/42/415/i.test.yaml changed comments only (hand-verification arithmetic restated, 3,263.20 x 1.028 = 3,354.5696 -> 3,354.50); the encoding manifest change is bookkeeping (hashes, encoder version 0.2.1153 -> 0.2.1155). No PR reviews or comments exist on #554, so the commit/PR body is the only stated-reason evidence. | verifier reclassified wrong_period_or_effective_date -> untraceable_branch at 0.60; verifier kind used",
+  "family_id": "us-044e91ad-b557633a6711",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

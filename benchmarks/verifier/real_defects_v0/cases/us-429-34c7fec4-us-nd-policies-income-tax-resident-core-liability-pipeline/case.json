@@ -1,0 +1,286 @@
+{
+  "id": "us-429-34c7fec4-us-nd-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "34c7fec48b1a18d8650cf8d12ece6ade6e53da1a",
+  "parent_commit": "49059168a57ecec5ad73222743252787e4dabf33",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Repair North Dakota 2026 annual tax source holds",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1034",
+  "module_path": "us-nd/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-nd/statute/57/57-38-30.3",
+  "corpus_citation_paths_all": [
+    "us-nd/statute/57/57-38-30.3"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Section 57-38-30.3(10) requires the prescribed annual tax table, and the latest annual instructions use tables below $100,000 rather than the continuous estimated-payment schedule.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        16,
+        19
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        33,
+        36
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        40,
+        45
+      ],
+      [
+        79,
+        81
+      ],
+      [
+        119,
+        120
+      ],
+      [
+        127,
+        128
+      ],
+      [
+        137,
+        146
+      ],
+      [
+        148,
+        148
+      ],
+      [
+        215,
+        230
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        280,
+        282
+      ],
+      [
+        289,
+        289
+      ],
+      [
+        318,
+        319
+      ],
+      [
+        326,
+        344
+      ],
+      [
+        426,
+        426
+      ],
+      [
+        730,
+        730
+      ],
+      [
+        751,
+        804
+      ],
+      [
+        821,
+        821
+      ],
+      [
+        839,
+        839
+      ],
+      [
+        857,
+        857
+      ],
+      [
+        877,
+        894
+      ],
+      [
+        901,
+        901
+      ],
+      [
+        907,
+        907
+      ],
+      [
+        913,
+        917
+      ],
+      [
+        941,
+        941
+      ],
+      [
+        952,
+        953
+      ],
+      [
+        960,
+        961
+      ],
+      [
+        970,
+        971
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        16,
+        19
+      ],
+      [
+        26,
+        28
+      ],
+      [
+        35,
+        37
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        41,
+        47
+      ],
+      [
+        118,
+        120
+      ],
+      [
+        136,
+        136
+      ],
+      [
+        172,
+        224
+      ],
+      [
+        294,
+        294
+      ],
+      [
+        339,
+        343
+      ],
+      [
+        734,
+        734
+      ],
+      [
+        771,
+        771
+      ],
+      [
+        789,
+        789
+      ],
+      [
+        807,
+        807
+      ],
+      [
+        833,
+        833
+      ],
+      [
+        839,
+        839
+      ],
+      [
+        845,
+        845
+      ],
+      [
+        879,
+        881
+      ],
+      [
+        902,
+        904
+      ]
+    ],
+    "rule_names": [
+      "nd_pit_2026_supported_profile_applies",
+      "nd_pit_2026_base_profile_applies",
+      "nd_pit_2026_annual_tax_table_authority_is_complete",
+      "nd_pit_2026_profile_candidate_tax_before_credits",
+      "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits",
+      "nd_pit_2026_profile_candidate_capital_and_dividend_reduction",
+      "nd_pit_2026_profile_candidate_organ_donation_reduction",
+      "nd_pit_2026_organ_donation_expense_cap",
+      "nd_pit_2026_profile_candidate_additions",
+      "nd_pit_2026_other_state_credit_denominator",
+      "nd_pit_2026_profile_candidate_other_state_credit",
+      "nd_pit_2026_supported_profile_other_state_credit",
+      "nd_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[nd_pit_2026_supported_profile_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "af1b8f5ff19cd637fd415f52ceeeb8b3c9103bb06d1b8659e7ce0ab8c1596234",
+  "post_fix_artifact_sha256": "2a947958866c79b9d004bb65ac72670d393d1b08e8a4dc707cbf88657e8cfcde",
+  "provision_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+  "provision_chars": 21030,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nd/statute/57/57-38-30.3",
+    "provision_file": "data/corpus/provisions/us-nd/statute/2026-07-16-pit-central-us-nd-title-57-38.jsonl",
+    "provision_file_sha256": "843de7fa6d2341125b8ae6b9d4075ea7196ac411d537b2d55435d3795c5dde3a",
+    "line_number": 88,
+    "record_id": "14d9ae29-797a-5a30-97b5-eaf4974f7c54",
+    "stored_body_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+    "resolved_text_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-nd/statute/57/57-38-30.3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module published a public annual North Dakota tax (e.g. 3916.0875, 1638, 1958.2875 in its own companion tests) computed from the continuous 2026 ND-1ES estimated-payment schedule, which is not the annual tax the cited statute requires because 57-38-30.3(10) provides that any tax tables prescribed by the commissioner \"must be followed by every individual, estate, or trust determining a tax under this section\" and no 2026 annual table is in the pinned corpus.",
+    "triage_notes": "Multi-defect repair in one module; I chose the annual-table substitution as decisive because it matches the commit subject (\"Repair North Dakota 2026 annual tax source holds\") and it is the change that flips every public money output. Mechanics of the fix: the old profile gate was renamed `nd_pit_2026_supported_profile_applies` -> `nd_pit_2026_base_profile_applies` (still gating the upstream income outputs) and a NEW `nd_pit_2026_supported_profile_applies` with formula 'false' was added, so `nd_pit_2026_supported_profile_tax_before_credits` and `nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits` now return 0 in all 22 companion cases (verified by diffing the .test.yaml expectations across 49059168a..34c7fec48b); `nd_pit_2026_profile_candidate_tax_before_credits`'s source string was re-grounded from \"N.D.C.C. section 57-38-30.3(1), applicable official 2026 schedule\" to \"Private reference calculation from the official 2026 estimated-tax schedule\". Note the rate parameters themselves were NOT changed and their values (49575/250400/3916.09, 82800/304850/4329.98, 41400/152425/2164.99, 66400/277600/4118.40) match the schedules in the pinned 57-38-30.3(1)(a)-(d) verbatim, so this is not amount_mismatch; the defect is that a continuous-schedule result was published as annual liability when the statute subordinates it to the unpinned prescribed table. A reviewer could reasonably re-label this one unrepresented_clause instead, since the fix literally adds a rule representing subsection (10) (excerpt \"tax commissioner may prescribe tax tables\") -- that ambiguity is why confidence is 0.72 rather than higher. THREE further independent fidelity repairs ride in the same module diff and may be worth splitting into separate corpus entries: (1) capital-gain sequencing, `nd_pit_2026_profile_candidate_capital_and_dividend_reduction` went from max(0, allocated_LTCG - allocated_STCL) to max(0, min(federal_LTCG - federal_STCL, LTCG_allocated_to_nd)); I read 57-38-30.3(2)(d)(1) through the pinned corpus and it says \"The excess of the taxpayer's net long-term capital gain for the taxable year over the net short-term capital loss for that year, as computed for purposes of the Internal Revenue Code of 1986, as amended. The adjustment provided by this subdivision is allowed only to the extent the net long-term capital gain is allocated to this state\" -- so the pre-fix encoding netted on ND-allocated figures instead of computing the federal excess and then applying the allocation as a ceiling (a clean source-verifiable defect, kind unrepresented_clause or wrong_entity_or_scope; the post-fix suite adds the case \"federal capital loss offset precedes north dakota allocation cap\"). (2) organ-donation grain: the pre-fix `nd_pit_2026_profile_candidate_organ_donation_reduction` = min(expenses, 10000) applied one annual $10,000 cap, but 2(i) allows the reduction \"only once for each instance of organ donation\" by the taxpayer or a dependent, so multiple instances were understated; the rule, its cap parameter and its input were deleted in favor of the `nd_pit_2026_has_living_organ_donation_expense_claim` hold. (3) other-state credit: the 4(a)-(b) credit chain and the planned-gift 2(j) addback were removed in favor of holds (`nd_pit_2026_has_other_state_income_tax_credit`, `nd_pit_2026_has_planned_gift_credit_or_addback`), so the commit also withdraws coverage rather than only correcting it. The provision was read (corpus release resolved via resolve_provision.py; subsections 1, 2(d), 2(i), 9, 10 inspected); the commit body itself is empty (just a newline), all quotable evidence is in the PR body; PR has no review or issue comments in the bundle. Companion files changed alongside: the test suite (212+/240-), the encoding manifest, and oracle-coverage-pending.yaml -- consistent bookkeeping, no unrelated module edits. No follow-up repair commits touch us-nd between this commit and the merge.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The quoted rationale does not survive the pinned source: 57-38-30.3(10) reads \"The tax commissioner may prescribe tax tables, to be used in computing the tax according to subsection 1, if the amounts of the tax tables are based on the tax rates set forth in subsection 1. If prescribed by the tax commissioner, the tables must be followed\" — permissive and conditional, while subsection 1 itself supplies the operative filing-status schedules, and every pre-fix bracket parameter quotes those schedules verbatim from the same provision (\"$0 | $49,575\", \"$49,575 | $250,400\", \"$3,916.09 + 2.50%\", \"$0 | $41,400\"), so the pre-fix annual-tax branch was traceable to the cited source, not ungrounded. The commit changes no rate, threshold, or computed amount for that branch at all: 3916.0875 merely moves from the public nd_pit_2026_supported_profile_tax_before_credits to the private nd_pit_2026_profile_candidate_single_tax in the companion tests, i.e. the annual-tax part is an output-surface hold driven by source-boundary conservatism. The same diff does, however, carry a source-provable fidelity correction: 57-38-30.3(2)(d)(1) allows forty percent of the excess of net long-term capital gain over net short-term capital loss \"as computed for purposes of the Internal Revenue Code\" and \"only to the extent the net long-term capital gain is allocated to this state\", and the fix replaces the pre-fix allocated-minus-allocated excess with the federal excess capped by the ND allocation — the statutory limitation clause that the encoding omitted (as with 2(i)'s \"only once for each instance of organ donation\" grain). That makes the module change a fidelity defect of kind unrepresented_clause rather than untraceable_branch.",
+    "verifier_quote": "+              min(\n+                nd_pit_2026_federal_net_long_term_capital_gain\n+                  - nd_pit_2026_federal_net_short_term_capital_loss,\n+                nd_pit_2026_net_long_term_capital_gain_allocated_to_nd\n+              )",
+    "verifier_notes": "Multi-defect repair commit; the PR body itself lists the bundle: \"Independent review found and required repairs for annual-table substitution, capital-gain sequencing, organ-donation grain, caller-completed classifications, other-state-credit mechanics, and filing-status threshold coverage.\"\n\nRefutation detail on the first reader's anchor (rules[nd_pit_2026_supported_profile_applies].versions[0].formula -> 'false'):\n- Resolved provision us-nd/statute/57/57-38-30.3 (corpus release us-rulespec-2026-07-22-current-la-status-fix, expression date 2026-07-16, body sha d06df87b...) contains the full subsection 1(a)-(e) rate schedules with exactly the amounts the pre-fix module encoded, and subsection 1 says the tax \"is equal to North Dakota taxable income multiplied by the rates in the applicable rate schedule in subdivisions a through d\". Subsection 10 is permissive (\"may prescribe\"; \"If prescribed ... must be followed\") and constrains any table to be \"based on the tax rates set forth in subsection 1\". So the premise \"57-38-30.3(10) requires the prescribed annual tax table\" is a misreading of the cited text, and \"no basis in the cited source\" is false for that branch — the pre-fix parameters' proof atoms quote the statute, not ND-1ES, even though their `source:` labels say ND-1ES.\n- If a reviewer insists on anchoring the classification to the annual-tax gate, the honest labels there are wrong_entity_or_scope (public output surface narrowed) or not_a_defect (fail-closed project policy about unpinned annual-return material), not untraceable_branch; no number, rate, window, or boolean in the tax computation changed.\n- Other removals in this diff (other-state credit under 4(a)-(b), planned-gift addback under 2(j)) look source-faithful pre-fix and were withdrawn to holds for missing ND-1CR / credit-recomputation material, i.e. conservatism rather than demonstrated error. One genuinely ungrounded pre-fix condition was also dropped: the input-domain constraint \"nd_pit_2026_other_state_source_federal_adjusted_gross_income <= nd_pit_2026_other_state_credit_denominator\", which has no statutory basis — a reviewer who wants to keep untraceable_branch could anchor there instead, but it is incidental to the commit's subject.\n- Strongest fidelity anchors, both verifiable against the pinned text: (1) capital-gain sequencing per 2(d)(1) (quote above); (2) organ donation, where the pre-fix flat unit-level min(expenses, 10000) ignored \"A taxpayer may claim the reduction in this subdivision only once for each instance of organ donation during the taxable year\", and the fix withdraws the branch to the new nd_pit_2026_has_living_organ_donation_expense_claim hold.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-defect repair in one module; I chose the annual-table substitution as decisive because it matches the commit subject (\"Repair North Dakota 2026 annual tax source holds\") and it is the change that flips every public money output. Mechanics of the fix: the old profile gate was renamed `nd_pit_2026_supported_profile_applies` -> `nd_pit_2026_base_profile_applies` (still gating the upstream income outputs) and a NEW `nd_pit_2026_supported_profile_applies` with formula 'false' was added, so `nd_pit_2026_supported_profile_tax_before_credits` and `nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits` now return 0 in all 22 companion cases (verified by diffing the .test.yaml expectations across 49059168a..34c7fec48b); `nd_pit_2026_profile_candidate_tax_before_credits`'s source string was re-grounded from \"N.D.C.C. section 57-38-30.3(1), applicable official 2026 schedule\" to \"Private reference calculation from the official 2026 estimated-tax schedule\". Note the rate parameters themselves were NOT changed and their values (49575/250400/3916.09, 82800/304850/4329.98, 41400/152425/2164.99, 66400/277600/4118.40) match the schedules in the pinned 57-38-30.3(1)(a)-(d) verbatim, so this is not amount_mismatch; the defect is that a continuous-schedule result was published as annual liability when the statute subordinates it to the unpinned prescribed table. A reviewer could reasonably re-label this one unrepresented_clause instead, since the fix literally adds a rule representing subsection (10) (excerpt \"tax commissioner may prescribe tax tables\") -- that ambiguity is why confidence is 0.72 rather than higher. THREE further independent fidelity repairs ride in the same module diff and may be worth splitting into separate corpus entries: (1) capital-gain sequencing, `nd_pit_2026_profile_candidate_capital_and_dividend_reduction` went from max(0, allocated_LTCG - allocated_STCL) to max(0, min(federal_LTCG - federal_STCL, LTCG_allocated_to_nd)); I read 57-38-30.3(2)(d)(1) through the pinned corpus and it says \"The excess of the taxpayer's net long-term capital gain for the taxable year over the net short-term capital loss for that year, as computed for purposes of the Internal Revenue Code of 1986, as amended. The adjustment provided by this subdivision is allowed only to the extent the net long-term capital gain is allocated to this state\" -- so the pre-fix encoding netted on ND-allocated figures instead of computing the federal excess and then applying the allocation as a ceiling (a clean source-verifiable defect, kind unrepresented_clause or wrong_entity_or_scope; the post-fix suite adds the case \"federal capital loss offset precedes north dakota allocation cap\"). (2) organ-donation grain: the pre-fix `nd_pit_2026_profile_candidate_organ_donation_reduction` = min(expenses, 10000) applied one annual $10,000 cap, but 2(i) allows the reduction \"only once for each instance of organ donation\" by the taxpayer or a dependent, so multiple instances were understated; the rule, its cap parameter and its input were deleted in favor of the `nd_pit_2026_has_living_organ_donation_expense_claim` hold. (3) other-state credit: the 4(a)-(b) credit chain and the planned-gift 2(j) addback were removed in favor of holds (`nd_pit_2026_has_other_state_income_tax_credit`, `nd_pit_2026_has_planned_gift_credit_or_addback`), so the commit also withdraws coverage rather than only correcting it. The provision was read (corpus release resolved via resolve_provision.py; subsections 1, 2(d), 2(i), 9, 10 inspected); the commit body itself is empty (just a newline), all quotable evidence is in the PR body; PR has no review or issue comments in the bundle. Companion files changed alongside: the test suite (212+/240-), the encoding manifest, and oracle-coverage-pending.yaml -- consistent bookkeeping, no unrelated module edits. No follow-up repair commits touch us-nd between this commit and the merge. | verifier reclassified untraceable_branch -> unrepresented_clause at 0.60; verifier kind used",
+  "family_id": "us-34c7fec4-18cb504c6220",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

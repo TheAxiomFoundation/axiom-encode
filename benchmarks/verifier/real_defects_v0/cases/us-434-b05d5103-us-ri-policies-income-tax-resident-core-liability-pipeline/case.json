@@ -1,0 +1,293 @@
+{
+  "id": "us-434-b05d5103-us-ri-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b05d51039b958dd3fd01714207d4949e9d93fc0d",
+  "parent_commit": "e0930a18d4b8acafc22249a8d9a56399e363f090",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Address Rhode Island resident core review findings",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1032",
+  "module_path": "us-ri/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+  "corpus_citation_paths_all": [
+    "us-ri/guidance/tax/adv-2025-22/page-1",
+    "us-ri/guidance/tax/adv-2025-22/page-2",
+    "us-ri/statute/44-30-1",
+    "us-ri/statute/44-30-1.1",
+    "us-ri/statute/44-30-2.6",
+    "us-ri/statute/44-30-2.8",
+    "us-ri/statute/44-30-3",
+    "us-ri/statute/44-30-5",
+    "us-ri/statute/44-30-11",
+    "us-ri/statute/44-30-12",
+    "us-ri/statute/44-30-15",
+    "us-ri/statute/44-30-17",
+    "us-ri/statute/44-30-18",
+    "us-ri/statute/44-30-25",
+    "us-ri/statute/44-30-25.1",
+    "us-ri/statute/44-30-32",
+    "us-ri/statute/44-30-87.1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "When both nonrefundable credits are positive, their tax-year-2026 ordering is a typed hold because the pinned corpus lacks the 2026 return and instructions.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        89,
+        96
+      ],
+      [
+        126,
+        127
+      ],
+      [
+        296,
+        296
+      ],
+      [
+        299,
+        301
+      ],
+      [
+        413,
+        413
+      ],
+      [
+        503,
+        503
+      ],
+      [
+        524,
+        524
+      ],
+      [
+        636,
+        643
+      ],
+      [
+        1044,
+        1044
+      ],
+      [
+        1048,
+        1049
+      ],
+      [
+        1082,
+        1082
+      ],
+      [
+        1250,
+        1252
+      ],
+      [
+        1270,
+        1270
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        89,
+        99
+      ],
+      [
+        129,
+        132
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        302,
+        303
+      ],
+      [
+        306,
+        315
+      ],
+      [
+        427,
+        428
+      ],
+      [
+        518,
+        524
+      ],
+      [
+        545,
+        550
+      ],
+      [
+        553,
+        560
+      ],
+      [
+        664,
+        664
+      ],
+      [
+        667,
+        667
+      ],
+      [
+        672,
+        696
+      ],
+      [
+        1097,
+        1097
+      ],
+      [
+        1101,
+        1102
+      ],
+      [
+        1110,
+        1110
+      ],
+      [
+        1130,
+        1147
+      ],
+      [
+        1154,
+        1154
+      ],
+      [
+        1322,
+        1327
+      ],
+      [
+        1345,
+        1350
+      ]
+    ],
+    "rule_names": [
+      "ri_pit_2026_bounded_credit_chain_applies",
+      "ri_pit_2026_nonrefundable_credit_order_is_unambiguous",
+      "ri_pit_2026_bounded_child_and_dependent_care_credit_applied",
+      "ri_pit_2026_profile_candidate_organ_donation_subtraction",
+      "ri_pit_2026_supported_profile_applies",
+      "ri_pit_2026_forty_percent_allowed",
+      "ri_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[ri_pit_2026_bounded_credit_chain_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6431e64f56afce427f27386461022f94703c50d88163ca7437c3242f281b273c",
+  "post_fix_artifact_sha256": "091dfb0af9aee8cffda0bf405af14f95b6171a2152ad02c121fde9641f356cc0",
+  "provision_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+  "provision_chars": 2342,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+    "provision_file": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+    "provision_file_sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+    "line_number": 2,
+    "record_id": "17dc0fdf-ad4d-535b-bfd9-efd3f496fdab",
+    "stored_body_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+    "resolved_text_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-11-03",
+    "source_as_of": "2026-07-23",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "When both the section 44-30-18 other-state credit and the section 44-30-2.6 child/dependent-care credit were positive, the pre-fix module computed a result under a specific application order (other-state credit first, then CDCC capped against the tax remaining after it) that the pinned Rhode Island corpus nowhere establishes, instead of holding; secondarily it capped the organ-donation subtraction once per tax unit although the statute grants the $10,000 subtraction per individual donor, collapsed the statute's six separately enumerated 'other Rhode Island taxes' into one composite flag, and asserted the 40% phaseout step as a bare 0.4 rather than deriving it from the grounded twenty-percentage-point reductions.",
+    "triage_notes": "Multi-defect repair commit; I read every hunk. (1) DECISIVE: ri_pit_2026_bounded_credit_chain_applies gains 'and ri_pit_2026_nonrefundable_credit_order_is_unambiguous', and the new judgment rule holds unless one of the two nonrefundable candidates is zero. Verified the CDCC formula body itself is byte-identical pre/post (git show of both revisions); only the gate and the source: string changed, so the behavior change is entirely the new hold. Classified untraceable_branch because the fix removes a computed ordering with no basis in the pinned authority rather than correcting a value. (2) A second, independently classifiable defect in the same diff is wrong_entity_or_scope / amount_mismatch on the organ-donation subtraction: ri_pit_2026_unreimbursed_organ_donation_expenses and its two history flags are split into primary_taxpayer_* and spouse_* inputs, and ri_pit_2026_profile_candidate_organ_donation_subtraction now applies min(cap, expenses) separately per donor with the spouse leg gated on ri_pit_2026_is_married_filing_jointly. I read us-ri/statute/44-30-12 through the pinned release: '(7) Modification for organ transplantation. (i) An individual may subtract up to ten thousand dollars ($10,000) ... (ii) An individual may claim that subtract modification hereunder only once, and the subtract modification may be claimed for only the following unreimbursed expenses that are incurred by the claimant and related to the claimant's organ donation' — per individual donor, so the pre-fix single tax-unit cap and single lifetime-claim flag were wrong for a joint return with two donors. ri_pit_2026_supported_profile_applies also gains a guard forcing spouse organ facts to be absent on non-joint returns. (3) A third: unrepresented_clause on the specialty taxes — ri_pit_2026_has_special_tax_computation (described as 'lump-sum child-investment recapture or farm-averaging tax') is replaced by six inputs matching us-ri/statute/44-30-2.6 subsections (G)(1)(a)-(c), (H)(1)(a) and (I)(1)(a), which I read in the pinned release; the pre-fix composite silently folded the parent-election and fishing-averaging items into one flag and the proof atom cited only the heading excerpt 'Other Rhode Island taxes'. (4) ri_pit_2026_forty_percent_allowed goes from kind: parameter with formula '0.4' to kind: derived, entity: TaxUnit, formula full - twenty - twenty - twenty; with full=1 and twenty=0.2 in the same module this is numerically the same 0.4, so it is a grounding/derivation repair ('direct assertions' finding), not an amount change — note eighty_percent_allowed and sixty_percent_allowed were left as literal parameters, so the repair is inconsistent. (5) Genuinely mechanical bits mixed in: several proof atoms flip kind: ordering -> kind: exception and excerpt strings are swapped for more specific statutory text; module doc comment and deferred_outputs reason text updated. Commit body is empty (just a newline); the PR has no reviews or review comments, so the stated reason lives in the PR body's review-fix-cycle paragraph, which lists 'source-derived percentages, direct assertions, caller-result shortcuts, input grain, organ-donation caps/history, specialty-tax inventory, OOS/CDCC ordering, taxable-income floors, duplicate fixture keys, and opportunity-zone per-investment eligibility' — the first six of those map onto this diff; taxable-income floors and opportunity-zone grain do not appear here. Follow-up commits on the same module: cfdc84cf7 'Satisfy Rhode Island deterministic validation' and bdf6b6965 'Constrain Rhode Island opportunity-zone investment grain'. Companion test file and .axiom encoding manifest changed alongside, as expected. If the corpus wants one defect per row, this module could reasonably be split into three fidelity rows (untraceable_branch, wrong_entity_or_scope, unrepresented_clause).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.75,
+    "verifier_justification": "The pre-fix module computed `ri_pit_2026_bounded_child_and_dependent_care_credit_applied` as `min(cdcc_candidate, max(0, schedule_tax - ordinary_aggregate_other_state_credit_candidate))`, i.e. it asserted that the § 44-30-18 other-state credit is applied first and the § 44-30-2.6 CDCC is capped against the remainder; I read both provisions plus ADV 2025-22 pages 1-2 through the pinned release (us-rulespec-2026-07-22-current-la-status-fix) and neither contains any ordering language — § 44-30-18(b) caps the other-state credit at a proportion of RI tax and § 44-30-2.6(c)(3)(F)(g) caps the CDCC at \"the Rhode Island tax liability,\" each independently, and the guidance pages contain no occurrence of \"credit\" at all. The fix adds `ri_pit_2026_nonrefundable_credit_order_is_unambiguous` and gates the chain on it, so the ungrounded ordering branch is removed and both-positive returns now hold, which changes public outputs (the chain gate and every bounded money rule are non-private). That is exactly \"a branch, condition, or value with no basis in the cited source (the fix removes or re-grounds it),\" so fidelity/untraceable_branch stands; I could not refute it.",
+    "verifier_quote": "+          and ri_pit_2026_nonrefundable_credit_order_is_unambiguous\n-    source: Supported CDCC capped against tax remaining after ordinary other-state credit\n+    source: Supported CDCC capped only on the unambiguous branch where the other-state candidate is zero",
+    "verifier_notes": "Two caveats for the reviewer. (1) The ordering is arguably numerically inert for the terminal figure: `ri_pit_2026_bounded_tax_before_eitc` is `max(0, schedule_tax - oos - cdcc_applied)`, and min(cdcc, max(0,tax-oos)) and min(cdcc, tax) both collapse to max(0, tax-oos-cdcc) there, so the pre-fix error is observable in the public intermediate output `ri_pit_2026_bounded_child_and_dependent_care_credit_applied` and in the population that now fails closed, not in the net-liability number. That is why I set confidence at 0.75 rather than higher; it does not rescue the pre-fix text, which still capped the CDCC on a base the cited excerpt (\"such credit shall not exceed the Rhode Island tax liability\") does not support. (2) The same commit carries a second, separately classifiable fidelity defect that a reviewer may want split out or preferred as the anchor: the organ-donation subtraction was computed once per tax unit from a single `ri_pit_2026_unreimbursed_organ_donation_expenses` input, while § 44-30-12(c)(7)(i) reads \"An individual may subtract up to ten thousand dollars ($10,000)... for only the following unreimbursed expenses that are incurred by the claimant\"; the fix splits primary/spouse inputs and sums two separately capped amounts on joint returns — that one is wrong_entity_or_scope (household member set). The remaining changes are weaker: splitting `ri_pit_2026_has_special_tax_computation` into six named specialty-tax flags is grain, not meaning (the catch-all already gated them), and re-deriving `ri_pit_2026_forty_percent_allowed` from full minus three twenty-point reductions yields the identical 0.4, so that part is grounding/provenance only.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-defect repair commit; I read every hunk. (1) DECISIVE: ri_pit_2026_bounded_credit_chain_applies gains 'and ri_pit_2026_nonrefundable_credit_order_is_unambiguous', and the new judgment rule holds unless one of the two nonrefundable candidates is zero. Verified the CDCC formula body itself is byte-identical pre/post (git show of both revisions); only the gate and the source: string changed, so the behavior change is entirely the new hold. Classified untraceable_branch because the fix removes a computed ordering with no basis in the pinned authority rather than correcting a value. (2) A second, independently classifiable defect in the same diff is wrong_entity_or_scope / amount_mismatch on the organ-donation subtraction: ri_pit_2026_unreimbursed_organ_donation_expenses and its two history flags are split into primary_taxpayer_* and spouse_* inputs, and ri_pit_2026_profile_candidate_organ_donation_subtraction now applies min(cap, expenses) separately per donor with the spouse leg gated on ri_pit_2026_is_married_filing_jointly. I read us-ri/statute/44-30-12 through the pinned release: '(7) Modification for organ transplantation. (i) An individual may subtract up to ten thousand dollars ($10,000) ... (ii) An individual may claim that subtract modification hereunder only once, and the subtract modification may be claimed for only the following unreimbursed expenses that are incurred by the claimant and related to the claimant's organ donation' — per individual donor, so the pre-fix single tax-unit cap and single lifetime-claim flag were wrong for a joint return with two donors. ri_pit_2026_supported_profile_applies also gains a guard forcing spouse organ facts to be absent on non-joint returns. (3) A third: unrepresented_clause on the specialty taxes — ri_pit_2026_has_special_tax_computation (described as 'lump-sum child-investment recapture or farm-averaging tax') is replaced by six inputs matching us-ri/statute/44-30-2.6 subsections (G)(1)(a)-(c), (H)(1)(a) and (I)(1)(a), which I read in the pinned release; the pre-fix composite silently folded the parent-election and fishing-averaging items into one flag and the proof atom cited only the heading excerpt 'Other Rhode Island taxes'. (4) ri_pit_2026_forty_percent_allowed goes from kind: parameter with formula '0.4' to kind: derived, entity: TaxUnit, formula full - twenty - twenty - twenty; with full=1 and twenty=0.2 in the same module this is numerically the same 0.4, so it is a grounding/derivation repair ('direct assertions' finding), not an amount change — note eighty_percent_allowed and sixty_percent_allowed were left as literal parameters, so the repair is inconsistent. (5) Genuinely mechanical bits mixed in: several proof atoms flip kind: ordering -> kind: exception and excerpt strings are swapped for more specific statutory text; module doc comment and deferred_outputs reason text updated. Commit body is empty (just a newline); the PR has no reviews or review comments, so the stated reason lives in the PR body's review-fix-cycle paragraph, which lists 'source-derived percentages, direct assertions, caller-result shortcuts, input grain, organ-donation caps/history, specialty-tax inventory, OOS/CDCC ordering, taxable-income floors, duplicate fixture keys, and opportunity-zone per-investment eligibility' — the first six of those map onto this diff; taxable-income floors and opportunity-zone grain do not appear here. Follow-up commits on the same module: cfdc84cf7 'Satisfy Rhode Island deterministic validation' and bdf6b6965 'Constrain Rhode Island opportunity-zone investment grain'. Companion test file and .axiom encoding manifest changed alongside, as expected. If the corpus wants one defect per row, this module could reasonably be split into three fidelity rows (untraceable_branch, wrong_entity_or_scope, unrepresented_clause). | verifier confirmed at 0.75",
+  "family_id": "us-b05d5103-6665d2b1eadd",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

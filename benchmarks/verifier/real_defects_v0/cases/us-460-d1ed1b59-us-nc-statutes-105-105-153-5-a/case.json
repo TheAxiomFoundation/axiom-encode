@@ -1,0 +1,243 @@
+{
+  "id": "us-460-d1ed1b59-us-nc-statutes-105-105-153-5-a",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "d1ed1b5949f83e68fc8e29bf2501c5964d4e6bc2",
+  "parent_commit": "5c087fc884919b049933f2f63a461122146bd56b",
+  "commit_date": "2026-07-26",
+  "commit_subject": "Repair NC TY2026 statute source backing",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1106",
+  "module_path": "us-nc/statutes/105/105-153.5/a.yaml",
+  "corpus_citation_path": "us-nc/statute/105/105-153.5",
+  "corpus_citation_paths_all": [
+    "us-nc/statute/105/105-153.5"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "repoint North Carolina resident income-tax modules from stale predecessor fragments to the official TY2026 temporal statute successor",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        13,
+        15
+      ],
+      [
+        38,
+        56
+      ],
+      [
+        61,
+        61
+      ],
+      [
+        63,
+        66
+      ],
+      [
+        80,
+        98
+      ],
+      [
+        103,
+        103
+      ],
+      [
+        105,
+        108
+      ],
+      [
+        122,
+        140
+      ],
+      [
+        145,
+        145
+      ],
+      [
+        147,
+        150
+      ],
+      [
+        164,
+        182
+      ],
+      [
+        187,
+        187
+      ],
+      [
+        189,
+        192
+      ],
+      [
+        206,
+        206
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        239,
+        239
+      ],
+      [
+        255,
+        264
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        271,
+        272
+      ],
+      [
+        275,
+        290
+      ],
+      [
+        302,
+        302
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        13,
+        16
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        119,
+        119
+      ],
+      [
+        136,
+        136
+      ],
+      [
+        152,
+        152
+      ],
+      [
+        168,
+        168
+      ],
+      [
+        173,
+        173
+      ],
+      [
+        188,
+        188
+      ]
+    ],
+    "rule_names": [
+      "standard_deduction_joint_or_surviving_spouse",
+      "standard_deduction_head_of_household",
+      "standard_deduction_single",
+      "standard_deduction_married_filing_separately",
+      "child_deduction_joint_or_surviving_spouse_agi_up_to_40000",
+      "child_deduction_highest_amount_before_2022"
+    ],
+    "rule_path": "rules[standard_deduction_joint_or_surviving_spouse].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "0fffbe4189fed9d1b224f6f0482409902be54bcf25df47b5581e66790df51492",
+  "post_fix_artifact_sha256": "348ea8867b2972d5f990b17f0c0e5ab6f686738350eda6d8b072787d16be1ce9",
+  "provision_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+  "provision_chars": 40801,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nc/statute/105/105-153.5",
+    "provision_file": "data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "671d105b274dc6d7bd7faeadceecf6aa2f5850444d2785c5e752e6e5604c1bb7",
+    "line_number": 52,
+    "record_id": "5650de2f-f5e5-5772-bfc4-ff4581dc34df",
+    "stored_body_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "resolved_text_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "e07011cce174be6b4f6c6e132e66dc4e122565bd",
+    "requested_citation_path": "us-nc/statute/105/105-153.5",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module carried historical versions and a whole rule (2019/2020 standard deduction columns of $20,000/$21,500, $15,000/$16,125, $10,000/$10,750 and a timeless pre-2022 $2,500 child amount) whose table columns and values do not exist anywhere in the cited §105-153.5 text, which states one current 'Standard Deduction' column and a $3,000 top child amount.",
+    "triage_notes": "Provision read: both the pinned successor (corpus b403bf49) and the earlier release's own §105-153.5/a fragment show a single column — 'Filing Status Standard Deduction Married, filing jointly/surviving spouse $25,500 Head of Household 19,125 Single 12,750 Married, filing separately 12,750' — with no 2019 or 2020-2021 columns, so the removed proof atoms cited columns ('2019 standard deduction', '2020-2021 standard deduction') that the source does not contain. Surviving 2022-01-01 amounts are unchanged; citation paths move from us-nc/statute/105/105-153.5/a to us-nc/statute/105/105-153.5; the summary adds a mention of the TY2025 wagering item but no rule for it (the input lives in the composed pipeline, index 1). Caveat for the reviewer: the deleted values are historically accurate NC amounts for those years, so this can also be read as a temporal-scope narrowing/provenance repair rather than a corrected meaning — hence the moderate confidence. The deleted timeless '0001-01-01: 2500' child version is the same defect family as index 3 and could alternatively be tagged wrong_period_or_effective_date.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "I tried to refute this as provenance-only (citation-string) or as a temporal re-pin, and it survives: alongside the citation-path edits the diff deletes real encoded meaning — two version rows from each of four standard-deduction rules ($20,000/$21,500, $15,000/$16,125, $10,000/$10,750), a timeless $2,500 child-deduction version, and the entire rule child_deduction_highest_amount_before_2022 — so the module's 2019–2021 answers change. I read the provision through the corpus commit pinned in .axiom/toolchain.toml (e07011cc, identical at parent 5c087fc8 and at the fix), and the TY2026 successor record for us-nc/statute/105/105-153.5 carries exactly one \"Standard Deduction\" column ($25,500 / 19,125 / 12,750 / 12,750) and a child table topping at $3,000: the strings 21,500, 16,125, 10,750 and $2,500 appear nowhere, and the successor file contains no .../105-153.5/a fragment record at all (only the superseded 2026-07-13-recovery rendition does, and that fragment likewise lacks the historical columns and contains no child-deduction table). So the deleted versions and the deleted rule were values and proof atoms with no basis in the cited provision — including child-deduction atoms grounded on subsection (a), which does not contain the child table — which is untraceable_branch (\"the fix removes or re-grounds it, including formulas grounded on the wrong provision\"), not a corrected date or number.",
+    "verifier_quote": "-            column: 2019 standard deduction\n-  - effective_from: '2019-01-01'\n-    formula: '20000'\n-- name: child_deduction_highest_amount_before_2022",
+    "verifier_notes": "Verification trail: pinned corpus is axiom-corpus e07011cce174be6b4f6c6e132e66dc4e122565bd at BOTH the parent and the fix commit (.axiom/toolchain.toml is byte-identical), so the pre-fix atoms were already untraceable against the module's own pin — this is not a case where the source moved under the encoding. That file's us-nc/statute/105/105-153.5 body (2026-07-26-nc-ty2026-income-tax-core.jsonl, expression_date 2026-07-07) contains \"Filing Status Standard Deduction Married, filing jointly/surviving spouse $25,500 Head of Household 19,125 Single 12,750 Married, filing separately 12,750\" and a child table whose top amount is $3,000; counts of \"21,500\", \"16,125\", \"10,750\", \"$2,500\", \"2,500.00\" are all zero. The older 2026-07-13-recovery rendition holds the us-nc/statute/105/105-153.5/a fragment the module used to cite; its text also has only the single current column and zero occurrences of \"Child Deduction\".\nSecond-best kind considered and rejected: wrong_period_or_effective_date. Two of the removed items (the child_deduction version at effective_from '0001-01-01' formula '2500' and the whole child_deduction_highest_amount_before_2022 rule, also '0001-01-01') are literally \"timeless encoding of superseded text\". But the fix re-dates nothing — it deletes, and it leaves other timeless versions untouched (the repayment-threshold rule keeps effective_from '0001-01-01'; the $20,000 mortgage/property cap keeps '2014-01-01'), so this was not a date-correction pass. A reviewer who weights the '0001-01-01' deletions heavily could defensibly move this to wrong_period_or_effective_date; the kind is the softer part of my 0.82.\nHonest caveat for the reviewer: the deleted numbers are historically accurate North Carolina law (2019 MFJ $20,000, 2020–21 $21,500, etc.), so under a \"wrong versus real-world law\" notion of fidelity this would look like scope narrowing rather than a correction. It is a defect under this taxonomy's definition (encoded meaning disagreeing with the CITED source text) because the module asserted table columns — \"column: 2019 standard deduction\", \"column: 2020-2021 standard deduction\", \"column: deduction amount before 2022\" — that its pinned provision does not contain.\nScope note: many hunks in this file are citation-path-only (us-nc/statute/105/105-153.5/a -> us-nc/statute/105/105-153.5) on rules whose values did not change (standard_deduction_ineligible_under_section_63, the $20,000 cap, the $3,000 repayment threshold, child_deduction_highest_amount_2022_and_later); taken alone those are mechanical provenance. The module summary also newly mentions the §165(d) wagering item, but no wagering rule is added in this file (the successor text does contain \"165(d)\"), so that line is metadata, not encoding. The classification rests solely on the deleted versions and the deleted rule.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: both the pinned successor (corpus b403bf49) and the earlier release's own §105-153.5/a fragment show a single column — 'Filing Status Standard Deduction Married, filing jointly/surviving spouse $25,500 Head of Household 19,125 Single 12,750 Married, filing separately 12,750' — with no 2019 or 2020-2021 columns, so the removed proof atoms cited columns ('2019 standard deduction', '2020-2021 standard deduction') that the source does not contain. Surviving 2022-01-01 amounts are unchanged; citation paths move from us-nc/statute/105/105-153.5/a to us-nc/statute/105/105-153.5; the summary adds a mention of the TY2025 wagering item but no rule for it (the input lives in the composed pipeline, index 1). Caveat for the reviewer: the deleted values are historically accurate NC amounts for those years, so this can also be read as a temporal-scope narrowing/provenance repair rather than a corrected meaning — hence the moderate confidence. The deleted timeless '0001-01-01: 2500' child version is the same defect family as index 3 and could alternatively be tagged wrong_period_or_effective_date. | verifier confirmed at 0.82",
+  "family_id": "us-d1ed1b59-2535aba36df2",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,186 @@
+{
+  "id": "us-455-c73258bc-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c73258bc3d45af002d80ad455de83ff3673fd4e3",
+  "parent_commit": "c114c1791e82f2c131a1b7141d4083484e48c336",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: source 2026 QBID policy values",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A",
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "The filing-status input selects the imported 2026 threshold; callers do not supply a policy amount.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        19,
+        24
+      ],
+      [
+        29,
+        32
+      ],
+      [
+        38,
+        39
+      ],
+      [
+        60,
+        62
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        83,
+        84
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        374,
+        381
+      ],
+      [
+        393,
+        393
+      ],
+      [
+        396,
+        396
+      ],
+      [
+        402,
+        407
+      ],
+      [
+        471,
+        475
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        19,
+        24
+      ],
+      [
+        29,
+        32
+      ],
+      [
+        38,
+        39
+      ],
+      [
+        60,
+        62
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        77,
+        77
+      ],
+      [
+        84,
+        85
+      ],
+      [
+        102,
+        107
+      ],
+      [
+        111,
+        111
+      ],
+      [
+        353,
+        384
+      ],
+      [
+        413,
+        414
+      ],
+      [
+        416,
+        420
+      ],
+      [
+        431,
+        431
+      ],
+      [
+        434,
+        434
+      ]
+    ],
+    "rule_names": [
+      "pipeline_qualified_business_income_threshold_amount",
+      "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction",
+      "federal_qualified_business_income_deduction"
+    ],
+    "rule_path": "rules[federal_qualified_business_income_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "cd1b630b3b243cf200c2960ddcab751bf7a7e04c7209910869026808da8b226d",
+  "post_fix_artifact_sha256": "49eecd014a7ae127796315b968655b06c919c6d5e41d9af908c6ff85c017d1b4",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 39,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Inside its declared tax-year-2026 window the pre-fix pipeline left the section 199A policy amounts caller-determined - the Rev. Proc. 2025-32 threshold as a free runtime input and the section 199A(i) $1,000/$400 minimums as the statute's COLA-scaled rules keyed to a caller-supplied `minimum_deduction_cost_of_living_adjustment` - although 199A(i)(3) allows that increase only \"In the case of any taxable year beginning after 2026\" and Rev. Proc. 2025-32 section 4.26 fixes the 2026 thresholds.",
+    "triage_notes": "Provision read: resolve_provision on us/statute/26/199A returned 199A(i) in full - (i)(1)(B) \"$400\", (i)(2)(A) \"is at least $1,000\", and (i)(3) \"In the case of any taxable year beginning after 2026, the $400 amount in paragraph (1)(B) and the $1,000 amount in paragraph (2)(A) shall each be increased\". Two distinct halves in one commit. (a) COLA half (durable): parent 26/199A.yaml exposes `active_qbi_minimum_threshold` and `minimum_active_qbi_deduction_amount` as base + floor(base*minimum_deduction_cost_of_living_adjustment/5 + 0.5)*5 with effective_from 2026-01-01 and no effective_to, so the pre-fix 2026 pipeline would silently return non-statutory 2026 minimums for any nonzero COLA input; the fix imports `active_qbi_minimum_threshold_base`/`minimum_active_qbi_deduction_base`, adds local rule `pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction` (aggregate active QBI >= 1000), drops the COLA input, and adds `versions[0].effective_to` proof atoms quoting the after-2026 clause. This half survives unchanged on main (verified in main:...pipeline.yaml lines 98-99, 419-504). (b) Threshold half (transient): the import target `us:policies/irs/rev-proc-2025-32/qualified-business-income#qualified_business_income_threshold_amount` does not exist in the rev-proc module as of this commit - that file has only the nine per-category rules (`qualified_business_income_threshold_joint|separate|all_other`, range ends, widths); PROGRESS.md in this same commit says it was validated \"In a temporary integration worktree containing cached `origin/fed-parity/revproc`\". Same-day follow-up 652125375 (\"fix: validate QBID threshold return category\") reverts this import back to `qualified_business_income_threshold_amount_2026` plus a return-category attestation, and 7f2603e88 (\"fix: import 2026 QBID threshold parameters\") then imports the nine real parameters with a local filing-status selector, renamed by db9533dad. So if the corpus entry is keyed on the threshold half it captures a reverted intermediate state; keying on the COLA/effective-period half is safer. Alternative readings a reviewer may prefer: untraceable_branch (ungrounded caller-supplied policy values re-grounded on encoded sources) for the threshold half; or a mechanical/provenance reading, since no fixture expected output changed (the .test.yaml diff only rewires inputs: drops the threshold and COLA inputs, moves filing_status from the 199A namespace to the pipeline namespace) and the pre-fix module explicitly documented the threshold as a runtime input (\"RuleSpec imports cannot substitute the official 2026 amount\"), i.e. it never claimed to encode it. Commit body is empty; commit subject is \"fix: source 2026 QBID policy values\"; PROGRESS.md in the same commit states verbatim: \"Replaced the QBID threshold runtime input with the PR #1009 Rev. Proc. module import and replaced the caller-supplied COLA with the unadjusted statutory $1,000/$400 bases for 2026.\" PR #1004 (no reviews or review comments captured) describes the head state, not this commit, and records the related review finding as \"the 9th (threshold provenance) by the #1009 import at this head\". The commit also reworded the module summary, source_verification rationale, and a waiver `reason`/`source_values` entry (metadata only). Note both new import proof atoms reuse hash sha256:caa63943...b816 for two different targets, which looks like a stale/duplicated hash but is outside fidelity scope.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The diff changes no effective_from, effective_to, version window or period kind anywhere: every rule keeps '2026-01-01'/'2026-12-31' before and after, and the only period-flavored edits are two newly ADDED `kind: effective_period` proof atoms (metadata/provenance), plus the window on a brand-new rule that copies the module's existing 2026 window. What actually changed in meaning is grounding: the threshold formula stops reading a free caller input and reads an imported Rev. Proc. 2025-32 value, and the 199A(i) minimum stops flowing through the statute's COLA-escalated rules (base x caller-supplied `minimum_deduction_cost_of_living_adjustment`) and reads the unadjusted $400/$1,000 bases, with the caller COLA input deleted. Since 199A(i)(3) reads \"In the case of any taxable year beginning after 2026, the $400 amount in paragraph (1)(B) and the $1,000 amount in paragraph (2)(A) shall each be increased\" (verified through the pinned release), the pre-fix pipeline computed a 2026 result through a provision that does not apply to 2026 and left a source-fixed threshold caller-determined — a value/formula grounded on the wrong provision or on nothing, which the fix re-grounds. That is untraceable_branch, not wrong_period_or_effective_date; the first reader's quote (a summary sentence about filing-status selection of an imported threshold) carries no period content at all.",
+    "verifier_quote": "-  - us:statutes/26/199A#applicable_taxpayer_for_minimum_active_qbi_deduction\n-  - us:statutes/26/199A#minimum_active_qbi_deduction_amount\n+  - us:statutes/26/199A#active_qbi_minimum_threshold_base\n+  - us:statutes/26/199A#minimum_active_qbi_deduction_base\n...\n-        formula: qualified_business_income_threshold_amount_2026\n+        formula: qualified_business_income_threshold_amount",
+    "verifier_notes": "Files read: bundle JSON + diff at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/c73258bc3d/000.diff; pre/post of /Users/maxghenis/TheAxiomFoundation/rulespec-us/us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml; /Users/maxghenis/TheAxiomFoundation/rulespec-us/us/statutes/26/199A.yaml; /Users/maxghenis/TheAxiomFoundation/rulespec-us/us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml; the .test.yaml and PROGRESS.md diffs; and 26 USC 199A via resolve_provision.py (expression_date 2026-07-13).\n\nGrounds a reviewer should weigh before accepting even \"fidelity\":\n1. Both halves remove a boundary the module had DECLARED and documented, not a wrong value. Pre-fix summary: \"accepts the applicable Revenue Procedure 2025-32 threshold as a runtime input\"; pre-fix deferred_outputs reason: \"RuleSpec imports cannot replace that internal parameter.\" The removed COLA input's own description said \"Section 199A(i)(3) adjustment used only after 2026; zero for the tax-year-2026 fixtures\", and every fixture supplied 0 and the documented Rev. Proc. thresholds. So no companion result changed; what changed is that a source-fixed amount can no longer be set wrong by a caller (fail-open on a policy parameter). A reviewer who treats declared caller boundaries as scope rather than defect should call this unclear/not_a_defect.\n2. At this commit the import target does not exist. `us:policies/irs/rev-proc-2025-32/qualified-business-income#qualified_business_income_threshold_amount` is listed in that module's `deferred_outputs` (its rules are only the nine per-category parameters); the pipeline summary says the import lands \"through PR #1009\". PR #1004's final body describes the head as importing \"the nine per-category 2026 parameters ... and selects at the pipeline's declared filing-status boundary via pipeline-scoped selector rules\" — i.e. this intermediate shape was superseded before merge.\n3. If a reviewer wants a genuine wrong_period defect here, it is upstream and untouched: in us/statutes/26/199A.yaml, `active_qbi_minimum_threshold` and `minimum_active_qbi_deduction_amount` both carry `effective_from: '2026-01-01'` with no after-2026 gating, so they apply (i)(3) escalation from 2026 itself. This commit works around that upstream window defect by importing the `_base` parameters; it does not fix the window.\n4. The commit body is bare (\"fix: source 2026 QBID policy values\"). The most explicit statement of intent is PROGRESS.md in the same commit (not the module, so not used as the quote): \"Replaced the QBID threshold runtime input with the PR #1009 Rev. Proc. module import and replaced the caller-supplied COLA with the unadjusted statutory $1,000/$400 bases for 2026.\" That is sourcing/grounding language, consistent with untraceable_branch and inconsistent with a date/window correction.\n5. No numeric literal changed inside this module, so amount_mismatch does not fit either; entity/scope, boolean logic and comparison strictness are untouched (the new rule's `>=` mirrors the upstream rule it replaces).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: resolve_provision on us/statute/26/199A returned 199A(i) in full - (i)(1)(B) \"$400\", (i)(2)(A) \"is at least $1,000\", and (i)(3) \"In the case of any taxable year beginning after 2026, the $400 amount in paragraph (1)(B) and the $1,000 amount in paragraph (2)(A) shall each be increased\". Two distinct halves in one commit. (a) COLA half (durable): parent 26/199A.yaml exposes `active_qbi_minimum_threshold` and `minimum_active_qbi_deduction_amount` as base + floor(base*minimum_deduction_cost_of_living_adjustment/5 + 0.5)*5 with effective_from 2026-01-01 and no effective_to, so the pre-fix 2026 pipeline would silently return non-statutory 2026 minimums for any nonzero COLA input; the fix imports `active_qbi_minimum_threshold_base`/`minimum_active_qbi_deduction_base`, adds local rule `pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction` (aggregate active QBI >= 1000), drops the COLA input, and adds `versions[0].effective_to` proof atoms quoting the after-2026 clause. This half survives unchanged on main (verified in main:...pipeline.yaml lines 98-99, 419-504). (b) Threshold half (transient): the import target `us:policies/irs/rev-proc-2025-32/qualified-business-income#qualified_business_income_threshold_amount` does not exist in the rev-proc module as of this commit - that file has only the nine per-category rules (`qualified_business_income_threshold_joint|separate|all_other`, range ends, widths); PROGRESS.md in this same commit says it was validated \"In a temporary integration worktree containing cached `origin/fed-parity/revproc`\". Same-day follow-up 652125375 (\"fix: validate QBID threshold return category\") reverts this import back to `qualified_business_income_threshold_amount_2026` plus a return-category attestation, and 7f2603e88 (\"fix: import 2026 QBID threshold parameters\") then imports the nine real parameters with a local filing-status selector, renamed by db9533dad. So if the corpus entry is keyed on the threshold half it captures a reverted intermediate state; keying on the COLA/effective-period half is safer. Alternative readings a reviewer may prefer: untraceable_branch (ungrounded caller-supplied policy values re-grounded on encoded sources) for the threshold half; or a mechanical/provenance reading, since no fixture expected output changed (the .test.yaml diff only rewires inputs: drops the threshold and COLA inputs, moves filing_status from the 199A namespace to the pipeline namespace) and the pre-fix module explicitly documented the threshold as a runtime input (\"RuleSpec imports cannot substitute the official 2026 amount\"), i.e. it never claimed to encode it. Commit body is empty; commit subject is \"fix: source 2026 QBID policy values\"; PROGRESS.md in the same commit states verbatim: \"Replaced the QBID threshold runtime input with the PR #1009 Rev. Proc. module import and replaced the caller-supplied COLA with the unadjusted statutory $1,000/$400 bases for 2026.\" PR #1004 (no reviews or review comments captured) describes the head state, not this commit, and records the related review finding as \"the 9th (threshold provenance) by the #1009 import at this head\". The commit also reworded the module summary, source_verification rationale, and a waiver `reason`/`source_values` entry (metadata only). Note both new import proof atoms reuse hash sha256:caa63943...b816 for two different targets, which looks like a stale/duplicated hash but is outside fidelity scope. | verifier proposed untraceable_branch at 0.58 (below 0.6); triage kind kept",
+  "family_id": "us-c73258bc-fc5711131336",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

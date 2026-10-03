@@ -1,0 +1,316 @@
+{
+  "id": "us-008-095d680d-statutes-26-224",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/224.yaml",
+  "corpus_citation_path": "us/statute/26/224",
+  "corpus_citation_paths_all": [
+    "us/statute/26/224"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "Refreshes selected RuleSpec encodings, tests, and signed encoding manifests for federal tax and SNAP statute/regulation modules.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        106,
+        106
+      ],
+      [
+        123,
+        123
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        130,
+        133
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        153,
+        158
+      ],
+      [
+        179,
+        179
+      ],
+      [
+        193,
+        193
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        203,
+        206
+      ],
+      [
+        210,
+        210
+      ],
+      [
+        232,
+        233
+      ],
+      [
+        250,
+        250
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        293,
+        294
+      ],
+      [
+        296,
+        296
+      ],
+      [
+        304,
+        304
+      ],
+      [
+        317,
+        317
+      ],
+      [
+        319,
+        322
+      ],
+      [
+        324,
+        327
+      ],
+      [
+        329,
+        332
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        5
+      ],
+      [
+        11,
+        20
+      ],
+      [
+        34,
+        35
+      ],
+      [
+        122,
+        122
+      ],
+      [
+        139,
+        139
+      ],
+      [
+        142,
+        161
+      ],
+      [
+        165,
+        171
+      ],
+      [
+        184,
+        184
+      ],
+      [
+        187,
+        200
+      ],
+      [
+        204,
+        207
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        229,
+        229
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        251,
+        252
+      ],
+      [
+        254,
+        258
+      ],
+      [
+        262,
+        262
+      ],
+      [
+        279,
+        279
+      ],
+      [
+        281,
+        292
+      ],
+      [
+        297,
+        298
+      ],
+      [
+        315,
+        340
+      ],
+      [
+        359,
+        359
+      ],
+      [
+        367,
+        367
+      ],
+      [
+        373,
+        373
+      ],
+      [
+        379,
+        379
+      ],
+      [
+        386,
+        387
+      ],
+      [
+        389,
+        389
+      ],
+      [
+        397,
+        397
+      ],
+      [
+        405,
+        405
+      ],
+      [
+        411,
+        412
+      ],
+      [
+        414,
+        418
+      ],
+      [
+        420,
+        424
+      ],
+      [
+        426,
+        430
+      ]
+    ],
+    "rule_names": [
+      "qualified_tips_phaseout_threshold",
+      "qualified_tips_modified_adjusted_gross_income",
+      "qualified_tips_deduction_eligibility",
+      "nonemployee_trade_or_business_qualified_tips_taken_into_account",
+      "qualified_tips_taken_into_account_before_cap",
+      "qualified_tips_deduction_before_phaseout"
+    ],
+    "rule_path": "rules[qualified_tips_phaseout_threshold].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "64270edf3fb15d56920304f7223f172ddd1f10af6419b05c2b7ff27cda21fcf1",
+  "post_fix_artifact_sha256": "098fe7fa0062c6dbf4433bbd68b322821e56975e8ce36d85d0e0da9eec2c4fcd",
+  "provision_sha256": "b81a934ab1fc29d189c91a69456c13a8f29854d22f5e222544945a196079be80",
+  "provision_chars": 4050,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/224",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 46,
+    "record_id": "1502bdf4-8187-5987-9b40-393458c4fc7d",
+    "stored_body_sha256": "b81a934ab1fc29d189c91a69456c13a8f29854d22f5e222544945a196079be80",
+    "resolved_text_sha256": "b81a934ab1fc29d189c91a69456c13a8f29854d22f5e222544945a196079be80",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/224",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/224'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/224'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/224'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/224'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix threshold selector mapped filing_status 4 (surviving spouse) as well as 1 to qualified_tips_phaseout_threshold_joint, giving a surviving-spouse return the $300,000 phaseout start that 26 USC 224(b)(2)(A) allows only 'in the case of a joint return'; the fix narrows the joint threshold to filing_status == 1.",
+    "triage_notes": "Provision read through the pinned corpus release: 224(b)(2)(A) reads 'reduced (but not below zero) by $100 for each $1,000 by which the taxpayer's modified adjusted gross income exceeds $150,000 ($300,000 in the case of a joint return)'. A surviving spouse under 26 USC 2(a) uses the joint RATE schedule but does not file a joint return, so $150,000 is right for filing_status 4. Corroboration: the sibling overtime statute in this same commit (index 40, statutes/26/225.yaml) already mapped 4 => other for the identical '$150,000 ($300,000 in the case of a joint return)' clause, so 224 was the outlier and this commit aligns them; policies/irs/rev-proc-2025-32/income-tax-brackets.yaml confirms 4 = surviving spouse (test case 'surviving_spouse_uses_joint_schedule'), and statutes/26/1211.yaml confirms 2 = married filing separately. Caveats for a reviewer: no commit or PR sentence names this defect (the message is generic validation-repair language), and the same module diff also (a) wraps qualified_tips_modified_adjusted_gross_income, employee tips and nonemployee tips in max(0, ...) clamps that have no basis in 224(b)(2)(B) ('the adjusted gross income of the taxpayer ... increased by any amount excluded'), (b) re-expresses taxpayer_is_married_individual_within_section_7703 as filing_status in {1,2}, (c) renames taxable_year_begins_after_december_31_2028 -> taxable_year_begins_after_termination_date, (d) adds a deferred_outputs block for subsection (d) qualified-tip classification, new 911/931/933 imports, and many local import proof atoms. The filing-status narrowing is the only change that corrects encoded meaning against the source.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "The pre-fix selector routed filing_status 4 to qualified_tips_phaseout_threshold_joint (300000), and the post-fix formula gives the joint threshold only to filing_status == 1, so a surviving-spouse return drops from a $300,000 to a $150,000 phaseout start — a real change in encoded meaning to a formula, not metadata. I verified filing_status 4 is surviving spouse in this repo (statutes/26/1/j.test.yaml case \"surviving_spouse_uses_joint_schedule\" sets filing_status 4 and expects 5504, identical to the filing_status 1 case; 26/1211.yaml pins 2 as married-separate), and the pinned corpus text for us/statute/26/224 (release us-rulespec-2026-07-13) reads only \"exceeds $150,000 ($300,000 in the case of a joint return)\" with no surviving-spouse extension — unlike 26 USC 1(j)(5)(B) in the same corpus, which expressly says \"in the case of a joint return or surviving spouse\". Refutation attempts failed: the rewrite was not compiler-forced (26/1211.yaml still uses a five-branch `match filing_status` at this same commit), the excerpt/citation churn elsewhere in the diff is separable from this formula edit, and the post-fix value is the one the cited text supports. The defect is a population/filing-status scope error, so wrong_entity_or_scope fits; untraceable_branch is the close runner-up since the fix literally deletes an ungrounded branch.",
+    "verifier_quote": "-          match filing_status:\n-              1 => qualified_tips_phaseout_threshold_joint\n-              4 => qualified_tips_phaseout_threshold_joint\n-              0 => qualified_tips_phaseout_threshold_other\n-              2 => qualified_tips_phaseout_threshold_other\n-              3 => qualified_tips_phaseout_threshold_other\n+          if (filing_status == 1):\n+              qualified_tips_phaseout_threshold_joint\n+          else:\n+              qualified_tips_phaseout_threshold_other",
+    "verifier_notes": "Evidence for the enum: /Users/maxghenis/TheAxiomFoundation/rulespec-us statutes/26/1/j.test.yaml at 095d680d47 (filing_status 4 named \"surviving_spouse_uses_joint_schedule\", same output as filing_status 1) and statutes/26/1211.yaml (2 = married filing separate). Source read through the resolver: provision us/statute/26/224, release us-rulespec-2026-07-13, body sha256 b81a934ab1fc29d189c91a69456c13a8f29854d22f5e222544945a196079be80.\n\nCaveats a reviewer should weigh. (1) Neither commit body nor PR #46 body names this defect; both are generic bulk-refresh text, so the evidence is diff-plus-source, not message. (2) No test exercises filing_status 4 in statutes/26/224.test.yaml before or after the commit (cases use 0 and 1 only), so the correction ships untested — this was a wholesale re-encode, not a test-driven repair.\n\n(3) The same module re-encode bundles other semantic edits that are NOT corrections and may deserve separate flags if the corpus wants one finding per defect: qualified_tips_deduction_eligibility replaced the statutory input taxpayer_is_married_individual_within_section_7703 with a filing-status proxy (\"not (filing_status == 1 or filing_status == 2)\\n              or (filing_status == 1)\"), which arguably loses fidelity to 224(f)'s section 7703 test (a married individual treated as unmarried/HOH under 7703(b) is now handled by status code rather than the statutory test); and unsourced max(0, ...) floors were added to qualified_tips_modified_adjusted_gross_income and to both tip-amount rules. The candidate rule_path (rules[qualified_tips_phaseout_threshold].versions[0].formula) is the cleanest fidelity correction in the file.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: 224(b)(2)(A) reads 'reduced (but not below zero) by $100 for each $1,000 by which the taxpayer's modified adjusted gross income exceeds $150,000 ($300,000 in the case of a joint return)'. A surviving spouse under 26 USC 2(a) uses the joint RATE schedule but does not file a joint return, so $150,000 is right for filing_status 4. Corroboration: the sibling overtime statute in this same commit (index 40, statutes/26/225.yaml) already mapped 4 => other for the identical '$150,000 ($300,000 in the case of a joint return)' clause, so 224 was the outlier and this commit aligns them; policies/irs/rev-proc-2025-32/income-tax-brackets.yaml confirms 4 = surviving spouse (test case 'surviving_spouse_uses_joint_schedule'), and statutes/26/1211.yaml confirms 2 = married filing separately. Caveats for a reviewer: no commit or PR sentence names this defect (the message is generic validation-repair language), and the same module diff also (a) wraps qualified_tips_modified_adjusted_gross_income, employee tips and nonemployee tips in max(0, ...) clamps that have no basis in 224(b)(2)(B) ('the adjusted gross income of the taxpayer ... increased by any amount excluded'), (b) re-expresses taxpayer_is_married_individual_within_section_7703 as filing_status in {1,2}, (c) renames taxable_year_begins_after_december_31_2028 -> taxable_year_begins_after_termination_date, (d) adds a deferred_outputs block for subsection (d) qualified-tip classification, new 911/931/933 imports, and many local import proof atoms. The filing-status narrowing is the only change that corrects encoded meaning against the source. | verifier confirmed at 0.80",
+  "family_id": "us-095d680d-f37a087515a7",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

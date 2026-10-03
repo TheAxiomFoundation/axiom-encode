@@ -1,0 +1,216 @@
+{
+  "id": "us-241-6458ba30-us-de-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "6458ba30eb8b304b82f9c75b04d71eeb43c4612f",
+  "parent_commit": "37424844688d4ffbc538ca499110c7c1389b7399",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): rewrites existing DE pilot_liability_pipeline.yaml (315 lines) and removes known-validation-gaps entry.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/980",
+  "module_path": "us-de/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-de/statute/30/1102",
+  "corpus_citation_paths_all": [
+    "us-de/statute/30/1102"
+  ],
+  "corpus_release": "us-rulespec-snap-2026-07-21",
+  "corpus_release_content_sha256": "8b7f46975b2c1226353081e40d673dcf95166422997900f806a92d6e1c3956dc",
+  "corpus_commit": "1979c15c654b8b52578722ea19bac45ec110d3fc",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "The RuleSpec applies the complete 30 Del. C. section 1102(a)(14) rate schedule to separate-return Person-grain taxable-income candidates and the combined TaxUnit-grain candidate, then selects the same pre-credit branch as pinned PolicyEngine-US 1.752.2.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        9
+      ],
+      [
+        11,
+        11
+      ],
+      [
+        14,
+        15
+      ],
+      [
+        17,
+        40
+      ],
+      [
+        42,
+        62
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        76,
+        78
+      ],
+      [
+        82,
+        83
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        95,
+        97
+      ],
+      [
+        101,
+        102
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        115,
+        117
+      ],
+      [
+        121,
+        121
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        35
+      ],
+      [
+        37,
+        59
+      ],
+      [
+        61,
+        172
+      ],
+      [
+        174,
+        192
+      ],
+      [
+        196,
+        196
+      ],
+      [
+        202,
+        202
+      ],
+      [
+        205,
+        205
+      ],
+      [
+        207,
+        250
+      ],
+      [
+        256,
+        256
+      ],
+      [
+        262,
+        262
+      ],
+      [
+        265,
+        265
+      ],
+      [
+        267,
+        273
+      ],
+      [
+        280,
+        280
+      ],
+      [
+        286,
+        286
+      ],
+      [
+        289,
+        289
+      ],
+      [
+        291,
+        294
+      ]
+    ],
+    "rule_names": [
+      "de_pit_pilot_income_tax_liability",
+      "de_pit_pilot_schedule_tax",
+      "de_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[de_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3dd2a5ff7e506870d91723d46675c5e903f8fb5a2f9f35722b201673cd204156",
+  "post_fix_artifact_sha256": "7b3eb7822b345b9ec1b5aea3f90e6e8c0c3159d3fb07061e019c18329abe2deb",
+  "provision_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+  "provision_chars": 18046,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-de/statute/30/1102",
+    "provision_file": "data/corpus/provisions/us-de/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "ab575c6995c1ddb4fef09dd5ef5d64e5c511dd641979721de137ed281ad64b8e",
+    "line_number": 1,
+    "record_id": "17fa0a94-7389-57ab-9bf0-942a036b82e6",
+    "stored_body_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+    "resolved_text_sha256": "e0e92f1aabe4b1b4ec8b1c24ff59b7344741e896e9b501497fa4119f7d79c536",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "1979c15c654b8b52578722ea19bac45ec110d3fc",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "588580d508856960453bee044d4dab8c5c5216db",
+    "requested_citation_path": "us-de/statute/30/1102",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded no part of the section 1102(a)(14) schedule and instead computed tax as a caller-supplied cumulative base plus a caller-supplied marginal rate above a caller-supplied floor, then subtracted a caller-supplied section 1110 \"personal credit\" and a section 1108 standard deduction whose cited provisions carry no operative text in the certified corpus slice, so the encoded liability rested on values and a credit branch with no basis in the cited source.",
+    "triage_notes": "Provisions read through the pinned corpus release (us-rulespec-snap-2026-07-21). Verified: (1) section 1102(a)(14) text matches the post-fix parameters exactly - 2.2% over $2,000 to $5,000, 3.9% to $10,000, 4.8% to $20,000, 5.2% to $25,000, 5.55% to $60,000, 6.6% above $60,000; (2) the pre-fix proof excerpt for de_pit_pilot_schedule_tax was \"tax table income\", a phrase that occurs in section 1102 ONLY in subsection (d) (the Director-prescribed alternative tax tables), not in the subsection (a) schedule the formula purported to implement - the post-fix re-grounds the atoms on the (a)(14) text and declares (d) under deferred_outputs; (3) us-de/statute/30/1108 resolves to the bare stub text '§ 1108' and us-de/statute/30/1110 to '§ 1110 § 1111 § 1112 § 1113' in the certified slice, so the pre-fix excerpts \"the standard deduction of a resident individual\" and \"personal credits\" appear nowhere in their cited sources. Corroborating: the commit removes this module's entry from known-validation-gaps.yaml, whose header reads \"Modules failing encode validate (source grounding etc.)\", and the PR records \"validation-gap ratchet: resolved Delaware waiver retired; validation pass\". Competing reading a reviewer should weigh: this is a screen-flagged promote-pattern rewrite (315 lines, whole module replaced), and much of the change is added scope rather than correction - it moves to Person-grain separate returns plus a combined branch, adds the de_pit_pilot_taxpayer_of_tax_unit data_relation, and retargets the output from after-credit liability (compared to de_income_tax_before_refundable_credits) to pre-nonrefundable-credit schedule tax (de_income_tax_before_non_refundable_credits_unit); the rule name de_pit_pilot_income_tax_liability is retained but now means pre-credit tax. If a reviewer counts only the added scope, this is 'unclear'; I classified fidelity because the removed credit branch and the supplied-schedule formula were ungrounded in the cited source as certified. Also note two non-fidelity deltas: every version gains effective_to 2026-12-31 (pre-fix windows were open-ended), which is a campaign fail-closed convention narrower than the statute's own \"For taxable years beginning after December 31, 2013\", not a source correction; and de_pit_pilot_files_separately, de_pit_pilot_taxpayer_is_included, de_pit_pilot_supplied_separate_taxable_income and de_pit_pilot_supplied_combined_taxable_income remain undeclared caller-supplied inputs. Commit also rewrote the companion test file (194 lines), the encoding manifest, and the reverse index; PR #980 has an empty commit body and no review comments (the review cycle is summarized in the PR body only).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I tried to refute this as a promote-pattern scope expansion, and the refutation only partly lands: the pre-fix module's operative content really did rest on values and a branch with no basis in the cited source, and the fix removes and re-grounds them. Pre-fix, the liability was `max(0, schedule_tax - de_pit_pilot_supplied_nonrefundable_credit)` where schedule_tax was `supplied_bracket_base + supplied_marginal_rate * max(0, TI - supplied_bracket_floor)` — a one-bracket linear function whose every number came from the caller, proof-grounded on citations that carry no operative text in the certified slice (I resolved us-de/statute/30/1108 → body \"§ 1108\", 6 chars; us-de/statute/30/1110 → \"§ 1110 § 1111 § 1112 § 1113\", 27 chars), while the schedule atom's excerpt \"tax table income\" comes from § 1102(d), the Director-prescribed-table subsection, not the (a) rate schedule it purported to implement. The fix deletes the 1108/1110 citations and the credit subtraction, encodes all six (a)(14) rates and ceilings as parameters with verbatim excerpts from the resolved § 1102(a)(14) text, flips `upstream_source_check.status` from `composed_from_supplied_current_authority` to `official_parameter_source`, and retires this module's entry from `known-validation-gaps.yaml` under the header \"Modules failing encode validate (source grounding etc.)\" — documentary confirmation the pre-fix module was on record as failing source grounding. It is a fidelity correction of the untraceable/ungrounded kind, though confidence is held at 0.6 because the commit and PR use only promotion language and a large share of the same diff is genuine new scope.",
+    "verifier_quote": "-              corpus_citation_path: us-de/statute/30/1110\n-              excerpt: \"personal credits\"\n …\n-          max(0, de_pit_pilot_schedule_tax - de_pit_pilot_supplied_nonrefundable_credit)",
+    "verifier_notes": "Refutation attempts and why they fall short, for the reviewer to weigh:\n(1) \"Promote pattern, not a fix.\" The commit subject is \"Promote Delaware 2026 income tax schedule\" with an empty body, and the PR body never says anything was wrong — its \"Review cycle\" section lists only presentation/provenance and branch-shape findings. Real counter-pressure, but the PR does record \"validation-gap ratchet: resolved Delaware waiver retired\", and the deleted `known-validation-gaps.yaml` entry for `us-de/policies/income_tax/pilot_liability_pipeline.yaml` sits under `validate_failures:` whose file header reads \"Modules failing encode validate (source grounding etc.)\". Caveat: that waiver list is a bulk consolidation-time burn-down (every entry points at the same issue 782, same owner, same 2026-10-08 expiry), so it is not a targeted finding about this module.\n(2) \"The pre-fix boundary was declared, so nothing false was claimed.\" The old rationale did say the floor/base/rate/deduction/credit \"are declared caller-supplied inputs\" and that \"The pipeline adds no numeric literals of its own\". But the encoded function is still not § 1102(a)(14): outside the six pinned grid cases it returns `base` even for taxable income below the supplied floor, and the companion test had to hand-feed floor 25,000 / base 1,001 / 0.0555 (and 60,000 / 2,943.5 / 0.066) per case. The schedule was outside the encoding, not encoded.\n(3) \"Provenance only, therefore mechanical.\" Does not hold: formulas, parameters, entity grain (new Person-grain rules and a `de_pit_pilot_taxpayer_of_tax_unit` data_relation), and version windows (`effective_to: '2026-12-31'` added) all change. This is far more than excerpt or citation strings.\n(4) Alternative kinds considered. `unrepresented_clause` is arguable — the source states a six-band schedule the encoding lacked and the fix adds it — but the fix's center of gravity is removing/re-grounding ungrounded values and the 1110 credit branch, so untraceable_branch fits at least as well and the kind definition explicitly covers \"formulas grounded on the wrong provision.\" `wrong_entity_or_scope` describes a real change (TaxUnit-only → Person+TaxUnit, output moved from after-nonrefundable-credits to `de_income_tax_before_non_refundable_credits_unit`) but nothing in the source made the old scope wrong; that is consequence, not defect.\n(5) Honest residual: note that §§ 1108 and 1110 do exist in real Delaware law, so the old outline (AGI − standard deduction, tax − personal credit) is not contrary to Delaware statute as such; what it lacked was any basis in the *cited corpus source*. A reviewer who reads \"cited source\" as the statute rather than the certified slice could downgrade this to unclear or not_a_defect. The new module also stops modeling the deduction and credit entirely, so this is a boundary redraw as much as a correction.\nCorpus evidence is reproducible: resolver returned corpus_release us-rulespec-snap-2026-07-21, provision file data/corpus/provisions/us-de/statute/2026-07-13-recovery.jsonl, with § 1102(a)(14) text matching every new parameter excerpt verbatim (\"2.2% of taxable income in excess of $2,000 but not in excess of $5,000\" … \"6.6% of taxable income in excess of $60,000\") and rates 0.022/0.039/0.048/0.052/0.0555/0.066 and ceilings 2000/5000/10000/20000/25000/60000 all correct.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provisions read through the pinned corpus release (us-rulespec-snap-2026-07-21). Verified: (1) section 1102(a)(14) text matches the post-fix parameters exactly - 2.2% over $2,000 to $5,000, 3.9% to $10,000, 4.8% to $20,000, 5.2% to $25,000, 5.55% to $60,000, 6.6% above $60,000; (2) the pre-fix proof excerpt for de_pit_pilot_schedule_tax was \"tax table income\", a phrase that occurs in section 1102 ONLY in subsection (d) (the Director-prescribed alternative tax tables), not in the subsection (a) schedule the formula purported to implement - the post-fix re-grounds the atoms on the (a)(14) text and declares (d) under deferred_outputs; (3) us-de/statute/30/1108 resolves to the bare stub text '§ 1108' and us-de/statute/30/1110 to '§ 1110 § 1111 § 1112 § 1113' in the certified slice, so the pre-fix excerpts \"the standard deduction of a resident individual\" and \"personal credits\" appear nowhere in their cited sources. Corroborating: the commit removes this module's entry from known-validation-gaps.yaml, whose header reads \"Modules failing encode validate (source grounding etc.)\", and the PR records \"validation-gap ratchet: resolved Delaware waiver retired; validation pass\". Competing reading a reviewer should weigh: this is a screen-flagged promote-pattern rewrite (315 lines, whole module replaced), and much of the change is added scope rather than correction - it moves to Person-grain separate returns plus a combined branch, adds the de_pit_pilot_taxpayer_of_tax_unit data_relation, and retargets the output from after-credit liability (compared to de_income_tax_before_refundable_credits) to pre-nonrefundable-credit schedule tax (de_income_tax_before_non_refundable_credits_unit); the rule name de_pit_pilot_income_tax_liability is retained but now means pre-credit tax. If a reviewer counts only the added scope, this is 'unclear'; I classified fidelity because the removed credit branch and the supplied-schedule formula were ungrounded in the cited source as certified. Also note two non-fidelity deltas: every version gains effective_to 2026-12-31 (pre-fix windows were open-ended), which is a campaign fail-closed convention narrower than the statute's own \"For taxable years beginning after December 31, 2013\", not a source correction; and de_pit_pilot_files_separately, de_pit_pilot_taxpayer_is_included, de_pit_pilot_supplied_separate_taxable_income and de_pit_pilot_supplied_combined_taxable_income remain undeclared caller-supplied inputs. Commit also rewrote the companion test file (194 lines), the encoding manifest, and the reverse index; PR #980 has an empty commit body and no review comments (the review cycle is summarized in the PR body only). | verifier confirmed at 0.60",
+  "family_id": "us-6458ba30-cf57d47cb42b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

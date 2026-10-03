@@ -1,0 +1,157 @@
+{
+  "id": "us-375-abc82d7a-statutes-26-3121-b",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+  "parent_commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3121/b.yaml",
+  "corpus_citation_path": "us/statute/26/3121",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3121"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "A complete executable exclusion aggregator must include paragraph (8)(B), which excludes service in the employ of a church or qualified church-controlled organization with an election under subsection (w), other than service in an unrelated trade or business within the meaning of section 513(a).",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        23
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        94,
+        94
+      ],
+      [
+        102,
+        228
+      ],
+      [
+        233,
+        288
+      ],
+      [
+        292,
+        293
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        19
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        78,
+        78
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        100,
+        101
+      ]
+    ],
+    "rule_names": [
+      "service_excluded_from_employment",
+      "employment",
+      "indian_tribal_council_member_service_excluded_from_employment"
+    ],
+    "rule_path": "rules[service_excluded_from_employment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "656f188bfbe8431f2e01aab31ce84ba0ca87b6ab29d06cdcf313f248af83eac5",
+  "post_fix_artifact_sha256": "ba40d0828de395089216fd61e1a552100f0b384b64be1e9c730e84c3d3fa081c",
+  "provision_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+  "provision_chars": 79043,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3121",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 64,
+    "record_id": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+    "stored_body_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+    "resolved_text_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3121",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The aggregate exclusion and the final 'employment' definition were computed from a church-election branch whose section 513(a) unrelated-trade-or-business carve-out was only an unbound placeholder predicate, so the encoding asserted a complete 26 USC 3121(b) employment determination it could not actually ground in the source.",
+    "triage_notes": "Large removal: the 21-import aggregate rule 'service_excluded_from_employment' and the derived 'employment' rule are deleted, the surviving rule is renamed to 'indian_tribal_council_member_service_excluded_from_employment' and rescoped from 'source: 26 USC 3121(b), exceptions paragraphs (1)-(22)' to 'source: 26 USC 3121(b)(22)' with its formula reduced to the tribal-council branch plus the section 218A carve-out; the module-level imports list is dropped and a deferred_outputs block with blocked_by links is added. Paired with index 10, which removes the child church-election rule for the same section 513(a) reason. Kind chosen as untraceable_branch because the fix removes outputs that rested on an ungrounded predicate rather than adding a missing clause; a reviewer could instead read it as unrepresented_clause (the 513(a) carve-out the source states could not be represented), so confidence is below 0.6. The module diff's own deferral reason also says omitting the branch 'would make the aggregate exclusion underinclusive'. Only follow-up touching this file is 86ec136fd, a path move to us/, so the deferral was not reverted.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The removed branch is not untraceable: 26 USC 3121(b)(8)(B) reads verbatim in the pinned corpus release (\"(B) service performed in the employ of a church or qualified church-controlled organization if such church or organization has in effect an election under subsection (w), other than service in an unrelated trade or business (within the meaning of section 513(a))\"), and the deleted child formula (`service_performed_in_employ_of_church... and church_or_organization_has_election_under_subsection_w_in_effect and not service_in_unrelated_trade_or_business_within_meaning_of_section_513_a`) transcribes it exactly, so nothing in the encoding disagreed with the cited text. The module's own deferral note says the opposite of an ungrounded branch — the branch belongs, and dropping it would understate the exclusion — so the fix withdraws outputs (`service_excluded_from_employment`, `employment`) whose dependency chain reaches an un-encoded cross-reference (§513(a)), which is an executability/provenance policy call, not a correction of encoded meaning. `deferred_outputs` was already an established repo convention at the parent commit (e.g. statutes/26/3121/a.yaml, 26/24.yaml), and the retained rules in this very module still rest on unbound predicates (`employee_for_american_employer`, `service_included_under_agreement_under_section_218A_of_social_security_act`), so unboundness alone is not treated as wrongness here. Pre-fix paragraph coverage was also complete — (1)–(22) with (17) repealed in the source — leaving no source basis for calling the old text wrong.",
+    "verifier_quote": "Omitting that branch would make the aggregate exclusion underinclusive.",
+    "verifier_notes": "Decisive diff context, all from module 8's own diff (statutes/26/3121/b.yaml): the fix deletes rules `service_excluded_from_employment` and `employment` and replaces them with a `deferred_outputs` block whose reason line reads \"+        A complete executable exclusion aggregator must include paragraph (8)(B), ... The copied child file for 26 USC 3121(b)(8) defers that branch because no executable RuleSpec context provides the section 513(a) unrelated-trade-or-business definition. Omitting that branch would make the aggregate exclusion underinclusive.\" The residual rule rename (`service_excluded_from_employment` -> `indian_tribal_council_member_service_excluded_from_employment`, source narrowed from \"26 USC 3121(b), exceptions paragraphs (1)-(22)\" to \"26 USC 3121(b)(22)\") is a decomposition of the same (22) formula, unchanged in meaning and effective_from '1990-01-01'.\n\nIf the corpus rubric does count \"module asserted an output whose dependency could not be grounded\" as a fidelity class, the kind should be `other` (ungrounded cross-reference deferral / withdrawn output), never `untraceable_branch` — the branch is squarely in the cited source and the fix explicitly endorses it rather than re-grounding it. I did not verify how the runtime treats an unbound input predicate, so I make no claim that the pre-fix aggregate evaluated wrongly at execution; a reviewer who reads the engine's undefined-input semantics could turn this into a real polarity/fail-open finding, and that is the one path by which this becomes a defect.\n\nSeparate, genuinely mechanical issue worth noting: the pre-fix proof atom for the church-election import carried the same digest as the minister import (both `hash: sha256:436867089b46a894287c1cc7509f36abf7e80d4d93f5e32cb0a31738f730710c`) — an import-hash bookkeeping duplication, not encoded meaning. Also mechanical: the summary rewrite and the `employment_inclusion_without_exceptions` source string losing its \"opening clause (A)-(C)\" qualifier.\n\nCommit has no body and no PR text in the bundle (subject: \"Refresh payroll generated rules\"; the screen-flag summary describes a bulk refresh), so there is no maintainer statement calling the prior encoding wrong.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Large removal: the 21-import aggregate rule 'service_excluded_from_employment' and the derived 'employment' rule are deleted, the surviving rule is renamed to 'indian_tribal_council_member_service_excluded_from_employment' and rescoped from 'source: 26 USC 3121(b), exceptions paragraphs (1)-(22)' to 'source: 26 USC 3121(b)(22)' with its formula reduced to the tribal-council branch plus the section 218A carve-out; the module-level imports list is dropped and a deferred_outputs block with blocked_by links is added. Paired with index 10, which removes the child church-election rule for the same section 513(a) reason. Kind chosen as untraceable_branch because the fix removes outputs that rested on an ungrounded predicate rather than adding a missing clause; a reviewer could instead read it as unrepresented_clause (the 513(a) carve-out the source states could not be represented), so confidence is below 0.6. The module diff's own deferral reason also says omitting the branch 'would make the aggregate exclusion underinclusive'. Only follow-up touching this file is 86ec136fd, a path move to us/, so the deferral was not reverted. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-abc82d7a-3bdef10ca230",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

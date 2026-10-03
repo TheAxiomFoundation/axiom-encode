@@ -1,0 +1,257 @@
+{
+  "id": "us-432-a5f26f04-us-ok-policies-income-tax-2026-resident-ordinary-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a5f26f045ca9b729a1577fd537ab32fb76b7af62",
+  "parent_commit": "578c390590705f1e8b061797632a8cb2b5523812",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Address Oklahoma resident core review findings",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1028",
+  "module_path": "us-ok/policies/income_tax/2026_resident_ordinary_core.yaml",
+  "corpus_citation_path": "us-ok/statute/68-2353",
+  "corpus_citation_paths_all": [
+    "us-ok/statute/68-2353",
+    "us-ok/statute/68-2355",
+    "us-ok/statute/68-2357",
+    "us-ok/statute/68-2357-43",
+    "us-ok/statute/68-2358",
+    "us-ok/statute/68-2358v3",
+    "us-ok/statute/68-2358-5",
+    "us-ok/statute/68-2358-5-1",
+    "us-ok/statute/68-2361"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "Independent review found six issues: EITC proration could exceed one or divide by zero; retirement caps were applied at TaxUnit rather than individual grain; the civil-service-in-lieu-of-Social-Security full exemption was missing; 529/ABLE deadline windows were ambiguous",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        32,
+        37
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        785,
+        785
+      ],
+      [
+        805,
+        805
+      ],
+      [
+        807,
+        816
+      ],
+      [
+        891,
+        891
+      ],
+      [
+        912,
+        912
+      ],
+      [
+        921,
+        921
+      ],
+      [
+        942,
+        942
+      ],
+      [
+        1157,
+        1158
+      ],
+      [
+        1160,
+        1160
+      ],
+      [
+        1287,
+        1287
+      ],
+      [
+        1292,
+        1293
+      ],
+      [
+        1298,
+        1298
+      ],
+      [
+        1343,
+        1343
+      ],
+      [
+        1348,
+        1349
+      ],
+      [
+        1354,
+        1354
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        32,
+        42
+      ],
+      [
+        59,
+        60
+      ],
+      [
+        260,
+        287
+      ],
+      [
+        621,
+        639
+      ],
+      [
+        838,
+        838
+      ],
+      [
+        858,
+        859
+      ],
+      [
+        861,
+        865
+      ],
+      [
+        869,
+        893
+      ],
+      [
+        965,
+        965
+      ],
+      [
+        974,
+        978
+      ],
+      [
+        991,
+        992
+      ],
+      [
+        1001,
+        1001
+      ],
+      [
+        1010,
+        1014
+      ],
+      [
+        1027,
+        1028
+      ],
+      [
+        1066,
+        1066
+      ],
+      [
+        1244,
+        1248
+      ],
+      [
+        1250,
+        1250
+      ],
+      [
+        1377,
+        1389
+      ],
+      [
+        1394,
+        1395
+      ],
+      [
+        1400,
+        1400
+      ],
+      [
+        1407,
+        1412
+      ],
+      [
+        1451,
+        1463
+      ],
+      [
+        1468,
+        1469
+      ],
+      [
+        1474,
+        1474
+      ]
+    ],
+    "rule_names": [
+      "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction",
+      "ok_2026_resident_taxable_income_before_unpinned_return_floor_core",
+      "ok_2026_resident_retirement_deduction",
+      "ok_2026_spouse_retirement_exemption_eligibility",
+      "ok_2026_resident_college_savings_deduction",
+      "ok_2026_resident_able_deduction",
+      "ok_2026_resident_credit_proration_ratio_core",
+      "ok_2026_full_credit_proration_ratio"
+    ],
+    "rule_path": "rules[ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c0c9e714a929b9506e067f1846f0d6a9750e30afa74557530fa812009052ba12",
+  "post_fix_artifact_sha256": "d99ec66b9077870ab685f2203374b9fafcc0281d795403ab48ef651a8dfd89a5",
+  "provision_sha256": "456639d2c4a59f032a39bbab4607043ac70dc046651c6aa66ffb155dfb80be6b",
+  "provision_chars": 8041,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ok/statute/68-2353",
+    "provision_file": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68.jsonl",
+    "provision_file_sha256": "351324fabfa87c14caea62790aa3391d1ecf991e7b66d9437f7d412a41e914c7",
+    "line_number": 777,
+    "record_id": "d203d65b-66f9-5014-b140-7bba5bb1baac",
+    "stored_body_sha256": "456639d2c4a59f032a39bbab4607043ac70dc046651c6aa66ffb155dfb80be6b",
+    "resolved_text_sha256": "456639d2c4a59f032a39bbab4607043ac70dc046651c6aa66ffb155dfb80be6b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-10",
+    "source_as_of": "2026-05-10",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "dc965655f3b2a7ac39e58f426eaf86e73e331520",
+    "requested_citation_path": "us-ok/statute/68-2353",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module had no representation of 68 O.S. § 2358(E)(18), which exempts 100% of federal civil-service retirement and survivor benefits paid in lieu of Social Security for tax years beginning after 2010, so a supported full-year resident with those benefits got no exemption (or at best the capped § 2358(E)(8) $10,000 treatment) and an overstated Oklahoma taxable income; the same commit also fixed three further source disagreements (per-individual retirement cap grain, the 529/ABLE succeeding-year contribution window, and the uncapped EITC proration ratio).",
+    "triage_notes": "Multi-defect repair commit on ONE module; a judge could legitimately name a different kind, hence confidence capped at 0.8. The four distinct fidelity defects, all verified against the pinned corpus text of us-ok/statute/68-2358v3 and us-ok/statute/68-2357-43 (provisions read via resolve_provision.py, both resolved successfully): (1) unrepresented_clause [chosen as primary] - § 2358(E)(18) reads 'retirement benefits received by federal civil service retirees, including survivor annuities, paid in lieu of Social Security benefits shall be exempt ... e. in the taxable year beginning January 1, 2011, and subsequent taxable years, one hundred percent (100%) of such benefits shall be exempt'; the pre-fix module had no such rule and no such input, and the fix adds rule ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction, a new input, and a new subtraction line in ok_2026_resident_taxable_income_before_unpinned_return_floor_core. The pre-fix module's declared supported boundary did NOT exclude civil-service retirees, so this is a missing clause inside claimed scope, not new scope. (2) wrong_entity_or_scope - § 2358(E)(8) exempts up to '$10,000.00 ... received by an individual'; the pre-fix formula applied one TaxUnit-level cap across combined (E)(8)+(E)(13) amounts, so a joint return with two retirees was capped at $10,000 total instead of $10,000 each. Fix splits inputs into taxpayer/spouse and adds the filing-status-indexed parameter ok_2026_spouse_retirement_exemption_eligibility. (3) unrepresented_clause / period - § 2358(E)(16) ('deductions may be taken for contributions and rollovers made during a taxable year and up to April 15 of the succeeding year, or the due date of a taxpayer's state income tax return, excluding extensions, whichever is later') and § 2358(E)(24) (same window for ABLE) were not represented; pre-fix accepted only current-year contributions. (4) amount/boundary - § 2357.43 says the maximum EITC 'shall be prorated on the ratio that Oklahoma adjusted gross income bears to the federal adjusted gross income', i.e. a proration that cannot exceed the full credit; pre-fix ratio was uncapped (Oklahoma AGI can exceed federal AGI via § 2358 additions such as the state/local tax add-back) and returned 0 when federal AGI was not positive, denying the credit entirely. Fix adds parameter ok_2026_full_credit_proration_ratio = 1 and uses min(1, ratio) with 1 as the non-positive-AGI branch. Bundled non-fidelity changes in the same diff: the module rationale/summary prose was rewritten (including a new note that the corpus's generated 'repealed' extraction status for § 2358v3 is an extractor artifact) and the module summary line was updated - provenance/metadata, mechanical. Also in the commit but outside this module: 1,449 added lines of fixtures in 2026_resident_ordinary_core.test.yaml and a re-signed .axiom/encoding-manifests entry. Caveat for the corpus: this is an intra-PR repair round (pre-fix state was a branch head reviewed before merge, never on main), so the defective version was caught pre-merge rather than in production.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "The pre-fix file (parent 578c39059) contains no token matching \"civil\", \"in_lieu\" or \"2358(E)(18)\" anywhere, while the pinned corpus text of us-ok/statute/68-2358v3 states at paragraph 18 that \"retirement benefits received by federal civil service retirees, including survivor annuities, paid in lieu of Social Security benefits shall be exempt from taxable income ... e. in the taxable year beginning January 1, 2011, and subsequent taxable years, one hundred percent (100%) of such benefits shall be exempt\". This is not merely absent coverage: the same statute's paragraph 8 enumerates \"the civil service of the United States\" under the $10,000 cap, and the pre-fix input ok_2026_enumerated_public_retirement_benefits_in_federal_agi swept those benefits into that capped branch (the fix re-scopes it \"excluding any amount separately qualifying under section 2358(E)(18)\"), so a supported full-year resident with such benefits received a $10,000-capped exemption instead of 100% and an overstated Oklahoma taxable income within the module's own claimed taxable-income-before-floor output. The fix adds a rule for the missing clause and subtracts it in that output, which is the definition of unrepresented_clause; the module's generic disclaimer of \"a complete section 2358 adjustment inventory\" does not exclude civil-service retirees from the supported boundary, so the not-a-defect (\"new coverage never claimed\") reading fails.",
+    "verifier_quote": "+  - name: ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction\n+        formula: max(0, ok_2026_federal_civil_service_retirement_and_survivor_benefits_paid_in_lieu_of_social_security_in_federal_agi)\n+          - ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction",
+    "verifier_notes": "Provenance caveat for the corpus curator: this is an intra-PR repair round, not a post-merge fix. `git log a5f26f045c -- us-ok/policies/income_tax/2026_resident_ordinary_core.yaml` shows exactly two commits — the parent 578c39059 \"Encode Oklahoma 2026 resident income tax core\" that created the 1,372-line file, and this commit. Both are on PR #1028, merged together 2026-07-24, so the defective version never existed on main. If the corpus is meant to hold defects that shipped, flag it; if it holds encoder-produced defects caught by review, it belongs.\n\nThe commit bundles at least four distinct fidelity fixes, so the case is multi-kind and the anchor decides it: (a) the missing §2358(E)(18) clause — the anchored rule_path, unrepresented_clause; (b) retirement cap grain, TaxUnit-wide cap split into taxpayer/spouse inputs gated by ok_2026_spouse_retirement_exemption_eligibility[filing_status] — that alone would read as wrong_entity_or_scope; (c) 529/ABLE contribution window extended to the April 15 succeeding-year deadline (new inputs ..._made_by_statutory_succeeding_year_deadline_for_tax_year) — unrepresented_clause or wrong_period_or_effective_date; (d) EITC proration min-capped at 1 with the zero-AGI branch changed from `0` to the full ratio. If the corpus wants one kind per case, the anchored rule_path (the civil-service formula) makes unrepresented_clause correct; a second row could be split out for (b).\n\nAlternative kind I considered and rejected: amount_mismatch, on the theory that the exemption for civil-service benefits was $10,000 instead of 100%. Rejected because no parameter value or table cell was corrected — the fix adds a whole rule for a clause the encoding never represented, and the $10,000 cap in ok_2026_retirement_exemption_cap remains correct for §2358(E)(8).\n\nThe first reader's quote is verbatim from the PR #1028 body (\"Review-fix cycle\" section). Also note the header rationale change in this diff documents a corpus extraction-status exception (\"Its generated corpus metadata incorrectly says 'repealed'\"); that part is provenance/metadata, not the fidelity defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-defect repair commit on ONE module; a judge could legitimately name a different kind, hence confidence capped at 0.8. The four distinct fidelity defects, all verified against the pinned corpus text of us-ok/statute/68-2358v3 and us-ok/statute/68-2357-43 (provisions read via resolve_provision.py, both resolved successfully): (1) unrepresented_clause [chosen as primary] - § 2358(E)(18) reads 'retirement benefits received by federal civil service retirees, including survivor annuities, paid in lieu of Social Security benefits shall be exempt ... e. in the taxable year beginning January 1, 2011, and subsequent taxable years, one hundred percent (100%) of such benefits shall be exempt'; the pre-fix module had no such rule and no such input, and the fix adds rule ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction, a new input, and a new subtraction line in ok_2026_resident_taxable_income_before_unpinned_return_floor_core. The pre-fix module's declared supported boundary did NOT exclude civil-service retirees, so this is a missing clause inside claimed scope, not new scope. (2) wrong_entity_or_scope - § 2358(E)(8) exempts up to '$10,000.00 ... received by an individual'; the pre-fix formula applied one TaxUnit-level cap across combined (E)(8)+(E)(13) amounts, so a joint return with two retirees was capped at $10,000 total instead of $10,000 each. Fix splits inputs into taxpayer/spouse and adds the filing-status-indexed parameter ok_2026_spouse_retirement_exemption_eligibility. (3) unrepresented_clause / period - § 2358(E)(16) ('deductions may be taken for contributions and rollovers made during a taxable year and up to April 15 of the succeeding year, or the due date of a taxpayer's state income tax return, excluding extensions, whichever is later') and § 2358(E)(24) (same window for ABLE) were not represented; pre-fix accepted only current-year contributions. (4) amount/boundary - § 2357.43 says the maximum EITC 'shall be prorated on the ratio that Oklahoma adjusted gross income bears to the federal adjusted gross income', i.e. a proration that cannot exceed the full credit; pre-fix ratio was uncapped (Oklahoma AGI can exceed federal AGI via § 2358 additions such as the state/local tax add-back) and returned 0 when federal AGI was not positive, denying the credit entirely. Fix adds parameter ok_2026_full_credit_proration_ratio = 1 and uses min(1, ratio) with 1 as the non-positive-AGI branch. Bundled non-fidelity changes in the same diff: the module rationale/summary prose was rewritten (including a new note that the corpus's generated 'repealed' extraction status for § 2358v3 is an extractor artifact) and the module summary line was updated - provenance/metadata, mechanical. Also in the commit but outside this module: 1,449 added lines of fixtures in 2026_resident_ordinary_core.test.yaml and a re-signed .axiom/encoding-manifests entry. Caveat for the corpus: this is an intra-PR repair round (pre-fix state was a branch head reviewed before merge, never on main), so the defective version was caught pre-merge rather than in production. | verifier confirmed at 0.86",
+  "family_id": "us-a5f26f04-901f5202c4c5",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,132 @@
+{
+  "id": "us-369-a9fad764-us-ks-policies-income-tax-2026-full-year-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a9fad7642ae64640c703bbd60bd5a70e8818bc8b",
+  "parent_commit": "6b561e985ce9fe933d7bda56f243abb08708d657",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Enforces a deduction-count domain on the existing Kansas resident core: domain tightening.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1102",
+  "module_path": "us-ks/policies/income_tax/2026_full_year_resident_core.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63",
+    "us-ks/statute/2026/79-32-109/block-1",
+    "us-ks/statute/2026/79-32-110/block-1",
+    "us-ks/statute/2026/79-32-110c/block-1",
+    "us-ks/guidance/revenue/notice-25-06/document-1",
+    "us-ks/statute/2026/79-32-116/block-1",
+    "us-ks/statute/2026/79-32-117/block-1",
+    "us-ks/statute/2026/79-32-119/block-1",
+    "us-ks/statute/2026/79-32-120/block-1",
+    "us-ks/statute/2026/79-32-121/block-1",
+    "us-ks/statute/2026/79-32-121b/block-1",
+    "us-ks/statute/2026/79-32-205/block-1",
+    "us-ks/statute/2026/79-32-288/block-1",
+    "us-ks/statute/session-2026/hb-2029/page-60",
+    "us-ks/statute/session-2026/hb-2029/page-61",
+    "us-ks/statute/session-2026/hb-2029/page-62",
+    "us-ks/statute/session-2026/sb-82/page-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "The old profile accepted any nonnegative integral additional-deduction count, even though the source limits the count by filing status.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        854,
+        854
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        149,
+        163
+      ],
+      [
+        178,
+        193
+      ],
+      [
+        365,
+        418
+      ],
+      [
+        943,
+        943
+      ]
+    ],
+    "rule_names": [
+      "ks_pit_2026_input_domain_is_valid",
+      "ks_pit_2026_single_additional_standard_deduction_count_ceiling",
+      "ks_pit_2026_joint_additional_standard_deduction_count_ceiling"
+    ],
+    "rule_path": "rules[ks_pit_2026_input_domain_is_valid].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "19cd2a21024c6b4d4b66df2e97d7b5ae7cf2aecd555753f9a03be40e68075738",
+  "post_fix_artifact_sha256": "4ef7e97ef6886989b66c1d4933947779c15e9d6e9ef9ea3d672789943dd954fa",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-26-consolidated.jsonl",
+    "provision_file_sha256": "397ee850815df0a050da457b5d08b557e9130e863a9c1473f19de52b0439ede6",
+    "line_number": 3,
+    "record_id": "656e72f6-05a6-5dde-b2e5-1765d64330e1",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix encoding represented no ceiling on the federal additional-standard-deduction count, so a count above the maximum the source can allow (2 nonjoint, 4 joint under 26 USC 63(f) as incorporated by K.S.A. 79-32,119(a)) passed the domain guard and was multiplied by the $850/$700 additional amount into a Kansas standard deduction the statute cannot produce.",
+    "triage_notes": "Read both cited provisions through the pinned corpus release. K.S.A. 79-32,119(a) makes the Kansas additional standard deduction allowable 'for each such deduction allowable ... under the federal internal revenue code'; 26 USC 63(f) enumerates exactly four such amounts (aged self, aged spouse, blind self, blind spouse), so 2 for an unmarried filer and 4 on a joint return is exactly what the source supports — the ceiling values 2 and 4 are correct. Verified the downstream consequence in the parent blob: rules[ks_pit_2026_standard_deduction].versions[0].formula is 'joint_standard_deduction + joint_additional_standard_deduction * federal_additional_standard_deduction_count' (else single branch), so pre-fix a single filer with count 5 produced 3605 + 850*5 = $7,855, an amount the statute cannot yield; post-fix such a profile fails the domain guard and the module fails closed. Counter-argument a reviewer should weigh (reason confidence is not >=0.8): the changed rule is a private fail-closed supported-profile guard, so one could read the change as narrowing claimed scope/precision rather than correcting an encoded meaning; I classify it fidelity because the pre-fix module did compute and emit source-impossible deduction amounts inside its own domain, and the PR frames it as a 'Structural repair', explicitly 'not a waiver or oracle workaround'. Commit body is empty; all quotable evidence is the PR body (no reviews or review comments were returned by gh). Bundled unrelated-but-mechanical changes in the same module: three checked_paths / corpus_citation_paths additions (us/statute/26/63, us-ks 79-32,116, us-ks 79-32,288) and a proof-atom excerpt-only correction on ks_pit_2026_supported_refundable_credits (\"if any excess credit exists, such amount shall be refundable\" -> \"such excess amount shall be refunded to the taxpayer\"), whose formula is unchanged — provenance, not fidelity. No other rule formula, parameter value, version window, effective date, input, or output changed. Companion test file and the encoding manifest/index changed too but are outside this module index.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The diff changes executable meaning: it adds a filing-status-conditioned ceiling conjunct to `rules[ks_pit_2026_input_domain_is_valid].versions[0].formula` plus two new `Count` parameters (formula '2' and '4'), and the companion test now shows a single return with count 3 flipping from valid to `not_holds` with all public outputs held. The pinned corpus confirms the clause the pre-fix encoding omitted: K.S.A. 79-32,119(a) allows the $850/$700 additional amount \"for each such deduction allowable to such individual or to such husband and wife under the federal internal revenue code,\" and 26 USC 63(f) enumerates at most four such amounts (self aged, self blind, spouse aged, spouse blind), so at most two for the module's single scope and four for joint. Pre-fix, the guard checked only nonnegativity and integrality, so count 3 passed and `ks_pit_2026_standard_deduction` returned 3605 + 850*3 = 6155, an amount the cited source cannot produce — a source-stated limit missing from the encoding that the fix adds, i.e. unrepresented_clause rather than an enhancement. Competing kinds do not fit better: no existing comparison's strictness or direction was altered (boundary_direction), no pre-existing value was corrected (amount_mismatch), the \"exactly one of single/joint\" scope conjunct is unchanged (wrong_entity_or_scope), and nothing was inverted or re-grounded (polarity_or_logic, untraceable_branch).",
+    "verifier_quote": "+                ks_pit_2026_federal_additional_standard_deduction_count\n+                <= ks_pit_2026_single_additional_standard_deduction_count_ceiling",
+    "verifier_notes": "Verification done: (1) Pre-fix formula read from parent 6b561e98 — it already required exactly one of single/joint, so the added or-block contributes only the count ceiling, not a scope change. (2) Source read through the pinned release (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union / us-rulespec-2026-07-24-snap-cms-pit-union, fix_time_corpus_match \"same_body\"): all four new 26 USC 63(f) proof excerpts and the 79-32,119(a) excerpt are verbatim in the corpus text, so the ceilings are source-grounded, not invented. (3) Ceilings 2/4 are correct only because the module's declared scope is single and joint returns; head-of-household and married-filing-separate are typed holds. Worth a reviewer note: 26 USC 63(f)(1)(B)/(2)(B) allow spouse amounts to a separate filer when a 151(b) exemption is allowable, so a future MFS/HoH extension cannot reuse the ceiling of 2 — but that does not bear on this commit. (4) The strongest refutation I could build and rejected: the count is a caller-supplied input, so one could call this defensive hardening rather than a meaning defect. It fails because the guard is itself a source-grounded rule that already encoded statutory constraints on this same input, the fix attaches 79-32,119 and 26 USC 63 proof atoms to that formula, and the pre-fix module computed and emitted a Kansas standard deduction for a state of the world the cited source forecloses. (5) The commit also bundles genuinely mechanical items — two added checked_paths and the proof-excerpt correction at the refundable-credit rule (\"if any excess credit exists, such amount shall be refundable\" -> \"such excess amount shall be refunded to the taxpayer\"). Those are provenance-only and are not the identified defect; the identified rule_path change is substantive.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read both cited provisions through the pinned corpus release. K.S.A. 79-32,119(a) makes the Kansas additional standard deduction allowable 'for each such deduction allowable ... under the federal internal revenue code'; 26 USC 63(f) enumerates exactly four such amounts (aged self, aged spouse, blind self, blind spouse), so 2 for an unmarried filer and 4 on a joint return is exactly what the source supports — the ceiling values 2 and 4 are correct. Verified the downstream consequence in the parent blob: rules[ks_pit_2026_standard_deduction].versions[0].formula is 'joint_standard_deduction + joint_additional_standard_deduction * federal_additional_standard_deduction_count' (else single branch), so pre-fix a single filer with count 5 produced 3605 + 850*5 = $7,855, an amount the statute cannot yield; post-fix such a profile fails the domain guard and the module fails closed. Counter-argument a reviewer should weigh (reason confidence is not >=0.8): the changed rule is a private fail-closed supported-profile guard, so one could read the change as narrowing claimed scope/precision rather than correcting an encoded meaning; I classify it fidelity because the pre-fix module did compute and emit source-impossible deduction amounts inside its own domain, and the PR frames it as a 'Structural repair', explicitly 'not a waiver or oracle workaround'. Commit body is empty; all quotable evidence is the PR body (no reviews or review comments were returned by gh). Bundled unrelated-but-mechanical changes in the same module: three checked_paths / corpus_citation_paths additions (us/statute/26/63, us-ks 79-32,116, us-ks 79-32,288) and a proof-atom excerpt-only correction on ks_pit_2026_supported_refundable_credits (\"if any excess credit exists, such amount shall be refundable\" -> \"such excess amount shall be refunded to the taxpayer\"), whose formula is unchanged — provenance, not fidelity. No other rule formula, parameter value, version window, effective date, input, or output changed. Companion test file and the encoding manifest/index changed too but are outside this module index. | verifier confirmed at 0.85",
+  "family_id": "us-a9fad764-e85fe21151fb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

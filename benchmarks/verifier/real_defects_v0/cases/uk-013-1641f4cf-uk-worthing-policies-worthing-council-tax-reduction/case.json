@@ -1,0 +1,111 @@
+{
+  "id": "uk-013-1641f4cf-uk-worthing-policies-worthing-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "1641f4cf81d1de833d29ebe7f283c0467877e566",
+  "parent_commit": "e61a529e531776fb1c44a60d7bead14ba5cc4324",
+  "commit_date": "2026-08-19",
+  "commit_subject": "Ground Worthing taper and preserve strict classes",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/267",
+  "module_path": "uk-worthing/policies/worthing/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+  "corpus_citation_paths_all": [
+    "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46"
+  ],
+  "corpus_release": "uk-rulespec-2026-08-10",
+  "corpus_release_content_sha256": "835714abb9c3bf36962094cee893e4f284263b3ab4ad2fcdc47a13d616aa9fea",
+  "corpus_commit": "f398953ab957978a651032220b03bf20930f62fa",
+  "defect_kind": "boundary_direction",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "Class D strictly requires income less than the applicable amount and Class E strictly requires income greater than it; the corpus assigns no class at equality, so this module preserves that drafting gap rather than extending either class.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        107,
+        113
+      ],
+      [
+        540,
+        540
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        107,
+        108
+      ],
+      [
+        535,
+        535
+      ]
+    ],
+    "rule_names": [
+      "worthing_council_tax_reduction_award_conditions_met",
+      "worthing_council_tax_reduction_percent_divisor"
+    ],
+    "rule_path": "rules[worthing_council_tax_reduction_award_conditions_met].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "cdb7a865552f74f4f86e047cac41d84648a1e7e9963c33eab165cd8fe6a49089",
+  "post_fix_artifact_sha256": "2a33832b5fd2e6dcc575257d3e918b3b0dd785e5535f3620e1be8f0e8c996f43",
+  "provision_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+  "provision_chars": 1209,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+    "provision_file": "data/corpus/provisions/uk-worthing/manual/2026-08-03-worthing-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "2aaaedc1464c1c0cacbf1e393d3a3d4e2ced288de826bebde36aa8bac83c9abc",
+    "line_number": 47,
+    "record_id": "17deff5d-bfa0-5aff-b922-23be29e8d15f",
+    "stored_body_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+    "resolved_text_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-08-03",
+    "corpus_commit": "f398953ab957978a651032220b03bf20930f62fa",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The award-conditions formula used a non-strict `income_including_tariff_weekly <= applicable_amount_weekly` for the Class D branch, so an applicant whose income exactly equals the applicable amount received a full award, whereas paragraph 13.0 Class D requires income \"less than his applicable amount\" and paragraph 14.0 Class E requires income \"greater than his applicable amount\", leaving equality in no class at all.",
+    "triage_notes": "Two-part change in one module. (1) Decisive fidelity change: `<=` -> `<` in worthing_council_tax_reduction_award_conditions_met.versions[0].formula. Provision read through the pinned release (corpus_release uk-rulespec-2026-08-10, corpus_commit f398953a) at uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25: para 13.0 Class D (e) \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0 Class E (e) \"whose income for the relevant week is greater than his applicable amount\" - both strict, no equality branch, so the pre-fix inclusive bound invented entitlement at the boundary. The companion test in the same commit confirms the behavior change: case worthing_ctr_income_including_tariff_equals_applicable_amount (income 99 + tariff 1 = 100 vs applicable 100) flips award_conditions_met holds->not_holds and weekly_amount 100->0. (2) Secondary, non-decisive: worthing_council_tax_reduction_percent_divisor had its `source:` string and proof atoms re-grounded from page-40 para 29.0(1) plus a page-83 section heading (\"100.0 Extended reductions (qualifying contributory benefits).\", which never supported a percent divisor) onto the operative taper sentence on page-25; the formula stays `100`, so per the triage rules that half is provenance/mechanical, not fidelity - worth flagging to a reviewer as a formula-grounded-on-wrong-provision repair that happens to leave the value intact. The module summary sentence quoted above was added in this same diff and is the only prose describing the defect (commit body is empty; PR #267 body predates this re-land and has no reviews or review comments). Only this module plus its .test.yaml changed; no unrelated edits.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "boundary_direction",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The diff flips the Class D branch of the award-conditions formula from a non-strict `<=` to a strict `<` against the applicable amount, and the pinned corpus page-25 confirms the strictness verbatim: ¶13.0(e) \"whose income (if any) for the relevant week is less than his applicable amount,\" and ¶14.0(e) \"whose income for the relevant week is greater than his applicable amount\". Pre-fix the module encoded `<=` while its own unchanged proof atom already quoted the \"less than\" excerpt, so the encoding contradicted its cited source and granted a full award to an applicant whose income equals the applicable amount, a case neither class reaches. The companion case `worthing_ctr_income_including_tariff_equals_applicable_amount` flips from `award_conditions_met: holds` / `weekly_amount: 100` to `not_holds` / `0`, proving a real meaning change at the boundary rather than bookkeeping. The commit's other change (percent_divisor re-grounded from ¶29.0(1)/page-40 and a page-83 atom to ¶14.0(f)(ii)/page-25) leaves the value `100` unchanged and is provenance-only, so it does not displace boundary_direction as the kind.",
+    "verifier_quote": "(worthing_council_tax_reduction_income_including_tariff_weekly < worthing_council_tax_reduction_applicable_amount_weekly or (worthing_council_tax_reduction_income_including_tariff_weekly > worthing_council_tax_reduction_applicable_amount_weekly and worthing_council_tax_reduction_maximum_weekly_amount > worthing_council_tax_reduction_income_taper_deduction_weekly))",
+    "verifier_notes": "Refutation attempts that failed: (1) \"source is silent at equality, so the old text was a policy choice\" — no, ¶13.0(e) states an affirmative requirement that equality fails, so awarding at equality asserts entitlement under a class whose printed condition is unmet; the fix preserves the gap the drafter left. (2) \"Class F covers equality\" — ¶15.0 Class F is the alternative-maximum (second-adult) route keyed to other residents' income and never references the applicable amount, so it supplies no basis for `<=`. (3) \"the real change is the taper re-grounding (untraceable_branch)\" — the percent_divisor formula value stays `100`; only the rule `source:` string and proof-atom citation/excerpt changed, which the rubric classes as mechanical provenance. (4) \"mechanical overall\" — ruled out by the formula operator change and the companion-case output flip. Provision verified through the pinned release: corpus_release uk-rulespec-2026-08-10, corpus_commit f398953ab9, provision_file_sha256 2aaaedc1..., stored_body_sha256 ca8cab09..., record 3e92afdd-a41d-53db-a179-0a62f50986c1. Note for the reviewer: this commit bundles one fidelity change and one provenance change; if the corpus wants single-kind cases, the divisor re-grounding is the mechanical half.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Two-part change in one module. (1) Decisive fidelity change: `<=` -> `<` in worthing_council_tax_reduction_award_conditions_met.versions[0].formula. Provision read through the pinned release (corpus_release uk-rulespec-2026-08-10, corpus_commit f398953a) at uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25: para 13.0 Class D (e) \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0 Class E (e) \"whose income for the relevant week is greater than his applicable amount\" - both strict, no equality branch, so the pre-fix inclusive bound invented entitlement at the boundary. The companion test in the same commit confirms the behavior change: case worthing_ctr_income_including_tariff_equals_applicable_amount (income 99 + tariff 1 = 100 vs applicable 100) flips award_conditions_met holds->not_holds and weekly_amount 100->0. (2) Secondary, non-decisive: worthing_council_tax_reduction_percent_divisor had its `source:` string and proof atoms re-grounded from page-40 para 29.0(1) plus a page-83 section heading (\"100.0 Extended reductions (qualifying contributory benefits).\", which never supported a percent divisor) onto the operative taper sentence on page-25; the formula stays `100`, so per the triage rules that half is provenance/mechanical, not fidelity - worth flagging to a reviewer as a formula-grounded-on-wrong-provision repair that happens to leave the value intact. The module summary sentence quoted above was added in this same diff and is the only prose describing the defect (commit body is empty; PR #267 body predates this re-land and has no reviews or review comments). Only this module plus its .test.yaml changed; no unrelated edits. | verifier confirmed at 0.93",
+  "family_id": "uk-1641f4cf-1de6432cda0e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

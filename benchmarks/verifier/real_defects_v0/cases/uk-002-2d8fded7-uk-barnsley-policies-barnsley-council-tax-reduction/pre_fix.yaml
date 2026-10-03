@@ -1,0 +1,441 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+    # upstream_source_check:
+    #   status: delegated_scheme
+    #   checked_paths: [uk/statutes/ukpga/1992/14/13A, uk/regulations/uksi/2012/2885, uk/regulations/uksi/2012/2886]
+    #   rationale: LGFA 1992 section 13A delegates the working-age scheme to Barnsley Metropolitan Borough Council, so the adopted document is operative. The apply-stage encoder strips this attestation to the singular source-verification contract after local gates pass.
+  summary: |-
+    Barnsley's 2026-27 working-age award is an income-banded percentage of liability, not a taper calculation. Protected Band 1 households receive 90%; ordinary Bands 1-4 receive 85%, 70%, 50%, and 25%, with no discount above the last band. Capital above £6,000 ends entitlement and each applicable non-dependant reduces the award by £7.50 weekly. Pension-age provisions are outside this module.
+  deferred_outputs:
+    - output: uk-barnsley:policies/barnsley/council-tax-reduction/appendix-3#weekly_assessed_income
+      reason: This module consumes the scheme's assessed weekly income; earnings, unearned income, Universal Credit treatment, disregards, childcare, and the minimum-income-floor calculation are outside its award surface.
+    - output: uk-barnsley:policies/barnsley/council-tax-reduction/appendix-3#household_income_band_category
+      reason: This module consumes household status and protected-group classification; disability-income eligibility, no-earnings status, and child responsibility are outside its award surface.
+    - output: uk-barnsley:policies/barnsley/council-tax-reduction/paragraphs-32-to-40#assessed_capital
+      reason: This module applies the £6,000 working-age capital cliff; valuation, attribution, notional capital, and disregard rules are outside it.
+    - output: uk-barnsley:policies/barnsley/council-tax-reduction/paragraphs-46-to-54#applicable_non_dependant_count
+      reason: This module applies the printed flat deduction; non-dependant status, exemptions, couples, and joint-liability apportionment are outside it.
+rules:
+  - name: barnsley_council_tax_reduction_maximum_support_rate
+    kind: parameter
+    dtype: Rate
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 41
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: amount
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-10
+              excerpt: "amount of council tax reduction is 90%, reducing as income increases"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0.90
+
+  - name: barnsley_council_tax_reduction_capital_limit
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: amount
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "have capital not exceeding £6,000"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          6000
+
+  - name: barnsley_council_tax_reduction_weeks_per_year
+    kind: parameter
+    dtype: Number
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 31
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: amount
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-9
+              excerpt: "multiplying by 12 and dividing by 52"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          52
+
+  - name: barnsley_council_tax_reduction_non_dependant_earnings_threshold_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 53
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: amount
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-13
+              excerpt: "earnings of more than £200 a week"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          200
+
+  - name: barnsley_council_tax_reduction_non_dependant_weekly_deduction_by_band
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    indexed_by: barnsley_council_tax_reduction_non_dependant_deduction_band
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 53
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].values'
+            kind: parameter_table
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-13
+              excerpt: "For working-age applicants, a flat-rate deduction of £7.50 is applied for each non-dependant aged 18 or over who has earnings of more than £200 a week."
+              table:
+                header: Working-age non-dependant deduction
+                row_key: deduction band
+                column_key: weekly deduction
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 0
+          1: 7.50
+
+  - name: barnsley_council_tax_reduction_support_rate_by_income_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: barnsley_council_tax_reduction_income_band
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].values'
+            kind: parameter_table
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: |-
+                Band Discount Single:
+                Income up to
+                Couple:
+                Income up to
+                Family with 1
+                Child: Income
+                up to
+                Family with 2+
+                Children:
+                Income up to
+                1
+                90% Applied to protected groups (see below)
+                85% £98.05 £153.92 £241.80 £329.68
+                2 70% £145.56 £201.43 £289.31 £377.19
+                3 50% £193.07 £248.94 £336.82 £424.70
+                4 25% £240.58 £296.45 £384.33 £472.21
+                No
+                Discount
+                Above
+                £240.58
+                Above
+                £296.45
+                Above £384.33 Above £472.21
+              table:
+                header: Working-age income bands
+                row_key: income band
+                column_key: discount
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 0.90
+          1: 0.85
+          2: 0.70
+          3: 0.50
+          4: 0.25
+          5: 0
+
+  - name: barnsley_council_tax_reduction_single_band_1_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "85% £98.05 £153.92 £241.80 £329.68"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "98.05"}]
+  - name: barnsley_council_tax_reduction_single_band_2_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "2 70% £145.56 £201.43 £289.31 £377.19"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "145.56"}]
+  - name: barnsley_council_tax_reduction_single_band_3_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "3 50% £193.07 £248.94 £336.82 £424.70"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "193.07"}]
+  - name: barnsley_council_tax_reduction_single_band_4_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "4 25% £240.58 £296.45 £384.33 £472.21"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "240.58"}]
+
+  - name: barnsley_council_tax_reduction_couple_band_1_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "85% £98.05 £153.92 £241.80 £329.68"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "153.92"}]
+  - name: barnsley_council_tax_reduction_couple_band_2_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "2 70% £145.56 £201.43 £289.31 £377.19"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "201.43"}]
+  - name: barnsley_council_tax_reduction_couple_band_3_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "3 50% £193.07 £248.94 £336.82 £424.70"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "248.94"}]
+  - name: barnsley_council_tax_reduction_couple_band_4_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "4 25% £240.58 £296.45 £384.33 £472.21"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "296.45"}]
+
+  - name: barnsley_council_tax_reduction_family_one_child_band_1_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "85% £98.05 £153.92 £241.80 £329.68"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "241.80"}]
+  - name: barnsley_council_tax_reduction_family_one_child_band_2_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "2 70% £145.56 £201.43 £289.31 £377.19"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "289.31"}]
+  - name: barnsley_council_tax_reduction_family_one_child_band_3_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "3 50% £193.07 £248.94 £336.82 £424.70"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "336.82"}]
+  - name: barnsley_council_tax_reduction_family_one_child_band_4_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "4 25% £240.58 £296.45 £384.33 £472.21"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "384.33"}]
+
+  - name: barnsley_council_tax_reduction_family_two_plus_children_band_1_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "85% £98.05 £153.92 £241.80 £329.68"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "329.68"}]
+  - name: barnsley_council_tax_reduction_family_two_plus_children_band_2_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "2 70% £145.56 £201.43 £289.31 £377.19"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "377.19"}]
+  - name: barnsley_council_tax_reduction_family_two_plus_children_band_3_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "3 50% £193.07 £248.94 £336.82 £424.70"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "424.70"}]
+  - name: barnsley_council_tax_reduction_family_two_plus_children_band_4_upper_income_weekly
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata: {proof: {atoms: [{path: 'versions[0].formula', kind: amount, source: {corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51, excerpt: "4 25% £240.58 £296.45 £384.33 £472.21"}}]}}
+    versions: [{effective_from: '2026-04-01', formula: "472.21"}]
+
+  - name: barnsley_council_tax_reduction_working_age_scheme_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: condition
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "This appendix applies to all working-age applicants"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          local_authority_is_barnsley and council_tax_reduction_household_in_england and not council_tax_reduction_household_has_pensioner
+
+  - name: barnsley_council_tax_reduction_capital_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: condition
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "have capital not exceeding £6,000"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          barnsley_council_tax_reduction_assessed_capital_for_year <= barnsley_council_tax_reduction_capital_limit
+
+  - name: barnsley_council_tax_reduction_income_band
+    kind: derived
+    entity: Household
+    dtype: Number
+    period: Week
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: parameter_table
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "The percentage amount of reduction awarded depends on where the applicant’s income, as calculated below, falls in the income ranges listed in the table."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if barnsley_council_tax_reduction_protected_group and barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_1_upper_income_weekly: 0 else: if barnsley_council_tax_reduction_household_income_category == 0: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_1_upper_income_weekly: 1 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_2_upper_income_weekly: 2 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_3_upper_income_weekly: 3 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_4_upper_income_weekly: 4 else: 5 else: if barnsley_council_tax_reduction_household_income_category == 1: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_couple_band_1_upper_income_weekly: 1 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_couple_band_2_upper_income_weekly: 2 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_couple_band_3_upper_income_weekly: 3 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_couple_band_4_upper_income_weekly: 4 else: 5 else: if barnsley_council_tax_reduction_household_income_category == 2: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_one_child_band_1_upper_income_weekly: 1 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_one_child_band_2_upper_income_weekly: 2 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_one_child_band_3_upper_income_weekly: 3 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_one_child_band_4_upper_income_weekly: 4 else: 5 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_two_plus_children_band_1_upper_income_weekly: 1 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_two_plus_children_band_2_upper_income_weekly: 2 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_two_plus_children_band_3_upper_income_weekly: 3 else: if barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_family_two_plus_children_band_4_upper_income_weekly: 4 else: 5
+
+  - name: barnsley_council_tax_reduction_non_dependant_deduction_band
+    kind: derived
+    entity: Person
+    dtype: Number
+    period: Week
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 53
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: condition
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-13
+              excerpt: "earnings of more than £200 a week"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if barnsley_council_tax_reduction_is_non_dependant and not barnsley_council_tax_reduction_non_dependant_exempt and barnsley_council_tax_reduction_non_dependant_weekly_earnings > barnsley_council_tax_reduction_non_dependant_earnings_threshold_weekly: 1 else: 0
+
+  - name: barnsley_council_tax_reduction_individual_non_dependant_deduction_weekly
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraph 53
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: formula
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-13
+              excerpt: "a flat-rate deduction of £7.50 is applied"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          barnsley_council_tax_reduction_non_dependant_weekly_deduction_by_band[barnsley_council_tax_reduction_non_dependant_deduction_band]
+
+  - name: simulated_barnsley_council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 paragraphs 41, 53 and Appendix 3
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: formula
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "The percentage amount of reduction awarded depends on where the applicant’s income, as calculated below, falls in the income ranges listed in the table."
+          - path: 'versions[0].formula'
+            kind: formula
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-13
+              excerpt: "a flat-rate deduction of £7.50 is applied for each non-dependant"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if barnsley_council_tax_reduction_working_age_scheme_applies and would_claim_council_tax_reduction and barnsley_council_tax_reduction_capital_eligible: max(0, barnsley_council_tax_reduction_annual_liability * min(barnsley_council_tax_reduction_support_rate_by_income_band[barnsley_council_tax_reduction_income_band], barnsley_council_tax_reduction_maximum_support_rate) - barnsley_council_tax_reduction_applicable_non_dependant_count * barnsley_council_tax_reduction_non_dependant_weekly_deduction_by_band[1] * barnsley_council_tax_reduction_weeks_per_year) else: 0
+
+  - name: barnsley_council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Barnsley Council Tax Reduction Scheme 2026-2027 working-age award surface
+    metadata:
+      proof:
+        atoms:
+          - path: 'versions[0].formula'
+            kind: formula
+            source:
+              corpus_citation_path: uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-51
+              excerpt: "The maximum amounts of council tax reduction under the Council’s income-banded scheme for working-age applicants are:"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          simulated_barnsley_council_tax_reduction_annual_amount

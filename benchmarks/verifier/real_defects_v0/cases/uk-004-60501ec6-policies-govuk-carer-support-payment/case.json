@@ -1,0 +1,212 @@
+{
+  "id": "uk-004-60501ec6-policies-govuk-carer-support-payment",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/carer-support-payment.yaml",
+  "corpus_citation_path": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+  "corpus_citation_paths_all": [
+    "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+    "uk/guidance/mygovscot/carer-support-payment/if-you-work",
+    "uk/regulation/uksi/2013/376/schedule/4/paragraph/7"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "carer's allowance and carer support payment with the 35-hour and £204 earnings conditions",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        11
+      ],
+      [
+        19,
+        19
+      ],
+      [
+        21,
+        22
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        47,
+        51
+      ],
+      [
+        65,
+        75
+      ],
+      [
+        77,
+        78
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        82,
+        82
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        17
+      ],
+      [
+        23,
+        40
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        58,
+        82
+      ],
+      [
+        86,
+        86
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        93,
+        101
+      ],
+      [
+        114,
+        128
+      ],
+      [
+        130,
+        130
+      ],
+      [
+        132,
+        133
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        137,
+        137
+      ]
+    ],
+    "rule_names": [
+      "entitled_to_carer_support_payment",
+      "carer_support_payment_weekly_earnings_limit",
+      "carer_support_payment_weekly_amount",
+      "carer_support_payment_annual_amount"
+    ],
+    "rule_path": "rules[entitled_to_carer_support_payment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "a5560a9804fe90574182a24966ab75fe6653a575a9f59c2b186851dad74e2ada",
+  "post_fix_artifact_sha256": "8cf8d184741133cbbee82a4accd1339c8baa7bb05a8451a39fd322a83450fcea",
+  "provision_sha256": "2e31dcab4fc3c6294ba31b70afd74f54a980ee1d76c60cbe4220089083f26e1a",
+  "provision_chars": 295,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 14,
+    "record_id": "f4edbd5a-aa03-5773-8674-826461af45a0",
+    "stored_body_sha256": "2e31dcab4fc3c6294ba31b70afd74f54a980ee1d76c60cbe4220089083f26e1a",
+    "resolved_text_sha256": "2e31dcab4fc3c6294ba31b70afd74f54a980ee1d76c60cbe4220089083f26e1a",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/mygovscot/carer-support-payment/who-can-apply'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module paid carer support payment on a PolicyEngine-shaped gate (in Scotland AND a rollout switch AND (35 care hours OR a reported carer's allowance amount)) and never applied the mygov.scot conditions that the carer be aged 16 or over, not in full-time education, caring for someone who gets a qualifying disability benefit, and have take-home pay of no more than £204 a week.",
+    "triage_notes": "Read the vendored source slices added in this commit (data/corpus/provisions/uk/guidance/2026-06-10-uk-mygovscot-carer-support-payment-{who-can-apply,if-you-work}.jsonl): they state \"You can apply for Carer Support Payment if you provide unpaid care for 35 hours or more a week and you must be aged 16 or over\", \"The person you care for must get a qualifying disability benefit\" and \"Your 'take home pay' cannot be more than £204 a week\", so the added conditions are source-required clauses that were missing. Two defects co-occur in the same module: besides the missing clauses, the pre-fix formula's `or reported_carers_allowance_for_year > 0` disjunct and the `carer_support_payment_in_effect` switch are untraceable branches (PolicyEngine reported receipt / rollout switch, no basis in the cited regulations) that the fix removes; a reviewer who prefers that framing should re-kind this as untraceable_branch. Module was also restructured into weekly + annual rules and the citation set moved from SSI 2023/302 regs 5/16 to mygov.scot guidance (the SSI rate/hours imports are kept). Boundary check: source says pay \"cannot be more than £204\", encoding uses <= 204 - consistent. Same commit-wide pattern as indices 1-6.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The diff changes encoded meaning exactly as the first reader described: the entitlement gate gains four conditions the cited source states — age 16 or over, the cared-for person receiving a qualifying disability benefit, take-home pay no more than the weekly earnings limit (a new £204 parameter), and not being in full-time education — and I verified those clauses verbatim in the pinned corpus (\"you must be aged 16 or over\", \"The person you care for must get a qualifying disability benefit\", \"Your 'take home pay' cannot be more than £204 a week\"). Pre-fix, a Scottish carer earning £600 a week or caring for someone on no disability benefit was paid the full annualised rate, so this is a fidelity correction and not merely coverage the module never claimed: the module already claimed to compute the CSP amount and cited SSI 2023/302 reg 5. I could not refute the fidelity classification — mechanical fails because formulas, rule set, period and entitlement logic all changed. The kind is genuinely contested, however: the same diff removes two ungrounded gate terms (`carer_support_payment_in_effect` and `or reported_carers_allowance_for_year > 0`) and re-grounds a formula whose `source:` was \"PolicyEngine UK carer_support_payment final receipt wrapper\", which is textbook untraceable_branch; I keep unrepresented_clause because the added source-stated conditions are the larger share of the formula change and are what the PR message names.",
+    "verifier_quote": "+          person_is_aged_16_or_over and person_lives_in_scotland and weekly_care_hours >= carer_support_payment_minimum_weekly_care_hours and cared_for_person_receives_qualifying_disability_benefit and weekly_earnings_after_tax_national_insurance_and_expenses <= carer_support_payment_weekly_earnings_limit and not person_is_in_full_time_education",
+    "verifier_notes": "Source verified through the pinned release (corpus_release uk-rulespec-2026-07-12, commit 3cc9219ac4): uk/guidance/mygovscot/carer-support-payment/who-can-apply = \"You can apply for Carer Support Payment if you provide unpaid care for 35 hours or more a week and you must be aged 16 or over. You must usually live in Scotland. The person you care for must get a qualifying disability benefit.\"; .../if-you-work = \"Your 'take home pay' cannot be more than £204 a week.\" The diff's new parameter carries the excerpt \"take home pay' cannot be more than £204 a week\" and formula 204.\n\nReviewer decision point on kind. This one module change carries two defect kinds at once:\n(1) unrepresented_clause — four source-stated conditions added (age, qualifying disability benefit, £204 earnings cap, full-time education);\n(2) untraceable_branch — the pre-fix formula's `carer_support_payment_in_effect` rollout switch and `or reported_carers_allowance_for_year > 0` proxy are removed, and the rule's `source:` changes from \"PolicyEngine UK carer_support_payment final receipt wrapper over Carer Support Payment Regulations 2023 regs. 5 and 16\" to mygov.scot guidance. The commit subject (\"ground policy surfaces in ingested sources\") and the maintainer comment (\"those surfaces are the old pattern this PR removes (\\\"PolicyEngine-alignment surface… used by PolicyEngine UK and HBAI\\\", `reported_*` inputs)\") both frame the fix as de-grounding a model-derived surface, which favors untraceable_branch. If the corpus wants one label per case and prefers the kind the commit message emphasizes, reclassify to untraceable_branch; if it prefers the kind with the most added source-traceable meaning, keep unrepresented_clause.\n\nNote also that the 35-hour condition quoted in the first reader's PR-body quote was ALREADY present pre-fix (`weekly_care_hours >= carer_support_payment_minimum_weekly_care_hours`); only the £204 half of that quote is new, so the quote overstates the delta slightly.\n\nTwo side changes that are not defect fixes and should not drive the kind: effective_from moves from '2026-04-06' to '0001-01-01' (less precise, not a wrong_period correction), and the main derived rule's period changes from Year to Week with a new annualising wrapper. Also, the added `not person_is_in_full_time_education` term has no basis in the resolved who-can-apply slice I read (its proof atoms cite only the 35-hour and age-16 excerpts) — that is a possible post-fix grounding gap, not evidence about the pre-fix defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the vendored source slices added in this commit (data/corpus/provisions/uk/guidance/2026-06-10-uk-mygovscot-carer-support-payment-{who-can-apply,if-you-work}.jsonl): they state \"You can apply for Carer Support Payment if you provide unpaid care for 35 hours or more a week and you must be aged 16 or over\", \"The person you care for must get a qualifying disability benefit\" and \"Your 'take home pay' cannot be more than £204 a week\", so the added conditions are source-required clauses that were missing. Two defects co-occur in the same module: besides the missing clauses, the pre-fix formula's `or reported_carers_allowance_for_year > 0` disjunct and the `carer_support_payment_in_effect` switch are untraceable branches (PolicyEngine reported receipt / rollout switch, no basis in the cited regulations) that the fix removes; a reviewer who prefers that framing should re-kind this as untraceable_branch. Module was also restructured into weekly + annual rules and the citation set moved from SSI 2023/302 regs 5/16 to mygov.scot guidance (the SSI rate/hours imports are kept). Boundary check: source says pay \"cannot be more than £204\", encoding uses <= 204 - consistent. Same commit-wide pattern as indices 1-6. | verifier confirmed at 0.62",
+  "family_id": "uk-60501ec6-ec1272abd9f5",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

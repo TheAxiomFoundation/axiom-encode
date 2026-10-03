@@ -1,0 +1,96 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk/statute/ukpga/1992/4/13
+  summary: |-
+    Class 3 National Insurance contributions are voluntary flat-rate
+    contributions. Section 13 of the Social Security Contributions and Benefits
+    Act 1992 provides for earners and others over the age of 16 to be entitled,
+    if they so wish and subject to prescribed conditions, to pay Class 3
+    contributions; the amount of a Class 3 contribution is a flat weekly figure
+    of £17.75. Payment is allowed only with a view to enabling the contributor
+    to satisfy conditions of entitlement to benefit by acquiring the requisite
+    earnings factor. Because Class 3 is elective, the payment is only made when
+    the contributor chooses to pay: the contribution amount is the flat rate for
+    each week for which the contributor elects to pay, and zero otherwise. The
+    election, the over-16 condition, the satisfaction of the prescribed
+    conditions, and the benefit-purpose condition are supplied as case inputs.
+rules:
+  - name: class_3_weekly_contribution_amount
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Social Security Contributions and Benefits Act 1992 s.13(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/4/13
+              excerpt: "shall be £17.75"
+    versions:
+      - effective_from: '2025-04-06'
+        formula: |-
+          17.75
+
+  - name: entitled_to_pay_class_3_contribution
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    source: Social Security Contributions and Benefits Act 1992 s.13(1), (2)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/4/13
+              excerpt: "if over the age of 16, to be entitled if they so wish"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/4/13
+              excerpt: "allowed only with a view to enabling the contributor to satisfy"
+    versions:
+      - effective_from: '2025-04-06'
+        formula: |-
+          contributor_is_over_16
+          and contributor_satisfies_prescribed_conditions_to_pay_class_3
+          and payment_is_with_a_view_to_satisfying_benefit_entitlement_conditions
+
+  - name: class_3_contribution_if_elected
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: Social Security Contributions and Benefits Act 1992 s.13(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/4/13
+              excerpt: "to be entitled if they so wish, but subject to any prescribed conditions, to pay Class 3 contributions"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:statutes/ukpga/1992/4/13#class_3_weekly_contribution_amount
+              output: class_3_weekly_contribution_amount
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:statutes/ukpga/1992/4/13#entitled_to_pay_class_3_contribution
+              output: entitled_to_pay_class_3_contribution
+              hash: sha256:local
+    versions:
+      - effective_from: '2025-04-06'
+        formula: |-
+          if entitled_to_pay_class_3_contribution and contributor_elects_to_pay_class_3_contribution: class_3_weekly_contribution_amount else: 0
