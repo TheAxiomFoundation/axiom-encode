@@ -38,3 +38,13 @@ record); focused plus broad tests; and a matched-household oracle comparison
 whose inputs and outputs are actually comparable. Disagreements are resolved
 against controlling authority, not by assuming either PolicyEngine or
 SnapScreener is correct.
+
+Source acquisition remains a provenance blocker for new DES pages. The official
+COLA page and March 2026 change notice are readable through indexed web
+results, but direct HTTPS fetches of both official URLs returned HTTP 403 with
+`Cf-Mitigated: challenge` on 2026-10-03. An in-app browser visit to the COLA
+URL redirected to a CNAP Manual 404 frame, and the archived PDF did not render
+there. These views establish an audit lead, not authenticated source snapshot
+bytes for a signed corpus release. Do not transcribe a search result into
+canonical corpus data; obtain an official accessible snapshot or publisher
+export and verify its provenance before protected encoding.
