@@ -6,8 +6,10 @@ case under ``cases/<id>/`` with, when ``artifacts_shipped`` is true, the
 sibling files ``pre_fix.yaml`` (module bytes before the correcting commit),
 ``post_fix.yaml`` (after) and ``provision.txt`` (the provision resolved from
 the signed corpus release). ``pre_fix_artifact_sha256``,
-``post_fix_artifact_sha256`` and ``provision_sha256`` are verified against the
-file bytes; a mismatch refuses the case. Metadata-only cases
+``post_fix_artifact_sha256`` and ``provision_sha256`` are required in every
+``case.json`` and verified against the file bytes; a missing hash or a
+mismatch refuses the case. A record without a ``triage_status`` never
+matches a status filter. Metadata-only cases
 (``artifacts_shipped`` false, the inherited-verdict members of the generator
 families) are skipped and counted, never invented.
 
@@ -32,7 +34,8 @@ cases are kept in the corpus for a reviewer to prune), any confidence.
 Tolerances for records written by hand (the fixture, small experiments):
 ``case_id`` for ``id``; ``provision`` / ``pre_fix`` / ``post_fix`` file
 references or inline ``provision_text`` / ``pre_fix_yaml`` / ``post_fix_yaml``;
-hashes under ``hashes: {pre_fix, post_fix, provision}``; a plain-string
+hashes under ``hashes: {pre_fix, post_fix, provision}`` (optional for a
+record file not named ``case.json``, verified when present); a plain-string
 ``locator``; a bare ``defect_kind`` label. This directory is only ever read.
 """
 
@@ -203,6 +206,10 @@ def load_case_file(path: Path) -> tuple[VerifierCase, VerifierCase, dict[str, An
         ("post_fix", post_fix),
     ):
         expected = _expected_hash(payload, name)
+        if expected is None and path.name == "case.json":
+            # The corpus layout records every hash; a missing one is a broken
+            # record, not a licence to skip verification.
+            raise RealDefectsError(f"case {case_id}: no recorded sha256 for {name}")
         if expected and expected != _sha256_text(text):
             raise RealDefectsError(
                 f"case {case_id}: {name} content does not match its recorded sha256"
@@ -317,8 +324,9 @@ def build_real_suite(
             skip("family_member_not_representative")
             continue
         status = record.get("triage_status")
-        if triage_statuses and status is not None and status not in triage_statuses:
-            skip(f"triage_status_{status}")
+        if triage_statuses and status not in triage_statuses:
+            # A record without a status does not match a status filter.
+            skip(f"triage_status_{status if status is not None else 'missing'}")
             continue
         confidence = record.get("confidence")
         if isinstance(confidence, (int, float)) and confidence < min_confidence:

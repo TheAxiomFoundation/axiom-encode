@@ -181,8 +181,12 @@ def _kind_stats(kind: str, rows: list[dict[str, Any]], ceiling: float) -> KindSt
     stats.defective_scored = len(defective)
     stats.control_scored = len(control)
     channels = {_kind_channel(row, kind) for row in scored}
+    # An ``other:`` kind is always scored on the verdict channel, scored rows
+    # or not (an empty set is a subset of {native} and would read as native).
     stats.channel = (
-        CHANNEL_NATIVE if channels <= {CHANNEL_NATIVE} else CHANNEL_VERDICT_FALLBACK
+        CHANNEL_NATIVE
+        if channels <= {CHANNEL_NATIVE} and not kind.startswith(OTHER_KIND_PREFIX)
+        else CHANNEL_VERDICT_FALLBACK
     )
     pos_kind = [s for s in (_kind_score(r, kind) for r in defective) if s is not None]
     neg_kind = [s for s in (_kind_score(r, kind) for r in control) if s is not None]
@@ -354,8 +358,10 @@ def fold_verifier_board(
         if mean_kind_auc is None:
             rank_status = "unrankable"
         localizable = [r for r in defectives if r.get("localized") is not None]
-        # Spend and latency cover every row, errors included: an error still
-        # cost tokens and time (timeouts are the longest calls of all).
+        # Spend and latency cover every row in the payload, errors included:
+        # an error still cost tokens and time (timeouts are the longest calls
+        # of all). A retried error row is replaced by its retry, so the failed
+        # call's own spend is not in the payload (cases.jsonl keeps it).
         latencies = [
             float(r["latency_ms"]) / 1000.0
             for r in rows
@@ -493,11 +499,11 @@ def _short(kind: str) -> str:
 
 
 def _pct(value: Optional[float]) -> str:
-    return "—" if value is None else f"{value:.0%}"
+    return "n/a" if value is None else f"{value:.0%}"
 
 
 def _num(value: Optional[float], template: str = "{:.3f}") -> str:
-    return "—" if value is None else template.format(value)
+    return "n/a" if value is None else template.format(value)
 
 
 def _mark(stats: RunnerStats) -> str:
@@ -523,7 +529,7 @@ def render_board_markdown(board: VerifierBoard) -> str:
     suite = board.suite
     kinds = board.kinds
     lines: list[str] = []
-    lines.append(f"# EncodeBench verifier board — {suite.get('name')}")
+    lines.append(f"# EncodeBench verifier board: {suite.get('name')}")
     lines.append("")
     lines.append(
         f"Suite `{str(suite.get('sha256'))[:12]}`, source `{suite.get('source_kind')}`"
@@ -561,8 +567,9 @@ def render_board_markdown(board: VerifierBoard) -> str:
         "there by construction. Kinds marked ‡ have no kind-specific question for that "
         "judge and fall back to the verdict score; a mean AUC marked ‡ includes such "
         "kinds. Judges marked § could not be ranked (no scored controls or a kind with "
-        "no AUC). Tokens, latency and cost cover every call, errors included; a blank "
-        "cost means no published price or no reported usage, never zero."
+        "no AUC). Tokens, latency and cost cover every row in the results, errors "
+        "included; a retried error is counted once, as its retry. A blank cost means "
+        "no published price or no reported usage, never zero."
     )
     lines.append("")
     header = (
@@ -587,7 +594,7 @@ def render_board_markdown(board: VerifierBoard) -> str:
             f"{stats.mean_tokens_input:,.0f}/{stats.mean_tokens_output:,.0f}"
             if stats.mean_tokens_input is not None
             and stats.mean_tokens_output is not None
-            else "—"
+            else "n/a"
         )
         lines.append(
             f"| {stats.runner}{_mark(stats)} | {stats.model} | "
@@ -626,7 +633,7 @@ def render_board_markdown(board: VerifierBoard) -> str:
     lines.append("|---|---|---|---|---|---|---|")
     for stats in ordered:
         lines.append(
-            f"| {stats.runner} | {', '.join(stats.served_models) or '—'} | "
+            f"| {stats.runner} | {', '.join(stats.served_models) or 'n/a'} | "
             f"{stats.cases_scored}/{stats.cases_expected} | {stats.errors} | "
             f"{_num(stats.total_cost_usd, '${:.4f}')} | {stats.unpriced_rows} | "
             f"{stats.pricing_source or 'no published price recorded; cost blank'} |"

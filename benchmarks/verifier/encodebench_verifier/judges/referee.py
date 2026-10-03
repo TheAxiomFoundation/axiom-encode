@@ -5,7 +5,7 @@ JSON schema and provision truncation from ``axiom_encode.judges`` and sends
 them through the repo's own :class:`JudgeClient`. Differences from the
 production wiring, all deliberate:
 
-* no escalation — a benchmark of judges scores one model per runner, so the
+* no escalation: a benchmark of judges scores one model per runner, so the
   call passes ``escalate=False`` and the escalation model is pinned equal to
   the judged model;
 * retry pacing is shorter than the production 90 s, and configurable;
@@ -205,8 +205,13 @@ class RefereeRunner:
                 raw=provenance,
             )
         latency_ms = int((time.perf_counter() - started) * 1000)
-        tokens_in = int(call.tokens.input)
-        tokens_out = int(call.tokens.output)
+        tokens_in: Optional[int] = int(call.tokens.input)
+        tokens_out: Optional[int] = int(call.tokens.output)
+        if not tokens_in and not tokens_out:
+            # JudgeClient reports missing usage (and every failed call) as
+            # zero tokens. A real call always reads input, so 0/0 means the
+            # usage is unknown: record it unpriced, never as a free call.
+            tokens_in = tokens_out = None
 
         def fail(error_type: str, message: str) -> JudgeResponse:
             return error_response(

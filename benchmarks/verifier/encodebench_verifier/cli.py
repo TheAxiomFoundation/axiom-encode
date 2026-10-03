@@ -8,11 +8,11 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from axiom_encode.judges.client import DEFAULT_PROVISION_CHARS, truncate_provision
 
-from . import DEFECT_KINDS
+from . import DEFECT_KINDS, VARIANT_CONTROL, VARIANT_DEFECTIVE
 from .agreement import AgreementError, compare_runs
 from .board import (
     DEFAULT_FALSE_ALARM_CEILING,
@@ -25,8 +25,9 @@ from .board import (
 from .breakdown import PROPERTIES, BreakdownError, breakdown
 from .cases import CaseSuite, SuiteError
 from .judges import make_runner
+from .mutator import MUTATOR_VERSION, audit_planted_edit
 from .pricing import load_pricing, price_for
-from .results import ResultsError, run_suite
+from .results import ResultsError, reassemble_results, run_suite
 from .sources import encodings_db, eval_suite, real, synthetic
 
 
@@ -156,6 +157,56 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_audit_suite(args: argparse.Namespace) -> int:
+    """Re-check every planted pair against this mutator version's guards."""
+
+    suite = CaseSuite.load(Path(args.suite))
+    if not suite.mutator_version:
+        _eprint("error: audit-suite needs a synthetic suite (this one has no mutator)")
+        return 2
+    pairs: dict[str, dict[str, Any]] = {}
+    for case in suite.cases:
+        pairs.setdefault(case.pair_id, {})[case.variant] = case
+    failing = []
+    checked = 0
+    for pair_id, members in pairs.items():
+        control = members.get(VARIANT_CONTROL)
+        defective = members.get(VARIANT_DEFECTIVE)
+        if control is None or defective is None:
+            failing.append({"pair_id": pair_id, "reason": "pair is incomplete"})
+            continue
+        checked += 1
+        reason = audit_planted_edit(
+            control.artifact_text,
+            defective.artifact_text,
+            defective.provision_text,
+            defective.defect_kind,
+        )
+        if reason:
+            failing.append(
+                {
+                    "pair_id": pair_id,
+                    "defect_kind": defective.defect_kind,
+                    "detail": defective.locator.detail if defective.locator else None,
+                    "reason": reason,
+                }
+            )
+    if args.ids:
+        for item in failing:
+            print(item["pair_id"])
+    else:
+        report = {
+            "suite": suite.name,
+            "suite_sha256": suite.sha256,
+            "built_with_mutator": suite.mutator_version,
+            "audited_with_mutator": MUTATOR_VERSION,
+            "pairs_checked": checked,
+            "failing": failing,
+        }
+        print(json.dumps(report, indent=1, ensure_ascii=False))
+    return 1 if failing else 0
+
+
 def cmd_show_suite(args: argparse.Namespace) -> int:
     suite = CaseSuite.load(Path(args.suite))
     print(json.dumps(suite.summary(), indent=1))
@@ -209,6 +260,18 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"of {coverage['expected']} in suite; complete={coverage['complete']}"
     )
     return 0 if coverage["errors"] == 0 else 1
+
+
+def cmd_reassemble(args: argparse.Namespace) -> int:
+    suite = CaseSuite.load(Path(args.suite))
+    payload = reassemble_results(suite, Path(args.from_run), Path(args.out))
+    coverage = payload["coverage"]
+    _eprint(
+        f"{payload['runner']['name']}: re-assembled {coverage['scored']} scored, "
+        f"{coverage['errors']} errors of {coverage['expected']} in "
+        f"{suite.name!r}; complete={coverage['complete']}; judged nothing"
+    )
+    return 0 if coverage["complete"] else 1
 
 
 def cmd_board(args: argparse.Namespace) -> int:
@@ -374,6 +437,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_filter_suite)
 
+    p = sub.add_parser(
+        "audit-suite",
+        help=(
+            "re-check planted pairs against this mutator version's guards "
+            "(exit 1 if any fail)"
+        ),
+    )
+    p.add_argument("suite")
+    p.add_argument(
+        "--ids",
+        action="store_true",
+        help="print only failing pair ids, one per line (for filter-suite --drop-pair)",
+    )
+    p.set_defaults(func=cmd_audit_suite)
+
     p = sub.add_parser("show-suite", help="summarise a suite")
     p.add_argument("suite")
     p.add_argument("--locators", action="store_true")
@@ -441,6 +519,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--by", nargs="+", choices=PROPERTIES, default=["size", "diff"])
     p.add_argument("--json-out", default=None)
     p.set_defaults(func=cmd_breakdown)
+
+    p = sub.add_parser(
+        "reassemble",
+        help=(
+            "fold a finished run onto a suite filtered from its suite without "
+            "building a judge (no credentials, no spend)"
+        ),
+    )
+    p.add_argument("--suite", required=True, help="the filtered child suite")
+    p.add_argument(
+        "--from", dest="from_run", required=True, help="the parent run directory"
+    )
+    p.add_argument("--out", required=True, help="an empty output directory")
+    p.set_defaults(func=cmd_reassemble)
 
     p = sub.add_parser("board", help="fold results into a leaderboard")
     p.add_argument("inputs", nargs="+")

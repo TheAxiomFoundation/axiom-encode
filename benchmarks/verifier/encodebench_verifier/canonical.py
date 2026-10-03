@@ -60,7 +60,7 @@ def dump_yaml_document(document: Any) -> str:
     """Canonical re-serialisation used for both members of a synthetic pair.
 
     Both the control and the defective artifact are dumped through this one
-    function, so the only difference between them is the planted edit — not
+    function, so the only difference between them is the planted edit, not
     quoting style, indentation, or line folding inherited from the encoder's
     original output.
     """

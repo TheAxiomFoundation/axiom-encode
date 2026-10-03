@@ -3,14 +3,18 @@
 The response file is JSON: either ``{"<case_id>": {...JudgeResponse...}}``
 or ``{"responses": {...}, "model": "...", "family": "...",
 "supports_localization": true}``. Cases without an entry, and entries that
-break the response contract (unknown verdict, scores outside [0, 1], a scored
-verdict missing a kind score, an error without a reason), become fail-closed
-error responses, so a partial or drifted replay is visible as errors rather
-than as passes.
+break the response contract (unknown verdict, scores outside [0, 1], an
+error without a reason), become fail-closed error responses, so a partial or
+drifted replay is visible as errors rather than as passes. A scored entry
+that omits a kind score is not an error: that kind falls back to the verdict
+score on the ``verdict_fallback`` channel, as a live judge without a
+kind-specific question does. The runner's identity includes the response
+file's sha256, so two different recordings never share resumed rows.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -31,7 +35,9 @@ class ReplayRunner:
 
     def __init__(self, response_file: Path, *, name: str = "replay") -> None:
         self.response_file = Path(response_file)
-        payload = json.loads(self.response_file.read_text())
+        raw = self.response_file.read_bytes()
+        self.response_sha256 = hashlib.sha256(raw).hexdigest()
+        payload = json.loads(raw)
         self.supports_localization = True
         if isinstance(payload, dict) and "responses" in payload:
             self._responses: dict[str, Any] = dict(payload["responses"])
@@ -52,6 +58,7 @@ class ReplayRunner:
             "family": self.family,
             "model": self.model,
             "response_file": self.response_file.name,
+            "response_sha256": self.response_sha256,
             "response_count": len(self._responses),
             "supports_localization": self.supports_localization,
         }
