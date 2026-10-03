@@ -176,6 +176,153 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "paragraph_c_participant_eligible",
+      "paragraph_c_overincome_exception_participant_may_be_enrolled",
+      "report_to_regional_office_required_for_between_100_and_130_percent_enrollment",
+      "additional_allowance_income_limit_multiplier",
+      "reportable_overincome_lower_bound_multiplier"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "incomes are below 130 percent of the poverty line",
+        "where": [
+          "additional_allowance_income_limit_multiplier.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "family incomes are between 100 and 130 percent of the poverty line",
+        "where": [
+          "report_to_regional_office_required_for_between_100_and_130_percent_enrollment.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2021-01-01",
+        "where": [
+          "paragraph_c_overincome_exception_participant_may_be_enrolled.versions[0].effective_from"
+        ],
+        "forms": [
+          "2021-01-01",
+          "January 1, 2021",
+          "1 January 2021"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(2) If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child who would benefit from services, provided that these participants only make up to 10 percent of a program's enrollment in accordance with paragraph (d) of this section.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(inclusive) — defensible but the inclusive reading of",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child who would benefit from services, provided that these participants only make up to 10 percent of a program's enrollment in accordance with paragraph (d) of this section.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The family was determined to be eligible under the criterion in paragraph (c)(2) of this section",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "determined to be eligible under the criterion in paragraph (c)(2) of this section",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "does not meet a criterion under paragraph (c)(1)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for an over-income child enrolled under the paragraph (c)(2) ten-percent allowance, but the source says such a family",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose incomes are below 130 percent of the poverty line",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 11,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

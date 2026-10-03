@@ -75,6 +75,83 @@
     "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-163",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "household_has_mua_heating_or_cooling_cost"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season:",
+        "where": [
+          "household_has_mua_heating_or_cooling_cost.versions[0].formula"
+        ],
+        "cites": "us-sc/manual/dss/snap-policy-manual/page-163",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(2) Mandatory Utility Allowance (MUA) To be entitled to the MUA, the following criteria must be met: (A) During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season: - Heating cost - Cooling cost (air conditioning)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(A) During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season: Heating cost / Cooling cost",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "had no representation whatsoever. Second refutation attempt rejected: this is not",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in their symbol names, so one could argue the separate-from-rent qualification was partly represented. It fails on two counts: (a) the two",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "page 163's timing and separate-from-rent qualifications are restored with cases",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

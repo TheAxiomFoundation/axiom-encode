@@ -89,6 +89,87 @@
     "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-165",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "multiple_utility_allowance_entitlement",
+      "basic_utility_allowance_entitlement",
+      "actual_utility_costs_allowed",
+      "same_residence_utility_allowance_agreement_requirement_satisfied"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Actual utility costs are only allowed for households not entitled to the MUA or BUA.",
+        "where": [
+          "actual_utility_costs_allowed.versions[0].formula"
+        ],
+        "cites": "us-sc/manual/dss/snap-policy-manual/page-165",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual.",
+        "where": [
+          "same_residence_utility_allowance_agreement_requirement_satisfied.versions[0].formula"
+        ],
+        "cites": "us-sc/manual/dss/snap-policy-manual/page-165",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Actual utility costs are only allowed for households not entitled to the MUA or BUA.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Shared-residence households must agree on the allowance type",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

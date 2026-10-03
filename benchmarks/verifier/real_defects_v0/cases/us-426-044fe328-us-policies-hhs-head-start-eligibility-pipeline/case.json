@@ -71,6 +71,125 @@
     "requested_citation_path": "us/regulation/45/1302/12",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "head_start_tribal_service_area_path_satisfied",
+      "head_start_migrant_or_seasonal_path_satisfied"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "may determine any pregnant women or children in the approved service area to be eligible for services regardless of income",
+        "where": [
+          "head_start_tribal_service_area_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "pregnant women and children are eligible for Migrant or Seasonal Head Start",
+        "where": [
+          "head_start_migrant_or_seasonal_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...and if they meet the requirements of paragraph (b) of this section.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For Migrant or Seasonal Head Start, a child must be younger than compulsory school age",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Tribal + Migrant/Seasonal routes with dual-context contamination negatives",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a Tribal program may determine any pregnant women or children in the approved service area to be eligible for services regardless of income, if they meet the requirements of paragraph (b) of this section",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "if they meet the requirements of paragraph (b) of this section",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "pregnant women or children ... if they meet the requirements of paragraph (b) of this section",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the Head Start public age bridge is wrong for ordinary and dual program contexts",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the Tribal and Migrant or Seasonal paths with the paragraph-(b) age predicates",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

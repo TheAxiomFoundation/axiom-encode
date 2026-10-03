@@ -159,6 +159,102 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "dependent_exemption_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "This Act shall become effective on July 1, 2024, and shall be applicable to all taxable years beginning on or after January 1, 2024",
+        "where": [
+          "dependent_exemption_amount.versions[0].effective_to",
+          "dependent_exemption_amount.versions[1].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2024/hb1021/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "This Act shall become effective upon its approval by the Governor or upon its becoming law without such approval and shall be applicable to all taxable years beginning on or after January 1, 2026",
+        "where": [
+          "dependent_exemption_amount.versions[1].effective_to",
+          "dependent_exemption_amount.versions[2].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00, provided that such increases in such deduction shall be subject to the same delays as those applied to standard deductions",
+        "where": [
+          "dependent_exemption_amount.versions[2].effective_to"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "dependent_exemption_amount.versions[2].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "$4,000.00 $5,000.00 for each dependent; provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00 ... subject to the same delays as those applied to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 48-7-27",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "$5,000.00 for each dependent of such taxpayer; provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00, provided that such increases in such deduction shall be subject to the same delays as those applied to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 48-7-27",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "while the citation path is hb463 (bill number vs. act number); I did not verify that mapping and it does not affect the classification. The same commit applies the identical pattern to 48-7-27 standard deductions (module index 1), consistent with the PR body line",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

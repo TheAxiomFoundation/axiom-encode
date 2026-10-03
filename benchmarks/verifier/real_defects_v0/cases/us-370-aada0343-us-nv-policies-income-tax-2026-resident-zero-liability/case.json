@@ -276,6 +276,184 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nv_pit_2026_credit_stage_applies",
+      "nv_pit_2026_resident_personal_income_tax_after_nonrefundable_credits",
+      "nv_pit_2026_resident_refundable_personal_income_tax_credits",
+      "nv_pit_2026_resident_net_personal_income_tax_liability_before_payments",
+      "nv_pit_2026_nonrefundable_credit_source_hold_applies",
+      "nv_pit_2026_refundable_credit_source_hold_applies",
+      "nv_pit_2026_net_liability_source_hold_applies",
+      "nv_pit_2026_constitutional_prohibition_current_for_tax_year"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "No income tax shall be levied upon the wages or personal income of natural persons.",
+        "where": [
+          "nv_pit_2026_nonrefundable_credit_source_hold_applies.versions[0].formula",
+          "nv_pit_2026_refundable_credit_source_hold_applies.versions[0].formula",
+          "nv_pit_2026_net_liability_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "approved and ratified by the people at a special election held on May 2, 1989",
+        "where": [
+          "nv_pit_2026_constitutional_prohibition_current_for_tax_year.versions[0].formula"
+        ],
+        "cites": "us-nv/statute/constitution/article-10/section-1/source-note/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "approved and ratified by the people at the 2002 General Election",
+        "where": [
+          "nv_pit_2026_constitutional_prohibition_current_for_tax_year.versions[0].formula"
+        ],
+        "cites": "us-nv/statute/constitution/article-10/section-1/source-note/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "not approved and ratified by the people at the 2014 General Election",
+        "where": [
+          "nv_pit_2026_constitutional_prohibition_current_for_tax_year.versions[0].formula"
+        ],
+        "cites": "us-nv/statute/constitution/article-10/section-1/source-note/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "nv_pit_2026_constitutional_prohibition_current_for_tax_year.versions[0].effective_to",
+          "nv_pit_2026_net_liability_source_hold_applies.versions[0].effective_to",
+          "nv_pit_2026_nonrefundable_credit_source_hold_applies.versions[0].effective_to",
+          "nv_pit_2026_refundable_credit_source_hold_applies.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "+    source: Fail-closed sentinel pending complete refundable-credit authority",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "+# Credit and net-liability amounts below are fail-closed sentinels guarded by",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "+# explicit typed source holds, not substantive zero-liability assertions.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "-    source: Nev. Const. art. 10, § 1(9), no natural-person personal income-tax system",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "No income tax shall be levied upon the wages or personal income of natural persons.",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This authority proves zero natural-person personal income tax before credits. It does not prove that Nevada has no independently refundable credit…",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "deductions, exemptions, surtaxes, and credits cannot change the legal zero",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "downstream credit and net-liability stages remain explicitly held and fail closed",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "retain typed source holds for nonrefundable credits, refundable credits, and signed net liability before payments",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 14,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

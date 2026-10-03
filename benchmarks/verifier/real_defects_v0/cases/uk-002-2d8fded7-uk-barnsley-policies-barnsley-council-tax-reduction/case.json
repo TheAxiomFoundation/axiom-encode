@@ -361,6 +361,187 @@
     "requested_citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "barnsley_council_tax_reduction_protected_group",
+      "barnsley_council_tax_reduction_band_1_upper_income_weekly_by_household_category",
+      "barnsley_council_tax_reduction_income_band",
+      "barnsley_council_tax_reduction_selected_support_rate",
+      "barnsley_council_tax_reduction_support_rate_by_income_band",
+      "barnsley_council_tax_reduction_band_4_code",
+      "simulated_barnsley_council_tax_reduction_annual_amount",
+      "barnsley_council_tax_reduction_single_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_couple_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_family_one_child_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_family_two_plus_children_band_1_upper_income_weekly"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "4 25% £240.58 £296.45 £384.33 £472.21",
+        "where": [
+          "barnsley_council_tax_reduction_band_4_code.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "85% £98.05 £153.92 £241.80 £329.68",
+        "where": [
+          "barnsley_council_tax_reduction_band_1_upper_income_weekly_by_household_category.versions[0].values"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The income bands reflect household status (single, couple, one or two children).",
+        "where": [
+          "barnsley_council_tax_reduction_protected_group.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-53",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The percentage amount of reduction awarded depends on where the applicant’s income, as calculated below, falls in the income ranges listed in the table.",
+        "where": [
+          "barnsley_council_tax_reduction_income_band.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-53",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.",
+        "where": [
+          "barnsley_council_tax_reduction_protected_group.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a flat-rate deduction of £7.50 is applied for each non- dependant",
+        "where": [
+          "simulated_barnsley_council_tax_reduction_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-14",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "pre",
+        "text": "1 90% Applied to protected groups (see below) 85% £98.05 £153.92 £241.80 £329.68 2 70% £145.56 £201.43 £289.31 £377.19 3 50% £193.07 £248.94 £336.82 £424.70 4 25% £240.58 £296.45 £384.33 £472.21 No Discount",
+        "where": [
+          "barnsley_council_tax_reduction_selected_support_rate.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "pre",
+        "text": "Band Discount Single: Income up to Couple: Income up to Family with 1 Child: Income up to Family with 2+ Children: Income up to 1 90% Applied to protected groups (see below) 85% £98.05 £153.92 £241.80 £329.68 2 70% £145.56 £201.43 £289.31 £377.19 3 50% £193.07 £248.94 £336.82 £424.70 4 25% £240.58 £296.45 £384.33 £472.21 No Discount Above £240.58 Above £296.45 Above £384.33 Above £472.21",
+        "where": [
+          "barnsley_council_tax_reduction_support_rate_by_income_band.versions[0].values"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "pre",
+        "text": "Protected groups receive a maximum 90% reduction.",
+        "where": [
+          "simulated_barnsley_council_tax_reduction_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.9",
+        "where": [
+          "barnsley_council_tax_reduction_support_rate_by_income_band.versions[0].values"
+        ],
+        "forms": [
+          "0.9",
+          "90 percent",
+          "90 per cent",
+          "90%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a numeric value, rate, threshold, table cell ... was wrong versus the source",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "have no earnings and fall within the band 1 income from the table above.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the single-person column applied to all household types,",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 5,
+    "pre_side_tested": 4,
+    "pre_side_matched": 4,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

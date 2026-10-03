@@ -171,6 +171,191 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "dependent_exemption_amount",
+      "joint_return_personal_exemption_amount",
+      "separate_return_personal_exemption_amount",
+      "other_taxpayer_personal_exemption_amount",
+      "personal_exemption_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$4,000.00 for each dependent",
+        "where": [
+          "dependent_exemption_amount.versions[1].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2024/hb1021/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$5,000.00 for each dependent",
+        "where": [
+          "dependent_exemption_amount.versions[2].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2023-12-31",
+        "where": [
+          "dependent_exemption_amount.versions[0].effective_to",
+          "joint_return_personal_exemption_amount.versions[0].effective_to",
+          "other_taxpayer_personal_exemption_amount.versions[0].effective_to",
+          "personal_exemption_deduction.versions[0].effective_to",
+          "separate_return_personal_exemption_amount.versions[0].effective_to"
+        ],
+        "forms": [
+          "2023-12-31",
+          "December 31, 2023",
+          "31 December 2023"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2024-01-01",
+        "where": [
+          "dependent_exemption_amount.versions[1].effective_from"
+        ],
+        "forms": [
+          "2024-01-01",
+          "January 1, 2024",
+          "1 January 2024"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-12-31",
+        "where": [
+          "dependent_exemption_amount.versions[1].effective_to"
+        ],
+        "forms": [
+          "2025-12-31",
+          "December 31, 2025",
+          "31 December 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "dependent_exemption_amount.versions[2].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "4000",
+        "where": [
+          "dependent_exemption_amount.versions[1].formula"
+        ],
+        "forms": [
+          "4000",
+          "4,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "5000",
+        "where": [
+          "dependent_exemption_amount.versions[2].formula"
+        ],
+        "forms": [
+          "5000",
+          "5,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a personal exemption in the amount of $3,000.00 $4,000.00 for each dependent",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "applicable to all taxable years beginning on or after January 1, 2024",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00, provided that such increases in such deduction shall be subject to the same delays as those applied to standard",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "repair Georgia PIT law through 2027, including 2026 standard/dependent amounts",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

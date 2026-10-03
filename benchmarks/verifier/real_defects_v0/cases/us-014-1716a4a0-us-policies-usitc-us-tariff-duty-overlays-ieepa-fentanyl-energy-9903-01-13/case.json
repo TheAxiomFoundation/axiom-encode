@@ -176,6 +176,233 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "fentanyl_energy_chapter_98_exclusion_applies",
+      "fentanyl_energy_transshipment_in_lieu_applies",
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection (\"CBP\"), and whenever CBP agrees that entry under such a provision is appropriate",
+        "where": [
+          "fentanyl_energy_chapter_98_exclusion_applies.versions[0].formula",
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "products of Canada that do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA) and are determined by U.S. Customs and Border Protection (“CBP”) to have been transshipped to evade applicable duties provided for by headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "where": [
+          "fentanyl_energy_transshipment_in_lieu_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "products of Canada that do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA) and are determined by U.S. Customs and Border Protection (“CBP”) to have been transshipped to evade applicable duties provided for by headings 9903.01.10, 9903.01.13, or 9903.01.15 shall be subject to an additional 40% ad valorem rate of duty in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall be subject to an additional 40% ad valorem rate of duty in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15",
+        "where": [
+          "fentanyl_energy_transshipment_in_lieu_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles that are entered free of duty under the terms of general note 11 to the HTSUS, including any treatment set forth in subchapter XXIII of chapter 98 and subchapter XXII of chapter 99 of the HTS, as related to the USMCA.",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.14",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada that are donations, by persons subject to the jurisdiction of the United States, of articles, such as food, clothing, and medicine, intended to be used to relieve human suffering, as provided for in U.S. note 2(k) to this subchapter",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.11",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada that are informational materials, including but not limited to, publications, films, posters, phonograph records, photographs, microfilms, microfiche, tapes, compact disks, CD ROMs, artworks, and news wire feeds",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Crude oil, natural gas, lease condensates, natural gas liquids, refined petroleum products, uranium, coal, biofuels, geothermal heat, the kinetic movement of flowing water, and critical minerals",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.13",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.14 and 9903.01.15 and other than products for personal use included in accompanied baggage of persons arriving in the United States, articles the product of Canada:",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.13",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.13, the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Canada, as provided for in U.S. note 2(I) to this subchapter",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.15",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "fentanyl_energy_chapter_98_exclusion_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "fentanyl_energy_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-174",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "fentanyl_energy_transshipment_in_lieu_applies.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "), and whenever CBP agrees that entry under such a provision is appropriate",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...pursuant to applicable regulations of U.S. Customs and Border Protection (\\",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA)",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "products of Canada that do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA) and are determined by ... CBP ... to have been transshipped to evade applicable duties",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whenever CBP agrees that entry under such a provision is appropriate",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

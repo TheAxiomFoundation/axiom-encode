@@ -88,6 +88,237 @@
     "requested_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "worthing_council_tax_reduction_daily_taper_rate",
+      "worthing_council_tax_reduction_taper_whole_percentage_points",
+      "worthing_council_tax_reduction_taper_fraction_numerator",
+      "worthing_council_tax_reduction_taper_fraction_denominator",
+      "worthing_council_tax_reduction_percent_divisor",
+      "worthing_council_tax_reduction_award_conditions_met"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "100.0 Extended reductions (qualifying contributory benefits).",
+        "where": [
+          "worthing_council_tax_reduction_percent_divisor.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-83",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent",
+        "where": [
+          "worthing_council_tax_reduction_taper_whole_percentage_points.versions[0].formula",
+          "worthing_council_tax_reduction_taper_fraction_numerator.versions[0].formula",
+          "worthing_council_tax_reduction_taper_fraction_denominator.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "that person's maximum council tax reduction amount in respect of a day is 100 per cent of the amount A/B where:",
+        "where": [
+          "worthing_council_tax_reduction_percent_divisor.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-40",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount",
+        "where": [
+          "worthing_council_tax_reduction_daily_taper_rate.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "in respect of whom amount A exceeds amount B where—",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "who has made an application.",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "whose income (if any) for the relevant week is less than his applicable amount,",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "whose income for the relevant week is greater than his applicable amount;",
+        "where": [
+          "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
+        ],
+        "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "100",
+        "where": [
+          "worthing_council_tax_reduction_percent_divisor.versions[0].formula"
+        ],
+        "forms": [
+          "100"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-04-01",
+        "where": [
+          "worthing_council_tax_reduction_percent_divisor.versions[0].effective_from",
+          "worthing_council_tax_reduction_taper_fraction_denominator.versions[0].effective_from",
+          "worthing_council_tax_reduction_taper_fraction_numerator.versions[0].effective_from",
+          "worthing_council_tax_reduction_taper_whole_percentage_points.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-01",
+          "April 1, 2026",
+          "1 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.0285714285714285714285714286",
+        "where": [
+          "worthing_council_tax_reduction_daily_taper_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.0285714285714285714285714286",
+          "2.85714285714285714285714286 percent",
+          "2.85714285714285714285714286 per cent",
+          "2.85714285714285714285714286%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", so the derived weekly taper evaluated to 0.2000000000000000000000000002 rather than exactly 20 percent - a genuine but de-minimis (2e-28) numeric departure from the source, while the commit's other change (Class D",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". The Class D/E boundary change is affirmatively wrong, not a fix: the pinned corpus prints",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "; the pre-fix literal is already the correctly-rounded 28-decimal value of 20/700 and already carried the correct proof atom citing that exact sentence, so the only change in encoded meaning is the derived weekly rate moving from 0.2000000000000000000000000002 to 0.2 — a 2e-28 artifact of representing a repeating fraction in the engine's 28-digit decimal type (2e-26 GBP on £100 of excess income), i.e. added precision the module never misstated, which the task rules cap at",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The percent-divisor form (/100) cannot ground: the validator rejects the literal 100 against both the taper sentence and the page-40 maximum provision.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose income (if any) for the relevant week is less than his applicable amount",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose income for the relevant week is greater than his applicable amount",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

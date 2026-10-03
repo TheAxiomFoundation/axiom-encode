@@ -44,6 +44,12 @@ _SPEC = importlib.util.spec_from_file_location(
 assert _SPEC is not None and _SPEC.loader is not None
 lib = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(lib)
+_EVIDENCE_SPEC = importlib.util.spec_from_file_location(
+    "check_evidence", Path(__file__).resolve().parent / "check_evidence.py"
+)
+assert _EVIDENCE_SPEC is not None and _EVIDENCE_SPEC.loader is not None
+evidence = importlib.util.module_from_spec(_EVIDENCE_SPEC)
+_EVIDENCE_SPEC.loader.exec_module(evidence)
 
 MAIN_REF = "origin/main"
 FIRST_PARENT_PROBE = 400
@@ -309,6 +315,101 @@ def assign_families(cases: list[dict[str, Any]]) -> None:
             case["family_representative"] = position == 0
 
 
+def apply_evidence_check(cases_dir: Path) -> dict[str, int]:
+    """Write ``evidence_in_provision`` and ``evidence_check`` into every case.
+
+    Runs after the shipping policy: a metadata-only case has no shipped files
+    to test and is recorded as ``unknown`` (see ``tools/check_evidence.py``).
+    """
+
+    counts = dict.fromkeys(evidence.STATUSES, 0)
+    for case_path in sorted(cases_dir.glob("*/case.json")):
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        status, check = evidence.check_case_dir(case_path.parent, case)
+        counts[status] += 1
+        case_path.write_text(
+            json.dumps(
+                evidence.with_evidence(case, status, check),
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    return counts
+
+
+def _tally(cases: list[dict[str, Any]], key: str, values: Any) -> dict[str, int]:
+    return {value: sum(1 for c in cases if c.get(key) == value) for value in values}
+
+
+def build_index(
+    cases: list[dict[str, Any]], *, shipping_policy: str, dropped_at_build: int
+) -> dict[str, Any]:
+    """The corpus index: per-case entries and every count, from the case records."""
+
+    representatives = [c for c in cases if c["family_representative"]]
+    fidelity_representatives = [
+        c for c in representatives if c["triage_status"] == "fidelity"
+    ]
+    return {
+        "schema_version": "real_defects/v0",
+        "shipping_policy": shipping_policy,
+        "generated_from": {
+            "triage_record": "triage/triage_merged.json",
+            "rulespec_main_ref": MAIN_REF,
+        },
+        "counts": {
+            "cases": len(cases),
+            "by_jurisdiction": _tally(cases, "jurisdiction", ("us", "uk")),
+            "by_kind": _tally(cases, "defect_kind", lib.DEFECT_KINDS),
+            "by_triage_status": _tally(
+                cases, "triage_status", sorted({c["triage_status"] for c in cases})
+            ),
+            "by_fix_stage": _tally(
+                cases, "fix_stage", sorted({c["fix_stage"] for c in cases})
+            ),
+            "dropped_at_build": dropped_at_build,
+            "artifacts_shipped": sum(1 for c in cases if c["artifacts_shipped"]),
+            "metadata_only": sum(1 for c in cases if not c["artifacts_shipped"]),
+            "families": len({c["family_id"] for c in cases}),
+            "family_representatives": len(representatives),
+            "by_kind_representatives": _tally(
+                representatives, "defect_kind", lib.DEFECT_KINDS
+            ),
+            "fidelity_representatives": len(fidelity_representatives),
+            "by_evidence_in_provision": _tally(
+                cases, "evidence_in_provision", evidence.STATUSES
+            ),
+            "by_evidence_in_provision_fidelity_representatives": _tally(
+                fidelity_representatives, "evidence_in_provision", evidence.STATUSES
+            ),
+        },
+        "cases": [
+            {
+                "id": c["id"],
+                "jurisdiction": c["jurisdiction"],
+                "commit": c["commit"],
+                "module_path": c["module_path"],
+                "corpus_citation_path": c["corpus_citation_path"],
+                "corpus_release": c["corpus_release"],
+                "defect_kind": c["defect_kind"],
+                "confidence": c["confidence"],
+                "triage_status": c["triage_status"],
+                "fix_stage": c["fix_stage"],
+                "provision_chars": c["provision_chars"],
+                "evidence_in_provision": c["evidence_in_provision"],
+                "pr_url": c["pr_url"],
+                "family_id": c["family_id"],
+                "family_size": c["family_size"],
+                "family_representative": c["family_representative"],
+                "artifacts_shipped": c["artifacts_shipped"],
+            }
+            for c in cases
+        ],
+    }
+
+
 def build_case(
     row: dict[str, Any],
     *,
@@ -461,16 +562,25 @@ def main(argv: list[str] | None = None) -> int:
     corpus_dir = args.corpus_dir
     if args.apply_shipping_policy_only:
         shipping = apply_shipping_policy(corpus_dir / "cases", args.ship_artifacts)
+        apply_evidence_check(corpus_dir / "cases")
         index_path = corpus_dir / "index.json"
-        index = json.loads(index_path.read_text(encoding="utf-8"))
-        index["counts"].update(shipping)
-        index["shipping_policy"] = args.ship_artifacts
-        by_id = {
-            p.parent.name: json.loads(p.read_text(encoding="utf-8"))
-            for p in (corpus_dir / "cases").glob("*/case.json")
-        }
-        for entry in index["cases"]:
-            entry["artifacts_shipped"] = by_id[entry["id"]]["artifacts_shipped"]
+        order = [
+            e["id"] for e in json.loads(index_path.read_text(encoding="utf-8"))["cases"]
+        ]
+        build_log = json.loads(
+            (corpus_dir / "triage" / "build_log.json").read_text(encoding="utf-8")
+        )
+        cases = [
+            json.loads(
+                (corpus_dir / "cases" / cid / "case.json").read_text(encoding="utf-8")
+            )
+            for cid in order
+        ]
+        index = build_index(
+            cases,
+            shipping_policy=args.ship_artifacts,
+            dropped_at_build=len(build_log["dropped"]),
+        )
         index_path.write_text(
             json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -542,74 +652,15 @@ def main(argv: list[str] | None = None) -> int:
         case_path.write_text(
             json.dumps(case, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-    shipping = apply_shipping_policy(cases_dir, args.ship_artifacts)
-    for case in built:
-        case["artifacts_shipped"] = json.loads(
-            (cases_dir / case["id"] / "case.json").read_text(encoding="utf-8")
-        )["artifacts_shipped"]
-    families = {c["family_id"] for c in built}
-    index = {
-        "schema_version": "real_defects/v0",
-        "shipping_policy": args.ship_artifacts,
-        "generated_from": {
-            "triage_record": "triage/triage_merged.json",
-            "rulespec_main_ref": MAIN_REF,
-        },
-        "counts": {
-            "cases": len(built),
-            "by_jurisdiction": {
-                jur: sum(1 for c in built if c["jurisdiction"] == jur)
-                for jur in ("us", "uk")
-            },
-            "by_kind": {
-                kind: sum(1 for c in built if c["defect_kind"] == kind)
-                for kind in lib.DEFECT_KINDS
-            },
-            "by_triage_status": {
-                status: sum(1 for c in built if c["triage_status"] == status)
-                for status in sorted({c["triage_status"] for c in built})
-            },
-            "by_fix_stage": {
-                stage: sum(1 for c in built if c["fix_stage"] == stage)
-                for stage in sorted({c["fix_stage"] for c in built})
-            },
-            "dropped_at_build": len(dropped),
-            **shipping,
-            "families": len(families),
-            "family_representatives": sum(
-                1 for c in built if c["family_representative"]
-            ),
-            "by_kind_representatives": {
-                kind: sum(
-                    1
-                    for c in built
-                    if c["defect_kind"] == kind and c["family_representative"]
-                )
-                for kind in lib.DEFECT_KINDS
-            },
-        },
-        "cases": [
-            {
-                "id": c["id"],
-                "jurisdiction": c["jurisdiction"],
-                "commit": c["commit"],
-                "module_path": c["module_path"],
-                "corpus_citation_path": c["corpus_citation_path"],
-                "corpus_release": c["corpus_release"],
-                "defect_kind": c["defect_kind"],
-                "confidence": c["confidence"],
-                "triage_status": c["triage_status"],
-                "fix_stage": c["fix_stage"],
-                "provision_chars": c["provision_chars"],
-                "pr_url": c["pr_url"],
-                "family_id": c["family_id"],
-                "family_size": c["family_size"],
-                "family_representative": c["family_representative"],
-                "artifacts_shipped": c["artifacts_shipped"],
-            }
-            for c in built
-        ],
-    }
+    apply_shipping_policy(cases_dir, args.ship_artifacts)
+    apply_evidence_check(cases_dir)
+    built = [
+        json.loads((cases_dir / case["id"] / "case.json").read_text(encoding="utf-8"))
+        for case in built
+    ]
+    index = build_index(
+        built, shipping_policy=args.ship_artifacts, dropped_at_build=len(dropped)
+    )
     (corpus_dir / "index.json").write_text(
         json.dumps(index, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

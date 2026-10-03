@@ -336,6 +336,64 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "household_barred_from_increased_benefits_due_to_member_disqualification",
+      "permanently_ineligible",
+      "ineligible_for_one_year",
+      "ineligible_for_two_years",
+      "intentional_program_violation_determination"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2008-10-01",
+        "where": [
+          "household_barred_from_increased_benefits_due_to_member_disqualification.versions[0].effective_from",
+          "ineligible_for_one_year.versions[0].effective_from",
+          "ineligible_for_two_years.versions[0].effective_from",
+          "permanently_ineligible.versions[0].effective_from"
+        ],
+        "forms": [
+          "2008-10-01",
+          "October 1, 2008",
+          "1 October 2008"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "During the period of such ineligibility, no household shall receive increased benefits...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Such periods of ineligibility ... shall remain in effect",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

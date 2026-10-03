@@ -63,6 +63,63 @@
     "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "sets_sc_current_snap_individual_utility_allowance",
+      "sc_current_snap_individual_utility_allowance_state_value"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "order current SC utility setters after 2009 revision",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "page 159's current $27 telephone allowance takes precedence over page 369's 2009-era $33 via import-first ordering (369 untouched)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "page-369 $33 unconditional setter collision with the new $27 hook",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— so before the fix the 2009 vintage could bind current periods, which is the taxonomy's",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

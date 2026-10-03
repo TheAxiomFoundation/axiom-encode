@@ -134,6 +134,76 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "service_excluded_from_employment",
+      "employment",
+      "indian_tribal_council_member_service_excluded_from_employment"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except that this paragraph shall not apply in the case of service included under an agreement under section 218A of the Social Security Act",
+        "where": [
+          "indian_tribal_council_member_service_excluded_from_employment.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3121",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "service performed by members of Indian tribal councils as tribal council members in the employ of an Indian tribal government",
+        "where": [
+          "indian_tribal_council_member_service_excluded_from_employment.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3121",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(B) service performed in the employ of a church or qualified church-controlled organization if such church or organization has in effect an election under subsection (w), other than service in an unrelated trade or business (within the meaning of section 513(a))",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "+        A complete executable exclusion aggregator must include paragraph (8)(B), ... The copied child file for 26 USC 3121(b)(8) defers that branch because no executable RuleSpec context provides the section 513(a) unrelated-trade-or-business definition. Omitting that branch would make the aggregate exclusion underinclusive.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "module asserted an output whose dependency could not be grounded",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

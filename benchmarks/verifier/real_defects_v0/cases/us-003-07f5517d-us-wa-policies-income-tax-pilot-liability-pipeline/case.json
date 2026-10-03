@@ -70,6 +70,101 @@
     "requested_citation_path": "us-wa/statute/82/82.87/82.87.040",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "wa_pit_pilot_taxable_income",
+      "wa_pit_pilot_schedule_tax",
+      "wa_pit_pilot_income_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "wa_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "wa_pit_pilot_schedule_tax.versions[0].effective_to",
+          "wa_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ": the version window is encoded meaning and the engine behavior for 2027 genuinely changes (probes now fail closed) — the change just isn't a correction against the cited source. A reviewer who holds that in this repo an open version window is itself an ungrounded claim about unvalidated periods could reasonably keep this as",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A standard deduction of $250,000 per individual... The amount of the standard deduction shall be adjusted pursuant to RCW 82.87.150",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Beginning January 1, 2022 ... Beginning January 1, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "per the PR), so there is not even an internal inconsistency between bounded parameters and unbounded dependents here. Verdict is not",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "truthfulness and period-boundary gaps without changing the underlying tax formulas",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "was never the alternative. The first reader's stated reading is factually off on the decisive point — it claims the module was",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

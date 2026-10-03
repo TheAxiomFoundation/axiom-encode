@@ -77,6 +77,84 @@
     "requested_citation_path": "us/statute/26/199A",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "federal_qualified_business_income_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "equal to the greater of",
+        "where": [
+          "federal_qualified_business_income_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", which a hostile reader could stretch to let (i) override the corporation exclusion; the natural reading is that (i) modifies only the lesser-of amount, since (i)(1) speaks of",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation ... there shall be allowed as a deduction",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation, except as provided in subsection (i), there shall be allowed as a deduction...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whether the taxpayer is a corporation and therefore outside section 199A(a)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

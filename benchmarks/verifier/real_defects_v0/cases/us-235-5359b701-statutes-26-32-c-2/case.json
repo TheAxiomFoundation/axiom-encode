@@ -118,6 +118,124 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "self_employment_earned_income_component",
+      "earned_income_before_section_112_election",
+      "earned_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)",
+        "where": [
+          "self_employment_earned_income_component.versions[0].formula"
+        ],
+        "cites": "us/statute/26/32",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The term “earned income” means— (i) wages, salaries, tips, and other employee compensation ... plus (ii) the amount of the taxpayer’s net earnings from self-employment for the taxable year",
+        "where": [
+          "earned_income_before_section_112_election.versions[0].formula",
+          "earned_income.versions[0].formula"
+        ],
+        "cites": "us/statute/26/32",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)",
+        "where": [
+          "earned_income.versions[0].formula"
+        ],
+        "cites": "us/statute/26/32",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1990-01-01",
+        "where": [
+          "self_employment_earned_income_component.versions[0].effective_from"
+        ],
+        "forms": [
+          "1990-01-01",
+          "January 1, 1990",
+          "1 January 1990"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in lieu of the deduction provided by section 164(f)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amount of the taxpayer's net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f).",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -102,6 +102,86 @@
     "requested_citation_path": "us-mt/statute/15-30-2101",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "mt_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Montana taxable income\" means federal taxable income as determined for federal income tax purposes and adjusted as provided in 15-30-2120.",
+        "where": [
+          "mt_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2101",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for every married individual who files a joint return and for every surviving spouse",
+        "where": [
+          "mt_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-mt/statute/15-30-2103",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "By November 1 of each year, the department shall multiply the subtractions ... by the inflation factor for that tax year",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The resulting amounts are effective for that tax year",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in the tax year the adoption is final",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "positive federal EITC with zero earned-income denominator fails closed",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

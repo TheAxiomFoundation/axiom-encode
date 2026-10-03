@@ -91,6 +91,122 @@
     "requested_citation_path": "us-ca/regulation/mpp/63-410.321",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "person_under_18_or_50_years_of_age_or_over"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2023-08-31",
+        "where": [
+          "person_under_18_or_50_years_of_age_or_over.versions[0].effective_to"
+        ],
+        "forms": [
+          "2023-08-31",
+          "August 31, 2023",
+          "31 August 2023"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2025-06-30",
+        "where": [
+          "person_under_18_or_50_years_of_age_or_over.versions[0].effective_to"
+        ],
+        "forms": [
+          "2025-06-30",
+          "June 30, 2025",
+          "30 June 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(A) under 18, or over 65, years of age;",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Under 18 or 50 years of age or over;",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "preserved a legally obsolete result across the FRA phase-in,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "state never shipped; if the corpus is meant to hold defects that reached main, this case is a branch-internal audit fix, though the meaning change is real either way. (2) Source checks I ran through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): us/statute/7/2015/o/3 resolves to",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "to any application for initial certification or recertification received starting 90 days after the date of enactment",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "under 18 or over 50 years of age;",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "under 18, or over 65, years of age;",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 1,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

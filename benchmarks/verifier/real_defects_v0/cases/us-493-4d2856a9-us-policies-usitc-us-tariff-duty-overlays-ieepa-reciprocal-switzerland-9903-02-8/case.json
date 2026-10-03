@@ -236,6 +236,129 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_switzerland_column_1_general_duty_threshold",
+      "reciprocal_switzerland_floor_duty_rate",
+      "reciprocal_switzerland_below_floor_heading_product_exception_applies",
+      "reciprocal_switzerland_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_switzerland_floor_duty_applies",
+      "reciprocal_switzerland_below_floor_general_duty_rate",
+      "reciprocal_switzerland_below_floor_special_duty_rate",
+      "reciprocal_switzerland_below_floor_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows:",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-11-14",
+        "where": [
+          "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_column_1_general_duty_threshold.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-11-14",
+          "November 14, 2025",
+          "14 November 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-15",
+        "where": [
+          "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_column_1_general_duty_threshold.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 ... is modified as follows:",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

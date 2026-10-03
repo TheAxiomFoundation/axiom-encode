@@ -172,6 +172,74 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "general_chairman_service_remuneration_regarded_as_compensation"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "no part of such remuneration shall be regarded as compensation",
+        "where": [
+          "general_chairman_service_remuneration_regarded_as_compensation.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3231",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "only such proportion of the remuneration for such service shall be regarded as compensation",
+        "where": [
+          "general_chairman_service_remuneration_regarded_as_compensation.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3231",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "apply signed encoder output/repairs only; no generated RuleSpec files were hand-edited",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "he acts in the capacity of a general chairman ... but in such case if his office or headquarters is not located in the United States and the individuals represented ... only such proportion of the remuneration for such service shall be regarded as compensation",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "he acts in the capacity of a general chairman or an assistant general chairman of a general committee which represents individuals rendering service in the United States to an employer, but in such case if his office or headquarters is not located in the United States and the individuals represented by such general committee are employees of an employer not conducting the principal part of its business in the United States, only such proportion of the remuneration ... shall be regarded as compensation ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

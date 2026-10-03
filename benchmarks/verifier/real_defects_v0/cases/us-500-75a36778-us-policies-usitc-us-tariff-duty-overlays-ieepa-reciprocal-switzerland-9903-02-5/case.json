@@ -208,6 +208,83 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_switzerland_additional_duty_rate",
+      "reciprocal_switzerland_in_transit_exception_applies",
+      "reciprocal_switzerland_heading_product_exception_applies",
+      "reciprocal_switzerland_otherwise_provision_exception_applies",
+      "reciprocal_switzerland_additional_duty_applies",
+      "reciprocal_switzerland_additional_duty",
+      "reciprocal_switzerland_general_duty_rate",
+      "reciprocal_switzerland_special_duty_rate",
+      "reciprocal_switzerland_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+        "where": [
+          "reciprocal_switzerland_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_switzerland_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_switzerland_additional_duty.versions[0].effective_to",
+          "reciprocal_switzerland_general_duty_rate.versions[0].effective_to",
+          "reciprocal_switzerland_special_duty_rate.versions[0].effective_to",
+          "reciprocal_switzerland_column_2_duty_change.versions[0].effective_to"
+        ],
+        "cites": "us/statute/hts/9903.02.58",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-14",
+        "where": [
+          "reciprocal_switzerland_additional_duty.versions[0].effective_to",
+          "reciprocal_switzerland_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_switzerland_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_switzerland_column_2_duty_change.versions[0].effective_to",
+          "reciprocal_switzerland_general_duty_rate.versions[0].effective_to",
+          "reciprocal_switzerland_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_switzerland_special_duty_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-02-14",
+          "February 14, 2026",
+          "14 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+        "where": [
+          "triage.verifier_justification",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

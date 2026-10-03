@@ -306,6 +306,138 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ctc_social_security_tax",
+      "ctc_social_security_half_share",
+      "ctc_phase_in_earned_income_base",
+      "ctc_refundable_phase_in_threshold",
+      "ctc_refundable_cap",
+      "refundable_ctc",
+      "non_refundable_ctc"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.5",
+        "where": [
+          "ctc_social_security_half_share.versions[0].formula"
+        ],
+        "forms": [
+          "0.5",
+          "50 percent",
+          "50 per cent",
+          "50%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "ctc_phase_in_earned_income_base.versions[0].effective_from",
+          "ctc_social_security_half_share.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "3000",
+        "where": [
+          "ctc_refundable_phase_in_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "3000",
+          "3,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2500",
+        "where": [
+          "ctc_refundable_phase_in_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "2500",
+          "2,500"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", and the 24/h import dropped. In the pinned release 24(h)(1) reads",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "50 percent of the taxes imposed by section 3211(a)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Any amounts paid pursuant to an agreement under section 3121( l ) ... shall be treated as taxes referred to in such subparagraph",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of a taxable year beginning after December 31, 2017, this section shall be applied as provided in paragraphs (2) through (7)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "any amount excluded from gross income by reason of section 112 shall be treated as earned income",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 5,
+    "pre_side_tested": 1,
+    "pre_side_matched": 1,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

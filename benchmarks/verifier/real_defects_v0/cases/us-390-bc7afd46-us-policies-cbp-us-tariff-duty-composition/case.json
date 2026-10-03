@@ -286,6 +286,98 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "forced_labor_section_301_entry_component_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles that are donations by persons subject to the jurisdiction of the United States, such as food, clothing and medicine, intended to be used to relieve human suffering",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.91",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles that are informational materials, including but not limited to publications, films, posters, phonograph records, photographs, microfilms, microfiche, tapes, compact disks, CD ROMs, artworks and news wire feeds",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.92",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except as provided in headings 9903.05.85–9903.06.21 and in subdivisions (b) through (k) of this note, and other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.93",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "headings 9903.05.20–9903.05.84 impose additional ad valorem rates of duty on imports of all products of the countries provided for in these headings",
+        "where": [
+          "forced_labor_section_301_entry_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Articles that are donations by persons subject to the jurisdiction of the United States, such as food, clothing and medicine, intended to be used to relieve human suffering",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

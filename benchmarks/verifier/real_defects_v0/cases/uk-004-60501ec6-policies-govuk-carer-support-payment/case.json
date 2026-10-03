@@ -189,6 +189,183 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "entitled_to_carer_support_payment",
+      "carer_support_payment_weekly_earnings_limit",
+      "carer_support_payment_weekly_amount",
+      "carer_support_payment_annual_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "It has replaced Carer's Allowance Supplement",
+        "where": [
+          "carer_support_payment_weekly_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Up to £86.45 a week",
+        "where": [
+          "carer_support_payment_weekly_amount.versions[0].formula",
+          "carer_support_payment_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "be aged 16 or over",
+        "where": [
+          "entitled_to_carer_support_payment.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "provide unpaid care for 35 hours or more a week",
+        "where": [
+          "entitled_to_carer_support_payment.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/carer-support-payment/who-can-apply",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "take home pay' cannot be more than £204 a week",
+        "where": [
+          "carer_support_payment_weekly_earnings_limit.versions[0].formula"
+        ],
+        "cites": "uk/guidance/mygovscot/carer-support-payment/if-you-work",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "carer_support_payment_annual_amount.versions[0].effective_from",
+          "carer_support_payment_weekly_amount.versions[0].effective_from",
+          "entitled_to_carer_support_payment.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "204",
+        "where": [
+          "carer_support_payment_weekly_earnings_limit.versions[0].formula"
+        ],
+        "forms": [
+          "204"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The person you care for must get a qualifying disability benefit",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You can apply for Carer Support Payment if you provide unpaid care for 35 hours or more a week and you must be aged 16 or over",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You can apply for Carer Support Payment if you provide unpaid care for 35 hours or more a week and you must be aged 16 or over. You must usually live in Scotland. The person you care for must get a qualifying disability benefit.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Your 'take home pay' cannot be more than £204 a week",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Your 'take home pay' cannot be more than £204 a week.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "take home pay' cannot be more than £204 a week",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "those surfaces are the old pattern this PR removes (\\",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 14,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

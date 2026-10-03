@@ -163,6 +163,203 @@
     "requested_citation_path": "us/statute/26/199A",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "pipeline_qualified_business_income_threshold_amount",
+      "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction",
+      "federal_qualified_business_income_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of any taxable year beginning after 2026, the $400 amount ... and the $1,000 amount ... shall each be increased",
+        "where": [
+          "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction.versions[0].effective_to",
+          "federal_qualified_business_income_deduction.versions[0].effective_to"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "aggregate qualified business income with respect to all active qualified trades or businesses ... is at least $1,000",
+        "where": [
+          "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Filing Status Threshold amount",
+        "where": [
+          "pipeline_qualified_business_income_threshold_amount.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-22",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of a taxpayer other than a corporation",
+        "where": [
+          "federal_qualified_business_income_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "equal to the greater of",
+        "where": [
+          "federal_qualified_business_income_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the sum of the amounts determined under paragraph (2) for each qualified trade or business carried on by the taxpayer",
+        "where": [
+          "federal_qualified_business_income_deduction.versions[0].formula"
+        ],
+        "cites": "us/statute/26/199A",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "pipeline_applicable_taxpayer_for_minimum_active_qbi_deduction.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". PR #1004's final body describes the head as importing",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of any taxable year beginning after 2026",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of any taxable year beginning after 2026, the $400 amount in paragraph (1)(B) and the $1,000 amount in paragraph (2)(A) shall each be increased",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Replaced the QBID threshold runtime input with the PR #1009 Rev. Proc. module import and replaced the caller-supplied COLA with the unadjusted statutory $1,000/$400 bases for 2026.",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "RuleSpec imports cannot substitute the official 2026 amount",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Section 199A(i)(3) adjustment used only after 2026; zero for the tax-year-2026 fixtures",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "accepts the applicable Revenue Procedure 2025-32 threshold as a runtime input",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the 9th (threshold provenance) by the #1009 import at this head",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

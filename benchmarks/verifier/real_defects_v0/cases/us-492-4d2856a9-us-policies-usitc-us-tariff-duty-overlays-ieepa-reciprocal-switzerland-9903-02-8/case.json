@@ -223,6 +223,134 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_switzerland_column_1_general_duty_threshold_rate",
+      "reciprocal_switzerland_floor_heading_product_exception_applies",
+      "reciprocal_switzerland_floor_otherwise_provision_exception_applies",
+      "reciprocal_switzerland_floor_additional_duty_applies",
+      "reciprocal_switzerland_floor_general_duty_rate",
+      "reciprocal_switzerland_floor_special_duty_rate",
+      "reciprocal_switzerland_floor_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows:",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_additional_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_additional_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-11-14",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_additional_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_switzerland_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_special_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-11-14",
+          "November 14, 2025",
+          "14 November 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2025-08-07",
+        "where": [
+          "reciprocal_switzerland_column_1_general_duty_threshold_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_additional_duty_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_switzerland_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_switzerland_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_switzerland_floor_special_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-08-07",
+          "August 7, 2025",
+          "7 August 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated ... 7. New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— false, the module already declared versions with the wrong start; (3)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— the Swiss/Liechtenstein notice contains no Aug 7 applicability; it applies Annex II from Nov 14, 2025 and directs CBP refunds for duties already collected, so the Aug 7 start had no source basis (the EO 2025-17389 Japan retroactivity is asserted in the commit body only and I did not verify it; it concerns 9903.02.72/.73, not .82). Caveat for a reviewer: 4d2856a958 is a same-PR review round on PR #1197 (both dated 2026-08-02, PR merged 18:34Z), so this defect was introduced and corrected in flight and likely never reached main — it is still a genuine fidelity defect in encoded meaning, but it is a pre-merge catch, not a shipped regression. The commit-message quote the first reader used (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

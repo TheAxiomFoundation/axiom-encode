@@ -64,6 +64,259 @@
     "requested_citation_path": "us/statute/hts/chapter-99/page-253",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "s232_aluminum_primary_heading_membership",
+      "s232_aluminum_primary_membership"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7601",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7604",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7605",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7606",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7607",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7608",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7609",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "7616.99.51",
+        "where": [
+          "s232_aluminum_primary_membership.versions[0].values"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-253",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-08-03",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].effective_from",
+          "s232_aluminum_primary_membership.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-08-03",
+          "August 3, 2026",
+          "3 August 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7601",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7601",
+          "7,601"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7604",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7604",
+          "7,604"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7605",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7605",
+          "7,605"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7606",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7606",
+          "7,606"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7607",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7607",
+          "7,607"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7608",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7608",
+          "7,608"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "7609",
+        "where": [
+          "s232_aluminum_primary_heading_membership.versions[0].values"
+        ],
+        "forms": [
+          "7609",
+          "7,609"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "76169951",
+        "where": [
+          "s232_aluminum_primary_membership.versions[0].values"
+        ],
+        "forms": [
+          "76169951",
+          "76,169,951"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(b) The rates of duty set forth in heading 9903.85.01 and subheadings 9903.85.05 and 9903.85.06, inclusive, apply to all imported products of aluminum classifiable in the provisions enumerated in this subdivision: (i) unwrought aluminum provided for in heading 7601: (ii) bars, rods and profiles provided for in heading 7604; wire provided for in heading 7605; (iii) plates, sheets and strip provided for in heading 7606; foil provided for in heading 7607; (iv) tubes, pipes and tube or pipe fittings provided for in heading 7608 and 7609; (v) castings and forgings of aluminum provided for in subheading 7616.99.51.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 19,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

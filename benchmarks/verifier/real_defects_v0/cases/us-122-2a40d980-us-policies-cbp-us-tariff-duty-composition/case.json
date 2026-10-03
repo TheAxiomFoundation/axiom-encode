@@ -280,6 +280,198 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ieepa_component_rate_with_declared_exceptions",
+      "entry_is_fentanyl_china_excepted"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles the product of China and Hong Kong that are donations, by persons subject to the jurisdiction of the United States, of articles, such as food, clothing, and medicine, intended to be used to relieve human suffering, as provided for in U.S. note 2(t) to this subchapter",
+        "where": [
+          "entry_is_fentanyl_china_excepted.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.21",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Articles the product of China and Hong Kong that are informational materials, including but not limited to, publications, films, posters, phonograph records, photographs, microfilms, microfiche, tapes, compact disks, CD ROMs, artworks, and news wire feeds",
+        "where": [
+          "entry_is_fentanyl_china_excepted.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.22",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.21, 9903.01.22, 9903.01.23",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.24",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by heading 9903.01.24 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection (\"CBP\"), and whenever CBP agrees that entry under such a provision is appropriate, except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "entry_is_fentanyl_china_excepted.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-176",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "other than products described in heading 9903.01.21, heading 9903.01.22, heading 9903.01.23, and other than products for personal use included in accompanied baggage of persons arriving in the United States",
+        "where": [
+          "entry_is_fentanyl_china_excepted.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-176",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.02, 9903.01.03, 9903.01.04 and 9903.01.05",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.01",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption, or withdrawn from warehouse for consumption on or after 12:01 a.m., eastern standard time on November 10, 2025",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-176",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Canada, as provided for in U.S. note 2(I) to this subchapter",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.15",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Mexico, as provided for in U.S. note 2(c) to this subchapter",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.05",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "entry_is_fentanyl_china_excepted.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.21, 9903.01.22, 9903.01.23, articles the product of China and Hong Kong, as provided for in U.S. note 2(u)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption ... on or after 12:01 a.m., eastern standard time on November 10, 2025, other than products described in heading 9903.01.21, heading 9903.01.22, heading 9903.01.23, and other than products for personal use included in accompanied baggage of persons arriving in the United States, shall be subject to an additional 10% ad valorem rate of duty",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The additional duties imposed by heading 9903.01.24 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "other than products for personal use included in accompanied baggage",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 11,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

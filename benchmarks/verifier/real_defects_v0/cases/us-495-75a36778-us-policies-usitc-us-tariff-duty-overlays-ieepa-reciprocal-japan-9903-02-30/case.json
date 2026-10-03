@@ -208,6 +208,102 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_japan_additional_duty_rate",
+      "reciprocal_japan_in_transit_exception_applies",
+      "reciprocal_japan_heading_product_exception_applies",
+      "reciprocal_japan_otherwise_provision_exception_applies",
+      "reciprocal_japan_additional_duty_applies",
+      "reciprocal_japan_additional_duty",
+      "reciprocal_japan_general_duty_rate",
+      "reciprocal_japan_special_duty_rate",
+      "reciprocal_japan_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]",
+        "where": [
+          "reciprocal_japan_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_japan_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_japan_additional_duty.versions[0].effective_to",
+          "reciprocal_japan_general_duty_rate.versions[0].effective_to",
+          "reciprocal_japan_special_duty_rate.versions[0].effective_to",
+          "reciprocal_japan_column_2_duty_change.versions[0].effective_to"
+        ],
+        "cites": "us/statute/hts/9903.02.30",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-14",
+        "where": [
+          "reciprocal_japan_additional_duty.versions[0].effective_to",
+          "reciprocal_japan_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_japan_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_japan_column_2_duty_change.versions[0].effective_to",
+          "reciprocal_japan_general_duty_rate.versions[0].effective_to",
+          "reciprocal_japan_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_japan_special_duty_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-02-14",
+          "February 14, 2026",
+          "14 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...subdivision (v) of U.S. note 2 to this subchapter [Compiler's note: provision terminated. See 90 Fed. Reg. 44638]",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the last day before the successor floor headings' 2026-02-15 panel domain",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -67,6 +67,108 @@
     "requested_citation_path": "us/guidance/irs/rev-proc-2025-32/page-21",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "qualified_business_income_threshold_amount",
+      "qualified_business_income_phase_in_range_end_amount",
+      "qualified_business_income_phase_in_width"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "qualified_business_income_phase_in_range_end_amount.versions[0].effective_from",
+          "qualified_business_income_phase_in_width.versions[0].effective_from",
+          "qualified_business_income_threshold_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-12-31",
+        "where": [
+          "qualified_business_income_phase_in_range_end_amount.versions[0].effective_to",
+          "qualified_business_income_phase_in_width.versions[0].effective_to",
+          "qualified_business_income_threshold_amount.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ") with no numeric status codebook and with",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Filing status is a derived legal classification, not a factual input",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "last case is the fallthrough; pattern value unused",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— but the module summary states that inference openly (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

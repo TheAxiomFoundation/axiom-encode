@@ -182,6 +182,215 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "sc_pit_pilot_schedule_tax",
+      "sc_pit_pilot_taxable_income",
+      "sc_pit_pilot_income_tax_liability",
+      "sc_pit_pilot_lower_bracket_rate",
+      "sc_pit_pilot_upper_bracket_floor",
+      "sc_pit_pilot_upper_bracket_rate",
+      "sc_pit_pilot_upper_bracket_subtraction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$0 $30,000 1.99% times the amount",
+        "where": [
+          "sc_pit_pilot_lower_bracket_rate.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$30,000 or more 5.21% times the amount minus $966",
+        "where": [
+          "sc_pit_pilot_upper_bracket_floor.versions[0].formula",
+          "sc_pit_pilot_upper_bracket_rate.versions[0].formula",
+          "sc_pit_pilot_upper_bracket_subtraction.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$0 $30,000 1.99% times the amount",
+        "where": [
+          "sc_pit_pilot_schedule_tax.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$30,000 or more 5.21% times the amount minus $966",
+        "where": [
+          "sc_pit_pilot_schedule_tax.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a tax is imposed on the South Carolina taxable income of individuals",
+        "where": [
+          "sc_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for taxable years beginning after 2025, a tax is imposed",
+        "where": [
+          "sc_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.0199",
+        "where": [
+          "sc_pit_pilot_lower_bracket_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.0199",
+          "1.99 percent",
+          "1.99 per cent",
+          "1.99%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.0521",
+        "where": [
+          "sc_pit_pilot_upper_bracket_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.0521",
+          "5.21 percent",
+          "5.21 per cent",
+          "5.21%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "sc_pit_pilot_lower_bracket_rate.versions[0].effective_from",
+          "sc_pit_pilot_upper_bracket_floor.versions[0].effective_from",
+          "sc_pit_pilot_upper_bracket_rate.versions[0].effective_from",
+          "sc_pit_pilot_upper_bracket_subtraction.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "sc_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "sc_pit_pilot_lower_bracket_rate.versions[0].effective_to",
+          "sc_pit_pilot_schedule_tax.versions[0].effective_to",
+          "sc_pit_pilot_taxable_income.versions[0].effective_to",
+          "sc_pit_pilot_upper_bracket_floor.versions[0].effective_to",
+          "sc_pit_pilot_upper_bracket_rate.versions[0].effective_to",
+          "sc_pit_pilot_upper_bracket_subtraction.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "30000",
+        "where": [
+          "sc_pit_pilot_upper_bracket_floor.versions[0].formula"
+        ],
+        "forms": [
+          "30000",
+          "30,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "966",
+        "where": [
+          "sc_pit_pilot_upper_bracket_subtraction.versions[0].formula"
+        ],
+        "forms": [
+          "966"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "$30,000 or more 5.21% times the amount minus $966",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Bounds every policy-bearing amount and calculation to tax year 2026; 2025 and 2027 fail closed because later rates depend on future revenue determinations,",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

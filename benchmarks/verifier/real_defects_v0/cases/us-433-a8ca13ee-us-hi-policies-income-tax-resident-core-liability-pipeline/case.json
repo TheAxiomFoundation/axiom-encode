@@ -436,6 +436,443 @@
     "requested_citation_path": "us-hi/statute/235-2.3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "hi_pit_2026_tax_table_source_hold_applies",
+      "hi_pit_2026_statutory_minimum_tax_table_ceiling",
+      "hi_pit_2026_supported_profile_applies",
+      "hi_pit_2026_cdcc_creditable_expenses",
+      "hi_pit_2026_refundable_low_income_renter_credit",
+      "hi_pit_2026_refundable_child_and_dependent_care_credit",
+      "hi_pit_2026_capital_gains_worksheet_line_10",
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_renter_credit_qualified_exemption_count",
+      "hi_pit_2026_cdcc_qualifying_individual_count",
+      "hi_pit_2026_supported_profile_net_income_tax_liability",
+      "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits",
+      "hi_pit_2026_input_domain_is_valid",
+      "hi_pit_2026_filing_status_is_valid",
+      "hi_pit_2026_maximum_age_65_exemption_count",
+      "hi_pit_2026_supported_profile_refundable_excess_before_payments",
+      "hi_pit_2026_refundable_earned_income_tax_credit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In lieu of the tax imposed by section 235-51",
+        "where": [
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-53",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The term qualifying individual means",
+        "where": [
+          "hi_pit_2026_cdcc_qualifying_individual_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a person for whom exemption is claimed has been physically present in the State for more than nine months",
+        "where": [
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.85",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "amount (not less than $20,000) determined by the director",
+        "where": [
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula",
+          "hi_pit_2026_statutory_minimum_tax_table_ceiling.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-53",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "claim for credit shall be based upon a pro rata share of the rent paid",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "followed by nonrefundable tax credits",
+        "where": [
+          "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-91.5",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for the taxpayer or the taxpayer's spouse who is sixty-five years of age or older",
+        "where": [
+          "hi_pit_2026_maximum_age_65_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-54",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "has physically resided in the State for more than nine months",
+        "where": [
+          "hi_pit_2026_renter_credit_qualified_exemption_count.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$10,000 if there is one qualifying individual",
+        "where": [
+          "hi_pit_2026_cdcc_creditable_expenses.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "$20,000 if there are two or more qualifying individuals",
+        "where": [
+          "hi_pit_2026_cdcc_creditable_expenses.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Enter the smaller of line 4 or line 7",
+        "where": [
+          "hi_pit_2026_capital_gains_worksheet_line_10.versions[0].formula"
+        ],
+        "cites": "us-hi/form/individual-income-tax/2025/n-11-instructions/capital-gains-tax-worksheet",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Internal Revenue Code of 1986, as amended as of December 31, 2024",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-2.3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Line 8 minus line 9",
+        "where": [
+          "hi_pit_2026_capital_gains_worksheet_line_10.versions[0].formula"
+        ],
+        "cites": "us-hi/form/individual-income-tax/2025/n-11-instructions/capital-gains-tax-worksheet",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "adjusted gross income of less than $30,000",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "amount equal to the applicable percentage of the employment-related expenses",
+        "where": [
+          "hi_pit_2026_refundable_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "basic standard deduction",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-2.4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "credited against the tax payable",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "every resident of the State",
+        "where": [
+          "hi_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "forty per cent of the federal earned income tax credit allowed and properly claimed",
+        "where": [
+          "hi_pit_2026_refundable_earned_income_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.75",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "head of a household",
+        "where": [
+          "hi_pit_2026_filing_status_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-51",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "joint return",
+        "where": [
+          "hi_pit_2026_filing_status_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-51",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "offsetting of a taxpayer's income tax liability",
+        "where": [
+          "hi_pit_2026_supported_profile_net_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-91.5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall be reduced by the aggregate amount excludable from gross income under section 129",
+        "where": [
+          "hi_pit_2026_cdcc_creditable_expenses.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "tax credit of $50 multiplied by the number of qualified exemptions",
+        "where": [
+          "hi_pit_2026_refundable_low_income_renter_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.7",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "unmarried individual",
+        "where": [
+          "hi_pit_2026_filing_status_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-51",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "upon the taxable income of every resident of the State",
+        "where": [
+          "hi_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-4",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "using the filing status used on the federal income tax return",
+        "where": [
+          "hi_pit_2026_refundable_earned_income_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.75",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "who maintains a household which includes as a member one or more qualifying individuals",
+        "where": [
+          "hi_pit_2026_refundable_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-hi/statute/235-55.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "20000",
+        "where": [
+          "hi_pit_2026_statutory_minimum_tax_table_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "20000",
+          "20,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "hi_pit_2026_cdcc_qualifying_individual_count.versions[0].effective_from",
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].effective_from",
+          "hi_pit_2026_maximum_age_65_exemption_count.versions[0].effective_from",
+          "hi_pit_2026_renter_credit_qualified_exemption_count.versions[0].effective_from",
+          "hi_pit_2026_statutory_minimum_tax_table_ceiling.versions[0].effective_from",
+          "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits.versions[0].effective_from",
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "hi_pit_2026_cdcc_qualifying_individual_count.versions[0].effective_to",
+          "hi_pit_2026_food_credit_qualified_exemption_count.versions[0].effective_to",
+          "hi_pit_2026_maximum_age_65_exemption_count.versions[0].effective_to",
+          "hi_pit_2026_renter_credit_qualified_exemption_count.versions[0].effective_to",
+          "hi_pit_2026_statutory_minimum_tax_table_ceiling.versions[0].effective_to",
+          "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits.versions[0].effective_to",
+          "hi_pit_2026_tax_table_source_hold_applies.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "If a rental unit is occupied by two or more individuals, and more than one individual is able to qualify as a claimant, the claim for credit shall be based upon a pro rata share of the rent paid",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In lieu of the tax imposed by section 235-51",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in lieu of the tax imposed by section 235-51",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be reduced by the aggregate amount excludable from gross income under section 129",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 15,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

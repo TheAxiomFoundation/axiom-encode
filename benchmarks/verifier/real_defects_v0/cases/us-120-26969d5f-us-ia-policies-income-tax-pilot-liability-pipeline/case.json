@@ -226,6 +226,187 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ia_pit_pilot_income_tax_liability",
+      "ia_pit_pilot_schedule_tax",
+      "ia_pit_pilot_taxable_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "at a rate of three and eight-tenths percent",
+        "where": [
+          "ia_pit_pilot_schedule_tax.versions[0].formula"
+        ],
+        "cites": "us-ia/statute/422.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the portion of the net income in excess of thirteen thousand five hundred dollars",
+        "where": [
+          "ia_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-ia/statute/422.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the portion of the net income in excess of thirty-two thousand dollars",
+        "where": [
+          "ia_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-ia/statute/422.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the regular tax imposed under this subchapter shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent",
+        "where": [
+          "ia_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-ia/statute/422.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "upon and with respect to the entire taxable income as defined in this subchapter",
+        "where": [
+          "ia_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-ia/statute/422.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "ia_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "ia_pit_pilot_schedule_tax.versions[0].effective_to",
+          "ia_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A tax is imposed upon every resident and nonresident of the state",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In lieu of the computation in subsection 1 ... the regular tax imposed under this subchapter shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent times the portion of the net income in excess of thirteen thousand five hundred dollars or the regular tax liability computed without regard to this sentence",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Iowa Code section 422.5, tax imposed on taxable income",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Replaces the prior Iowa ordinary-wage pilot with a completed-return 2026 regular versus alternate-tax selector",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Values that vary by filing status, bracket, annual indexing, or the choice between standard and itemized deductions remain declared caller inputs",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "feat: add twelve state income tax liability pilots",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "or the regular tax liability computed without regard to this sentence",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent times the portion of the net income in excess of thirteen thousand five hundred dollars",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the 2026 ordinary resident childless wage-earner oracle slice",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 15,
+    "post_side_matched": 9,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

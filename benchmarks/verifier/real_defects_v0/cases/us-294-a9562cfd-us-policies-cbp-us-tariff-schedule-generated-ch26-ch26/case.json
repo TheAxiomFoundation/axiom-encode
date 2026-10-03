@@ -303,6 +303,637 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "section_122_component_rate",
+      "section_201_component_rate",
+      "section_232_aluminum_component_rate",
+      "china_section_301_component_rate",
+      "brazil_section_301_component_rate",
+      "forced_labor_section_301_component_rate",
+      "section_232_steel_component_rate",
+      "ch26_s232_steel_heading_rate",
+      "schedule_statutory_stack"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 50%",
+        "where": [
+          "ch26_s232_steel_heading_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.81.87",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "+ 10%",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.22",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "+ 12.5%",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-640",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "14%",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "14.25%",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "14.5%",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "14.75%",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "2204.10.00 2203.00.00 2206.00.45",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-273",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "7202.11.10",
+        "where": [
+          "section_122_component_rate.versions[1].formula",
+          "brazil_section_301_component_rate.versions[1].formula",
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-226",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "8541.42.00",
+        "where": [
+          "section_201_component_rate.versions[0].formula",
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Aluminum articles that are the product of Russia",
+        "where": [
+          "section_232_aluminum_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Aluminum, not alloyed",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "As provided in heading 9903.05.03, the additional duty imposed by heading 9903.05.01 shall not apply to articles the product of Brazil that are classifiable in the following subheadings of the HTSUS",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-542",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "As provided in heading 9903.05.07, the additional duty imposed by heading 9903.05.01 shall not apply to: (1) articles of aluminum, of steel or of copper",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-553",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "As provided in heading 9903.05.86, the duties imposed by headings 9903.05.20",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-555",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "February 7, 2022 through February 6, 2023",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "February 7, 2023 through February 6, 2024",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "February 7, 2024 through February 6, 2025",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "February 7, 2025 through February 6, 2026",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Footnote [general]: See 9903.88.03.",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/7202.11.10.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Footnote [general]: See 9903.88.15.",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9506.62.40",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Footnote [general]: See 9903.91.01.",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Footnote [general]: See 9903.91.02.",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/8541.42.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Footnote [general]: See U.S. note 19 to subchapter III, chapter 99.",
+        "where": [
+          "section_232_aluminum_component_rate.versions[0].formula",
+          "section_232_aluminum_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Heading 9903.88.03 applies to all products of China that are classified in the following 8-digit subheadings",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-269",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Heading 9903.91.02 applies to products of China that are classified in the following 8-digit subheadings",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2024-09-18/2024-21217",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): 10%",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.39",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): 12.5%",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.49",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.38",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 200%",
+        "where": [
+          "section_232_aluminum_component_rate.versions[0].formula",
+          "section_232_aluminum_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 25%",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.88.03",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 50%",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.91.02",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The President directed the U.S. Trade Representative to increase tariffs on solar cells to 50 percent in 2024.",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2024-09-18/2024-21217",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-28/2026-15181",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The article description of subheading 9903.45.21 is modified by deleting \"2.5\" and by inserting in lieu thereof \"5\".",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Unwrought aluminum",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/7601.10.30.00",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "[Compiler’s note: This subheading and its related note, U.S. note 18 to this subchapter, have expired. See 87 Fed. Reg. 7357.]",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.45.21",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a duty of 50% upon the value of the aluminum content",
+        "where": [
+          "section_232_aluminum_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.08",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "additional duty is applicable with respect to products that are entered  for consumption, or withdrawn from warehouse for consumption, on or  after 12:01 eastern time on July 22, 2026",
+        "where": [
+          "brazil_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-07-20/2026-14542",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "all articles imported into the United States shall be subject to a 10 percent ad valorem duty rate",
+        "where": [
+          "section_122_component_rate.versions[1].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2026-02-25/2026-03824",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles of aluminum, of steel or of copper, nor to derivative aluminum or steel articles provided for in headings 9903.82.02",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-566",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04",
+        "where": [
+          "section_122_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-230",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles the product of China, as provided for in U.S. note 20(e) to this subchapter and as provided for in the subheadings enumerated in U.S. note 20(f)",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.88.03",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles the product of China, as provided for in subdivision (c) of U.S. note 31 to this subchapter",
+        "where": [
+          "china_section_301_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.91.02",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "or note 19(m)(A) to this subchapter, as applicable per the date of entry for consumption or withdrawal from warehouse for consumption",
+        "where": [
+          "section_232_aluminum_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 10 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.38",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 12.5 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.48",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 10 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.39",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 12.5 percent",
+        "where": [
+          "forced_labor_section_301_component_rate.versions[1].formula"
+        ],
+        "cites": "us/statute/hts/9903.05.49",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with unchanging within-quota quantities of 5.0 GW for each year",
+        "where": [
+          "section_201_component_rate.versions[0].formula"
+        ],
+        "cites": "us/rulemaking/federal-register/2022-02-09/2022-02906/page-3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.5",
+        "where": [
+          "ch26_s232_steel_heading_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.5",
+          "50 percent",
+          "50 per cent",
+          "50%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "ch26_s232_steel_heading_rate.versions[0].effective_from",
+          "section_232_steel_component_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a steel component and that its ferroalloy exemplar",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

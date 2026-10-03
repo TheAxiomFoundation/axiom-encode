@@ -109,6 +109,178 @@
     "requested_citation_path": "us/statute/26/63",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ks_pit_2026_input_domain_is_valid",
+      "ks_pit_2026_single_additional_standard_deduction_count_ceiling",
+      "ks_pit_2026_joint_additional_standard_deduction_count_ceiling"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for each such deduction allowable to such individual or to such husband and wife under the federal internal revenue code",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula",
+          "ks_pit_2026_single_additional_standard_deduction_count_ceiling.versions[0].formula",
+          "ks_pit_2026_joint_additional_standard_deduction_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-119/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for himself if he has attained age 65 before the close of his taxable year",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula",
+          "ks_pit_2026_single_additional_standard_deduction_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for himself if he is blind at the close of the taxable year",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula",
+          "ks_pit_2026_single_additional_standard_deduction_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for the spouse of the taxpayer if the spouse has attained age 65 before the close of the taxable year",
+        "where": [
+          "ks_pit_2026_joint_additional_standard_deduction_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for the spouse of the taxpayer if the spouse is blind as of the close of the taxable year",
+        "where": [
+          "ks_pit_2026_joint_additional_standard_deduction_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Resident individual\" means a natural person who is domiciled in this state",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-109/block-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "federal adjusted gross income for the taxable year, with the modifications specified in this section",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-117/block-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "ks_pit_2026_joint_additional_standard_deduction_count_ceiling.versions[0].effective_from",
+          "ks_pit_2026_single_additional_standard_deduction_count_ceiling.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "ks_pit_2026_joint_additional_standard_deduction_count_ceiling.versions[0].effective_to",
+          "ks_pit_2026_single_additional_standard_deduction_count_ceiling.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for each such deduction allowable ... under the federal internal revenue code",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "for each such deduction allowable to such individual or to such husband and wife under the federal internal revenue code,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "if any excess credit exists, such amount shall be refundable",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "such excess amount shall be refunded to the taxpayer",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 11,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

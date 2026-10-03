@@ -234,6 +234,266 @@
     "requested_citation_path": "us-ok/statute/68-2353",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction",
+      "ok_2026_resident_taxable_income_before_unpinned_return_floor_core",
+      "ok_2026_resident_retirement_deduction",
+      "ok_2026_spouse_retirement_exemption_eligibility",
+      "ok_2026_resident_college_savings_deduction",
+      "ok_2026_resident_able_deduction",
+      "ok_2026_resident_credit_proration_ratio_core",
+      "ok_2026_full_credit_proration_ratio"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Deductions may be taken for contributions made during the tax year and through April 15 of the succeeding tax year",
+        "where": [
+          "ok_2026_resident_able_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The maximum earned income tax credit allowable on the Oklahoma income tax return",
+        "where": [
+          "ok_2026_full_credit_proration_ratio.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2357-43",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "deductions may be taken for contributions and rollovers made during a taxable year and up to April 15 of the succeeding year",
+        "where": [
+          "ok_2026_resident_college_savings_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "in the taxable year beginning January 1, 2011, and subsequent taxable years, one hundred percent (100%) of such benefits shall be exempt",
+        "where": [
+          "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "retirement benefits received by federal civil service retirees, including survivor annuities, paid in lieu of Social Security benefits",
+        "where": [
+          "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For tax year 2022 and subsequent tax years, retirement benefits received by an individual from any component of the Armed Forces of the United States shall be exempt",
+        "where": [
+          "ok_2026_resident_retirement_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Social Security benefits received by an individual shall be exempt from taxable income",
+        "where": [
+          "ok_2026_resident_taxable_income_before_unpinned_return_floor_core.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The Oklahoma adjusted gross income of any individual taxpayer shall be further adjusted as follows to arrive at Oklahoma taxable income",
+        "where": [
+          "ok_2026_resident_taxable_income_before_unpinned_return_floor_core.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "allowed a deduction for contributions to accounts established pursuant to the Achieving a Better Life Experience (ABLE) Program",
+        "where": [
+          "ok_2026_resident_able_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "combined total exemption pursuant to this paragraph and paragraph 8 of this subsection",
+        "where": [
+          "ok_2026_resident_retirement_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "each taxpayer shall be allowed a deduction for contributions to accounts established pursuant to the Oklahoma College Savings Plan Act",
+        "where": [
+          "ok_2026_resident_college_savings_deduction.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "one hundred percent (100%) of the income received by any person from the United States as salary or compensation",
+        "where": [
+          "ok_2026_resident_taxable_income_before_unpinned_return_floor_core.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2358v3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "prorated on the ratio that Oklahoma adjusted gross income bears to the federal adjusted gross income",
+        "where": [
+          "ok_2026_resident_credit_proration_ratio_core.versions[0].formula"
+        ],
+        "cites": "us-ok/statute/68-2357-43",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "ok_2026_full_credit_proration_ratio.versions[0].effective_from",
+          "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction.versions[0].effective_from",
+          "ok_2026_spouse_retirement_exemption_eligibility.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "ok_2026_full_credit_proration_ratio.versions[0].effective_to",
+          "ok_2026_resident_federal_civil_service_in_lieu_social_security_deduction.versions[0].effective_to",
+          "ok_2026_spouse_retirement_exemption_eligibility.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". This is not merely absent coverage: the same statute's paragraph 8 enumerates",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "anywhere, while the pinned corpus text of us-ok/statute/68-2358v3 states at paragraph 18 that",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "does not exclude civil-service retirees from the supported boundary, so the not-a-defect (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "retirement benefits received by federal civil service retirees, including survivor annuities, paid in lieu of Social Security benefits shall be exempt ... e. in the taxable year beginning January 1, 2011, and subsequent taxable years, one hundred percent (100%) of such benefits shall be exempt",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "section). Also note the header rationale change in this diff documents a corpus extraction-status exception (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be prorated on the ratio that Oklahoma adjusted gross income bears to the federal adjusted gross income",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

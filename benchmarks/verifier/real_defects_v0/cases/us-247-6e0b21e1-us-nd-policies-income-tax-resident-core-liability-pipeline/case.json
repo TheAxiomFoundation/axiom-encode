@@ -128,6 +128,365 @@
     "requested_citation_path": "us-nd/statute/57/57-38-30.3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nd_pit_2026_supported_profile_tax_before_credits",
+      "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits",
+      "nd_pit_2026_supported_profile_candidate_net_income_tax_liability",
+      "nd_pit_2026_profile_candidate_tax_before_credits",
+      "nd_pit_2026_profile_candidate_single_tax",
+      "nd_pit_2026_profile_candidate_joint_tax",
+      "nd_pit_2026_profile_candidate_separate_tax",
+      "nd_pit_2026_profile_candidate_head_tax",
+      "nd_pit_2026_middle_rate",
+      "nd_pit_2026_top_rate",
+      "nd_pit_2026_single_zero_ceiling",
+      "nd_pit_2026_single_top_threshold",
+      "nd_pit_2026_single_top_base",
+      "nd_pit_2026_joint_zero_ceiling",
+      "nd_pit_2026_joint_top_threshold",
+      "nd_pit_2026_joint_top_base",
+      "nd_pit_2026_separate_zero_ceiling",
+      "nd_pit_2026_separate_top_threshold",
+      "nd_pit_2026_separate_top_base",
+      "nd_pit_2026_head_zero_ceiling",
+      "nd_pit_2026_head_top_threshold",
+      "nd_pit_2026_head_top_base"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.0195",
+        "where": [
+          "nd_pit_2026_middle_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.0195",
+          "1.95 percent",
+          "1.95 per cent",
+          "1.95%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.025",
+        "where": [
+          "nd_pit_2026_top_rate.versions[0].formula"
+        ],
+        "forms": [
+          "0.025",
+          "2.5 percent",
+          "2.5 per cent",
+          "2.5%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "152425",
+        "where": [
+          "nd_pit_2026_separate_top_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "152425",
+          "152,425"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "nd_pit_2026_head_top_base.versions[0].effective_from",
+          "nd_pit_2026_head_top_threshold.versions[0].effective_from",
+          "nd_pit_2026_head_zero_ceiling.versions[0].effective_from",
+          "nd_pit_2026_joint_top_base.versions[0].effective_from",
+          "nd_pit_2026_joint_top_threshold.versions[0].effective_from",
+          "nd_pit_2026_joint_zero_ceiling.versions[0].effective_from",
+          "nd_pit_2026_middle_rate.versions[0].effective_from",
+          "nd_pit_2026_profile_candidate_head_tax.versions[0].effective_from",
+          "nd_pit_2026_profile_candidate_joint_tax.versions[0].effective_from",
+          "nd_pit_2026_profile_candidate_separate_tax.versions[0].effective_from",
+          "nd_pit_2026_profile_candidate_single_tax.versions[0].effective_from",
+          "nd_pit_2026_profile_candidate_tax_before_credits.versions[0].effective_from",
+          "nd_pit_2026_separate_top_base.versions[0].effective_from",
+          "nd_pit_2026_separate_top_threshold.versions[0].effective_from",
+          "nd_pit_2026_separate_zero_ceiling.versions[0].effective_from",
+          "nd_pit_2026_single_top_base.versions[0].effective_from",
+          "nd_pit_2026_single_top_threshold.versions[0].effective_from",
+          "nd_pit_2026_single_zero_ceiling.versions[0].effective_from",
+          "nd_pit_2026_supported_profile_candidate_net_income_tax_liability.versions[0].effective_from",
+          "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits.versions[0].effective_from",
+          "nd_pit_2026_supported_profile_tax_before_credits.versions[0].effective_from",
+          "nd_pit_2026_top_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-12-31",
+        "where": [
+          "nd_pit_2026_head_top_base.versions[0].effective_to",
+          "nd_pit_2026_head_top_threshold.versions[0].effective_to",
+          "nd_pit_2026_head_zero_ceiling.versions[0].effective_to",
+          "nd_pit_2026_joint_top_base.versions[0].effective_to",
+          "nd_pit_2026_joint_top_threshold.versions[0].effective_to",
+          "nd_pit_2026_joint_zero_ceiling.versions[0].effective_to",
+          "nd_pit_2026_middle_rate.versions[0].effective_to",
+          "nd_pit_2026_profile_candidate_head_tax.versions[0].effective_to",
+          "nd_pit_2026_profile_candidate_joint_tax.versions[0].effective_to",
+          "nd_pit_2026_profile_candidate_separate_tax.versions[0].effective_to",
+          "nd_pit_2026_profile_candidate_single_tax.versions[0].effective_to",
+          "nd_pit_2026_profile_candidate_tax_before_credits.versions[0].effective_to",
+          "nd_pit_2026_separate_top_base.versions[0].effective_to",
+          "nd_pit_2026_separate_top_threshold.versions[0].effective_to",
+          "nd_pit_2026_separate_zero_ceiling.versions[0].effective_to",
+          "nd_pit_2026_single_top_base.versions[0].effective_to",
+          "nd_pit_2026_single_top_threshold.versions[0].effective_to",
+          "nd_pit_2026_single_zero_ceiling.versions[0].effective_to",
+          "nd_pit_2026_supported_profile_candidate_net_income_tax_liability.versions[0].effective_to",
+          "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits.versions[0].effective_to",
+          "nd_pit_2026_supported_profile_tax_before_credits.versions[0].effective_to",
+          "nd_pit_2026_top_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2164.99",
+        "where": [
+          "nd_pit_2026_separate_top_base.versions[0].formula"
+        ],
+        "forms": [
+          "2164.99",
+          "2,164.99"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "250400",
+        "where": [
+          "nd_pit_2026_single_top_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "250400",
+          "250,400"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "277600",
+        "where": [
+          "nd_pit_2026_head_top_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "277600",
+          "277,600"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "304850",
+        "where": [
+          "nd_pit_2026_joint_top_threshold.versions[0].formula"
+        ],
+        "forms": [
+          "304850",
+          "304,850"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "3916.09",
+        "where": [
+          "nd_pit_2026_single_top_base.versions[0].formula"
+        ],
+        "forms": [
+          "3916.09",
+          "3,916.09"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "4118.4",
+        "where": [
+          "nd_pit_2026_head_top_base.versions[0].formula"
+        ],
+        "forms": [
+          "4118.4",
+          "4,118.4"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "41400",
+        "where": [
+          "nd_pit_2026_separate_zero_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "41400",
+          "41,400"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "4329.98",
+        "where": [
+          "nd_pit_2026_joint_top_base.versions[0].formula"
+        ],
+        "forms": [
+          "4329.98",
+          "4,329.98"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "49575",
+        "where": [
+          "nd_pit_2026_single_zero_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "49575",
+          "49,575"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "66400",
+        "where": [
+          "nd_pit_2026_head_zero_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "66400",
+          "66,400"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "82800",
+        "where": [
+          "nd_pit_2026_joint_zero_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "82800",
+          "82,800"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A tax is hereby imposed for each taxable year",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Section 57-38-30.3(10) requires use of the Commissioner's prescribed annual Tax Table",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The tax commissioner may prescribe tax tables, to be used in computing the tax according to subsection 1, if the amounts of the tax tables are based on the tax rates set forth in subsection 1",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The tax for individuals is equal to North Dakota taxable income multiplied by the rates",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "reading is refuted on both of its premises: the removed rate parameters are verbatim in the cited provision (the resolved 57-38-30.3 text contains",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 16,
+    "pre_side_matched": 12,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

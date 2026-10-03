@@ -356,6 +356,412 @@
     "requested_citation_path": "us-nj/statute/54a:1-2",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nj_pit_2026_profile_candidate_gross_income",
+      "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit",
+      "nj_pit_2026_no_deferred_income_branch_applies",
+      "nj_pit_2026_profile_candidate_allowable_medical_expenses",
+      "nj_pit_2026_profile_candidate_medical_expense_deduction",
+      "nj_pit_2026_profile_candidate_property_tax_benefit_base",
+      "nj_pit_2026_mfs_property_benefit_share",
+      "nj_pit_2026_supported_profile_property_tax_credit",
+      "nj_pit_2026_child_and_dependent_care_filing_status_eligible",
+      "nj_pit_2026_supported_profile_child_and_dependent_care_credit",
+      "nj_pit_2026_supported_profile_child_tax_credit",
+      "nj_pit_2026_supported_profile_applies",
+      "nj_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A taxpayer eligible to receive a credit pursuant to paragraph (3) or (4) of subsection (e) of section 21",
+        "where": [
+          "nj_pit_2026_child_and_dependent_care_filing_status_eligible.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Disallowance of amounts allowed for other purposes",
+        "where": [
+          "nj_pit_2026_profile_candidate_allowable_medical_expenses.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3-3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married couples shall file a joint return in order to claim the credit",
+        "where": [
+          "nj_pit_2026_child_and_dependent_care_filing_status_eligible.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income",
+        "where": [
+          "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit.versions[0].formula",
+          "nj_pit_2026_no_deferred_income_branch_applies.versions[0].formula",
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:6-11",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a taxpayer shall file a joint return if the taxpayer is married",
+        "where": [
+          "nj_pit_2026_supported_profile_child_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17.1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall each be entitled to one-half of the deduction",
+        "where": [
+          "nj_pit_2026_mfs_property_benefit_share.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-17",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall each be entitled to one-half of the property tax deduction",
+        "where": [
+          "nj_pit_2026_profile_candidate_property_tax_benefit_base.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-18",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "that husband and wife shall each be entitled to one-half of the deduction",
+        "where": [
+          "nj_pit_2026_profile_candidate_property_tax_benefit_base.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-17",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "there shall be imposed a State shared responsibility tax",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:11-3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Rent constituting property taxes\" means 18% of the rent paid",
+        "where": [
+          "nj_pit_2026_profile_candidate_property_tax_benefit_base.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-16",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Distributive share of partnership income",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:5-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Net pro rata share of S corporation income",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:5-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Net profits from business",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:5-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "New Jersey gross income shall consist of the following categories of income",
+        "where": [
+          "nj_pit_2026_profile_candidate_gross_income.versions[0].formula",
+          "nj_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:5-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "There is hereby imposed a tax for each taxable year",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:2-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "credit against the tax otherwise due under this act",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for each child who has not attained the age of six years",
+        "where": [
+          "nj_pit_2026_supported_profile_child_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17.1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "in the amount of $50",
+        "where": [
+          "nj_pit_2026_supported_profile_property_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-20",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "may elect to take a credit instead of the deduction provided",
+        "where": [
+          "nj_pit_2026_supported_profile_property_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-20",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "refundable credit against the tax imposed",
+        "where": [
+          "nj_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:12-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "rent constituting property taxes not in excess of $15,000",
+        "where": [
+          "nj_pit_2026_profile_candidate_property_tax_benefit_base.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-18",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "shall be allowed a credit against the tax otherwise due",
+        "where": [
+          "nj_pit_2026_supported_profile_child_and_dependent_care_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the amount of excess shall be treated as a refundable overpayment",
+        "where": [
+          "nj_pit_2026_supported_profile_child_and_dependent_care_credit.versions[0].formula",
+          "nj_pit_2026_supported_profile_child_tax_credit.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:4-17",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the total of which shall not exceed $15,000",
+        "where": [
+          "nj_pit_2026_profile_candidate_property_tax_benefit_base.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3a-17",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "to the extent that such medical expenses exceed 2% of the taxpayer's gross income",
+        "where": [
+          "nj_pit_2026_profile_candidate_medical_expense_deduction.versions[0].formula"
+        ],
+        "cites": "us-nj/statute/54a:3-3",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.5",
+        "where": [
+          "nj_pit_2026_mfs_property_benefit_share.versions[0].formula"
+        ],
+        "forms": [
+          "0.5",
+          "50 percent",
+          "50 per cent",
+          "50%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10000",
+        "where": [
+          "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit.versions[0].formula"
+        ],
+        "forms": [
+          "10000",
+          "10,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "nj_pit_2026_child_and_dependent_care_filing_status_eligible.versions[0].effective_from",
+          "nj_pit_2026_mfs_property_benefit_share.versions[0].effective_from",
+          "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit.versions[0].effective_from",
+          "nj_pit_2026_no_deferred_income_branch_applies.versions[0].effective_from",
+          "nj_pit_2026_profile_candidate_allowable_medical_expenses.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "nj_pit_2026_child_and_dependent_care_filing_status_eligible.versions[0].effective_to",
+          "nj_pit_2026_mfs_property_benefit_share.versions[0].effective_to",
+          "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit.versions[0].effective_to",
+          "nj_pit_2026_no_deferred_income_branch_applies.versions[0].effective_to",
+          "nj_pit_2026_profile_candidate_allowable_medical_expenses.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "and 54A:5-2 allows within-category loss offsets; 54A:3-3(c) lists the three disallowances (household/dependent care, excluded MSA distributions, self-employed health insurance) the fix now encodes; 54A:3A-17(c)/(d) give the title-interest proportion and the MFS tenants-by-entirety one-half share; 54A:4-17(c) reads",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 16,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {
