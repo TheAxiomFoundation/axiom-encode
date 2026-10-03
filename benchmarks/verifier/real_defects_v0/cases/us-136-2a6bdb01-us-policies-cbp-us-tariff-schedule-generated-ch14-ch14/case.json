@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch14/ch14.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  versions:\n-  - effective_from: '2026-02-15'\n-    formula: (((((((hts_number == \"7202.11.10.00\")))))))",
     "verifier_notes": "Staging caveat (main reason I stopped short of high confidence): in THIS commit the ch14 consumer formulas are byte-identical pre/post — `if entry_is_line_a or entry_is_line_b: 0`, the five §301 slots, the §338 beer slot all survive unchanged (pre lines 2467/2672/3094 == post 2367/2572/2994). Only the five derivations are deleted, so the module stops asserting a groundless condition but the membership-semantic replacement (and the a/b/d retention, c/e replacement noted in the PR's issue comment) lands in later commits of PR #1300. Root cause is generator-side: tools/generate_schedule_compositions.py in this same commit adds `selected.difference_update(ENTRY_FLAG_RULES)` with the comment \"generated compositions must not derive them from the five hand-built witness HTS exemplars\" (generator source, not the module diff). Corpus check through the pinned release: the 9903.01.32 annex exclusion list (us/statute/hts/chapter-99/page-178..180) jumps 1207.91.00 → 1521.10.00 with no chapter-13 or chapter-14 subheadings, so for that one consumer rule the pre-fix always-false answer was accidentally correct; the load-bearing wrongness is the §301/§232 slots being unreachable for every chapter-14 line, consistent with the PR body's \"the un-encoded line-list layer drops from 6.58pp to 0.92pp of the window mean\". The identical change lands in all 100 generated chapter modules in this commit — a reviewer should dedupe to one representative chapter rather than counting 100 defects. The file is a rulespec/v1 module with rules, versions and proof atoms (module.kind: composition), so not_a_rule_module does not apply.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 12; diff read individually and normalized-compared against index 12 — the only differences are cosmetic generator placement variation (temporal key spelled `effective_from` instead of `from`), no substantive difference. Same caveats as index 12 (boilerplate 'runtime semantics are unchanged' summary line, referencing formulas re-gated in a sibling commit of PR #1300, exemplar citation paths left in source_verification). | verifier confirmed at 0.68",
   "family_id": "us-2a6bdb01-7331f444c639",

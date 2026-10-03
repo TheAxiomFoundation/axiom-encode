@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
   "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
-  "commit_date": "2026-08-01",
+  "commit_date": "2026-08-01T14:49:33-04:00",
   "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/brazil-9903-05-01.yaml",
@@ -168,7 +168,8 @@
     "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-22'",
     "verifier_notes": "Independent in-repo corroboration: at this same commit the composition's `brazil_section_301_component_rate` carries a proof atom whose excerpt is the FR DATES clause (\"...on or after 12:01 eastern time on July 22, 2026\") while its own window still ran `effective_to: '2026-07-22'` / `effective_from: '2026-07-23'` — a self-contradicting encoding, and the merged PR body records it as a judgment call: \"Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22 (grid has no 07-22 date; not exercised).\" Two caveats for the reviewer, neither of which defeats the classification. (1) The repair is module-only: composition.yaml is not in this commit, so at 86d35779d9 the composed program still gated Brazil 301 from 07-23; the composition was only moved to `effective_from: '2026-07-22'` in the later commit 65997b4e4. So the reader's phrasing \"entries on 07-22 escaped the duty\" is exactly right about the module but was still true at program level after this commit. (2) The module's own cited source (us/statute/hts/9903.05.01) is timeless HTS text with no date in it; the July 22 basis lives in FR 2026-14542, which the module's proof atoms never cite. The date is therefore correct but ungrounded within the module — a provenance gap worth a separate note, not a reason to reclassify. The companion test brazil-9903-05-01.test.yaml was not touched, so the corrected boundary remains unexercised at module level.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Four identical effective_from edits (rate parameter, heading predicate, general-rate and special-rate derived rules); formulas and the 9903.05.02-9903.05.09 exception are unchanged. Source verified: resolve_provision.py on us/rulemaking/federal-register/2026-07-20/2026-14542 (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) returns 'DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.' The PR body's 'Judgment calls' section notes the composition grid still opens the Brazil window on 07-23 because the grid has no 07-22 date, so the composition-level window was not aligned by this commit (composition rework landed in follow-up 3c991acc0). Companion test unchanged. | verifier confirmed at 0.95",
   "family_id": "us-86d35779-bbce65c0da72",

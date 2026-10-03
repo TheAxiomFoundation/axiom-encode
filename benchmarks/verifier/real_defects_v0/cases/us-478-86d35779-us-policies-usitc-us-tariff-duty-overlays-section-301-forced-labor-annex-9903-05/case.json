@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
   "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
-  "commit_date": "2026-08-01",
+  "commit_date": "2026-08-01T14:49:33-04:00",
   "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-annex-9903-05-86.yaml",
@@ -141,7 +141,8 @@
     "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
     "verifier_notes": "Refutation attempts that failed: (1) mechanical — excluded, effective dates are explicitly meaning-bearing and nothing else in the file changed; (2) boundary_direction — the fix moves the date value, not the strictness/inclusivity of a comparison (effective_from stays an inclusive start), so wrong_period_or_effective_date is the precise kind; (3) not_a_defect — the source settles it, the heading is created by Annex I.A effective 2026-07-24. Two caveats a reviewer should see. First, the module's own `corpus_citation_path` (us/statute/hts/9903.05.86) resolves to article-description and rate text with no date at all; the date authority is FR 2026-15181, which this module does not cite (the composition does, carrying the DATES excerpt as a proof atom at us/rulemaking/federal-register/2026-07-28/2026-15181). So the disagreement is with the governing notice named in the commit message, not with text under the module's own citation path. Second, 9903.05.86 is a carve-out the duty headings except out of, and those headings also started 07-24, so the one-day-early window likely had no standalone computed effect — still an encoded-meaning defect, not merely cosmetic. Unrelated nuance visible in the same FR, out of scope here: Annex I.B modifies the article description of 9903.05.90 effective 2026-07-31, while module 007 (forced-labor-metals-9903-05-90) carries a single version from 2026-07-24; that module may warrant its own look.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Single-rule module; only the effective_from changed, formula article_provided_for_in_subdivision_b_of_us_note_52 untouched. Source verified: us/rulemaking/federal-register/2026-07-28/2026-15181 DATES reads 'The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026'. Note the sibling module forced-labor-presidential-action.yaml (the memorandum of July 23, 2026, rate parameters) keeps effective_from 2026-07-23 and was deliberately not changed, which is consistent: the memorandum date differs from the entry-date gate. Companion test unchanged. | verifier confirmed at 0.94",
   "family_id": "us-86d35779-cfbbfb3cb8ea",

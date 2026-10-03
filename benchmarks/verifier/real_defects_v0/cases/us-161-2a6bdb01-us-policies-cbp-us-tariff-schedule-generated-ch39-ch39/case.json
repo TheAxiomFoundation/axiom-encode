@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: ((((((((((((((((((((hts_number == \"7202.11.10.00\"))))))))))))))))))))",
     "verifier_notes": "Verified against full pre/post files (git show 956a547418 / 2a6bdb01de of us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml). Three caveats for the reviewer. (1) The first reader's list of affected branches is slightly over-broad: the §201 branch is degenerate, \"if entry_is_line_e: 0 else: 0\", so its never-firing had no numeric effect; §301, §232 aluminum and §338 are genuinely dead pre-fix. (2) The defect cuts both directions — the §301/§232/§338 inclusions were stuck at zero (under-duty), while the metals/annex exclusions \"if entry_is_line_a or entry_is_line_b: 0 else: temporary_import_surcharge_rate\" never fired (over-duty). Neither is a polarity inversion; the conditions themselves are ungrounded, so untraceable_branch fits better than polarity_or_logic, and better than wrong_entity_or_scope since the rubric puts \"formulas grounded on the wrong provision\" under untraceable_branch. (3) The repair is incomplete at this commit: `entry_is_reciprocal_annex_excluded` still reads `formula: entry_is_line_a` with a proof atom excerpt \"7202.11.10\", entry_is_line_c/e are still referenced, and source_verification still lists the exemplar lines 7202.11.10.00 / 7601.10.30.00 / 9506.62.40.40 / 2203.00.00.30 / 8541.42.00.10. The membership-semantic rename and the §232 steel component the PR body describes are not in this ch39 diff (124 lines, 100 removed) — they landed in #1298 or later commits of the same PR, so do not credit this module change with them.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 36; diff read and confirmed to be only the summary hunk plus removal of the five exemplar derived rules. Kind reasoning identical to index 36. | verifier confirmed at 0.78",
   "family_id": "us-2a6bdb01-7331f444c639",

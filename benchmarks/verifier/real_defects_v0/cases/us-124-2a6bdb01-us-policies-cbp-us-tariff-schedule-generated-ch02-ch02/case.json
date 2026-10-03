@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: (hts_number == \"7202.11.10.00\")   [and, separately, in the same removed block]   -    formula: (hts_number == \"8541.42.00.10\")",
     "verifier_notes": "Refutation attempts and residual doubt, for the reviewer: (1) The fix is partial at this commit. The consuming formulas and their proof atoms are byte-identical after the change — ch02 still carries `((if entry_is_line_a and origin_is_china: list_1_additional_ad_valorem_rate else: 0)` with atoms citing 7202.11.10.00, 9506.62.40, 7601.10.30.00, 2203.00.00 and 8541.42.00. The slots stay exemplar-shaped; only the binding is externalized to an unencoded caller. The PR body's \"membership-semantic caller inputs\" and the §122 regating onto `entry_is_section_122_exempt` / `entry_is_section_232_covered` land in sibling commits of PR #1300, not here, and the PR's own issue comment says c and e were only later \"fully replaced\". A reviewer who requires the fix commit to re-ground on in-chapter source could downgrade this to unclear. (2) The first reader's reading overstates the harm in one direction: for chapter 02, `if entry_is_line_a or entry_is_line_b: 0` being dead meant the §122 surcharge was never wrongly zeroed, which the PR itself calls the lawful outcome; likewise the aluminum, beer and PV gates being false is substantively right for meat. The real under-coverage is §301 (and arguably the annex exclusion). Making the flags free inputs at this commit actually re-opens the §122 zeroing path until the later regating commit. (3) Screen note's \"summary claims runtime semantics unchanged\" is a false alarm: that sentence is pre-existing boilerplate about the parenthesization serialization, and the new summary explicitly says the five identifiers are now caller inputs. (4) Alternative kind if the reviewer prefers it: wrong_entity_or_scope (a chapter-02 module deriving judgments about other chapters' lines). Corpus evidence read this session: `us/statute/hts/chapter-99/page-265` under release us-rulespec-2026-08-08-obbb-alien-snap, corpus commit e79781bddeaba4d3697c5375c7371b2a038f0f74; pages 265-270 are one ascending run of the same note list the module cites, with 22xx lines appearing only in the later run at page 273.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 0: identical two-hunk diff (summary + removal of the five entry_is_line_* derived rules, 103 removed / 3 added lines, hunk headers @@ -567,9 +567,9 @@ and @@ -687,106 +687,6 @@). Diff read individually; justification and caveats reused from index 0, including that the exemplar lines (7202/7601/9506/2203/8541) lie outside chapter 02. | verifier confirmed at 0.72",
   "family_id": "us-2a6bdb01-7331f444c639",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch38/ch38.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: (((((((((((((((((((hts_number == \"7202.11.10.00\")))))))))))))))))))",
     "verifier_notes": "Decisive corroboration outside the module diff: the same commit's tools/generate_schedule_compositions.py adds `selected.difference_update(ENTRY_FLAG_RULES)` under the comment \"Referenced-but-undefined identifiers are composition inputs by repository convention.  Entry preparation now supplies the five witness-compatible incidence flags; generated compositions must not derive them from the five hand-built witness HTS exemplars.\" PR #1300 independently calls the exemplar coupling unlawful (\"the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\"), though that sentence describes section_122_component_rate, whose gating is NOT in this commit's ch38 diff. Caveats for the reviewer: (1) this is a generated file — the substantive edit lives in the generator, and the same 100-line removal repeats across ~100 sibling chapter modules in this commit, so the corpus should dedupe these to one defect instance (ch38 is one representative, module index 37); (2) the fix removes but does not re-ground — post-fix entry_is_reciprocal_annex_excluded is still `formula: entry_is_line_a`, now an opaque caller input, so the annex membership test is delegated to entry preparation rather than encoded; (3) witness-exemplar residue survives in ch38 (e.g. section_232_aluminum_component_rate is still sourced to \"HTS 7601.10.30.00\"), so this commit is a partial repair; (4) referencing formulas are token-identical pre/post — the meaning change comes entirely from the five definitions disappearing, which is why a diff-only skim could mistake it for mechanical. Alternative kind considered and rejected: wrong_entity_or_scope (the flags do scope to other chapters' product lines), but the task's own definition assigns \"formulas grounded on the wrong provision\" that the fix removes to untraceable_branch.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 36 (byte-identical two-hunk diff apart from the chapter number, the generator's redundant-parenthesis depth, and the from/effective_from key spelling); I read the diff and confirmed no other formula, parameter, date, or citation change. Same kind reasoning and same alternative (wrong_entity_or_scope) as index 36. | verifier confirmed at 0.80",
   "family_id": "us-2a6bdb01-7331f444c639",

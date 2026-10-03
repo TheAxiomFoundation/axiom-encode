@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "5474dca0ea1d0e751c02a2180ecd54edf170389e",
   "parent_commit": "c6db535b079ba51d62cb43b2dffe02d27e3b086f",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10.",
+  "commit_date": "2026-07-21T12:18:05-04:00",
+  "commit_subject": "Complete state income tax RuleSpec campaign",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/907",
   "module_path": "us-ga/statutes/48/48-7-26.yaml",
   "corpus_citation_path": "us-ga/statute/48/48-7-26",
@@ -172,7 +172,8 @@
     "verifier_quote": "+        effective_to: '2026-12-31'",
     "verifier_notes": "Decisive diff hunk (000.diff): \"      - effective_from: '2026-01-01'\" / \"+        effective_to: '2026-12-31'\" / \"        formula: |-\" / \"          5000\". The rest of the module diff is mechanical provenance: seven added proof-atom `excerpt` strings and a citation-string correction `source: O.C.G.A. § 48-7-26(b)(3)` -> `(b)`; the module summary rewrite is a comment. Those alone would be mechanical, but the effective_to line changes what the engine returns for TY2027. Verified against the pinned release: resolve_provision.py on us-ga/statute/session-laws/2026/hb463/document-1 at rulespec commit 5474dca0ea resolved corpus release us-rulespec-2026-07-22-current (corpus commit c5af541326e024e04cb533bbf5709ae04e6305f6, fix_time_corpus_match: same_body), confirming the $125.00 annual increase to $6,000.00 and the paragraph (1.1) delay tests. Runner-up kind for a reviewer: unrepresented_clause (the $125/delay proviso was absent pre-fix); I ranked it second because the fix expresses the proviso as a deferred_outputs entry plus a window bound rather than as encoded logic. Minor unverified detail: the added deferred_outputs reason says \"Act 465\" while the citation path is hb463 (bill number vs. act number); I did not verify that mapping and it does not affect the classification. The same commit applies the identical pattern to 48-7-27 standard deductions (module index 1), consistent with the PR body line \"repair Georgia PIT law through 2027\".",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10."
   },
   "triage_notes": "Verified against the pinned corpus: the 2026 HB 463 text reads '$4,000.00 $5,000.00 for each dependent; provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00 ... subject to the same delays as those applied to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 48-7-27'. Pre-fix file (git show c6db535b:us-ga/statutes/48/48-7-26.yaml) confirms versions[2] had effective_from 2026-01-01 and no effective_to. The commit body is empty; the quote is the deferred_outputs 'reason:' text added by this diff (a YAML rationale field, not a '#' comment). The same commit also makes mechanical changes in this file (source string 48-7-26(b)(3) -> 48-7-26(b), added effective-period proof-atom excerpts on unrelated personal-exemption rules); those do not change meaning. Same contingent-2027 pattern as index 1. | verifier confirmed at 0.91",
   "family_id": "us-5474dca0-0d1181d3bbdd",

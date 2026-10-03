@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-79.yaml",
@@ -249,7 +249,8 @@
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
     "verifier_notes": "Verified against the pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0b9): us/statute/hts/9903.02.79 contains no date at all, so the effective date for the successor heading is necessarily cross-sourced; the new proof atoms cite 9903.02.56's compiler's note, which resolves byte-for-byte to the excerpt used in the diff. Corroborating evidence the gap was real: `git show 75a3677870:...reciprocal-south-korea-9903-02-56.yaml` has `effective_from: '2025-08-07'` / `effective_to: '2025-11-13'` on every version, grounded on the same compiler's note. Residual caveat for a reviewer: the new 2025-11-14 start is an inference from the predecessor's termination (\"successor governs from that handoff date with no gap\") rather than an express effective-date statement for 9903.02.79 itself — the commit body admits as much (\"kr-79/80 dates are pinned by the 9903.02.56 compiler's-note termination\"), and 90 FR 59281 Annex II (cited for the Nov 14 insertions) covers headings 9903.02.82-.91, not .79/.80. That affects how tightly the new date is grounded, not whether the old one was wrong. The kr-79 companion-test additions in the same commit still use period start/end '2026-02-15', which is inside the new window and therefore not contradictory. Diff also touches only dates plus proof/citation metadata; no formula, input, output, or scope changed.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Read the source: resolve_provision.py on us/statute/hts/9903.02.56 returns \"[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]\", which is exactly the excerpt the new effective_period atoms quote. Note the grounding is indirect — the start of successors .79/.80 is inferred from the predecessor's termination date plus a no-gap assumption (the added summary says so: 'the successor headings 9903.02.79-9903.02.80 govern from that handoff date with no gap'), not from a statement in 9903.02.79 itself. Confidence 0.85 rather than 0.9 for that reason; the commit message names the defect and the diff shows exactly it. Same pattern as index 6. No formula changes. | verifier confirmed at 0.91",
   "family_id": "us-4d2856a9-aa46f258c6be",

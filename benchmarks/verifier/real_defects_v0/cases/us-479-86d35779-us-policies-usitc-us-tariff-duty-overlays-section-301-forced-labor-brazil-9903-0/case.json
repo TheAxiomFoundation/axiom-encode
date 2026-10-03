@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
   "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
-  "commit_date": "2026-08-01",
+  "commit_date": "2026-08-01T14:49:33-04:00",
   "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-brazil-9903-05-27.yaml",
@@ -159,7 +159,8 @@
     "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
     "verifier_notes": "Strongest (but insufficient) counterargument for a reviewer: the PR body lists the old state as a deliberate judgment call — \"Forced-labor 301 component gated at ≥ 2026-07-24 per FR 2026-15181 DATES, although heading modules carry effective_from 2026-07-23\" — and the composition already gated the component at ≥ 2026-07-24, so the wrong module window was masked at the composed-program level and no companion test changed (all three cases in forced-labor-brazil-9903-05-27.test.yaml are dated 2026-08-01). It is still a real fidelity defect: the module is an independently evaluable artifact whose 2026-07-23 evaluation would have returned general/special rates inflated by 12.5 points, and the repair commit treats it as a correction (\"Forced-labor 301 headings gate entries on/after 2026-07-24 per FR 2026-15181 DATES (was 2026-07-23)\"), re-signing the manifest with manual_exception \"repair\". Two notes for corpus hygiene: (1) the same 07-23 → 07-24 shift is applied across the sibling forced-labor heading modules in this commit (module_files 4, 6, 7, 8), so if the corpus dedupes near-identical defects, this case is one of five instances of the same fix — keep one or mark the family; (2) the DATES paragraph also carries an in-transit carve-out (\"goods loaded onto a vessel at the port of loading and in transit on the final mode of transit before 12:01 a.m. eastern time on July 24, 2026, and entered … before 12:01 a.m. eastern time on July 28, 2026, shall not be subject to such additional duty\") that the module still does not encode after the fix — a candidate unrepresented_clause defect, but not the one this commit repairs, so it should not be folded into this case.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 4, applied to three rules (heading predicate plus the general and special duty-rate overlays); the imported 12.5% rate parameter lives in forced-labor-presidential-action and was not changed. FR 2026-15181 DATES verified through the pinned corpus (see index 4). Companion test unchanged; manifest re-signed with manual_exception \"repair\". | verifier confirmed at 0.94",
   "family_id": "us-86d35779-5451870723de",

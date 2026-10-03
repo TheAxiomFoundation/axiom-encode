@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-80.yaml",
@@ -249,7 +249,8 @@
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
     "verifier_notes": "Two caveats a reviewer should weigh, neither of which overturns the verdict. (1) Grounding is cross-source inference, not a stated date: the corpus text of us/statute/hts/9903.02.80 carries no effective date, so the corrected 2025-11-14 comes from the predecessor heading 9903.02.56's compiler's-note termination — which is exactly why the module header changed from the singular corpus_citation_path to corpus_citation_paths listing both headings. The commit body is candid about this (\"kr-79/80 dates are pinned by the 9903.02.56 compiler's-note termination\"), and it is a weaker form of grounding than the Switzerland/Liechtenstein siblings, which cite Annex II of 90 FR 59281 inserting 9903.02.82-.91 effective November 14, 2025 (a range that does not include .79/.80). (2) This is an intra-PR review-round fix: commit 4d2856a958 is dated 2026-08-02 and PR #1197 merged 2026-08-02T18:34Z, so the defective 2026-02-15 date was introduced and corrected within the same PR and never stood on main. If the corpus is meant to hold defects that survived to main, flag this one; if it holds any encoding-vs-source correction, it qualifies. Also note the rest of the diff (proof atoms, plural citation paths, the summary paragraph about the handoff) is provenance/mechanical — the eight date lines are the sole meaning change. The first reader's impact reading checks out arithmetically: 2025-11-14 to 2026-02-15 is three months during which the below-floor 15 percent arm would not have fired, leaving a coverage gap after 9903.02.56 terminated.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 5 (kr-79), below-floor sibling: 8 effective_from changes plus one effective_period proof atom per rule quoting the 9903.02.56 compiler's note; module source_verification gains us/statute/hts/9903.02.56 as a second corpus_citation_path. Same indirect-grounding caveat as index 5. No formula change. | verifier confirmed at 0.91",
   "family_id": "us-4d2856a9-66bddae04a47",

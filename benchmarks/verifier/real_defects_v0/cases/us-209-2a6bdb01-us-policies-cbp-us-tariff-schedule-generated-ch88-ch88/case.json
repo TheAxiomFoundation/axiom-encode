@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: (((((((((((((((((((((((((((((((((((((((((((hts_number == \"7202.11.10.00\")))))))))))))))))))))))))))))))))))))))))))",
     "verifier_notes": "Refutation attempts and why they fail. (1) Mechanical: rejected — whole rules with formulas and proof atoms are deleted, the module's declared input surface gains five caller inputs and loses five derived outputs (PR: \"removal-aware pending ledger — −500 removed exemplar-flag outputs\", i.e. 5 per chapter over 100 chapters), so formulas/inputs/outputs did not stay the same. (2) not_a_defect (pilot-scope enhancement): rejected — the module does not disclaim these gates; it affirmatively names the semantics (entry_is_reciprocal_annex_excluded / entry_is_reciprocal_metals_excluded / china_section_301_component_rate) with chapter-99 proof atoms while implementing single foreign-chapter line equality, so the pre-fix encoded meaning disagreed with the cited source rather than merely omitting coverage. (3) Alternative kind wrong_entity_or_scope is arguable (a single exemplar line standing in for a whole covered class), but the kind rubric puts \"formulas grounded on the wrong provision\" under untraceable_branch, and the fix's action is removal/re-grounding, not a scope re-targeting. Caveats for a reviewer: this commit does not re-gate any component formula in ch88 — the §301/§122/§201/§338 formulas still reference entry_is_line_a..e verbatim (post lines 2572, 2648, 2816, 2994-2998); the \"membership-semantic\" re-gating described in the PR body happens elsewhere in the stack. Also, if the engine defaults an unsupplied input to false, evaluated values for a caller that supplies nothing would be identical to pre-fix; the meaning change is that the module stops asserting a false grounding and hands class membership to entry preparation. Verified read-only via git show of parent 956a547418 and 2a6bdb01de.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 84; removed block identical modulo chapter prefix and redundant-parenthesis count (43). Same caveats as index 84 (empty commit body, retained no-semantic-change boilerplate, re-grounding in follow-up commits, stale exemplar citation paths in module.source_verification). | verifier confirmed at 0.78",
   "family_id": "us-2a6bdb01-7331f444c639",

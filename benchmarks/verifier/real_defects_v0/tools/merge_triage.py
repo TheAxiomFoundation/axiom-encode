@@ -22,20 +22,40 @@ Keep rules (documented in the corpus README):
 * Verifier ``unclear`` or no verdict: keep with the triage classification.
 * Confidence: the lower of the two readers' confidences when they agree;
   capped at 0.49 for anything that stays ``unclear``.
+
+Each row's ``date`` and ``subject`` are the commit's committer date (``%cI``)
+and subject line (``%s``), read from the rulespec checkout. The workflow's own
+values are not used: for screen-flagged commits the 2026-09 run recorded an
+empty date and ``"(screen-flagged) " + <screen reason>`` as the subject. The
+screen reason stays in ``screen_reason``. The same replacement is applied to
+the flagged entries written to ``triage/screen.json``.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[4]
+_SPEC = importlib.util.spec_from_file_location(
+    "verify_real_defects", ROOT / "scripts" / "verify_real_defects.py"
+)
+assert _SPEC is not None and _SPEC.loader is not None
+lib = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(lib)
+
 PROMOTE_UNCLEAR_AT = 0.7
 RECLASSIFY_AT = 0.6
 DROP_AT = 0.7
 UNCLEAR_CAP = 0.49
+
+
+def row_sort_key(row: dict[str, Any]) -> tuple[str, str, str, int]:
+    return (row["jurisdiction"], row["date"], row["commit"], row["module_index"])
 
 
 def merge_module(
@@ -44,13 +64,14 @@ def merge_module(
     module: dict[str, Any],
     verdict: dict[str, Any] | None,
     pr_url: str | None,
+    commit_meta: dict[str, Any],
 ) -> dict[str, Any]:
     classification = module["classification"]
     row = {
         "jurisdiction": item["jur"],
         "commit": item["commit"],
-        "date": item.get("date") or "",
-        "subject": item.get("subject") or "",
+        "date": commit_meta["date"],
+        "subject": commit_meta["subject"],
         "candidate_source": "screen" if item.get("screen_reason") else "keyword",
         "screen_reason": item.get("screen_reason"),
         "pr_url": pr_url,
@@ -151,6 +172,17 @@ def merge_module(
     return row
 
 
+def screen_entry_from_git(
+    flagged: dict[str, Any], commit_meta: dict[str, Any]
+) -> dict[str, Any]:
+    """A screen-flagged entry with the commit's own date and subject."""
+
+    entry = dict(flagged)
+    entry["date"] = commit_meta["date"]
+    entry["subject"] = commit_meta["subject"]
+    return entry
+
+
 def pr_url_for(inputs_dir: Path, jur: str, commit: str) -> str | None:
     bundle = inputs_dir / jur / f"{commit[:10]}.json"
     if not bundle.exists():
@@ -165,8 +197,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workflow-output", type=Path, required=True)
     parser.add_argument("--inputs-dir", type=Path, required=True)
     parser.add_argument("--corpus-dir", type=Path, required=True)
+    parser.add_argument("--rulespec-us", type=Path, required=True)
+    parser.add_argument("--rulespec-uk", type=Path, required=True)
     args = parser.parse_args(argv)
     output = json.loads(args.workflow_output.read_text(encoding="utf-8"))
+    repos = {"us": args.rulespec_us, "uk": args.rulespec_uk}
+    commits: dict[str, set[str]] = {"us": set(), "uk": set()}
+    for bucket in ("keyword", "flagged"):
+        for entry in output.get(bucket) or []:
+            commits[entry["item"]["jur"]].add(entry["item"]["commit"])
+    screen = output.get("screen") or {}
+    for flagged in screen.get("flagged") or []:
+        commits[flagged["jur"]].add(flagged["commit"])
+    meta = {jur: lib.commit_metadata(repos[jur], commits[jur]) for jur in repos}
     rows: list[dict[str, Any]] = []
     chunks_seen = Counter()
     chunks_missing: list[dict[str, Any]] = []
@@ -191,19 +234,27 @@ def main(argv: list[str] | None = None) -> int:
             for module in triage.get("modules") or []:
                 rows.append(
                     merge_module(
-                        item, triage, module, verdicts.get(module["index"]), pr_url
+                        item,
+                        triage,
+                        module,
+                        verdicts.get(module["index"]),
+                        pr_url,
+                        meta[item["jur"]][item["commit"]],
                     )
                 )
-    rows.sort(
-        key=lambda r: (r["jurisdiction"], r["date"], r["commit"], r["module_index"])
-    )
+    rows.sort(key=row_sort_key)
+    screen = dict(screen)
+    screen["flagged"] = [
+        screen_entry_from_git(flagged, meta[flagged["jur"]][flagged["commit"]])
+        for flagged in screen.get("flagged") or []
+    ]
     triage_dir = args.corpus_dir / "triage"
     triage_dir.mkdir(parents=True, exist_ok=True)
     (triage_dir / "triage_merged.json").write_text(
         json.dumps(rows, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     (triage_dir / "screen.json").write_text(
-        json.dumps(output.get("screen") or {}, indent=1, ensure_ascii=False) + "\n",
+        json.dumps(screen, indent=1, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
     kept = [r for r in rows if r["keep"]]

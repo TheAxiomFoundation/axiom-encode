@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch27/ch27.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      ((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      ((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Refutation attempts and what survived: (1) \"mechanical\" fails — five rule formulas change condition tokens and a new derived rule plus a stack term are added; (2) \"not_a_defect / new coverage\" fails for the flagged rule_path, though it is the right verdict for the co-located `section_232_steel_component_rate` + `ch27_s232_steel_heading_rate` addition (the PR says the witness's ferroalloy exemplar sits outside note 16(c), so this is coverage the module never claimed — a reviewer should not count the steel half as a defect); (3) \"unclear\" fails because the source text is explicit and the PR names the behavior \"unlawfully suppressed\". Kind is the only genuinely contestable part: `untraceable_branch` (\"formulas grounded on the wrong provision\") is a near-tie, since §301 list membership has no basis in the §122 proclamation and the fix re-grounds the branch. I kept wrong_entity_or_scope because the proof atoms show the old proxies did trace to the right provision for the witness's own lines (the exclusion-list excerpt \"7202.11.10\" is line a; line b is a 232-covered aluminum line) — the failure is that those line-specific proxies select the wrong entry population once the module claims chapter-wide scope, which is also how the PR states the harm (\"on §301-member lines for all origins\"). Either kind would be defensible; the fidelity classification itself is solid (~0.9). Corpus-hygiene flag: this is a machine-generated composition module (generator bump b1.6-schedule-compositions-2 → -3, hand edits prohibited) and the identical §122 re-gating appears in all 100 generated chapter modules in this commit, so it is one generator defect replicated 100×, not 100 independent defects. Side note, not load-bearing: the atom citing \"articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04\" to us/statute/hts/chapter-99/page-230 did not resolve to that text in the pinned release (page-230 there is the §232 steel TRQ note), a possible pagination drift worth a separate look; it is unchanged by this diff.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 24; only the chapter prefix (ch27_) and the redundant outer parenthesis count (14) differ. Chapter 27 mineral fuels: the added steel component will be inert on most lines, but the section 122 gate change is substantive for any 301-listed line. | verifier confirmed at 0.70",
   "family_id": "us-a9562cfd-5666e5ff8301",

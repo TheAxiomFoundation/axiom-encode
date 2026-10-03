@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch45/ch45.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0\n       else: temporary_import_surcharge_rate)))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 36 (same kind and rule path in this chunk). Verification path: diff 036.diff; pre/post files from `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show {29dbbdac05,a9562cfd44}:us/policies/cbp/us-tariff-schedule/generated/ch37/ch37.yaml`; source read via resolve_provision on us/rulemaking/federal-register/2026-02-25/2026-03824 (Proclamation 11012, ¶14 exception list and operative ¶¶1-4 — \"The surcharge imposed in this proclamation shall not apply in addition to tariffs imposed under section 232\"). The HTS chapter-99 page atoms (page-221/226/230) do NOT resolve to the cited text under the pinned release us-rulespec-2026-08-08-obbb-alien-snap (Rev 3 pagination vs. the module's Rev 15 vintage); page-221 returns 9903.01.77/(y)/(z) notes, page-230 has no 9903.82.02 hit. That is a provenance concern for the page-pinned atoms, not evidence against this fidelity call — the proclamation text alone settles it. Scope caveats for the reviewer: (1) the same commit also ADDS `section_232_steel_component_rate` + `ch37_s232_steel_heading_rate` and wires them into `schedule_statutory_stack`; that part is new coverage the module never claimed (the witness had no steel slot), not a defect — if a scorer credits the whole commit as one defect, only the §122/301/aluminum re-grounding is the fidelity correction. (2) The added steel rule in this commit carries a malformed nested `metadata.proof.proof.atoms`, repaired later in PR #1300 per the maintainer comment (\"steel atoms unwrapped to canonical `metadata.proof.atoms`\"). (3) Exemplar coupling is only partly removed: `+ (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0)` and the reciprocal-exclusion rules (`entry_is_reciprocal_annex_excluded := entry_is_line_a`, `entry_is_reciprocal_metals_excluded := entry_is_line_b`) still ride the exemplar flags after this commit — a remaining instance of the same defect class. (4) Nearest alternative kind is wrong_entity_or_scope (the §122 exclusion applied to the wrong population of entries); I rejected it because the defining fault is a gate condition grounded on the wrong provision, which the kind list assigns to untraceable_branch. The file is `module.kind: composition`, generator-emitted, but it is a rulespec/v1 module with rules, versions, formulas and proof atoms, so not_a_rule_module does not apply.",
     "verifier_inferred_from_module_index": 36,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 36 (chapter 45). | verifier confirmed at 0.87",
   "family_id": "us-a9562cfd-a47a2c82a367",

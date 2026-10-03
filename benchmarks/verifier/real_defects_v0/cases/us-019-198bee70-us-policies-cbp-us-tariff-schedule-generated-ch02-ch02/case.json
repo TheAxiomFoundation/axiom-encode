@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0))",
     "verifier_notes": "Caveats a reviewer should weigh. (1) Numerically inert in this module: ch02 is meat and edible meat offal, so for any real ch02 line both `entry_is_line_b` (the witness's 7601.10.30.00 aluminum exemplar) and `entry_is_section_232_aluminum` are false; the defect is in encoded meaning and in the generated template shared across ~100 chapters, not in ch02's computed rate. (2) Intra-PR self-repair: the parent a9562cfd (\"b1.6: generalize generated component surfaces\") is the immediately preceding commit on PR #1300's own branch, so the wrong gate never reached main — it is the generalization pass missing one gate, which this \"certify\" commit closes. Supporting evidence that it is a genuine miss rather than a design choice: the module summary is byte-identical in pre and post and already states that section-232 aluminum identifiers \"are caller inputs supplied by entry preparation\" and that only \"Beer/section-338 keeps entry_is_line_d because no membership module exists\" — the pre file contradicted its own contract. (3) Residual, worth flagging separately: `entry_is_reciprocal_metals_excluded` still has `formula: entry_is_line_b` post-fix (line 1925) with a 9903.01.33 \"articles of aluminum; derivative articles of aluminum\" atom, so the same exemplar coupling survives in that rule. (4) Source verification limit: the pinned corpus is 2026 Rev 3 (us-rulespec-2026-08-08-obbb-alien-snap) while the module claims Rev 15 vintage, so `us/statute/hts/chapter-99/page-219` resolves to an unrelated derivative-list page and the quoted aluminum carve-out sentence could not be re-read at that locator; 9903.01.77 and 9903.85.02 resolve cleanly and corroborate the semantics. (5) A defensible alternative kind is wrong_entity_or_scope (exception scoped to one exemplar line instead of the aluminum class); untraceable_branch is preferred because the pre condition is a scaffold identity with no source basis at all and the fix re-grounds it.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 0: 20 changed lines, exactly two Brazil-gate hunks plus the steel proof re-grounding, nothing else. Diff read in full; provision resolution and follow-up-commit notes from index 0 apply verbatim. | verifier confirmed at 0.74",
   "family_id": "us-198bee70-ae51d9d5b290",

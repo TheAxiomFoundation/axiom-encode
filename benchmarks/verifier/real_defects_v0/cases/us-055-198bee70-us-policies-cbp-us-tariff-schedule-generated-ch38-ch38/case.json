@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch38/ch38.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))",
     "verifier_notes": "Diff has exactly two substantive hunks in this module, both the same one-line change, in `ieepa_component_rate` (rules[...].versions[0].formula, ~line 2368) and `ieepa_component_rate_with_declared_exceptions` (~line 2524). Everything else is the steel proof-atom re-citation (two atoms collapsed to one, 9903.81.87/.88 -> 9903.82.02), rate unchanged at '0.50' — mechanical provenance, consistent with the commit report's \"the 9903.81.x locator is stale for this corpus vintage\" (9903.81.87 resolves to None under the pinned release us-rulespec-2026-08-08-obbb-alien-snap; 9903.82.02 resolves with the matching \"+ 50%\" rate line). Rule-name list is byte-identical pre/post, so no rules were added or removed here. Two caveats a reviewer should weigh: (a) residual gap not fixed by this commit — 9903.01.83 excepts iron/steel and derivatives, wood, vehicles and parts, semiconductors and copper as well as aluminum, so the post-fix gate (`not entry_is_section_232_aluminum`) still under-represents the source exception; that is a separate unrepresented_clause issue, not a reason to reject this one. (b) Behavioral impact inside ch38 (chemical products) is probably nil for both operands, and the first reader's quote is from the PR body rather than the diff; but the formula and its input dependency did change, which is encoded meaning, so \"mechanical\" does not apply. Also note the pre- and post-fix proof atom for this clause cites us/statute/hts/chapter-99/page-219 with excerpt \"The additional duties imposed by heading 9903.01.77 shall not apply to products of aluminum provided for in heading 9903.85.02.\" — that page resolves in the pinned release to a bare list of HTS numbers, so the excerpt does not match its locator; unchanged by this commit, but it is a live provenance defect worth a separate case.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 36; diff read individually and byte-identical in shape (2 Brazil-gate hunks at rules[ieepa_component_rate] and rules[ieepa_component_rate_with_declared_exceptions], plus the 9903.81.87/.88 -> 9903.82.02 provenance hunks on ch38_s232_steel_heading_rate and section_232_steel_component_rate, rate unchanged at 0.50). Rule names and line offsets confirmed in the post-fix ch38.yaml. Steel citation change is mechanical provenance; the fidelity call rests on the Brazil gate. | verifier confirmed at 0.80",
   "family_id": "us-198bee70-ae51d9d5b290",

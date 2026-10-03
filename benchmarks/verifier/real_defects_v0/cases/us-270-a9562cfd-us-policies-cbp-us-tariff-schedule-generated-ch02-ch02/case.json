@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (if entry_is_line_a or entry_is_line_b: 0\n+      (if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Runner-up kind is unrepresented_clause: one can read the fix as finally representing the (aa)(ii) exclusion list and the §232-covered carve-out (in ch02 the old branch could never be true, so those exceptions were effectively absent). I kept wrong_entity_or_scope because the exception branch already existed and only its covered population changed, and because the same diff corrects three other components the same way (Brazil-301 and forced-labor-301 previously applied by origin alone with no list-membership test; China-301 slots moved from exemplar identity to entry_is_china_301_list123 / list4a).\n\nCaveats a reviewer should know: (1) the same diff also ADDS `section_232_steel_component_rate` + `ch02_s232_steel_heading_rate` and wires steel into `schedule_statutory_stack`; the PR says the witness \"never had\" a steel slot, so that half of the diff is new coverage the module never claimed and is NOT a defect — the defect must be anchored on the §122/§301/Brazil/forced-labor gate lines, which is what the candidate's rule_path does. (2) The source text could not be independently verified through the pinned release: `resolve_provision.py --rulespec-commit a9562cfd44` selects release us-rulespec-2026-08-08-obbb-alien-snap (HTS 2026 Rev. 3 notes), where chapter-99/page-221 resolves to note subdivisions (x)-(z) on heading 9903.01.77 and page-230 to §232 steel quota notes — neither contains the §122 (aa)(ii) text or the 9903.82.02/.04 excerpt the atoms quote (page drift across revisions). The kind therefore rests on the diff, the unchanged proof atoms, the entry-flag tool, and the PR body, not on resolver-confirmed provision text. (3) Minor, unrelated to the verdict: the new `section_232_steel_component_rate` block in this commit carries a double-nested `metadata.proof.proof.atoms`; the PR issue comment records that being unwrapped in a later repair round, so this commit is the pre-repair state.\n\nCandidate's supporting quote is verbatim from the PR body; I verified the substring \"unlawfully suppressed the surcharge on §301-member lines for all origins\" appears there.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 0; verified line-level that the changed-formula signature is identical (only the placement-gate redundant-parenthesis count and the from:/effective_from: key spelling differ between chapters). Chapter-prefixed new parameter is ch02_s232_steel_heading_rate. All caveats from index 0 apply (double-nested steel proof block, 9903.82.02-vs-9903.81.87 narrative mismatch, provision not independently resolvable). | verifier confirmed at 0.70",
   "family_id": "us-a9562cfd-5666e5ff8301",

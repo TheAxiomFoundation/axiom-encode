@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-uk",
   "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
   "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
-  "commit_date": "2026-06-10",
+  "commit_date": "2026-06-10T21:36:30+01:00",
   "commit_subject": "ground policy surfaces in ingested sources",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
   "module_path": "policies/govuk/council-tax-reduction.yaml",
@@ -421,7 +421,8 @@
     "verifier_quote": "-          council_tax_reduction_excess_income_for_year * council_tax_reduction_withdrawal_rate",
     "verifier_notes": "Best available refutation, and why it fails: the pre-fix summary self-declared \"This PolicyEngine-alignment surface returns the annual Council Tax Reduction amount used by PolicyEngine UK's national CTR framework\", so one could read the commit as an architecture migration (retiring PE wrappers) rather than a correction. But this module was not one of the five wrappers retired via `axiom-encode retire` in PR #44, it was \"re-sourced\", and it carried proof_validation required with atoms binding the taper formula to the verbatim excerpt \"amount B is 2 6/7 per cent of the difference\" while the formula multiplied by an undefined external rate — a false proof binding, i.e. a fidelity defect, not a policy choice. Second decisive removed line: `-          if council_tax_reduction_scheme_supported: simulated_council_tax_reduction_annual_amount else: reported_council_tax_reduction_for_year`. Co-occurring signal a reviewer should not double-count: every version's effective_from moves from '0001-01-01' to '2013-04-01' here, but the same move happens across all seven surfaces in this commit, so it reads as a repo-wide convention change rather than a per-module wrong_period defect. Separate caveat about the FIX (not the pre-fix state): the new `council_tax_reduction_capital_eligible` is labelled \"regulation 11(2)\" but its proof atom cites Sch 1 para 2 with the excerpt \"does not fall within a class of persons prescribed\", while the £16,000 in para 37 is the upper bound of the capital tariff (\"£1 for each £500 in excess of £10,000 but not exceeding £16,000\"), not an eligibility cut-off — a weak proof binding in the corrected module, worth a follow-up but it does not affect this verdict.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Confirmed against the pre-fix file (git show <parent>:policies/govuk/council-tax-reduction.yaml) that `council_tax_reduction_withdrawal_rate` is a free, undefined input in the module - the taper had no encoded grounding at all, so this is an ungrounded formula rather than a wrong number (not amount_mismatch). The fix derives the taper exactly as (2*7 + 6) * 0.01 = 0.20 annual-equivalent from paragraph 3(f)(ii). Secondary changes worth a reviewer's eye: the module is re-scoped in its summary to \"pension-age applicants in England\" (narrower than the pre-fix national framework), the reported-CTB fallback for local schemes is dropped entirely, `council_tax_reduction_maximum_support_rate` (=1) is replaced by a per-cent unit parameter, the capital gate now reads `household_capital` instead of `council_tax_reduction_assessed_capital`, and all effective_from values move from 0001-01-01 to 2013-04-01. Provision text not read for this module (no vendored slice for SI 2012/2885 in this commit); judgement rests on the diff plus the commit/PR wording. | verifier confirmed at 0.82",
   "family_id": "uk-60501ec6-cf853e6fba59",

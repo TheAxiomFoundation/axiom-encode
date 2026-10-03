@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch75/ch75.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: (((((((((((((((((((((((((((((((((((((hts_number == \"9506.62.40.40\")))))))))))))))))))))))))))))))))))))",
     "verifier_notes": "Refutation attempts that failed: (1) \"mechanical\" is excluded because the diff removes five derived rules with formulas and proof atoms and converts them to inputs, so inputs/outputs and runtime values for chapter-75 entries change; (2) \"not_a_defect / new coverage never claimed\" is excluded because the consuming rules advertise chapter-99 grounding in their own `source` and proof atoms (`source: Chapter 99 U.S. note reciprocal annex exclusion list under heading 9903.01.32`, atoms citing chapter-99 page-177/page-182 and page-273) while implementing the predicate as a foreign-chapter line identity, and the PR body itself calls the prior coupling one that \"unlawfully suppressed the surcharge on §301-member lines for all origins\". Competing kind worth a reviewer's eye: wrong_entity_or_scope (the predicate ranged over the wrong HTS line population); I kept untraceable_branch because the kind definition explicitly covers \"formulas grounded on the wrong provision\" and the fix's operative act is removal, not re-scoping. Caveats: this commit only removes the definitions — the membership-semantic re-gating (`entry_is_section_122_exempt` / `entry_is_section_232_covered`) and the §232 steel component described in PR #1300 are not in this module's diff at this SHA, where the §301 component still reads `if entry_is_line_a and origin_is_china: list_1_additional_ad_valorem_rate ...`; and the module summary's retained boilerplate \"changes no formula tokens, dates, inputs, proof atoms, or runtime values\" is false for this commit (it removes proof atoms and adds five input slots), which is why the screener flagged it. The maintainer's later PR comment notes flags c and e were subsequently \"fully replaced and no longer valid input slots\", so the final merged state differs from this commit.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 72; diff identical up to chapter prefix, parenthesis count and YAML key spelling. No exemplar line belongs to chapter 75. Same doubt as index 72. | verifier confirmed at 0.74",
   "family_id": "us-2a6bdb01-7331f444c639",

@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
   "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
-  "commit_date": "2026-08-01",
+  "commit_date": "2026-08-01T14:49:33-04:00",
   "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-vietnam-9903-05-84.yaml",
@@ -159,7 +159,8 @@
     "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
     "verifier_notes": "Diff: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/86d35779d9/008.diff — exactly three hunks, each only the effective_from line. Module cites us/statute/hts/9903.05.84, whose corpus text carries no date, so the date's source basis is FR 2026-15181, which I resolved separately and which states July 24, 2026 verbatim. Corroborating detail a reviewer may want: the sibling module forced-labor-presidential-action.yaml keeps effective_from '2026-07-23' for the rate parameters (the memorandum is dated July 23) and was not touched by this commit, so the 07-23/07-24 split in the repo is deliberate, not an inconsistency. Behavior at the composed level was already gated at >= 2026-07-24 (composition.yaml is not in this commit's file list), so the composed output likely did not change; the defect was nonetheless real at the module surface, which is the encoded meaning under review. Separate, still-unrepresented clause in the same DATES sentence (not fixed here, candidate unrepresented_clause for a future pass): goods loaded and in transit before 12:01 a.m. July 24 and entered before 12:01 a.m. July 28, 2026 are exempt from the additional duty. This is one of four date repairs in the same commit (9903.01.20 retire, Rev12 232 consolidations 07-21, Brazil 301 07-22), so the sibling module cases are likely the same kind.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 5/6 (Vietnam); only effective_from lines changed. FR 2026-15181 DATES verified through the pinned corpus. Across indices 1-8 the commit changed nothing but effective_from lines in the modules themselves; the remaining files in the commit are the re-signed .axiom/encoding-manifests entries (manual_exception \"repair\") and the deleted companion test for index 0, so none of the corrected boundaries gained a test case in this commit. | verifier confirmed at 0.96",
   "family_id": "us-86d35779-cf5e83b12851",

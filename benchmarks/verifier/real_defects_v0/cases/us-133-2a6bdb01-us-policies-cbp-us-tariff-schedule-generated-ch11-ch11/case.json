@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch11/ch11.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  source: HTS 7202.11.10.00 statistical reporting number … -  - formula: (hts_number == \"7202.11.10.00\")",
     "verifier_notes": "inferred from verified sibling module index 0 (same kind and rule path in this chunk). Caveats a reviewer should weigh. (1) The module's own summary still asserts \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values … runtime semantics are unchanged\" — that is generator boilerplate and is contradicted by the diff, which removes formulas and proof atoms; do not treat it as a denial. (2) Every consuming formula (`entry_is_line_a or entry_is_line_b`, the §301 slots, §338 gate) is byte-identical before and after; this commit changes only where the flags come from (local derived rule → caller input under the referenced-implies-input convention). If a reviewer scores \"meaning change\" strictly as a change to surviving formula text, this commit alone looks like an input-surface refactor and the case slides toward unclear. (3) The repair is partial in this file: `entry_is_energy_resource` (cited to 9903.01.13 energy/critical minerals) still reads `- formula: (hts_number == \"7202.11.10.00\")` at post line 1950, and the other-chapter citation paths remain in `source_verification.corpus_citation_paths`, so the same exemplar-grounding defect survives the commit for at least one rule. (4) The full membership-semantic regating (`entry_is_section_122_exempt` / `entry_is_section_232_covered`) and the new §232 steel component land in sibling commits of PR #1300, so the PR quote in the first reader's justification describes the stacked change, not literally this diff. Verified read-only via `git show` of parent 956a5474 and 2a6bdb01de; no provision lookup was needed because the defect is structural (wrong-chapter grounding), not text-dependent.",
     "verifier_inferred_from_module_index": 0,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 0: identical two-hunk diff (summary + removal of the five entry_is_line_* derived rules). Diff read individually; justification reused from index 0. | verifier confirmed at 0.70",
   "family_id": "us-2a6bdb01-7331f444c639",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch83/ch83.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: ((((((((((((((((((((((((((((((((((((hts_number == \"7601.10.30.00\"))))))))))))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 72 (same kind and rule path in this chunk). Kept the first reader's classification and kind, with caveats a reviewer should see. (1) This commit only deletes the definitions; every consuming formula in ch73 is byte-identical (section_122_component_rate still reads \"if entry_is_line_a or entry_is_line_b: 0\" at post line 2572, and china_section_301_component_rate still has five exemplar slots), so the repair is delegation to entry preparation, not in-module re-grounding — the PR body's §122 regating and the steel component land in later commits of PR #1300. (2) The exemplar-copy pattern survives this commit: entry_is_energy_resource is still hard-coded as hts_number == \"7202.11.10.00\" in the post file (line 1951), so ch73 still carries a chapter-72 ferroalloy grounding for an IEEPA energy-scope predicate — a live follow-on defect worth filing separately. (3) The retained summary sentence \"Values, dates, dtypes, proof atoms, and runtime semantics are unchanged\" is scoped to the sibling-distinctness serialization device (redundant parens and ch73_ scalar prefixes), not to the flag change; read against the flag change it is false, since derived rules became caller inputs. (4) The first reader's quote is from the new module comment, which is not itself the defect evidence; the decisive evidence is the deleted formula lines plus PR #1300's statement that the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\". (5) Closest alternative kind is wrong_entity_or_scope (a witness five-line panel population copied onto chapter 73's population); I did not reclassify because the taxonomy puts \"formulas grounded on the wrong provision\" and fixes that remove the branch under untraceable_branch. (6) The file is module.kind: composition — generator output from tools/generate_schedule_compositions.py (in other_files), regenerated across 100 chapters — so the defect is one generator bug replicated per chapter, not 100 independent findings; corpus de-duplication should account for that.",
     "verifier_inferred_from_module_index": 72,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 72; only generator cosmetics differ. Same doubt as index 72. | verifier confirmed at 0.72",
   "family_id": "us-2a6bdb01-7331f444c639",

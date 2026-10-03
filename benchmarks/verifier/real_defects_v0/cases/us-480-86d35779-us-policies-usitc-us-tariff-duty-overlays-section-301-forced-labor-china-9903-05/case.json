@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
   "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
-  "commit_date": "2026-08-01",
+  "commit_date": "2026-08-01T14:49:33-04:00",
   "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-china-9903-05-31.yaml",
@@ -159,7 +159,8 @@
     "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
     "verifier_notes": "Corroborating detail a reviewer may want: the companion module forced-labor-presidential-action.yaml deliberately KEEPS effective_from '2026-07-23' (the date of the presidential memorandum) in this same commit, while only the HTS heading modules move to 07-24 (the Annex I entry-date gate). That asymmetry is source-correct, not an inconsistency, and it rules out a \"someone bulk-shifted dates\" reading. Two things stop short of refuting but are worth recording: (1) the module's own declared corpus_citation_path is the dateless HTS article description, so the date's grounding lives in FR 2026-15181 (cited in the composition, not in this module's proof atoms) — a provenance gap, not a misclassification; (2) the composition already gated the forced-labor 301 component at >= 2026-07-24, so the composed program's numbers likely did not change — the defect was latent in the module's standalone meaning. Also note the companion test file was not touched: all three cases run at 2026-08-01, so no case exercises the 07-23/07-24 boundary and the defect could not have been caught by the module's own tests. Separately unrepresented (and not addressed by this fix): the FR's in-transit carve-out exempting goods loaded before 07-24 and entered before 07-28.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 5 (China instead of Brazil); only effective_from lines changed, formulas and the 9903.05.85-9903.05.92 exception untouched. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.94",
   "family_id": "us-86d35779-c386cbc69b9d",

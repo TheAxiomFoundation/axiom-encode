@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch63/ch63.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      ((((((((((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      ((((((((((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Two caveats for the reviewer. (1) The first reader's narrative detail overstates what the parent actually computed: at the parent commit `tools/b16_entry_flags.py` defines `entry_is_line_a..e` as exact per-line identity (`hts == \"7202111000\"` etc.), so the pre-fix §122 gate zeroed the surcharge only on those two exemplar lines, not literally \"on all Section 301-listed lines for every origin.\" The PR's \"unlawfully suppressed the surcharge on §301-member lines for all origins\" is the coupling hazard under the membership semantics the generalization requires (one flag cannot mean both \"§122 (aa)(ii) exempt\" and \"China-301 list-1 member\"). The scope defect is real under either reading — with identity flags the chapter's own §301/§232/§201 components could never fire on any chapter-63 line while Brazil/forced-labor fired on all of them — so the kind holds even though the quoted mechanism is the counterfactual one. (2) Runner-up kind is untraceable_branch: the pre-fix conditions are witness exemplar-line artifacts with no chapter-63 source basis and the fix \"re-grounds\" them. I kept wrong_entity_or_scope because the branch structure itself (a §122 exception for excluded and §232-covered articles) is in the cited source; only the population predicate was wrong. Also note the same diff adds `ch63_s232_steel_heading_rate` / `section_232_steel_component_rate` and wires it into the stack — per the PR that is new coverage the witness never had (its steel exemplar is a ferroalloy outside note 16(c)), so it is enhancement rather than the defect, and should not be counted as a second finding on this module. Last, the retained §122 proof-atom excerpt for `chapter-99/page-230` does not appear in the pinned corpus text at that path (Rev 3 page-230 is §232 steel TRQ notes), but that provenance mismatch is unchanged by this commit and is outside the candidate.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 60; diff read individually, normalizes byte-identical to index 60 apart from the ch63 prefix. Serialization dialect group A. Same steel-component addition and same residual couplings and provenance doubts as index 60. | verifier confirmed at 0.72",
   "family_id": "us-a9562cfd-5666e5ff8301",

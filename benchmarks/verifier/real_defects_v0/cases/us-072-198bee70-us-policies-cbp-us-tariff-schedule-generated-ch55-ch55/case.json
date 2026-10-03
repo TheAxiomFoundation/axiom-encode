@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch55/ch55.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 48 (same kind and rule path in this chunk). Strongest surviving counter-arguments, for the reviewer: (1) For chapter 49 specifically the change is output-neutral — no printed-matter line is either the 7601.10.30.00 exemplar or a §232 aluminum article, so the Brazil surcharge applies either way; what is corrected is the encoded condition and the caller input contract, not a computed duty for this chapter. (2) The PR frames it as decoupling, and the generator applies it as a blind substring substitution across 100 chapters (\"Exact witness substrings: every other gate and effective window is preserved\" in tools/generate_schedule_compositions.py), with certified witness-slice equivalence under the input mapping — so this is a generated-artifact regeneration, not a targeted repair on ch49. I still call it fidelity because the pre-fix encoded condition disagreed with the cited source and the module already used the correct membership flag `entry_is_section_232_aluminum` for its own §232 aluminum component (pre lines 2744/2751) while using the positional flag for this carve-out. Two caveats: the fix is partial — 9903.01.83 also carves out steel, wood, vehicles, semiconductors and copper, and the post formula still excludes only aluminum; and `entry_is_reciprocal_metals_excluded` still reads `formula: entry_is_line_b` at post line 1924, so an exemplar-flag gate remains in the same file. If a reviewer prefers a scope framing (exception applied to one exemplar line instead of the aluminum-article population), wrong_entity_or_scope is the runner-up kind; untraceable_branch fits better because the fix re-grounds a condition that had no counterpart in the source at all. Files: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/198bee703e/048.diff; flag map at rulespec-us 29dbbdac0:.b16-evidence/flag-action-map.md.",
     "verifier_inferred_from_module_index": 48,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 48 (diff read individually; identical hunks). Only differences are the chapter-prefixed steel parameter name and the redundant paren count. | verifier confirmed at 0.72",
   "family_id": "us-198bee70-ae51d9d5b290",

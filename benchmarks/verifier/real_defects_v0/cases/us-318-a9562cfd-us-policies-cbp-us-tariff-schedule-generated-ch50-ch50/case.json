@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch50/ch50.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Runner-up kind is wrong_entity_or_scope (the exemption selected the wrong population of lines), but untraceable_branch explicitly covers \"formulas grounded on the wrong provision,\" which is exactly the pattern here: the gate referenced 9903.01.32/.33 reciprocal-exclusion flags while the rule cites 9903.03.03 / 9903.82.02. Caveats for a reviewer: (1) this diff bundles genuinely new coverage that is NOT a defect — `section_232_steel_component_rate` + `ch50_s232_steel_heading_rate` added to `schedule_statutory_stack`; do not count that as fidelity. (2) The added steel rule ships a malformed nested `metadata: proof: proof: atoms:` block, repaired in a follow-up per the PR issue comment — a separate, mechanical/provenance issue. (3) The exemplar coupling is only partly removed: `entry_is_line_b` still gates the Brazil IEEPA term and `entry_is_line_d` still gates §338/beer and a China-301 slot, so residual exemplar coupling remains after this commit. (4) The `section_122_component_rate` atom citing `us/statute/hts/chapter-99/page-221` resolves in the pinned release to 9903.01.77/de-minimis/India note text, not the (aa)(ii) list — a citation-path provenance concern independent of this verdict. (5) File is `module.kind: composition` (generated, assembled rather than encoder-produced) but is RuleSpec v1 with rules and formulas, so not_a_rule_module does not apply.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Chapter 50; same pattern as index 48, diff read in full. Cosmetic variant: uses the `effective_from:` spelling of the temporal lower bound (placement-gate distinctness) — no semantic difference. All caveats from index 48 apply, including the double-nested metadata.proof.proof.atoms on the added section_232_steel_component_rate, which I confirmed on this diff as well. | verifier confirmed at 0.82",
   "family_id": "us-a9562cfd-a47a2c82a367",

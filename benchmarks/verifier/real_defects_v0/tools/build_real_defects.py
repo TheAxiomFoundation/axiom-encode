@@ -378,14 +378,18 @@ def build_case(
     locator["rule_names"] = row.get("rule_names") or []
     locator["rule_path"] = row.get("rule_path") or ""
     verifier = row.get("verifier") or {}
+    # Date and subject always come from the commit itself. The triage row's
+    # own fields are not used: for screen-flagged commits the 2026-09 workflow
+    # recorded an empty date and the screen's paraphrase as the subject.
+    meta = lib.commit_metadata(repo, [commit])[commit]
     case = {
         "id": None,
         "jurisdiction": jur,
         "repo": lib.REPO_SLUGS[jur],
         "commit": commit,
         "parent_commit": parent,
-        "commit_date": row.get("date"),
-        "commit_subject": row.get("subject"),
+        "commit_date": meta["date"],
+        "commit_subject": meta["subject"],
         "pr_url": row.get("pr_url"),
         "module_path": path,
         "corpus_citation_path": citations[0],
@@ -420,6 +424,7 @@ def build_case(
                 "inferred_from_module_index"
             ),
             "candidate_source": row.get("candidate_source"),
+            "screen_reason": row.get("screen_reason"),
         },
         "triage_notes": row.get("triage_notes_combined")
         or row.get("triage_notes")

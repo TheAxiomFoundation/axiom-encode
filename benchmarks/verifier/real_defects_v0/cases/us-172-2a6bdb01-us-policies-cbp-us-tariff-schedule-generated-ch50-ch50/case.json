@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch50/ch50.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: (((((((((((((((((((((((((hts_number == \"7202.11.10.00\")))))))))))))))))))))))))",
     "verifier_notes": "Checked pre (parent 956a547418) and post ch50.yaml directly: the only changes are the summary rewrite and removal of entry_is_line_a..e; all 18 referencing formula sites are byte-identical across the commit (pre lines 2007/2467/2672/2748/2844/2916/3094-3098/3139/3297 vs post 1907/2367/2572/2648/2744/2816/2994-2998/3039/3197). The steel component and the §122 decoupling onto `entry_is_section_122_exempt` described in the PR body are NOT in this commit for ch50 — they land elsewhere in the stack, so this commit is stage 1 (removing the ungrounded definitions) of the repair. The honest counterargument a reviewer should weigh: the generated module declares itself a deterministic copy of the hand-built five-line witness pilot (\"copies the witness's authority components, declared-entry variants, proof atoms, formulas, inputs\"), and both pre and post summaries carry boilerplate claiming \"runtime semantics are unchanged,\" so one could read this as architectural decoupling / coverage expansion rather than correcting a claim the module made. I weighted against that because the deleted rules are conditions ungrounded in chapter 50's source that made every §301/§338 branch dead for the whole chapter, and because the PR body names the lawfulness failure (\"round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\"). Also note the post header still lists us/statute/hts/7202.11.10.00, 7601.10.30.00, 9506.62.40.40, 2203.00.00.30 and 8541.42.00.10 in source_verification because surviving component atoms still cite them; that residue is not evidence the removal was cosmetic. Did not need the corpus resolver: the kind turns on which provision the branch is grounded in, which the in-module proof atoms settle, not on a number or boundary in the source text. All commands were read-only (git show / sed / grep on single files).",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 48 (identical two-hunk shape: summary regeneration plus removal of entry_is_line_a..e; only the redundant-parenthesis padding count and the from/effective_from spelling differ per chapter). Diff read in full; no other formulas, parameters, dates, or outputs changed in this module. | verifier confirmed at 0.66",
   "family_id": "us-2a6bdb01-7331f444c639",

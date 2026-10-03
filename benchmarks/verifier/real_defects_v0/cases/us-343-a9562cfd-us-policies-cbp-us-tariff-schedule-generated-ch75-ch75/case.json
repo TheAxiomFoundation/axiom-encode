@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch75/ch75.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Anchor verified: the changed §122 version is indeed versions[1] (effective_from 2026-02-24, effective_to 2026-07-23) in the parent file 29dbbdac05. Its own proof atoms already cite the two lawful exceptions (\"subdivision (aa)(ii) exclusion list under heading 9903.03.03\" and \"articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04\"), so the pre-fix China-301 gate contradicted the module's own cited basis. Alternate kind worth a reviewer's eye: wrong_entity_or_scope is defensible (the exemption fired over the wrong population of lines); I chose untraceable_branch because the failure is an ungrounded condition operand that the fix re-grounds, not a mis-specified entity. Two corpus-hygiene flags: (1) this file is module.kind: composition, generator-emitted with \"hand edits prohibited\", and the identical §122/§301/aluminum/Brazil/forced-labor rewrite lands in all 100 module files of commit a9562cfd44 — one underlying defect replicated 100 times, so the corpus likely wants dedupe rather than 100 independent cases; (2) the same diff also ADDS ch75_s232_steel_heading_rate / section_232_steel_component_rate and a new stack term, which is separate new coverage (at most unrepresented_clause), not part of the confirmed §122 defect — do not let it inflate this case.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 72; changed lines byte-identical after chapter-prefix normalization (this instance uses `effective_from:`). Same caveats as index 72. | verifier confirmed at 0.85",
   "family_id": "us-a9562cfd-a47a2c82a367",

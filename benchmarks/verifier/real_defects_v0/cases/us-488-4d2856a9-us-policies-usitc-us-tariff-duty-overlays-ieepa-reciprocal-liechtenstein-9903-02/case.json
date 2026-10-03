@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-liechtenstein-9903-02-88.yaml",
@@ -249,7 +249,8 @@
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
     "verifier_notes": "Module index 4 = reciprocal-liechtenstein-9903-02-88.yaml, the below-floor (column 1-General < 15 percent) half of the li-87/li-88 pair; the commit body's F1 list names \"li-87/88\" among the five successor floor modules, so the quoted reason covers this file directly. Verified against the pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0, provision record e36a6a5a-a64b-506e-88c2-3ce5dad1de30, line 12 of data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl): DATES paragraph and Annex II preamble both give Nov 14, 2025; Annex II item 7 inserts 9903.02.82-9903.02.91; U.S. note 2(v)(xxiv)(a) confirms the .87/.88 Liechtenstein split at the 15 percent MFN line. The HTS provision record for us/statute/hts/9903.02.88 itself carries no date, so the effective window can only come from the notice — which is why the fix also adds the second corpus_citation_path. Two caveats a reviewer may want: (1) the eight added effective_period proof atoms and the summary paragraph are provenance-only, so if a scorer weights \"what fraction of the diff is meaning\", this module is mostly provenance around one real date change; (2) the defect existed only on the PR 1197 branch (fix commit 4d2856a958 landed the same day the PR merged), so it was caught pre-merge rather than in shipped main. Neither caveat changes that the pre-fix encoding disagreed with the cited source. Downstream effect as the first reader described it is right: with a 2026-02-15 start, 9903.02.88's 15 percent floor top-up would have been inert for entries from 2025-11-14 through 2026-02-14.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 3 (li-87), the below-floor sibling; 8 effective_from changes, two effective_period proof atoms per rule citing the same FR notice, summary and corpus_citation_paths updated, no formula change. Source verified once for the whole 9903.02.82-.91 insertion (see index 3 notes). | verifier confirmed at 0.95",
   "family_id": "us-4d2856a9-f13bb1eaec34",

@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-switzerland-9903-02-83.yaml",
@@ -249,7 +249,8 @@
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
     "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/4d2856a958/009.diff. The same -2026-02-15/+2025-11-14 pair appears eight times, once per rule, so the whole module's window moves coherently; there is no partial/mixed-date state left behind and no effective_to is introduced. Both added proof-atom excerpts are verbatim in the pinned provision text (the \"New headings\" excerpt is source line-wrapped as \"New headings 9903.02.82-9903.02.91 shall be inserted in \\nnumerical sequence\", consistent with the commit's note about FR hard-wrap normalization). Two caveats for the reviewer, neither of which changes the verdict but both of which affect how the case reads as a corpus exemplar: (1) the module was introduced earlier in the same PR #1197 (add 8fd1c00ed -> r1 fix 75a367787 -> this r2 fix 4d2856a95 -> r3 fix 0ae98bd52), so this defect was caught in pre-merge review rather than shipped to main — the corpus should be explicit about whether review-caught defects count; (2) roughly 140 of the 184 diff lines are added effective_period proof atoms and the corpus_citation_path -> corpus_citation_paths widening, which are provenance; only the eight one-line date changes carry meaning. A later commit (0ae98bd52, \"exclusion judgments dated from EO 14257 effectiveness\") re-dates some judgments again, so if the corpus also samples that commit, watch for double-counting the same effective-date family in this module.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 3 (li-87) and its below-floor sibling index 4; note its paired module ch-82 (index 8) had the mirror-image error (too early), so pre-fix the Switzerland floor pair was internally inconsistent — above-floor live from August, below-floor not until February. Source verified in the same Annex II text. Diff: 8 effective_from changes, two effective_period atoms per rule, summary and corpus_citation_paths; no formula change. | verifier confirmed at 0.93",
   "family_id": "us-4d2856a9-85de90c8b887",

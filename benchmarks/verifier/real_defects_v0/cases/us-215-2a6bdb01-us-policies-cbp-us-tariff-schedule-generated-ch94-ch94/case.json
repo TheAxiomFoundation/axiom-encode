@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch94/ch94.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-    formula: ((((((((((((((((((((((((((((((((((((((((((hts_number == \"9506.62.40.40\"))))))))))))))))))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 84 (same kind and rule path in this chunk). Refutation attempts and what survived: (1) \"mechanical\" fails — five rules with formulas, dtypes, effective windows and proof atoms are deleted and the identifiers become caller inputs; the post summary itself says they \"are caller inputs supplied by entry preparation from incidence classification.\" (2) \"not_a_defect / new coverage never claimed\" fails — the module is the chapter-86 statutory stack (it imports ch86's own rate table and does `ch86_general_rate[hts_line]`), so it claims to serve chapter-86 entries, and its §301/§201/§232/§338 components were live outputs that could only ever fire on other chapters' lines. (3) The generator boilerplate \"Values, dates, dtypes, proof atoms, and runtime semantics are unchanged\" is stale text describing the sibling-distinctness serialization (redundant parens, chapter-prefixed scalars) relative to the witness, not this change; the screener was right to be unsure of it. Caveats for the reviewer: this identical repair lands in ~100 generated chapter modules in one commit (tools/generate_schedule_compositions.py is the real edit), so the corpus will hold ~100 near-duplicate instances of this one defect — dedupe to one representative. The repair is also partial at this commit: post-fix, china_section_301_component_rate still carries proof atoms citing 7202.11.10.00 / 9506.62.40 / 7601.10.30.00 / 2203.00.00 / 8541.42.00, section_122 still reads `if entry_is_line_a or entry_is_line_b: 0`, and module source_verification still lists the five out-of-chapter citation paths; the §122 decoupling and the steel component described in the PR body are in other commits of PR #1300. PR body language supporting fidelity (not this file's diff): \"the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\".",
     "verifier_inferred_from_module_index": 84,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 84; removed block identical modulo chapter prefix and redundant-parenthesis count (46). Same caveats as index 84. | verifier confirmed at 0.82",
   "family_id": "us-2a6bdb01-7331f444c639",

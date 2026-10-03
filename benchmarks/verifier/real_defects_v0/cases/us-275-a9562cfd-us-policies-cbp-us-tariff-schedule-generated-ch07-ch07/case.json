@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch07/ch07.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (if entry_is_line_a or entry_is_line_b: 0\n+      (if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "inferred from verified sibling module index 0 (same kind and rule path in this chunk). Refutations tried and rejected: (1) Mechanical rename — no: `git show a9562cfd44:...ch01.yaml | grep entry_is_line_` shows entry_is_line_a (line 1907) and entry_is_line_b (1924) still driving entry_is_reciprocal_annex_excluded / entry_is_reciprocal_metals_excluded and the Brazil-IEEPA term (2367, 2523), so one conflated input was split into several independent ones. (2) Enhancement the module never claimed — no: this is a chapter-wide generated composition (schedule_statutory_stack over any hts_line), and its own §122 atoms cite \"subdivision (aa)(ii) exclusion list under heading 9903.03.03\" and \"articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04\", neither of which is the set the old gate denoted. (3) Better-fitting kind — untraceable_branch does not fit because the exemption branch is source-grounded and its atoms are unchanged; polarity_or_logic does not fit because the or-shape is preserved. Reviewer caveats: the same commit also ADDS a new section_232_steel_component_rate and its ch01_s232_steel_heading_rate 0.50 parameter (new coverage, separate from the anchored defect — would be unrepresented_clause if scored on its own), and the Brazil-301 / forced-labor-301 rules gain list-membership gates whose inputs the summary says \"default to the declared-boolean FALSE pattern\", which zeroes those components pending membership tables. Also note this module file is 1 of 100 byte-identical generated chapter files in the commit, so the corpus should dedup rather than count 100 defects. Provision read via the pinned corpus release us-rulespec-2026-08-08-obbb-alien-snap (corpus commit e79781bddeab); note chapter-99 page citations (page-221/page-230) do not resolve to the encoding-era pagination in that release, so the Annex/§232 exemption language was confirmed from us/rulemaking/federal-register/2026-02-25/2026-03824 instead.",
     "verifier_inferred_from_module_index": 0,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 0; signature identical apart from parenthesis count. Chapter-prefixed new parameter is ch07_s232_steel_heading_rate. | verifier confirmed at 0.85",
   "family_id": "us-a9562cfd-5666e5ff8301",
