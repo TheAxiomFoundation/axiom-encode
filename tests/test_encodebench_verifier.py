@@ -2967,9 +2967,8 @@ def test_localization_matches_whole_words_and_is_recomputed_at_assembly(tmp_path
 # -- committed boards reproduce -----------------------------------------------
 
 BOARDS_ROOT = VERIFIER_ROOT / "boards"
-# The real-defects boards are held for the corpus evidence check (decision
-# d885) on branch encodebench-verifier-real-board, with their reproduction test.
-COMMITTED_BOARDS = ("synthetic_us_v1",)
+REAL_CORPUS = REPO_ROOT / "benchmarks" / "verifier" / "real_defects_v0"
+COMMITTED_BOARDS = ("synthetic_us_v1", "real_defects_v0", "real_defects_v0_under100k")
 
 
 def _manifest_identity_sha(manifest: dict) -> str:
@@ -3011,6 +3010,49 @@ def test_committed_board_manifest_and_board_agree(board_dir):
     for runner in board["runners"]:
         assert runner["cases_expected"] == len(identities), runner["runner"]
         assert runner["cases_scored"] + runner["errors"] <= len(identities)
+
+
+@pytest.mark.skipif(
+    not (REAL_CORPUS / "index.json").is_file(),
+    reason="real_defects_v0 corpus (PR #1659) is not in this checkout",
+)
+def test_committed_real_boards_reproduce_from_the_committed_corpus():
+    full = json.loads(
+        (BOARDS_ROOT / "real_defects_v0" / "suite.manifest.json").read_text()
+    )
+    child = json.loads(
+        (BOARDS_ROOT / "real_defects_v0_under100k" / "suite.manifest.json").read_text()
+    )
+    selection = full["source"]["identity"]["selection"]
+    suite, _ = real_source.build_real_suite(
+        REAL_CORPUS,
+        provision_chars=full["provision_chars"],
+        truncate=truncate_provision,
+        name=full["name"],
+        representatives_only=selection["representatives_only"],
+        triage_statuses=tuple(selection["triage_statuses"]),
+        min_confidence=selection["min_confidence"],
+        jurisdictions=tuple(selection["jurisdictions"]),
+    )
+    assert suite.case_identities() == full["case_identities"]
+    assert suite.sha256 == full["sha256"]
+    # The like-for-like child applies the same size rule as `filter-suite`.
+    derived = child["source"]["identity"]["derived_from"]
+    limit = derived["filter"]["max_case_chars"]
+    sizes: dict[str, int] = {}
+    for case in suite.cases:
+        size = len(case.provision_text) + len(case.artifact_text)
+        sizes[case.pair_id] = max(sizes.get(case.pair_id, 0), size)
+    rebuilt = suite.filtered(
+        name=child["name"],
+        keep_pair=lambda case: sizes[case.pair_id] <= limit,
+        description=derived["filter"],
+    )
+    assert (
+        rebuilt.source_identity["derived_from"]["dropped_pairs"]
+        == derived["dropped_pairs"]
+    )
+    assert rebuilt.sha256 == child["sha256"]
 
 
 def test_runbook_boards_block_is_generated_from_the_committed_boards():
