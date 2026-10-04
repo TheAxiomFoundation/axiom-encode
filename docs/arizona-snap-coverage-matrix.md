@@ -41,15 +41,18 @@ whose inputs and outputs are actually comparable. Disagreements are resolved
 against controlling authority, not by assuming either PolicyEngine or
 SnapScreener is correct.
 
-Source acquisition remains a provenance blocker for new DES pages. The official
-COLA page and March 2026 change notice are readable through indexed web
-results, but direct HTTPS fetches of both official URLs returned HTTP 403 with
-`Cf-Mitigated: challenge` on 2026-10-03. An in-app browser visit to the COLA
-URL redirected to a CNAP Manual 404 frame, and the archived PDF did not render
-there. These views establish an audit lead, not authenticated source snapshot
-bytes for a signed corpus release. Do not transcribe a search result into
-canonical corpus data; obtain an official accessible snapshot or publisher
-export and verify its provenance before protected encoding.
+Source acquisition has advanced, but release provenance remains a blocker.
+Ordinary direct HTTPS fetches of DES pages returned HTTP 403 with
+`Cf-Mitigated: challenge` on 2026-10-03. The corpus extractor's
+`request.browser_impersonation: chrome120` fetched the current official DES
+FAA3 residency, qualified-noncitizen, and institution pages; FAA4 NA resources
+and income-eligibility pages; and FAA6 resource-limit and income-standard
+tables directly. Native extraction reported complete coverage in six local
+manifest scopes, including the historical ECE scopes below. These are staged,
+unsigned source candidates, **not** pinned or released corpus units. The FAA6
+200% table expressly dates both ECE and simplified reporting to 03/01/2026;
+those remain distinct behaviors. Do not infer protected-encoding readiness
+until authorized signing, locking, release, and effective-date audit complete.
 
 An archival route now provides candidate source bytes for provenance review:
 the [Internet Archive's 2025-10-30 capture of the official DES FFY 2026 COLA
