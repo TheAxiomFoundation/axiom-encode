@@ -59,6 +59,16 @@ before deciding which implementation is legally correct for January 2026.
 | Arizona ABAWD geographic waiver, October 2025–February 2026 | [FNS's FY 2025 Arizona approval](https://fns-prod.azureedge.us/sites/default/files/resource-files/az-abawd-response-fy2025.pdf) states an October 2024 start and a September 2025 expiration (the approval itself prints the nonexistent date September 31); [DES's September 2025 change history](https://dbmefaapolicy.azdes.gov/Archived_Policy/WhatChangedHistory.html) announces that the waiver expires. Yet [FNS's FY 2026 first-quarter status report](https://fns-prod.azureedge.us/sites/default/files/resource-files/FY26-Quarter-1-ABAWD-Waiver-Status.pdf) lists Arizona as partially waived as of October 1, 2025. This is an unresolved authority/status conflict, not proof of continuous or absent waiver coverage. | No matched October 2025–February 2026 geographic-waiver result is recorded. | Obtain DES's August 28, 2025 expiration bulletin from authenticated official or archival bytes, check for any intervening FNS approval or correction, and reconcile administrative effective dates before encoding October–February geography. Do not extrapolate the March 2026 approval backward. |
 | Additional Arizona SNAP administration and eligibility | DES FAA5 has NA approval periods, disqualified-participant effects, transitional benefit assistance, child-support and dependent-care deductions; other DES chapters and federal/state plans must be inventoried for residency, membership, citizenship/immigration, income, resources, work, students, sanctions, expedited service, and reporting. | Some FAA5 modules exist, but an inventory of controlling source units and matched behavior is incomplete. | **Unresolved inventory, not proven absent coverage.** Classify each source as Arizona-specific, federal shared, unrelated cash-assistance material, or non-computational procedure before generating missing modules. |
 
+The final block-9 failure bundle reports `module.source_verification.values`
+in a temporary compile overlay, but none of its archived generated target YAMLs
+or the selected rejected candidate contains that field. The encoder's legacy
+source-value validator still reads `source_verification.values`, whereas the
+rules-engine schema permits only `corpus_citation_path`, `source_sha256`, and
+`upstream_source_check`. This is a validation-contract mismatch, **not yet a
+reproduction of the transient overlay error**. Preserve the exact overlay
+candidate on a diagnostic rerun or construct a focused reproducer before
+changing generation/compilation behavior or spending another protected attempt.
+
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
 eligibility, FAA6 allowance amounts). This narrow citation set is **not** a
