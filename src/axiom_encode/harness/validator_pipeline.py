@@ -20630,8 +20630,13 @@ def build_existing_target_oracle_contract(
     exact_mappings = getattr(policyengine_registry, "mappings_by_legal_id", {})
     if not isinstance(exact_mappings, dict):
         return None
+    # Registry entries classified as not_comparable document an oracle gap;
+    # they do not establish a PolicyEngine-owned public shape to preserve.
     surface_names = sorted(
-        name for name in rules if f"{target}#{name}" in exact_mappings
+        name
+        for name in rules
+        if (mapping := exact_mappings.get(f"{target}#{name}")) is not None
+        and getattr(mapping, "mapping_type", None) != "not_comparable"
     )
     entity_inference_memo: dict[str, tuple[str, ...]] = {}
     cyclic_entity_rules: set[str] = set()
