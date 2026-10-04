@@ -29,6 +29,13 @@ the RuleSpec case expects integer $200 and $526 at those steps. The existing
 RuleSpec case also sets age 60 while explicitly marking the member as not
 elderly/disabled, so it is not a fully matched household record. Reconcile
 rounding and member facts against controlling authority before claiming parity.
+The pinned federal RuleSpec uses `floor()` for the earned-income deduction,
+while [7 CFR 273.10(e)(1)(ii)](https://www.govinfo.gov/content/pkg/CFR-2025-title7-vol4/pdf/CFR-2025-title7-vol4-part273.pdf)
+permits a nearest-dollar or state-TANF rounding procedure. [DES's current
+benefit example](https://des.az.gov/node/4875) retains cents through the
+earned-income deduction and net-income calculation, but that page now displays
+FFY 2027 values; obtain an authenticated FFY 2026 Arizona rounding source
+before deciding which implementation is legally correct for January 2026.
 
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
