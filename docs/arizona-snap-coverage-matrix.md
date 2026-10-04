@@ -50,3 +50,20 @@ there. These views establish an audit lead, not authenticated source snapshot
 bytes for a signed corpus release. Do not transcribe a search result into
 canonical corpus data; obtain an official accessible snapshot or publisher
 export and verify its provenance before protected encoding.
+
+An archival route now provides candidate source bytes for provenance review:
+the [Internet Archive's 2025-10-30 capture of the official DES FFY 2026 COLA
+page](https://web.archive.org/web/20251030220841id_/https://dbmefaapolicy.azdes.gov/FAA5/FFY_2026_NA_COLA_Changes.html)
+states the 185% ECE standard effective 10/01/2025, and its SHA-1 payload digest
+matches the archive CDX record (`Q43XL5KP4LKW55V5I3TGJ2OJ734DYBPB`; local
+SHA-256 `3dc09c5a979a5593585d05d543372acbef38dbd43616ea506db14e9932696daa`).
+The [2026-04-17 capture of DES's 2026-03-23 change
+notice](https://web.archive.org/web/20260417195741id_/https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-23_What%27sChanged.pdf)
+states the 200% standard for benefit month 03/2026 and the recalled 130%
+announcement. Its SHA-1 payload digest matches CDX
+(`UJIAFW65IDNJ7HBLBST5WHPJZMCHICLJ`; local SHA-256
+`f8173335f1f7f73467020ed8a13d0e7ad2efd5a92d83f74f7c471b57d27232e3`),
+and the Memento response preserves the original DES URL, 200 response, and
+original last-modified header. These are archived official-origin candidates,
+not yet signed corpus units. Verify the capture provenance and ingest them in
+a new release before relying on them for protected generation.
