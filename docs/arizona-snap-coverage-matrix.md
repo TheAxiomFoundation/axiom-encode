@@ -9,6 +9,15 @@ RuleSpec US `9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and Axiom Corpus
 pin or legal effective date changes. `not_comparable` oracle output is **not**
 behavioral parity.
 
+The repository's `oracle-coverage --program snap --json` classifier, run against
+the pinned RuleSpec US commit, finds 103 Arizona executable outputs: five have
+exact PolicyEngine registry mappings and companion tests, while 98 are
+`known_not_comparable`. The five mappings cover the ECE FPL rate, three medical
+deduction outputs, and the shelter-deduction income-share rate. A companion
+test is **not** a matched PolicyEngine household comparison; these counts
+establish classification and local test presence only. In particular, the
+mapped ECE rate still has the documented 2026-03 temporal discrepancy.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). The federal 7 CFR 273.1 and 273.3–273.7, 273.10, and 273.24 modules are shared authority, not an Arizona-only gap. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
