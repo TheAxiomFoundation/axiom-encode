@@ -18,6 +18,18 @@ test is **not** a matched PolicyEngine household comparison; these counts
 establish classification and local test presence only. In particular, the
 mapped ECE rate still has the documented 2026-03 temporal discrepancy.
 
+One **partial financial-path comparison**, not household parity: at the pinned
+PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
+monthly earnings, $500 monthly rent, and separately paid heating/cooling gives
+SUA $323, SNAP net income $67, and SNAP allotment $277. The pinned RuleSpec
+`one_person_sua_household_rides_the_whole_dollar_chain` case gives SUA $323,
+net income $68, and benefit $277. PolicyEngine keeps a $200.60 earned-income
+deduction and $526.30 excess-shelter deduction before its net-income rounding;
+the RuleSpec case expects integer $200 and $526 at those steps. The existing
+RuleSpec case also sets age 60 while explicitly marking the member as not
+elderly/disabled, so it is not a fully matched household record. Reconcile
+rounding and member facts against controlling authority before claiming parity.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). The federal 7 CFR 273.1 and 273.3–273.7, 273.10, and 273.24 modules are shared authority, not an Arizona-only gap. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
