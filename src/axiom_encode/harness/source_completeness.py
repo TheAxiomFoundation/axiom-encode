@@ -2053,7 +2053,10 @@ def _imprecise_deferral_retry_shape(
             branch_hint = (
                 "\nFor this rejected current-source branch, the literal canonical "
                 f"citation required in `reason` is "
-                f"`{corpus_citation_path.rstrip('/')}{fragments}`."
+                f"`{corpus_citation_path.rstrip('/')}{fragments}` when the reason "
+                "cites this branch itself (a repeal, a runtime gap, or a "
+                "source-stated input); a reason naming an exact external missing "
+                "dependency need not cite it."
             )
     return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
 

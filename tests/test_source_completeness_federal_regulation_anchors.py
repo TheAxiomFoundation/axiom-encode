@@ -8,7 +8,8 @@ corpus-shaped `us:regulations/42/457/800/...` root and silently dropped the
 rest. Nine targeted signed re-encode runs on 2026-09-29 (42 CFR 457.800,
 457.622 and 435.927, three each) ended `apply_blocked_validation` this way:
 every final candidate anchored all of its deferrals at the `-cfr` root and
-received only "neither encoded nor precisely deferred".
+received no deferral-specific feedback, only "neither encoded nor precisely
+deferred" for the branches those deferrals named.
 
 The fixtures are the byte-exact `final-rejected-candidate` files from the
 `targeted-reencode-failure-<run>-1` artifacts of runs 36635442145 and
