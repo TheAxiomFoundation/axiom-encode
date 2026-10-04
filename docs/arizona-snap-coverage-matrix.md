@@ -47,8 +47,9 @@ Ordinary direct HTTPS fetches of DES pages returned HTTP 403 with
 `request.browser_impersonation: chrome120` fetched the current official DES
 FAA3 residency, qualified-noncitizen, and institution pages; FAA4 NA resources
 and income-eligibility pages; and FAA6 resource-limit and income-standard
-tables directly. Native extraction reported complete coverage in six local
-manifest scopes, including the historical ECE scopes below. These are staged,
+tables directly. Native extraction reported complete coverage in eight local
+manifest scopes, including the historical ECE scopes below and a retained
+pre-March 2026 FAA3 qualified-noncitizen page. These are staged,
 unsigned source candidates, **not** pinned or released corpus units. The FAA6
 200% table expressly dates both ECE and simplified reporting to 03/01/2026;
 those remain distinct behaviors. Do not infer protected-encoding readiness
@@ -69,4 +70,10 @@ announcement. Its SHA-1 payload digest matches CDX
 and the Memento response preserves the original DES URL, 200 response, and
 original last-modified header. These are archived official-origin candidates,
 not yet signed corpus units. Verify the capture provenance and ingest them in
-a new release before relying on them for protected generation.
+a new release before relying on them for protected generation. A subsequent
+browser-impersonated fetch of the DES change-notice URL returned the same PDF
+bytes as the archived capture (SHA-256
+`f8173335f1f7f73467020ed8a13d0e7ad2efd5a92d83f74f7c471b57d27232e3`).
+The live official FFY 2026 COLA page now also explicitly records the 185%-to-200%
+ECE transition for benefit month 03/2026. Both directly fetched scopes were
+extracted locally, but neither is signed or released.
