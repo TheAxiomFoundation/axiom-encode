@@ -34,7 +34,7 @@ from axiom_encode.prompts.encoder import get_encoder_prompt
 from .encoding_db import TokenUsage
 from .eval_evidence import scrub_attestation_signing_keys
 from .observability import extract_reasoning_output_tokens
-from .pricing import estimate_usage_cost_usd
+from .pricing import anthropic_refusal_is_billed, estimate_usage_cost_usd
 
 
 @dataclass
@@ -534,6 +534,15 @@ class CodexCLIBackend(EncoderBackend):
         }
 
 
+def _refusal_category(details: Any) -> str | None:
+    """Return a refusal's ``stop_details.category`` (a dict or an SDK object)."""
+    if isinstance(details, dict):
+        category = details.get("category")
+    else:
+        category = getattr(details, "category", None)
+    return category if isinstance(category, str) else None
+
+
 class AgentSDKBackend(EncoderBackend):
     """
     Backend using Claude API (anthropic SDK).
@@ -542,8 +551,9 @@ class AgentSDKBackend(EncoderBackend):
     Enables parallelization for batch encoding.
     Uses embedded prompts -- no external plugin needed.
 
-    Current Claude models think adaptively by default and ``max_tokens`` caps
-    thinking plus the RuleSpec together, so requests stream (the SDK refuses
+    Claude Opus 5.5, the default model, always thinks adaptively and
+    ``max_tokens`` caps thinking plus the RuleSpec together, so requests stream
+    (the SDK refuses
     non-streaming requests above ~21k tokens) with a large budget. A refusal, a
     response cut off at ``max_tokens`` or at the context window, or a response
     with no RuleSpec text is a failed encode, never a partial RuleSpec.
@@ -564,9 +574,14 @@ class AgentSDKBackend(EncoderBackend):
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required for AgentSDKBackend")
         self.model = model or DEFAULT_MODEL
-        # Fail at construction, not with a 400 on every request.
-        source = "effort" if effort else "AXIOM_API_ENCODER_EFFORT"
-        raw_effort = effort or os.environ.get("AXIOM_API_ENCODER_EFFORT") or ""
+        # Fail at construction, not with a 400 on every request. A blank
+        # argument defers to the environment, and a blank value there to the
+        # default.
+        if effort and effort.strip():
+            source, raw_effort = "effort", effort
+        else:
+            source = "AXIOM_API_ENCODER_EFFORT"
+            raw_effort = os.environ.get("AXIOM_API_ENCODER_EFFORT") or ""
         self.effort = raw_effort.strip().lower() or DEFAULT_API_ENCODER_EFFORT
         if self.effort not in self.EFFORTS:
             raise ValueError(
@@ -582,32 +597,53 @@ class AgentSDKBackend(EncoderBackend):
         """Async encode using Claude API with embedded prompts."""
         start = time.time()
         # Set once the API answers, so a failure after that still reports the
-        # billed tokens and why the model stopped.
+        # usage, its cost and why the model stopped.
         tokens: TokenUsage | None = None
         stop_reason: str | None = None
+        # A refusal's stop_details, when the API sent them.
+        refusal_details: Any = None
 
         def respond(
             rulespec_content: str = "", error: str | None = None
         ) -> EncoderResponse:
+            trace: dict[str, Any] = {
+                "provider": "anthropic",
+                "backend": "api",
+                "model": self.model,
+                "stop_reason": stop_reason,
+                "effort": self.effort,
+            }
+            cost_usd = estimate_usage_cost_usd(self.model, tokens)
+            if stop_reason == "refusal":
+                category = _refusal_category(refusal_details)
+                trace["refusal_category"] = category
+                output_tokens = tokens.output_tokens if tokens else 0
+                billed = anthropic_refusal_is_billed(category, output_tokens)
+                if billed is None or (output_tokens == 0 and refusal_details is None):
+                    # A refusal before any output is billed or free by its
+                    # category, which this response did not carry or which
+                    # Anthropic's billing table does not list.
+                    cost_usd = None
+                elif not billed:
+                    cost_usd = 0.0
             return EncoderResponse(
                 rulespec_content=rulespec_content,
                 success=error is None,
                 error=error,
                 duration_ms=int((time.time() - start) * 1000),
                 tokens=tokens,
-                cost_usd=estimate_usage_cost_usd(self.model, tokens),
-                trace={
-                    "provider": "anthropic",
-                    "backend": "api",
-                    "model": self.model,
-                    "stop_reason": stop_reason,
-                    "effort": self.effort,
-                },
+                cost_usd=cost_usd,
+                trace=trace,
             )
 
         try:
             import anthropic
+        except ImportError as exc:
+            return respond(
+                error=f"anthropic SDK not installed; install axiom-encode[api] ({exc})"
+            )
 
+        try:
             prompt = get_encoder_prompt(
                 request.citation,
                 str(request.output_path),
@@ -625,23 +661,34 @@ class AgentSDKBackend(EncoderBackend):
                     messages=[{"role": "user", "content": prompt}],
                     output_config={"effort": self.effort},
                 ) as stream:
+                    # anthropic 0.83.0's final message drops stop_details; its
+                    # message_delta event still carries them.
+                    streamed_details = None
+                    async for event in stream:
+                        if getattr(event, "type", None) == "message_delta":
+                            delta = getattr(event, "delta", None)
+                            streamed_details = (
+                                getattr(delta, "stop_details", None) or streamed_details
+                            )
                     response = await stream.get_final_message()
 
-            usage = TokenUsage(
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-            )
-            tokens = usage if usage.total_tokens > 0 else None
-            raw_stop_reason = getattr(response, "stop_reason", None)
-            stop_reason = raw_stop_reason if isinstance(raw_stop_reason, str) else None
+                    # Recorded before the clients close, so a failure while
+                    # closing still reports what the API answered.
+                    usage = TokenUsage(
+                        input_tokens=response.usage.input_tokens,
+                        output_tokens=response.usage.output_tokens,
+                    )
+                    tokens = usage if usage.total_tokens > 0 else None
+                    raw_stop_reason = getattr(response, "stop_reason", None)
+                    if isinstance(raw_stop_reason, str):
+                        stop_reason = raw_stop_reason
+                    if stop_reason == "refusal":
+                        refusal_details = (
+                            getattr(response, "stop_details", None) or streamed_details
+                        )
 
             if stop_reason == "refusal":
-                details = getattr(response, "stop_details", None)
-                category = (
-                    details.get("category")
-                    if isinstance(details, dict)
-                    else getattr(details, "category", None)
-                )
+                category = _refusal_category(refusal_details)
                 return respond(
                     error="model declined the encode request"
                     + (f" (category: {category})" if category else "")
@@ -680,10 +727,6 @@ class AgentSDKBackend(EncoderBackend):
                 )
             return respond(rulespec_content)
 
-        except ImportError:
-            return respond(
-                error="anthropic SDK not installed. Run: pip install anthropic"
-            )
         except Exception as e:
             return respond(error=str(e))
 

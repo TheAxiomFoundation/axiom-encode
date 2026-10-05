@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from axiom_encode.harness.encoding_db import TokenUsage
 from axiom_encode.harness.pricing import (
+    ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES,
+    ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES,
     ModelPricing,
     PricingRates,
     _load_pricing_rates,
+    anthropic_refusal_is_billed,
     estimate_usage_cost_breakdown,
     estimate_usage_cost_usd,
     get_model_pricing,
@@ -130,6 +133,29 @@ def test_claude_5_5_rates_trace_to_vendor_page():
         )
         == 20.0
     )
+
+
+def test_anthropic_refusal_billing_matches_vendor_table():
+    # "Billed before any output" column of
+    # platform.claude.com/docs/en/build-with-claude/refusals-and-fallback,
+    # read 2026-10-05.
+    billed = {"bio", "frontier_llm", "reasoning_extraction"}
+    free = {"cyber", "general_harms"}
+    assert ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES == billed
+    assert ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES == free
+    # Before any output: billed and free by the table, a null category free.
+    for category in billed:
+        assert anthropic_refusal_is_billed(category, 0) is True, category
+    for category in [*free, None]:
+        assert anthropic_refusal_is_billed(category, 0) is False, category
+    # A category the table did not list, even a near miss, has an unknown bill.
+    unlisted = ["", "Bio", "chem", "a_future_category"]
+    for category in unlisted:
+        assert anthropic_refusal_is_billed(category, 0) is None, category
+    # After any output every refusal bills the input and that output.
+    for category in [*billed, *free, None, *unlisted]:
+        for output_tokens in (1, 50, 64_000):
+            assert anthropic_refusal_is_billed(category, output_tokens) is True
 
 
 def test_prefix_fallback_requires_variant_boundary():

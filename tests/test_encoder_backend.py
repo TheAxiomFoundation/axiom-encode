@@ -22,6 +22,8 @@ from axiom_encode.harness.backends import (
     EncoderRequest,
     EncoderResponse,
 )
+from axiom_encode.harness.encoding_db import TokenUsage
+from axiom_encode.harness.pricing import estimate_usage_cost_usd
 from axiom_encode.prompts import ENCODER_PROMPT, get_encoder_prompt
 from axiom_encode.prompts.encoder import (
     _FORMULA_PROTOCOL,
@@ -320,18 +322,25 @@ class TestAgentSDKBackend:
                 AgentSDKBackend(api_key=None)
 
     @staticmethod
-    def _stream_anthropic(response, *, on_final=None, stream_error=None):
+    def _stream_anthropic(
+        response, *, events=(), on_final=None, stream_error=None, close_error=None
+    ):
         """Mock ``anthropic`` whose AsyncAnthropic().messages.stream() yields response.
 
-        Returns the module mock and the stream() kwargs seen. The clients the
-        backend opened are on ``mock_anthropic.clients``; each one's ``closed``
-        turns true when its ``async with`` block exits.
+        Iterating the stream yields ``events``. Returns the module mock and the
+        stream() kwargs seen. The clients the backend opened are on
+        ``mock_anthropic.clients``; each one's ``closed`` turns true when its
+        ``async with`` block exits, which then raises ``close_error`` if set.
         """
 
         calls = []
         clients = []
 
         class _Stream:
+            async def __aiter__(self):
+                for event in events:
+                    yield event
+
             async def get_final_message(self):
                 if on_final is not None:
                     on_final()
@@ -363,6 +372,8 @@ class TestAgentSDKBackend:
 
             async def __aexit__(self, *exc):
                 self.closed = True
+                if close_error is not None:
+                    raise close_error
                 return False
 
         mock_anthropic = Mock()
@@ -371,10 +382,12 @@ class TestAgentSDKBackend:
         return mock_anthropic, calls
 
     @staticmethod
-    def _response(blocks, *, stop_reason="end_turn", stop_details=None):
+    def _response(
+        blocks, *, stop_reason="end_turn", stop_details=None, output_tokens=50
+    ):
         response = Mock()
         response.content = blocks
-        response.usage = Mock(input_tokens=100, output_tokens=50)
+        response.usage = Mock(input_tokens=100, output_tokens=output_tokens)
         response.stop_reason = stop_reason
         response.stop_details = stop_details
         return response
@@ -388,9 +401,9 @@ class TestAgentSDKBackend:
         )
 
     @classmethod
-    async def _encode(cls, response, tmp_path, **backend_kwargs):
+    async def _encode(cls, response, tmp_path, *, events=(), **backend_kwargs):
         """Run one encode against ``response``; return it and the module mock."""
-        mock_anthropic, _ = cls._stream_anthropic(response)
+        mock_anthropic, _ = cls._stream_anthropic(response, events=events)
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             resp = await AgentSDKBackend(api_key="k", **backend_kwargs).encode_async(
                 cls._request(tmp_path)
@@ -496,6 +509,14 @@ class TestAgentSDKBackend:
         monkeypatch.setenv("AXIOM_API_ENCODER_EFFORT", "  ")
         assert AgentSDKBackend(api_key="k").effort == "high"
 
+    def test_blank_effort_argument_defers_to_environment(self, monkeypatch):
+        monkeypatch.setenv("AXIOM_API_ENCODER_EFFORT", "low")
+        assert AgentSDKBackend(api_key="k", effort="  ").effort == "low"
+        assert AgentSDKBackend(api_key="k", effort="").effort == "low"
+        monkeypatch.setenv("AXIOM_API_ENCODER_EFFORT", "turbo")
+        with pytest.raises(ValueError, match=r"^AXIOM_API_ENCODER_EFFORT='turbo' "):
+            AgentSDKBackend(api_key="k", effort=" ")
+
     @pytest.mark.parametrize("effort", ["hgih", "minimal", "none", "ultra", "1"])
     def test_invalid_effort_argument_raises(self, effort, monkeypatch):
         monkeypatch.delenv("AXIOM_API_ENCODER_EFFORT", raising=False)
@@ -548,7 +569,7 @@ class TestAgentSDKBackend:
     @pytest.mark.parametrize(
         "stop_details",
         [
-            None,  # anthropic 0.83.0's stream accumulator drops stop_details
+            None,  # neither the final message nor the stream carried them
             {"type": "refusal", "category": None, "explanation": None},
             SimpleNamespace(type="refusal", category=None, explanation=None),
         ],
@@ -563,6 +584,163 @@ class TestAgentSDKBackend:
         assert not resp.success
         assert resp.rulespec_content == ""
         assert resp.error == "model declined the encode request"
+        assert resp.trace["refusal_category"] is None
+
+    @pytest.mark.asyncio
+    async def test_encode_async_refusal_reads_stop_details_from_the_stream(
+        self, tmp_path
+    ):
+        # anthropic 0.83.0 leaves stop_details off the final message; the
+        # message_delta event still carries them, as a plain dict.
+        events = [
+            SimpleNamespace(type="message_start"),
+            SimpleNamespace(type="text", text="ignored"),
+            SimpleNamespace(
+                type="message_delta",
+                delta=SimpleNamespace(
+                    stop_reason="refusal",
+                    stop_details={
+                        "type": "refusal",
+                        "category": "bio",
+                        "explanation": "declined",
+                    },
+                ),
+            ),
+            SimpleNamespace(type="message_stop"),
+        ]
+        resp, _ = await self._encode(
+            self._response([], stop_reason="refusal", output_tokens=0),
+            tmp_path,
+            events=events,
+        )
+        assert not resp.success
+        assert resp.error == "model declined the encode request (category: bio)"
+        assert resp.trace["refusal_category"] == "bio"
+        # A bio refusal is billed even before any output.
+        assert resp.cost_usd == pytest.approx(100 * 4.0 / 1e6)
+
+    @pytest.mark.asyncio
+    async def test_encode_async_final_stop_details_win_over_the_stream(self, tmp_path):
+        events = [
+            SimpleNamespace(
+                type="message_delta",
+                delta=SimpleNamespace(
+                    stop_reason="refusal", stop_details={"category": "bio"}
+                ),
+            )
+        ]
+        resp, _ = await self._encode(
+            self._response(
+                [],
+                stop_reason="refusal",
+                stop_details=SimpleNamespace(type="refusal", category="cyber"),
+                output_tokens=0,
+            ),
+            tmp_path,
+            events=events,
+        )
+        assert resp.error == "model declined the encode request (category: cyber)"
+        assert resp.cost_usd == 0.0
+
+    @pytest.mark.asyncio
+    async def test_unbilled_refusal_reports_its_usage_at_no_cost(self, tmp_path):
+        # Anthropic's example refusal: a cyber decline before any output. It is
+        # not billed, but usage still carries its token counts.
+        resp, _ = await self._encode(
+            self._response(
+                [],
+                stop_reason="refusal",
+                stop_details={
+                    "type": "refusal",
+                    "category": "cyber",
+                    "explanation": "declined",
+                },
+                output_tokens=0,
+            ),
+            tmp_path,
+        )
+        assert not resp.success
+        assert (resp.tokens.input_tokens, resp.tokens.output_tokens) == (100, 0)
+        assert resp.cost_usd == 0.0
+        assert resp.trace["refusal_category"] == "cyber"
+
+    @pytest.mark.parametrize("output_tokens", [0, 1, 50])
+    @pytest.mark.parametrize("delivery", ["final", "stream", "absent"])
+    @pytest.mark.parametrize("shape", ["dict", "object"])
+    @pytest.mark.parametrize(
+        "category",
+        [
+            "bio",
+            "frontier_llm",
+            "reasoning_extraction",
+            "cyber",
+            "general_harms",
+            None,
+            "a_future_category",
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_refusal_cost_invariants(
+        self, tmp_path, category, shape, delivery, output_tokens
+    ):
+        """Exhaustive over categories x stop_details shapes x sources x output.
+
+        A refusal always fails and reports its usage. Its cost is the full
+        estimate when Anthropic bills it (after any output, or before output in
+        a billed category), 0.0 when it does not (a free or null category), and
+        None when it came before any output without stop_details or in a
+        category Anthropic's billing table does not list, so the bill is
+        unknown.
+        """
+        details = (
+            {"type": "refusal", "category": category}
+            if shape == "dict"
+            else SimpleNamespace(type="refusal", category=category)
+        )
+        events = ()
+        if delivery == "stream":
+            events = [
+                SimpleNamespace(
+                    type="message_delta",
+                    delta=SimpleNamespace(stop_reason="refusal", stop_details=details),
+                )
+            ]
+        resp, _ = await self._encode(
+            self._response(
+                [],
+                stop_reason="refusal",
+                stop_details=details if delivery == "final" else None,
+                output_tokens=output_tokens,
+            ),
+            tmp_path,
+            events=events,
+        )
+
+        known = delivery != "absent"
+        billed = {"bio", "frontier_llm", "reasoning_extraction"}
+        free = {"cyber", "general_harms", None}
+        full = estimate_usage_cost_usd(
+            "claude-opus-5-5",
+            TokenUsage(input_tokens=100, output_tokens=output_tokens),
+        )
+        if output_tokens > 0 or (known and category in billed):
+            expected = full
+        elif known and category in free:
+            expected = 0.0
+        else:
+            expected = None
+        assert not resp.success
+        assert resp.rulespec_content == ""
+        assert (resp.tokens.input_tokens, resp.tokens.output_tokens) == (
+            100,
+            output_tokens,
+        )
+        assert resp.cost_usd == expected
+        seen = category if known else None
+        assert resp.trace["refusal_category"] == seen
+        assert resp.error == "model declined the encode request" + (
+            f" (category: {seen})" if seen else ""
+        )
 
     @pytest.mark.asyncio
     async def test_encode_async_truncation_is_a_failed_encode(self, tmp_path):
@@ -619,19 +797,21 @@ class TestAgentSDKBackend:
     @pytest.mark.parametrize(
         ("stop_reason", "stop_details", "blocks"),
         [
-            ("refusal", {"category": "cyber"}, []),
+            # A refusal after some output bills that output and the input.
+            ("refusal", {"category": "cyber"}, [Mock(type="text", text="a:")]),
             ("max_tokens", None, [Mock(type="text", text="a: 1")]),
             ("model_context_window_exceeded", None, [Mock(type="text", text="a")]),
             ("end_turn", None, [Mock(type="thinking", thinking="")]),
         ],
-        ids=["refusal", "max-tokens", "context-window", "empty"],
+        ids=["refusal-after-output", "max-tokens", "context-window", "empty"],
     )
     @pytest.mark.asyncio
-    async def test_failed_encode_still_reports_billed_tokens(
+    async def test_failed_encode_still_reports_usage_cost_and_trace(
         self, tmp_path, stop_reason, stop_details, blocks
     ):
-        # The API billed the call even though the encode failed, so the usage,
-        # cost and trace must survive into the failed response.
+        # Each of these calls is billed for its 100 input and 50 output tokens
+        # though the encode failed, so the usage, cost and trace must survive
+        # into the failed response.
         resp, mock_anthropic = await self._encode(
             self._response(blocks, stop_reason=stop_reason, stop_details=stop_details),
             tmp_path,
@@ -689,6 +869,23 @@ class TestAgentSDKBackend:
             assert resp.rulespec_content == ""
         assert resp.tokens is not None and resp.cost_usd is not None
         assert resp.trace["stop_reason"] == stop_reason
+
+    @pytest.mark.asyncio
+    async def test_failure_while_closing_still_reports_the_answer(self, tmp_path):
+        mock_anthropic, _ = self._stream_anthropic(
+            self._response([Mock(type="text", text="a: 1")]),
+            close_error=RuntimeError("connection pool close failed"),
+        )
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            resp = await AgentSDKBackend(api_key="k").encode_async(
+                self._request(tmp_path)
+            )
+        assert not resp.success
+        assert resp.error == "connection pool close failed"
+        assert (resp.tokens.input_tokens, resp.tokens.output_tokens) == (100, 50)
+        assert resp.cost_usd == pytest.approx(0.0014)
+        assert resp.trace["stop_reason"] == "end_turn"
+        assert mock_anthropic.clients[0].closed
 
     def test_default_model_is_current_opus(self):
         from axiom_encode.constants import DEFAULT_MODEL
@@ -1020,7 +1217,32 @@ class TestAgentSDKBackendAdditional:
             )
 
             assert not resp.success
-            assert "not installed" in resp.error
+            assert resp.error.startswith(
+                "anthropic SDK not installed; install axiom-encode[api]"
+            )
+            assert resp.tokens is None and resp.cost_usd is None
+
+    @pytest.mark.asyncio
+    async def test_encode_async_other_import_error_is_not_a_missing_sdk(self):
+        mock_anthropic, calls = TestAgentSDKBackend._stream_anthropic(None)
+        with (
+            patch.dict("sys.modules", {"anthropic": mock_anthropic}),
+            patch(
+                "axiom_encode.harness.backends.get_encoder_prompt",
+                side_effect=ImportError("cannot import name 'x'"),
+            ),
+        ):
+            resp = await AgentSDKBackend(api_key="test-key").encode_async(
+                EncoderRequest(
+                    citation="26 USC 1",
+                    source_text="Test",
+                    output_path=Path("/tmp/test.yaml"),
+                )
+            )
+
+        assert not resp.success
+        assert resp.error == "cannot import name 'x'"
+        assert calls == []
 
     @pytest.mark.asyncio
     async def test_encode_async_generic_error(self):
