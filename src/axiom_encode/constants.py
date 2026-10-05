@@ -22,10 +22,10 @@ DEFAULT_OPENAI_ESCALATE_AFTER = 2
 
 # LLM judge models (maximum-traceability part 2). Cross-family by design: the
 # generator is a GPT model, so judges run on a Claude-family model. Volume runs
-# on Haiku; low-confidence verdicts escalate to Sonnet. Both are overridable via
-# AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
-JUDGE_ESCALATION_MODEL = "claude-sonnet-4-5"
+# on Sonnet 5.5; low-confidence verdicts escalate to Opus 5.5. Both are
+# overridable via AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
+DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5"
+JUDGE_ESCALATION_MODEL = "claude-opus-5-5"
 
 # Canonical RuleSpec filesystem contract. ``programs`` is canonical content,
 # but it contains declarative axiom-compose ProgramSpecs rather than atomic
