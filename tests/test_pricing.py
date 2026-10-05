@@ -97,6 +97,41 @@ def test_gpt_6_encoder_pair_rates_trace_to_vendor_pages():
     assert get_model_pricing("gpt-6") is None
 
 
+def test_claude_5_5_rates_trace_to_vendor_page():
+    opus = get_model_pricing("claude-opus-5-5")
+    sonnet = get_model_pricing("claude-sonnet-5-5")
+    assert (
+        opus.input_per_million,
+        opus.output_per_million,
+        opus.cache_read_per_million,
+        opus.cache_create_per_million,
+        opus.max_input_tokens,
+    ) == (4.0, 20.0, 0.20, 5.0, None)
+    assert (
+        sonnet.input_per_million,
+        sonnet.output_per_million,
+        sonnet.cache_read_per_million,
+        sonnet.cache_create_per_million,
+        sonnet.max_input_tokens,
+    ) == (2.0, 10.0, 0.20, 2.50, None)
+    for pricing in (opus, sonnet):
+        assert pricing.source_url == (
+            "https://platform.claude.com/docs/en/about-claude/pricing"
+        )
+        assert pricing.captured_at == "2026-09-28"
+        assert pricing.promotional_until is None
+    # Variant boundary: lexical lookalikes never inherit the 5.5 rates.
+    for lookalike in ("claude-opus-5-50", "claude-opus-5-5x", "claude-sonnet-5-50"):
+        assert get_model_pricing(lookalike) is None, lookalike
+    # One million output tokens on Opus 5.5 costs the published $20.
+    assert (
+        estimate_usage_cost_usd(
+            "claude-opus-5-5", TokenUsage(input_tokens=0, output_tokens=1_000_000)
+        )
+        == 20.0
+    )
+
+
 def test_prefix_fallback_requires_variant_boundary():
     # Dash-suffixed variants keep inheriting their family's pricing...
     assert get_model_pricing("gpt-5.6-terra-2") == get_model_pricing("gpt-5.6-terra")

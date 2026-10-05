@@ -544,13 +544,15 @@ class AgentSDKBackend(EncoderBackend):
 
     Current Claude models think adaptively by default and ``max_tokens`` caps
     thinking plus the RuleSpec together, so requests stream (the SDK refuses
-    non-streaming requests above ~21k tokens) with a large budget. A refusal or
-    a response cut off at ``max_tokens`` is a failed encode, never a partial
-    RuleSpec.
+    non-streaming requests above ~21k tokens) with a large budget. A refusal, a
+    response cut off at ``max_tokens`` or at the context window, or a response
+    with no RuleSpec text is a failed encode, never a partial RuleSpec.
     """
 
     # Room for adaptive thinking plus a long RuleSpec module.
     MAX_TOKENS = 64_000
+    # The API's ``output_config.effort`` levels on current Claude models.
+    EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 
     def __init__(
         self,
@@ -562,11 +564,15 @@ class AgentSDKBackend(EncoderBackend):
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required for AgentSDKBackend")
         self.model = model or DEFAULT_MODEL
-        self.effort = (
-            effort
-            or os.environ.get("AXIOM_API_ENCODER_EFFORT")
-            or DEFAULT_API_ENCODER_EFFORT
-        )
+        # Fail at construction, not with a 400 on every request.
+        source = "effort" if effort else "AXIOM_API_ENCODER_EFFORT"
+        raw_effort = effort or os.environ.get("AXIOM_API_ENCODER_EFFORT") or ""
+        self.effort = raw_effort.strip().lower() or DEFAULT_API_ENCODER_EFFORT
+        if self.effort not in self.EFFORTS:
+            raise ValueError(
+                f"{source}={raw_effort!r} is not a valid effort; use one of "
+                f"{sorted(self.EFFORTS)}"
+            )
 
     def encode(self, request: EncoderRequest) -> EncoderResponse:
         """Synchronous encode using API (runs async under the hood)."""
@@ -575,11 +581,32 @@ class AgentSDKBackend(EncoderBackend):
     async def encode_async(self, request: EncoderRequest) -> EncoderResponse:
         """Async encode using Claude API with embedded prompts."""
         start = time.time()
+        # Set once the API answers, so a failure after that still reports the
+        # billed tokens and why the model stopped.
+        tokens: TokenUsage | None = None
+        stop_reason: str | None = None
+
+        def respond(
+            rulespec_content: str = "", error: str | None = None
+        ) -> EncoderResponse:
+            return EncoderResponse(
+                rulespec_content=rulespec_content,
+                success=error is None,
+                error=error,
+                duration_ms=int((time.time() - start) * 1000),
+                tokens=tokens,
+                cost_usd=estimate_usage_cost_usd(self.model, tokens),
+                trace={
+                    "provider": "anthropic",
+                    "backend": "api",
+                    "model": self.model,
+                    "stop_reason": stop_reason,
+                    "effort": self.effort,
+                },
+            )
 
         try:
             import anthropic
-
-            client = anthropic.AsyncAnthropic(api_key=self.api_key)
 
             prompt = get_encoder_prompt(
                 request.citation,
@@ -589,43 +616,46 @@ class AgentSDKBackend(EncoderBackend):
             )
             prompt += f"\n\nSource Text:\n{request.source_text}\n"
 
-            async with client.messages.stream(
-                model=self.model,
-                max_tokens=self.MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
-                output_config={"effort": self.effort},
-            ) as stream:
-                response = await stream.get_final_message()
+            # Closing the client releases its connection pool; encode_batch
+            # runs many of these concurrently.
+            async with anthropic.AsyncAnthropic(api_key=self.api_key) as client:
+                async with client.messages.stream(
+                    model=self.model,
+                    max_tokens=self.MAX_TOKENS,
+                    messages=[{"role": "user", "content": prompt}],
+                    output_config={"effort": self.effort},
+                ) as stream:
+                    response = await stream.get_final_message()
 
-            token_usage = TokenUsage(
+            usage = TokenUsage(
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
             )
-            duration_ms = int((time.time() - start) * 1000)
+            tokens = usage if usage.total_tokens > 0 else None
+            raw_stop_reason = getattr(response, "stop_reason", None)
+            stop_reason = raw_stop_reason if isinstance(raw_stop_reason, str) else None
 
-            stop_reason = getattr(response, "stop_reason", None)
-            if stop_reason in ("refusal", "max_tokens"):
-                if stop_reason == "refusal":
-                    details = getattr(response, "stop_details", None)
-                    category = (
-                        details.get("category")
-                        if isinstance(details, dict)
-                        else getattr(details, "category", None)
-                    )
-                    error = "model declined the encode request" + (
-                        f" (category: {category})" if category else ""
-                    )
-                else:
-                    error = (
-                        f"response hit max_tokens={self.MAX_TOKENS} before the "
-                        "RuleSpec was complete"
-                    )
-                return EncoderResponse(
-                    rulespec_content="",
-                    success=False,
-                    error=error,
-                    duration_ms=duration_ms,
-                    tokens=token_usage if token_usage.total_tokens > 0 else None,
+            if stop_reason == "refusal":
+                details = getattr(response, "stop_details", None)
+                category = (
+                    details.get("category")
+                    if isinstance(details, dict)
+                    else getattr(details, "category", None)
+                )
+                return respond(
+                    error="model declined the encode request"
+                    + (f" (category: {category})" if category else "")
+                )
+            if stop_reason == "max_tokens":
+                return respond(
+                    error=f"response hit max_tokens={self.MAX_TOKENS} before the "
+                    "RuleSpec was complete"
+                )
+            if stop_reason == "model_context_window_exceeded":
+                return respond(
+                    error="response hit the model's context window "
+                    f"({usage.input_tokens} input tokens) before the RuleSpec "
+                    "was complete; shorten the source text"
                 )
 
             # Thinking blocks never enter the RuleSpec; only text blocks do.
@@ -635,34 +665,27 @@ class AgentSDKBackend(EncoderBackend):
                 if getattr(block, "type", None) == "text"
             )
 
-            # Check if file was created.
-            if request.output_path.exists():
-                rulespec_content = request.output_path.read_text()
+            # The request gives the model no tools, so a file at output_path
+            # counts only if it was written during this request. An older one
+            # is left over from an earlier run and must not override the reply.
+            output_path = request.output_path
+            if output_path.exists() and output_path.stat().st_mtime > start:
+                rulespec_content = output_path.read_text()
             else:
                 rulespec_content = result_content
 
-            return EncoderResponse(
-                rulespec_content=rulespec_content,
-                success=True,
-                error=None,
-                duration_ms=duration_ms,
-                tokens=token_usage if token_usage.total_tokens > 0 else None,
-            )
+            if not rulespec_content.strip():
+                return respond(
+                    error=f"response had no RuleSpec text (stop_reason: {stop_reason})"
+                )
+            return respond(rulespec_content)
 
         except ImportError:
-            return EncoderResponse(
-                rulespec_content="",
-                success=False,
-                error="anthropic SDK not installed. Run: pip install anthropic",
-                duration_ms=int((time.time() - start) * 1000),
+            return respond(
+                error="anthropic SDK not installed. Run: pip install anthropic"
             )
         except Exception as e:
-            return EncoderResponse(
-                rulespec_content="",
-                success=False,
-                error=str(e),
-                duration_ms=int((time.time() - start) * 1000),
-            )
+            return respond(error=str(e))
 
     async def encode_batch(
         self,
