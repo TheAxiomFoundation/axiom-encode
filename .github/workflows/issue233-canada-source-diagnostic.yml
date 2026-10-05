@@ -130,18 +130,20 @@ jobs:
         exec >> "$report/setup-stage-10.log" 2>&1
         set -euo pipefail
         axiom-encode/.venv/bin/python - <<'PYCODE'
-        import hashlib,json,os,urllib.request,subprocess
+        import hashlib,json,os,subprocess
         from pathlib import Path,PurePosixPath
         from axiom_encode.corpus_release import verify_release_object
         from axiom_encode.corpus_resolver import LocalCorpusRelease
         base='https://pub-a8952f8657fc49fda358146ac001366c.r2.dev'
         name='ca-rulespec-2026-07-21-oracle-complete-v2'; digest='5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4'
-        def get(url,limit):
-            with urllib.request.urlopen(url,timeout=60) as response:
-                data=response.read(limit+1)
-            if len(data)>limit: raise ValueError('download bound exceeded')
-            return data
-        raw=get(f'{base}/releases/{name}/{digest}.json',16*1024*1024)
+        report=Path(os.environ['RUNNER_TEMP'],'ca-diagnostic')
+        public_object=report/'signed-release-object.json'
+        subprocess.run(['curl','--fail','--silent','--show-error','--location',
+                        '--proto','=https','--proto-redir','=https','--tlsv1.2',
+                        '--connect-timeout','30','--max-time','120','--max-filesize','16777216',
+                        '--output',str(public_object),f'{base}/releases/{name}/{digest}.json'],check=True)
+        assert public_object.stat().st_size <= 16*1024*1024
+        raw=public_object.read_bytes()
         payload=json.loads(raw); verified=verify_release_object(payload,public_key=os.environ['CORPUS_PUBLIC_ROOT'])
         assert verified.name==name and verified.content_sha256==digest
         assert payload['content']['git']['commit']=='d24cbde7e6d125a6f859f43c188b0ffbd115b835'
@@ -155,9 +157,10 @@ jobs:
             assert a['r2_key']==f'objects/sha256/{sha[:2]}/{sha}'
             target=root.joinpath(*relative.parts)
             assert not any(p.is_symlink() for p in [target,*target.parents])
-            data=get(base+'/'+a['r2_key'],a['bytes'])
+            assert target.is_file() and target.stat().st_size==a['bytes']
+            data=target.read_bytes()
             assert len(data)==a['bytes'] and hashlib.sha256(data).hexdigest()==sha
-            target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(data)
+            # Exact tracked checkout bytes are authenticated by the signed inventory.
         # Normalize only transport shape for the established materializer; signed object is unchanged.
         report=Path(os.environ['RUNNER_TEMP'],'ca-diagnostic')
         envelope=report/'release-transport.json';envelope.write_text(json.dumps([{'release_object':payload}]))
