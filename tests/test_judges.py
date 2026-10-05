@@ -700,6 +700,43 @@ def test_call_diagnostics_absent_in_the_normal_case():
     assert "escalation_error" not in ev.extra
 
 
+def test_call_diagnostics_reach_every_llm_stage_event():
+    # grid_adequacy, disposition and the pre-classifier carry the same call
+    # diagnostics as statutory_fidelity.
+    def diagnosed(payload):
+        result = _ok_call(payload)
+        result.request_shape = "plain"
+        result.escalation_error = JudgeError(type="max_tokens", message="cut off")
+        return FakeClient(result)
+
+    grid = grid_adequacy.run("p", [], client=diagnosed({"confidence": 0.9, "gaps": []}))
+    disp = disposition.run(
+        disposition.Disposition(
+            "d",
+            "rounding",
+            residual=42.0,
+            records=[{"engine_value": 100, "oracle_value": 142} for _ in range(3)],
+        ),
+        client=diagnosed({"consistent": True, "confidence": 0.9, "explanation": "y"}),
+    )
+    pre = preclassifier.classify(
+        {"citation": "X", "source_text": "A short operative clause with no markers."},
+        client=diagnosed(
+            {"classification": "self_contained", "confidence": 0.9, "reason": "op"}
+        ),
+    )
+    assert pre.method == "llm"
+    for ev in (grid, disp, pre.event):
+        assert ev.extra["request_shape"] == "plain", ev.stage
+        assert ev.extra["escalation_error"] == {
+            "type": "max_tokens",
+            "message": "cut off",
+        }, ev.stage
+        assert validate_event_dict(ev.to_dict()) == [], ev.stage
+    # stage-specific extra survives alongside the diagnostics
+    assert "arithmetic" in disp.extra and "cells" in grid.extra
+
+
 def test_client_api_failure_retries_then_errors(monkeypatch):
     # two rate-limit errors, then exhausted.
     import axiom_encode.judges.client as clientmod
