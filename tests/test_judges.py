@@ -587,8 +587,10 @@ def test_request_shape_ladder_never_drops_a_configured_effort(monkeypatch):
     fallback: every request carries exactly the configured effort (or none);
     the call succeeds as ``structured`` exactly when the structured request
     did, otherwise as ``effort_only`` (effort set) or ``plain`` (no effort)
-    when the fallback did; and when both fail the error is ``effort_rejected``
-    exactly when an effort was configured.
+    when the fallback did; the SDK's refusal of the output budget is
+    ``max_tokens_config`` on whichever request meets it and never enters the
+    ladder; and when both requests are rejected the error is
+    ``effort_rejected`` exactly when an effort was configured.
     """
 
     _clear_judge_env(monkeypatch)
@@ -596,14 +598,18 @@ def test_request_shape_ladder_never_drops_a_configured_effort(monkeypatch):
         "ok": lambda: '{"a": 1}',
         "type_error": lambda: TypeError("unexpected keyword 'output_config'"),
         "bad_request": lambda: FakeBadRequestError("output_config rejected"),
+        "streaming": lambda: ValueError(
+            "Streaming is required for operations that may take longer than 10 minutes."
+        ),
     }
+    terminal = {"ok", "streaming"}
     for effort in (None, "low", "max"):
         for first in outcomes:
             for second in outcomes:
-                if first == "ok" and second != "ok":
+                if first in terminal and second != "ok":
                     continue  # the fallback never runs
                 responses = [outcomes[first]()]
-                if first != "ok":
+                if first not in terminal:
                     responses.append(outcomes[second]())
                 mod = install_fake_anthropic(monkeypatch, responses)
                 call = JudgeClient(
@@ -618,6 +624,9 @@ def test_request_shape_ladder_never_drops_a_configured_effort(monkeypatch):
                 assert sent == [effort] * len(mod.calls), case
                 if first == "ok":
                     assert call.ok and call.request_shape == "structured", case
+                elif "streaming" in (first, second):
+                    assert not call.ok and call.payload is None, case
+                    assert call.error.type == "max_tokens_config", case
                 elif second == "ok":
                     expected = "effort_only" if effort else "plain"
                     assert call.ok and call.request_shape == expected, case
@@ -735,6 +744,8 @@ def test_call_diagnostics_reach_every_llm_stage_event():
         assert validate_event_dict(ev.to_dict()) == [], ev.stage
     # stage-specific extra survives alongside the diagnostics
     assert "arithmetic" in disp.extra and "cells" in grid.extra
+    assert pre.event.extra["classification"] == "self_contained"
+    assert pre.event.extra["method"] == "llm"
 
 
 def test_client_api_failure_retries_then_errors(monkeypatch):
@@ -4205,11 +4216,13 @@ def test_truncated_escalation_keeps_the_first_verdict(monkeypatch):
     )
     call = client.call(system="s", user_prompt="p", schema=statutory_fidelity._SCHEMA)
     # The low-confidence first verdict stands (existing behaviour for a failed
-    # escalation) and carries both calls' tokens; nothing reads as an error.
+    # escalation) and carries both calls' tokens; the call is not an error, but
+    # the truncated escalation is recorded on it.
     assert call.ok and call.escalated is False
     assert call.model == "claude-haiku-4-5-20251001"
     assert call.payload["confidence"] == 0.2
     assert call.tokens == TokenCounts(22, 14)
+    assert call.escalation_error.type == "max_tokens"
 
 
 def test_truncated_reply_on_the_plain_request_fallback_is_named(monkeypatch):
