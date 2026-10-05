@@ -63,8 +63,8 @@ jobs:
         set -euo pipefail
         report="$RUNNER_TEMP/ca-diagnostic"
         printf 'stage 5 started\n' >> "$report/setup-stages.log"
-        trap 'code=$?; printf "stage 5 exit=%s\n" "$code" >> "$report/setup-stages.log"; exit "$code"' EXIT
-        exec > >(tee -a "$report/setup-stage-5.log") 2>&1
+        trap 'code=$?; printf "stage 5 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-5.log" 2>&1
         set -euo pipefail
         test -d "$RUNNER_TEMP/ca-diagnostic"
         python3 - <<'PYCODE'
@@ -97,7 +97,7 @@ jobs:
       with:
         version: 0.11.7
     - name: Set up Rust
-      uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
       with:
         toolchain: stable
     - name: Set up Go
@@ -111,8 +111,8 @@ jobs:
         set -euo pipefail
         report="$RUNNER_TEMP/ca-diagnostic"
         printf 'stage 9 started\n' >> "$report/setup-stages.log"
-        trap 'code=$?; printf "stage 9 exit=%s\n" "$code" >> "$report/setup-stages.log"; exit "$code"' EXIT
-        exec > >(tee -a "$report/setup-stage-9.log") 2>&1
+        trap 'code=$?; printf "stage 9 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-9.log" 2>&1
         set -euo pipefail
         (cd axiom-encode && uv sync --frozen --python 3.14)
         (cd axiom-rules-engine && cargo build --locked --release --bin axiom-rules-engine)
@@ -126,8 +126,8 @@ jobs:
         set -euo pipefail
         report="$RUNNER_TEMP/ca-diagnostic"
         printf 'stage 10 started\n' >> "$report/setup-stages.log"
-        trap 'code=$?; printf "stage 10 exit=%s\n" "$code" >> "$report/setup-stages.log"; exit "$code"' EXIT
-        exec > >(tee -a "$report/setup-stage-10.log") 2>&1
+        trap 'code=$?; printf "stage 10 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-10.log" 2>&1
         set -euo pipefail
         axiom-encode/.venv/bin/python - <<'PYCODE'
         import hashlib,json,os,urllib.request,subprocess
@@ -168,26 +168,27 @@ jobs:
       env:
         CORPUS_PUBLIC_ROOT: KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg=
     - name: Provision verification-only protected runtime
-      shell: bash
       run: |
         set -euo pipefail
         report="$RUNNER_TEMP/ca-diagnostic"
         printf 'stage 11 started\n' >> "$report/setup-stages.log"
-        trap 'code=$?; printf "stage 11 exit=%s\n" "$code" >> "$report/setup-stages.log"; exit "$code"' EXIT
-        exec > >(tee -a "$report/setup-stage-11.log") 2>&1
+        trap 'code=$?; printf "stage 11 status=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-11.log" 2>&1
         set -euo pipefail
-        (cd axiom-encode && CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' -o "$RUNNER_TEMP/ca-supervisor" ./cmd/axiom-encode-signing-supervisor)
+        CGO_ENABLED=0 go -C axiom-encode build -trimpath -buildvcs=false -ldflags='-buildid=' -o "$RUNNER_TEMP/ca-supervisor" ./cmd/axiom-encode-signing-supervisor
         sudo apt-get update -qq
         sudo apt-get install -y patchelf
         python_path="$GITHUB_WORKSPACE/axiom-encode/.venv/bin/python"
         site="$($python_path -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-        test ! -e /opt/axiom-verification-ca2087
-        sudo "$python_path" axiom-encode/scripts/provision_verification_supervisor.py  --destination /opt/axiom-verification-ca2087 --supervisor "$RUNNER_TEMP/ca-supervisor"  --site-packages "$site" --git "$(command -v git)"  --apply-root "$APPLY_PUBLIC_ROOT" --eval-root "$EVAL_PUBLIC_ROOT" --corpus-release-root "$CORPUS_PUBLIC_ROOT"  --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode  --encoder-commit 4956c8305ee155f476a3c0c6dbe8efbd443626a4 --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode"
-        sudo chown -R root:root /opt/axiom-verification-ca2087
-        sudo chmod -R go-w /opt/axiom-verification-ca2087
-        sudo chown root:root /opt
+        test ! -e /opt/axiom-verification
+        sudo "$python_path" axiom-encode/scripts/provision_verification_supervisor.py  --destination /opt/axiom-verification --supervisor "$RUNNER_TEMP/ca-supervisor"  --site-packages "$site" --git "$(command -v git)"  --apply-root "$APPLY_PUBLIC_ROOT" --eval-root "$EVAL_PUBLIC_ROOT" --corpus-release-root "$CORPUS_PUBLIC_ROOT"  --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode  --encoder-commit 4956c8305ee155f476a3c0c6dbe8efbd443626a4 --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode"
+        sudo chown -R 0:0 /opt/axiom-verification
+        sudo chmod -R go-w /opt/axiom-verification
+        sudo chown 0:0 /opt
         sudo chmod go-w /opt
-        cp /opt/axiom-verification-ca2087/python/runtime-attestation.json "$RUNNER_TEMP/ca-diagnostic/"
+        test "$(stat -c '%u' /opt)" = "0"
+        test -z "$(find /opt -maxdepth 0 -perm /022)"
+        cp /opt/axiom-verification/python/runtime-attestation.json "$RUNNER_TEMP/ca-diagnostic/"
       env:
         APPLY_PUBLIC_ROOT: Z49/3S0xAyn0yMWhSB/pfDt48B96Z4wwU+NuNnZNSdg=
         EVAL_PUBLIC_ROOT: oJql9HpnWYAv+VX43C0qFKXJnSO+l/hkEn/5ODRVpPA=
@@ -204,7 +205,7 @@ jobs:
         for module in ca/policies/cra/benefits-2026/federal-family-and-climate-benefits.yaml ca/policies/revenu-quebec/tp1-2025/main-return.yaml; do
           label="$(basename "$module" .yaml)"
           code=0
-          timeout --signal=TERM --kill-after=30s 1200s     /opt/axiom-verification-ca2087/axiom-encode-signing-supervisor     --trusted-signing-roots /opt/axiom-verification-ca2087/signing-trust-roots.json     --trusted-python-runtime-root /opt/axiom-verification-ca2087/python     --trusted-python-import-root /opt/axiom-verification-ca2087/python/lib/python3.14/site-packages     --trusted-python-package-root /opt/axiom-verification-ca2087/python/lib/python3.14/site-packages/axiom_encode     -- /opt/axiom-verification-ca2087/axiom-encode validate "$GITHUB_WORKSPACE/rulespec-ca/$module"     --json --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"     --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"     --axiom-rules-engine-ref 89571cc2a938707fd60a5489b951135345697296     > "$report/$label.json" 2> "$report/$label.stderr.log" || code=$?
+          timeout --signal=TERM --kill-after=30s 1200s     /opt/axiom-verification/axiom-encode-signing-supervisor     --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json     --trusted-python-runtime-root /opt/axiom-verification/python     --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages     --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode     -- /opt/axiom-verification/axiom-encode validate "$GITHUB_WORKSPACE/rulespec-ca/$module"     --json --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"     --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"     --axiom-rules-engine-ref 89571cc2a938707fd60a5489b951135345697296     > "$report/$label.json" 2> "$report/$label.stderr.log" || code=$?
           printf '%s\n' "$code" > "$report/$label.exit-code.txt"
           if [ "$code" -ne 0 ]; then result=1; fi
         done
@@ -226,7 +227,7 @@ jobs:
             if command -v "$tool" >/dev/null 2>&1; then "$tool" --version 2>&1 || true; fi
           done
         } > "$report/available-tool-versions.txt"
-        runtime=/opt/axiom-verification-ca2087/python
+        runtime=/opt/axiom-verification/python
         if [ -f "$runtime/runtime-attestation.json" ]; then
           cp "$runtime/runtime-attestation.json" "$report/runtime-attestation.json"
         fi
@@ -235,7 +236,7 @@ jobs:
           "$runtime/bin/python3.14" -I - <<'PYCODE' > "$report/protected-imports.json" 2> "$report/protected-imports.stderr.log" || code=$?
         import importlib.metadata,json,pathlib,sys
         import axiom_encode,axiom_encode.entrypoint
-        root=pathlib.Path('/opt/axiom-verification-ca2087/python').resolve()
+        root=pathlib.Path('/opt/axiom-verification/python').resolve()
         locations=[pathlib.Path(x).resolve() for x in [axiom_encode.__file__,axiom_encode.entrypoint.__file__]]
         assert all(x.is_relative_to(root) for x in locations)
         assert not list((root/'lib/python3.14/site-packages').glob('*.pth'))
