@@ -74,6 +74,20 @@ net income. Locate the applicable DES intermediate calculation rule or approved
 state option, then resolve the RuleSpec/PolicyEngine difference through
 source-bound protected generation and matched household tests.
 
+An **ECE temporal oracle target**, not a RuleSpec parity result: at the pinned
+PolicyEngine commit, one Arizona member aged 30 with $30,000 annual employment
+income ($2,500 monthly gross), 35 weekly work hours, and no reported shelter
+expense has the same member and income facts in February and March 2026. The
+PolicyEngine `tanf_non_cash_gross_income_limit` is about $2,412.71 in February
+(185% FPL) and $2,608.33 in March (200% FPL); its
+`meets_tanf_non_cash_gross_income_test`, `is_tanf_non_cash_eligible`,
+`meets_snap_categorical_eligibility`, and `is_snap_eligible` all switch from
+false to true. PolicyEngine SNAP is $0 then $24, with the $298 maximum unchanged.
+These are observed PolicyEngine outputs, not a legal conclusion that every
+household at this income qualifies: test the same facts against the
+source-repaired Arizona ECE module and independent eligibility chain after
+protected generation, including February/March benefit-month boundaries.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). The federal 7 CFR 273.1 and 273.3–273.7, 273.10, and 273.24 modules are shared authority, not an Arizona-only gap. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
