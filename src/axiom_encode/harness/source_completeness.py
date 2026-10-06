@@ -439,6 +439,31 @@ _GERMAN_CARDINAL_VALUES = {
     "zehn": 10.0,
 }
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
+# Agency-manual typography that the arithmetic recognizer would otherwise read
+# as operators: a month/year date (every page header of the Oregon eligibility
+# notebook reads "93 (07/2026)"; `1/2000 of income` stays a fraction), web
+# addresses, whose path slashes and hyphens are neither division nor
+# subtraction, and footnote asterisks. An asterisk is masked only when it
+# stands between a word of two or more letters and whitespace or punctuation
+# ("Application Status *includes screenshots", "verification* is required"),
+# so `rate* 12`, `2 *x` and `a*b` stay multiplication.
+_SLASH_MONTH_YEAR = re.compile(
+    r"(?<![\w/.])(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}(?![\w/])(?!\s+of\b)"
+)
+_WEB_ADDRESS = re.compile(
+    r"\bhttps?://\S+"
+    r"|(?<![\w.@-])www\.\S+"
+    r"|(?<![\w.@-])(?:[A-Za-z0-9-]{1,63}\.){1,10}"
+    r"(?:com|gov|org|net|edu|us|info)/\S*"
+)
+_FOOTNOTE_ASTERISK = re.compile(
+    r"(?:(?<=\s)|^)\*(?=[A-Za-z]{2})"
+    r"|(?<=[A-Za-z]{2})\*(?=[ \t]+[A-Za-z]{2}|[ \t]*(?:$|[.,;:)\n]))"
+)
+_LIST_BULLET = "•"
+# Masked typography becomes this sentinel, not a space, so the operand and
+# operator patterns cannot join the words on either side of it.
+_TYPOGRAPHY_MASK = "\x00"
 _ARITHMETIC_EXPRESSION = re.compile(
     r"(?:\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß]*)"
     r"[ \t]*(?:[+*/=×·•∗∙]|(?<!\w)[−–-](?!\w))[ \t]*"
@@ -4524,10 +4549,58 @@ def _without_slash_conjunction_operators(source_text: str) -> str:
     )
 
 
+def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
+    """Return whether a ``•`` marks a list item rather than multiplication.
+
+    Between words it is a list marker ("Eligibility • Section", "applications:
+    • DHS 0415F"). Next to a number, a parenthesis or a one-letter variable it
+    is multiplication, as in the § 32a EStG tariff "(914,51 • y + 1 400) • y".
+    """
+
+    # Bounded windows keep this linear on long bodies with many bullets.
+    following = re.match(
+        r"[A-Za-zÄÖÜäöüß]+|\S", source_text[end : end + 64].lstrip(" \t")
+    )
+    if following is None:
+        return False
+    following_token = following.group(0)
+    if not following_token.isalpha() or len(following_token) < 2:
+        return False
+    previous = re.search(
+        r"(?:[A-Za-zÄÖÜäöüß]+|\S)\Z",
+        source_text[max(0, start - 64) : start].rstrip(" \t"),
+    )
+    if previous is None:
+        return True
+    previous_token = previous.group(0)
+    if previous_token.isalpha():
+        return len(previous_token) >= 2
+    return previous_token in {":", ";", ",", "."}
+
+
+def _without_manual_typography_operators(source_text: str) -> str:
+    """Blank manual typography that only looks like arithmetic, keeping offsets."""
+
+    masked = list(source_text)
+    for pattern in (_SLASH_MONTH_YEAR, _WEB_ADDRESS, _FOOTNOTE_ASTERISK):
+        for match in pattern.finditer(source_text):
+            masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
+                match.end() - match.start()
+            )
+    for match in re.finditer(_LIST_BULLET, source_text):
+        if _is_list_bullet(source_text, match.start(), match.end()):
+            masked[match.start()] = _TYPOGRAPHY_MASK
+    return "".join(masked)
+
+
 def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     """Ignore prose conjunctions and year spans, retaining actual arithmetic."""
 
-    arithmetic_text = list(_without_slash_conjunction_operators(source_text))
+    arithmetic_text = list(
+        _without_slash_conjunction_operators(
+            _without_manual_typography_operators(source_text)
+        )
+    )
     for metadata_pattern in (
         _STATED_CONVERSION_DATE,
         _EU_REGULATION_NUMERIC_RECALL_CITATION,
@@ -18641,7 +18714,9 @@ def _formula_execution_matches_source_branch(
         ):
             return False
     source_topology = _explicit_source_arithmetic_topology(
-        authoritative_numeric_recall_text(branch.text)
+        _without_manual_typography_operators(
+            authoritative_numeric_recall_text(branch.text)
+        )
     )
     if source_topology is not None and source_topology != _formula_arithmetic_topology(
         operative_leaf,
@@ -18835,6 +18910,10 @@ def _formula_operation_kinds(text: str) -> set[str]:
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
         return parsed_operations
+    # Manual typography is neither division nor multiplication here either.
+    # The sentinel, unlike a space, cannot turn the dash of a date range
+    # (`10/2025–09/2026`) into a spaced subtraction.
+    text = _without_manual_typography_operators(text)
     operations: set[str] = set()
     lowered_text = text.lower()
     arithmetic_text = lowered_text
