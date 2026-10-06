@@ -7560,6 +7560,22 @@ rules:
             {"kind": "decimal", "value": Decimal("19.99")},
             20,
         )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.50000000000002"},
+            197.5,
+        )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "100.49999999999998"},
+            100.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.51"},
+            197.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "integer", "value": "9007199254740993"},
+            9007199254740992,
+        )
 
     def _execute_period_fixture(self, tmp_path, monkeypatch, *, period_kind):
         content_root = tmp_path / "rulespec-us/us"
