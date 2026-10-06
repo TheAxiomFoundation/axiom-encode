@@ -8,7 +8,10 @@ All notable changes to Axiom Encode will be documented here.
   letter-prefixed form numbers are no longer demanded as named scalars.
   Paginated manuals also drop the page number and `(MM/YYYY)` revision
   stamp of their page headers (`93 (07/2026) Chapter 2:...`), which the
-  Oregon Programs Eligibility Notebook prints on every page.
+  Oregon Programs Eligibility Notebook prints on every page. Values stay in
+  recall when a unit follows them (`policy 10-day notice`) or when a
+  cents-shaped row such as `44.50 Countable Earned Income` sits beside a
+  `$` amount line of a budget table.
 
 - Accept a federal regulation's `<title>-cfr` module root
   (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
