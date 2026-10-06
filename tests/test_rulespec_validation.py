@@ -9081,9 +9081,7 @@ def test_policyengine_snap_child_support_election_inverts_exclusion_parameter(
         gov=SimpleNamespace(
             usda=SimpleNamespace(
                 snap=SimpleNamespace(
-                    income=SimpleNamespace(
-                        deductions=child_support_parameter
-                    )
+                    income=SimpleNamespace(deductions=child_support_parameter)
                 )
             )
         )

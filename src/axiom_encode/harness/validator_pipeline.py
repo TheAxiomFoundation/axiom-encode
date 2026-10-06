@@ -43003,7 +43003,7 @@ from policyengine_us import CountryTaxBenefitSystem
 
 _check_params = CountryTaxBenefitSystem().parameters({parameter_period!r})
 if {bool(requested_value)!r} != ({parameter_expr}):
-    print({('AXIOM_ORACLE_UNSUPPORTED: state parameter ' + parameter_path + ' disagrees with RuleSpec input ' + input_key + ' for ' + household_state)!r})
+    print({("AXIOM_ORACLE_UNSUPPORTED: state parameter " + parameter_path + " disagrees with RuleSpec input " + input_key + " for " + household_state)!r})
     raise SystemExit(86)
 """
 
