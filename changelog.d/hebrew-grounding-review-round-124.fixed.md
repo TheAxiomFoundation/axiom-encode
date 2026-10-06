@@ -1,0 +1,1 @@
+A listed ש-noun in any inflection hides no verb ("אם התשלומים הם 500, 2 או 3 מיליון שקלים שליחים ישלמו, והיתרה תוחזר" keeps 500); a bare ש-word outside the list is undecided, its verb decides nothing, and the list is reported ambiguous ("מההכנסה ששופט יקבע,"); the ועדה family is a relative marker in either spelling; and "שתים" and "מאתים" read as two and two hundred.

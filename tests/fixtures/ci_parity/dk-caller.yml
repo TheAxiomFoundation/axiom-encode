@@ -1,0 +1,22 @@
+name: Repository Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    uses: TheAxiomFoundation/.github/.github/workflows/validate-rulespec.yml@34bcfab235c585c47292c95f51be1a4f4f91d29e
+    secrets: inherit
+    with:
+      axiom-encode-ref: f4b952b7ba83d8382d0074b64b27ba6ea9a7637b
+      axiom-rules-engine-ref: 05eac9d2f89dabe5c6673176260762cef3a58f47
+      axiom-corpus-ref: f7be113cede06e0619011cdc231fd2fa744271e5
+      rulespec-us-ref: 0f291b367bf7e15555f9973112278c5cbf221653
+      validate-roots: auto
+      run-generated-guard: false
+      # Composed-pilot programs/ guarding, as piloted in rulespec-uk and
+      # adopted by rulespec-gh (encode#1053).
+      guard-programs-root: false

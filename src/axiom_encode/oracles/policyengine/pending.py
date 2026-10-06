@@ -6,18 +6,20 @@ means editing axiom-oracles and bumping its pinned commit through
 axiom-encode — a per-output cross-repo pin dance that does not scale to bulk
 encoding.
 
-A rulespec repository may instead *declare* new outputs as pending
-classification in a top-level ``oracle-coverage-pending.yaml``. The gate then
-treats a declared output as ``pending_classification`` — visible, counted,
-and accountable — instead of silently ``unmapped``. A classification sweep
+A rulespec repository may temporarily *declare* new outputs as pending
+classification in a top-level ``oracle-coverage-pending.yaml``. Reports then
+treat a declared output as ``pending_classification`` — visible, counted,
+and accountable — instead of silently ``unmapped``. Release gates use
+``oracle-coverage --fail-on-pending`` and do not admit this temporary state.
+A classification sweep
 later drains declared entries into real axiom-oracles mappings (one batch pin
 bump, not one per PR); once an output is mapped upstream it stops being
 ``unmapped``, the declaration goes stale, and the ratchet forces its removal.
 So the debt only ratchets down.
 
 This module is the single source of truth for the file format, the
-report reclassification, the ratchet checks, and the dispatcher sync used by
-the bulk lane. It is deliberately dependency-light (``yaml`` only) so the
+report reclassification and the ratchet checks. It is deliberately
+dependency-light so the
 ``oracle-coverage`` command can post-process a report the axiom-oracles
 bridge produced without any axiom-oracles change.
 """
@@ -25,6 +27,9 @@ bridge produced without any axiom-oracles change.
 from __future__ import annotations
 
 import datetime as _dt
+import os
+import stat
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,11 +37,12 @@ from typing import Any
 
 import yaml
 
+from ...repo_routing import is_composition_policy_repo_root
+
 PENDING_FILENAME = "oracle-coverage-pending.yaml"
 # Report status assigned to a declared output. Distinct from ``unmapped`` so
-# every consumer of the coverage report — the ``--fail-on-unmapped`` exit
-# code, the changed-file gate's JSON filter, and humans — sees a declared
-# output as accountable pending debt rather than a silent gap.
+# release gates can reject it explicitly with ``--fail-on-pending`` while
+# reports and humans still see accountable debt rather than a silent gap.
 PENDING_STATUS = "pending_classification"
 _UNMAPPED_STATUS = "unmapped"
 _ALLOWED_SOURCES = {"bulk", "manual", "migration", "backfill"}
@@ -186,21 +192,46 @@ def load_pending_file(path: Path, *, repo: str | None = None) -> PendingFile:
 
 
 def iter_pending_file_paths(root: Path) -> list[Path]:
-    """Find ``oracle-coverage-pending.yaml`` files under a workspace root.
+    """Return the pending declaration in one explicit canonical checkout.
 
-    Matches both layouts the coverage report supports: the root itself when
-    it is a single rulespec checkout, and each ``rulespec-*`` sibling in a
-    multi-repo workspace.
+    GitHub Actions places the repository at ``rulespec-us/rulespec-us`` and
+    passes the outer canonical checkout root to oracle coverage. Support that
+    exact nested checkout as well as the direct layout used by local callers.
+    Never scan sibling repositories.
     """
-    root = Path(root)
-    paths: list[Path] = []
-    own = root / PENDING_FILENAME
-    if own.is_file():
-        paths.append(own)
-    for sibling in sorted(root.glob(f"*/{PENDING_FILENAME}")):
-        if sibling.is_file() and sibling != own:
-            paths.append(sibling)
-    return paths
+
+    raw_root = Path(root).expanduser()
+    if not is_composition_policy_repo_root(raw_root):
+        raise PendingDeclarationError(
+            "Pending declarations require the exact canonical "
+            f"rulespec-<country> checkout: {raw_root}"
+        )
+    checkout = raw_root.resolve(strict=True)
+    nested_checkout = checkout / checkout.name
+    if nested_checkout.is_symlink():
+        raise PendingDeclarationError(
+            "Nested RuleSpec checkout must be a regular directory, not a symlink: "
+            f"{nested_checkout}"
+        )
+
+    candidates = [checkout / PENDING_FILENAME]
+    if nested_checkout.is_dir():
+        candidates.append(nested_checkout / PENDING_FILENAME)
+
+    found: list[Path] = []
+    for path in candidates:
+        if path.is_symlink():
+            raise PendingDeclarationError(
+                f"Pending declaration must be a regular file, not a symlink: {path}"
+            )
+        if path.is_file():
+            found.append(path)
+    if len(found) > 1:
+        raise PendingDeclarationError(
+            "Pending declaration is ambiguous; keep exactly one file in the direct "
+            f"or nested canonical checkout: {', '.join(str(path) for path in found)}"
+        )
+    return found
 
 
 def load_pending_files(root: Path) -> list[PendingFile]:
@@ -292,17 +323,15 @@ def apply_pending_to_report(
 def ratchet_problems(
     report: dict[str, Any],
     files: list[PendingFile],
-    *,
-    repo: str | None = None,
 ) -> list[str]:
     """Both-ways ratchet, mirroring the known-validation-gaps mechanism.
 
     Fails when an output is unmapped but undeclared (nothing silent), when a
     declaration is stale (drained upstream — remove it, ratchets debt down),
     or when a file exceeds its declared ceiling. ``report`` must already be
-    reclassified via :func:`apply_pending_to_report`. When ``repo`` is given,
-    the ratchet is scoped to that repository's outputs, declarations, and file,
-    so one rulespec repo's CI does not couple to another's coverage state.
+    reclassified via :func:`apply_pending_to_report`. The caller supplies one
+    exact country checkout, so cross-repository scoping is neither needed nor
+    accepted.
     """
     problems: list[str] = []
 
@@ -310,7 +339,6 @@ def ratchet_problems(
         item.get("legal_id")
         for item in report.get("items") or []
         if item.get("status") == _UNMAPPED_STATUS
-        and (repo is None or str(item.get("file") or "").split("/", 1)[0] == repo)
     )
     problems.extend(
         f"unmapped output is not declared in {PENDING_FILENAME}: {legal_id}"
@@ -322,12 +350,9 @@ def ratchet_problems(
         f"{PENDING_FILENAME} entry is fixed — remove it: {row['legal_id']} "
         f"({row['reason']})"
         for row in pending.get("stale") or []
-        if repo is None or row.get("repo") == repo
     )
 
     for pending_file in files:
-        if repo is not None and pending_file.repo != repo:
-            continue
         if (
             pending_file.ceiling is not None
             and len(pending_file.entries) > pending_file.ceiling
@@ -342,62 +367,98 @@ def ratchet_problems(
 def _dump_pending_file(
     *,
     entries: list[PendingEntry],
-    ceiling: int | None,
+    ceiling: int,
     issue: str | None,
 ) -> str:
-    lines = [
+    header = [
         "# Declared oracle-coverage debt: executable RuleSpec outputs awaiting",
         "# classification in axiom-oracles PolicyEngine mappings. The",
         "# oracle-coverage gate treats these as pending_classification (visible,",
         "# counted, accountable) instead of silently unmapped. Ratchets both",
-        "# ways (see the oracle-coverage-pending CI check): a new unmapped output",
-        "# must be declared here or the gate fails; an entry that is no longer",
-        "# unmapped (classified upstream) must be removed or the check fails.",
+        "# ways: a new unmapped output must be declared here or the gate fails;",
+        "# an entry that is no longer unmapped must be removed.",
         "# Maintained by: axiom-encode oracle-coverage-pending sync.",
-        "version: 1",
     ]
+    payload: dict[str, Any] = {"version": 1}
     if issue:
-        lines.append(f"issue: {issue}")
-    if ceiling is not None:
-        lines.append(f"ceiling: {ceiling}")
-    if not entries:
-        lines.append("entries: []")
-        return "\n".join(lines) + "\n"
-    lines.append("entries:")
-    for entry in sorted(entries, key=lambda e: e.legal_id):
-        lines.append(f"  - legal_id: {entry.legal_id}")
-        lines.append(f"    source: {entry.source}")
-        lines.append(f"    since: {entry.since}")
-        if entry.note:
-            lines.append(f"    note: {entry.note}")
-    return "\n".join(lines) + "\n"
+        payload["issue"] = issue
+    payload["ceiling"] = ceiling
+    payload["entries"] = [
+        entry.as_dict() for entry in sorted(entries, key=lambda item: item.legal_id)
+    ]
+    body = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    return "\n".join(header) + "\n" + body
+
+
+def _pending_sync_path(root: Path) -> Path:
+    """Return the one authorized declaration path beneath an exact checkout."""
+    existing = iter_pending_file_paths(root)
+    if existing:
+        return existing[0]
+    checkout = Path(root).resolve(strict=True)
+    nested_checkout = checkout / checkout.name
+    if nested_checkout.is_symlink():
+        raise PendingDeclarationError(
+            f"Pending sync nested checkout must not be a symlink: {nested_checkout}"
+        )
+    if nested_checkout.is_dir():
+        return nested_checkout / PENDING_FILENAME
+    return checkout / PENDING_FILENAME
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Replace ``path`` atomically so an interrupted sync keeps a valid file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode) if path.is_file() else 0o644
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fchmod(stream.fileno(), mode)
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def sync_repo_pending(
     *,
     repo_root: Path,
-    repo_name: str,
     unmapped_legal_ids: list[str],
     source: str,
     since: str,
     issue: str | None = None,
 ) -> dict[str, Any]:
-    """Rewrite a repo's pending file to exactly its current unmapped set.
+    """Atomically rewrite one exact checkout's pending declaration.
 
-    Existing entries keep their recorded source/since/note when their output
-    is still unmapped; new unmapped outputs are added with ``source``/``since``;
-    entries whose output is no longer unmapped are dropped (the drain). The
-    ceiling is set to the resulting count. Returns an idempotency summary.
+    Existing entries retain their provenance while still unmapped. Newly
+    unmapped outputs receive ``source`` and ``since``; classified or removed
+    outputs are drained. The ceiling is reset to the resulting entry count.
     """
+    root = Path(repo_root)
+    if not is_composition_policy_repo_root(root):
+        raise PendingDeclarationError(
+            "Pending sync requires the exact canonical "
+            f"rulespec-<country> checkout: {root}"
+        )
     if source not in _ALLOWED_SOURCES:
         raise PendingDeclarationError(
             f"source {source!r} must be one of {sorted(_ALLOWED_SOURCES)}"
         )
     since = _coerce_date(since, where="sync")
-    path = repo_root / PENDING_FILENAME
+    path = _pending_sync_path(root)
     existing_by_id: dict[str, PendingEntry] = {}
     if path.is_file():
-        existing = load_pending_file(path, repo=repo_name)
+        existing = load_pending_file(path, repo=path.parent.name)
         existing_by_id = {entry.legal_id: entry for entry in existing.entries}
         issue = issue if issue is not None else existing.issue
 
@@ -408,23 +469,24 @@ def sync_repo_pending(
         prior = existing_by_id.get(legal_id)
         if prior is not None:
             entries.append(prior)
-        else:
-            entries.append(
-                PendingEntry(
-                    legal_id=legal_id,
-                    source=source,
-                    since=since,
-                    note=None,
-                    repo=repo_name,
-                    file=str(path),
-                )
+            continue
+        entries.append(
+            PendingEntry(
+                legal_id=legal_id,
+                source=source,
+                since=since,
+                note=None,
+                repo=path.parent.name,
+                file=str(path),
             )
-            added.append(legal_id)
+        )
+        added.append(legal_id)
     dropped = sorted(set(existing_by_id) - set(wanted))
 
     text = _dump_pending_file(entries=entries, ceiling=len(entries), issue=issue)
-    changed = (not path.is_file()) or path.read_text() != text
-    path.write_text(text)
+    changed = not path.is_file() or path.read_text(encoding="utf-8") != text
+    if changed:
+        _atomic_write_text(path, text)
     return {
         "path": str(path),
         "count": len(entries),

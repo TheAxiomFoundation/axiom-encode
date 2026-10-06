@@ -3,7 +3,7 @@ Validator Pipeline - 3-tier validation architecture.
 
 Tiers (run in order):
 1. RuleSpec compile checks - instant, catches syntax/format errors
-2. External oracles (PolicyEngine, TAXSIM) - fast (~10s), generates comparison data
+2. Explicit local PolicyEngine oracle - fast (~10s), generates comparison data
 3. LLM reviewers (RuleSpec, formula, parameter, integration) - uses oracle context
 
 Oracles run BEFORE LLM reviewers because:
@@ -15,6 +15,7 @@ Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 """
 
 import ast
+import bisect
 import contextlib
 import copy
 import functools
@@ -29,64 +30,283 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+import unicodedata
+from bisect import bisect_left, bisect_right
 from calendar import monthrange
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Optional
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
-
-from axiom_encode.codex_cli import resolve_codex_cli
-from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
-from axiom_encode.constants import DEFAULT_OPENAI_MODEL, REVIEWER_CLI_MODEL
-from axiom_encode.oracles.policyengine.adapters import (
+from axiom_oracles.bridges.adapters import (
     PE_US_MONTHLY_VAR_NAMES,
     PE_US_SPM_VAR_NAMES,
     PolicyEngineUSVarAdapter,
     get_pe_us_var_adapter,
     normalize_state_code_from_utility_region,
 )
-from axiom_encode.oracles.policyengine.registry import (
+from axiom_oracles.bridges.registry import (
     PolicyEngineMapping,
     PolicyEngineOracleCoverage,
     load_policyengine_registry,
 )
+
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
+from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
+from axiom_encode.constants import (
+    DEFAULT_OPENAI_MODEL,
+    REVIEWER_CLI_MODEL,
+    RULESPEC_ATOMIC_MODULE_ROOTS,
+    RULESPEC_COMPOSITION_SPEC_ROOT,
+    RULESPEC_FILE_SUFFIX,
+    RULESPEC_TEST_FILE_SUFFIX,
+)
+from axiom_encode.corpus_resolver import (
+    CorpusResolutionError,
+    CorpusSourceNotFoundError,
+    InvalidCorpusCitationError,
+    LocalCorpusRelease,
+    UnsafeCorpusPathError,
+    require_canonical_corpus_citation_path,
+    resolve_local_corpus_source,
+)
+from axiom_encode.engine_binding import (
+    ENGINE_PIN_FIELD,
+    EnginePin,
+    load_declared_engine_pin,
+    require_engine_ref_sha,
+    resolve_pinned_engine_binary,
+)
+from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
+    _path_identity_fingerprint,
+    _path_mutation_stamp,
+    _PathMutationStamp,
+    _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
+    canonical_rulespec_root_identity,
     find_policy_repo_root,
     is_jurisdiction_content_root,
     jurisdiction_subdir_names,
+    monorepo_checkout_name,
 )
-from axiom_encode.statute import citation_to_citation_path, parse_usc_citation
+from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.statute import (
+    citation_to_citation_path,
+    normalize_rulespec_path_segment,
+    parse_usc_citation,
+)
 
 from .dependency_stubs import (
+    UnsafeRulespecContextPath,
     has_corpus_provision_for_import_target,
     resolve_canonical_concepts_from_text,
     resolve_defined_terms_from_text,
     rulespec_content_has_stub_status,
     rulespec_file_has_stub_status,
+    validate_rulespec_context_directory,
+    validate_rulespec_context_file,
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
-from .proof_validator import find_rulespec_proof_issues, validate_rulespec_proofs
+from .eval_evidence import scrub_attestation_signing_keys
+from .policyengine_runtime import (
+    PolicyEngineRuntime,
+    PolicyEngineRuntimeError,
+    policyengine_subprocess_environment,
+)
+from .proof_validator import (
+    BIDI_MARKS_FRAGMENT,
+    HEBREW_MAQAF_WRAP_SPACE_PATTERN,
+    HORIZONTAL_SPACE_FRAGMENT,
+    LINE_END_FRAGMENT,
+    WRAP_SPACE_FRAGMENT,
+    _bounded_source_evidence_match,
+    bind_maqaf_space,
+    collapse_evidence_whitespace,
+    find_plural_corpus_citation_path_issues,
+    find_rulespec_proof_issues,
+    validate_rulespec_proofs,
+)
+from .source_completeness import (
+    analyze_complete_source_unit,
+    collect_artifact_numeric_bindings,
+    source_states_stated_conversion_result,
+)
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_AXIOM_SUPABASE_URL = "https://swocpijqqahhuwtuahwc.supabase.co"
-DEFAULT_AXIOM_SUPABASE_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3b2NwaWpxcWFoaHV3dHVhaHdjI"
-    "iwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMzU3NzcsImV4cCI6MjA5Mjkx"
-    "MTc3N30."
-    "spiF6Z6LLJmETL8eI0z_QbwgXce7J5CIqHTiXZ6K9Zk"
+_STATED_CONVERSION_CALENDAR_CONSTANTS = frozenset({4.0, 12.0, 24.0, 52.0, 365.0})
+_STATED_CONVERSION_UNGROUNDED_HINT = (
+    "Complete-source stated-conversion hint: encode the source-stated base and "
+    "converted result as separate grounded `kind: parameter` rules (for example, "
+    "annual and monthly amounts); do not derive one with an ungrounded calendar "
+    "constant. Assert both parameter outputs and their stated arithmetic relation "
+    "in companion tests."
 )
+
+_SENSITIVE_ENV_NAME_MARKERS = (
+    "AUTH",
+    "CREDENTIAL",
+    "KEY",
+    "PASSWORD",
+    "SECRET",
+    "TOKEN",
+)
+_VALIDATION_STAGING_ROOT_PLACEHOLDER = "<rulespec-validation-root>"
+_VALIDATION_TEMP_ROOT_PLACEHOLDER = "<rulespec-validation-temp>"
+_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER = "<validator-subprocess-capture>"
+_AUTHORITATIVE_CORPUS_RELEASE: ContextVar[LocalCorpusRelease | None] = ContextVar(
+    "axiom_authoritative_corpus_release",
+    default=None,
+)
+_AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = ContextVar(
+    "axiom_authoritative_rulespec_dependency_roots",
+    default=(),
+)
+
+
+@dataclass(frozen=True)
+class _CachedExplicitDirectory:
+    resolved: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+
+
+@dataclass(frozen=True)
+class ExistingTargetSurfaceContract:
+    """One valid exact-oracle-mapped surface that replacement must retain."""
+
+    name: str
+    kind: str
+    entity: str
+    dtype: str
+    period: str
+    unit: str
+    indexed_by: tuple[str, ...]
+    private: bool
+
+
+@dataclass(frozen=True)
+class ExistingTargetInputContract:
+    """One valid explicit input required by a retained oracle surface."""
+
+    name: str
+    entity: str
+    dtype: str
+    period: str
+    unit: str
+
+
+@dataclass(frozen=True)
+class ExistingTargetOracleContract:
+    """Narrow replacement contract derived from exact oracle registry rows."""
+
+    target: str
+    surfaces: tuple[ExistingTargetSurfaceContract, ...]
+    inputs: tuple[ExistingTargetInputContract, ...]
+    replacement_name_identity: str
+
+
+@dataclass(frozen=True)
+class _CachedActiveCheckout:
+    active: Path
+    checkout: Path
+
+
+@dataclass(frozen=True)
+class _CachedSymlinkAudit:
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+
+
+@dataclass(frozen=True)
+class _CachedTargetFile:
+    target_file: Path
+    content_root: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+    file_stamp: _PathMutationStamp
+
+
+@dataclass
+class _RuleSpecResolutionCache:
+    """Successful filesystem admissions retained for one validation operation."""
+
+    explicit_directories: dict[Path, _CachedExplicitDirectory] = field(
+        default_factory=dict
+    )
+    active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
+    symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
+    target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+
+
+_RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
+    "axiom_rulespec_resolution_cache",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _rulespec_resolution_cache_scope() -> Iterator[_RuleSpecResolutionCache]:
+    """Bound RuleSpec path and identity caches to one explicit operation."""
+
+    current = _RULESPEC_RESOLUTION_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecResolutionCache()
+    with _rulespec_routing_cache_scope():
+        token = _RULESPEC_RESOLUTION_CACHE.set(cache)
+        try:
+            yield cache
+        finally:
+            _RULESPEC_RESOLUTION_CACHE.reset(token)
+
+
+@contextlib.contextmanager
+def _authoritative_corpus_scope(
+    release: LocalCorpusRelease,
+) -> Iterator[LocalCorpusRelease]:
+    """Restrict corpus lookups to one named local release for the whole scope."""
+
+    if not isinstance(release, LocalCorpusRelease):
+        raise TypeError("release must be a validated LocalCorpusRelease")
+    token = _AUTHORITATIVE_CORPUS_RELEASE.set(release)
+    try:
+        yield release
+    finally:
+        _AUTHORITATIVE_CORPUS_RELEASE.reset(token)
+
+
+@contextlib.contextmanager
+def _authoritative_rulespec_dependency_scope(
+    roots: Iterable[Path],
+) -> Iterator[tuple[Path, ...]]:
+    """Bind the exact caller-authorized RuleSpec dependency checkouts."""
+
+    normalized = _normalize_rulespec_dependency_roots(roots)
+    token = _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.set(normalized)
+    try:
+        yield normalized
+    finally:
+        _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.reset(token)
+
+
+def _without_sensitive_environment(env: Mapping[str, str]) -> dict[str, str]:
+    """Remove credentials before invoking deterministic validator subprocesses."""
+
+    return {
+        name: value
+        for name, value in env.items()
+        if not any(marker in name.upper() for marker in _SENSITIVE_ENV_NAME_MARKERS)
+    }
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -153,7 +373,27 @@ def run_claude_code(
     if reviewer_cli_preference == "codex":
         return _run_codex_reviewer_cli(prompt, timeout=timeout, cwd=cwd)
 
-    cmd = ["claude", "--print", "--model", model, "-p", prompt]
+    cmd = [
+        "claude",
+        "--print",
+        "--permission-mode",
+        "dontAsk",
+        "--safe-mode",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+        "--no-chrome",
+        "--strict-mcp-config",
+        "--mcp-config",
+        '{"mcpServers": {}}',
+        "--tools",
+        "",
+        "--allowed-tools",
+        "",
+        "--model",
+        model,
+        "-p",
+        prompt,
+    ]
 
     try:
         idle_timeout_env = os.getenv(
@@ -167,6 +407,7 @@ def run_claude_code(
             timeout=timeout,
             idle_timeout=idle_timeout,
             cwd=cwd,
+            env=scrub_attestation_signing_keys(),
         )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
@@ -246,66 +487,100 @@ def _run_subprocess_with_idle_timeout(
     timeout: int,
     idle_timeout: int,
     cwd: Optional[Path] = None,
+    env: Mapping[str, str] | None = None,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
-    with (
-        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
-        tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
-    ):
-        stdout_path = Path(stdout_file.name)
-        stderr_path = Path(stderr_file.name)
-        process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=stdout_file,
-            stderr=stderr_file,
-            text=True,
-            cwd=cwd,
-        )
-
-    start = time.time()
-    last_activity = start
-    last_snapshot: tuple[tuple[int, int, int], tuple[int, int, int]] | None = None
-
-    def _snapshot() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
-        values: list[tuple[int, int, int]] = []
-        for path in (stdout_path, stderr_path):
-            try:
-                stat = path.stat()
-            except OSError:
-                values.append((0, 0, 0))
-                continue
-            values.append((1, stat.st_size, stat.st_mtime_ns))
-        return values[0], values[1]
-
+    capture_root: Path | None = None
     try:
-        while True:
-            if process.poll() is not None:
-                break
+        with tempfile.TemporaryDirectory(
+            prefix="axiom-validator-subprocess-",
+            ignore_cleanup_errors=True,
+        ) as capture_dir:
+            capture_root = Path(capture_dir)
+            stdout_path = capture_root / "stdout.log"
+            stderr_path = capture_root / "stderr.log"
+            with (
+                stdout_path.open("w+") as stdout_file,
+                stderr_path.open("w+") as stderr_file,
+            ):
+                process = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    text=True,
+                    cwd=cwd,
+                    env=(
+                        scrub_attestation_signing_keys()
+                        if env is None
+                        else scrub_attestation_signing_keys(env)
+                    ),
+                )
 
-            now = time.time()
-            if now - start > timeout:
-                process.kill()
-                process.wait()
-                raise subprocess.TimeoutExpired(cmd, timeout)
+            start = time.time()
+            last_activity = start
+            last_snapshot: tuple[tuple[int, int, int], tuple[int, int, int]] | None = (
+                None
+            )
 
-            snapshot = _snapshot()
-            if snapshot != last_snapshot:
-                last_snapshot = snapshot
-                last_activity = now
-            elif idle_timeout >= 0 and now - last_activity >= idle_timeout:
-                process.kill()
-                process.wait()
-                raise subprocess.TimeoutExpired(cmd, idle_timeout)
+            def _snapshot() -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+                values: list[tuple[int, int, int]] = []
+                for path in (stdout_path, stderr_path):
+                    try:
+                        stat = path.stat()
+                    except OSError:
+                        values.append((0, 0, 0))
+                        continue
+                    values.append((1, stat.st_size, stat.st_mtime_ns))
+                return values[0], values[1]
 
-            time.sleep(poll_interval)
+            while True:
+                if process.poll() is not None:
+                    break
 
-        output = stdout_path.read_text() + stderr_path.read_text()
-        return _SubprocessRunResult(output=output, returncode=process.returncode or 0)
-    finally:
-        stdout_path.unlink(missing_ok=True)
-        stderr_path.unlink(missing_ok=True)
+                now = time.time()
+                if now - start > timeout:
+                    process.kill()
+                    process.wait()
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+
+                snapshot = _snapshot()
+                if snapshot != last_snapshot:
+                    last_snapshot = snapshot
+                    last_activity = now
+                elif idle_timeout >= 0 and now - last_activity >= idle_timeout:
+                    process.kill()
+                    process.wait()
+                    raise subprocess.TimeoutExpired(cmd, idle_timeout)
+
+                time.sleep(poll_interval)
+
+            output = stdout_path.read_text() + stderr_path.read_text()
+            normalized_output = _normalize_validation_staging_text(
+                output,
+                capture_root,
+                placeholder=_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER,
+            )
+            return _SubprocessRunResult(
+                output=normalized_output,
+                returncode=process.returncode or 0,
+            )
+    except subprocess.TimeoutExpired:
+        raise
+    except Exception as exc:
+        if capture_root is None:
+            raise RuntimeError(
+                f"Validator subprocess capture setup failed: {type(exc).__name__}"
+            ) from exc
+        normalized_error = _normalize_validation_staging_text(
+            str(exc),
+            capture_root,
+            placeholder=_VALIDATOR_SUBPROCESS_CAPTURE_PLACEHOLDER,
+        )
+        if normalized_error == str(exc):
+            raise
+        raise RuntimeError(normalized_error) from exc
 
 
 def _extract_codex_text_output(output: str) -> str:
@@ -331,7 +606,11 @@ def _extract_codex_text_output(output: str) -> str:
         elif payload_type == "error":
             last_error = payload.get("message") or "codex exec error"
 
-    return "\n".join(assistant_messages).strip() or last_error or output
+    return (
+        "\n".join(assistant_messages).strip()
+        or with_codex_model_availability_hint(last_error)
+        or output
+    )
 
 
 _REVIEW_JSON_KEYS = {
@@ -609,7 +888,9 @@ GROUNDING_ALLOWED_VALUES = {-1, 0, 1, 2, 3}
 NUMERIC_GROUNDING_ABS_TOLERANCE = 1e-6
 GROUNDING_DATE_PATTERN = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 GROUNDING_MONTH_PERIOD_PATTERN = re.compile(r"\b\d{4}-\d{2}\b")
-_DOTTED_DATE_PATTERN = re.compile(r"\b\d{1,2}\.\d{1,2}\.(?P<year>\d{4})\b")
+_DOTTED_DATE_PATTERN = re.compile(
+    r"\b(?P<day>\d{1,2})\.(?P<month>\d{1,2})\.(?P<year>\d{4})\b"
+)
 _SOURCE_URL_PATTERN = re.compile(r"https?://[^\s)\"'<>]+", re.IGNORECASE)
 GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
     r"(?<![\w./])(-?[\d,]+(?:\.\d+)?)(?![\w./])"
@@ -617,6 +898,19 @@ GROUNDING_FORMULA_NUMBER_PATTERN = re.compile(
 SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
+)
+GLUED_UNIT_NUMBER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?P<number>\d{1,3}(?:,\d{3})+|\d+)"
+    r"(?P<unit>m(?:2|²)|ha|km|kw|db)"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+CENTS_VALUE_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.,/\-])"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    r"\s+cents?\b",
+    re.IGNORECASE,
 )
 EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
@@ -741,9 +1035,7 @@ def _rule_has_source_proof(rule: dict[str, Any]) -> bool:
             continue
         source = atom.get("source")
         if isinstance(source, dict) and (
-            source.get("corpus_citation_path")
-            or source.get("corpus_citation_paths")
-            or source.get("excerpt")
+            source.get("corpus_citation_path") or source.get("excerpt")
         ):
             return True
     return False
@@ -850,6 +1142,28 @@ _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
 # ("five and half per centum", "eighteen and a half per centum"); outside
 # one they would over-extract ordinary prose such as "half of the year".
 _PERCENT_FRACTION_WORD_PATTERN = rf"(?:{_FRACTION_WORD_PATTERN}|a[-\s]+half|half)"
+_WORD_QUANTITY_FRACTION_PATTERN = re.compile(
+    r"(?<!\bfirst\s)\b(?P<of_fraction>"
+    r"half|quarter|third|one[-\s]+(?:half|quarter|third)|"
+    r"a\s+(?:half|quarter|third)|two[-\s]+thirds|three[-\s]+quarters"
+    r")\b(?=\s+of\b)|"
+    r"\bequal\s+to\s+(?P<equal_fraction>half|quarter|third)\b|"
+    r"\b(?P<prefixed_fraction>"
+    r"one[-\s]+(?:half|quarter|third)|a\s+(?:half|quarter|third)|"
+    r"two[-\s]+thirds|three[-\s]+quarters"
+    r")\b|"
+    r"\breplace\s+(?P<replace_fraction>half|quarter|third)\s+with\s+"
+    r"(?P<replacement_fraction>half|quarter|third)\b",
+    re.IGNORECASE,
+)
+_DECIMAL_FRACTION_DENOMINATORS = {
+    "tenth": 10.0,
+    "hundredth": 100.0,
+    "thousandth": 1_000.0,
+}
+_DECIMAL_FRACTION_DENOMINATOR_PATTERN = (
+    r"(?P<denominator>tenths?|hundredths?|thousandths?)"
+)
 IMPORT_ITEM_PATTERN = re.compile(r"^\s*-\s*(['\"]?)([^'\"]+?)\1\s*$")
 IMPORT_MAPPING_PATTERN = re.compile(r"^\s*[A-Za-z_]\w*:\s*(['\"]?)([^'\"]+?)\1\s*$")
 _EMBEDDED_SCALAR_DIRECT_VALUE = re.compile(r"-?[\d,]+(?:\.\d+)?")
@@ -873,7 +1187,8 @@ _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
-    r"^\s*(?:\d+(?:\.\d+){2,}\s+|\d+[A-Za-z]?\.\s+|\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
+    r"^\s*(?:(?P<bare_dotted>\d+(?:\.\d+){2,})\s+|\d+[A-Za-z]?\.\s+|"
+    r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
@@ -918,16 +1233,75 @@ _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
     r"\bLine\s+\d+[A-Za-z]?\b",
     re.IGNORECASE,
 )
+# Explicit plural form-line references and page counters are coordinates,
+# not amounts to reproduce as RuleSpec parameters. Keep numeric tokens with
+# decimal or monetary/rate suffixes outside this structural grammar.
+_STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
+    r"\blines\s+\d+[A-Za-z]?"
+    r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)\d+[A-Za-z]?)+"
+    r"\b(?![.,]\d)(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b))",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
+    r"\bpage[ \t]+\d+[ \t]+of[ \t]+\d+[ \t]*(?=\r?$)",
+    re.IGNORECASE | re.MULTILINE,
+)
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\b\d+\s+"
     r"(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|C\.?\s*C\.?\s*R\.?|CCR)\s+"
+    r"(?:(?:s(?:ec(?:tion)?)?\.?|§{1,2})\s*)?"
     r"\d+[A-Za-z]*(?:[.-]\d+[A-Za-z]*)*(?:\([A-Za-z0-9]+\))*"
     r"(?:\s*(?:,|and|or)\s*\d+[A-Za-z]*(?:[.-]\d+[A-Za-z]*)*(?:\([A-Za-z0-9]+\))*)*"
-    r"(?=$|[\s,.;:])",
+    r"""(?=$|[\s,.;:)\]}\'"”’–—])""",
     re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?i:(?:federal\s+)?Internal Revenue Code)|"
+    r"[A-Z][A-Za-z'-]*"
+    r"(?:\s+(?:[A-Z][A-Za-z'-]*|and|of|the|for|with|to|in)){0,10}"
+    r"\s+Act"
+    r")\s+of\s+(?:18|19|20)\d{2}\b"
+)
+_STRUCTURAL_SOURCE_STATE_CODE_CITATION_TARGET = (
+    r"\d+[A-Za-z]?:\d+[A-Za-z]?(?:-\d+[A-Za-z]?(?:\.\d+)*)?"
+    r"(?:\([A-Za-z0-9]+\)[A-Za-z0-9]*)*"
+)
+_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:(?:(?:N\.J\.S\.(?:A\.)?|N\.J\.A\.C\.|R\.S\.)\s*|C\.)"
+    r"|(?:(?:sections?|sec\.?)\s+|§{1,2}\s*))"
+    + _STRUCTURAL_SOURCE_STATE_CODE_CITATION_TARGET
+    + r"(?:\s*(?:,|and|or)\s*"
+    + _STRUCTURAL_SOURCE_STATE_CODE_CITATION_TARGET
+    + r")*"
+    r"""(?=$|[\s,.;:)\]}\'"”’–—])""",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_TARGET = (
+    r"54A:\d+[A-Za-z]?\-\d+[A-Za-z]?(?:\.\d+)*"
+    r"(?:\([A-Za-z0-9]+\)[A-Za-z0-9]*)*"
+)
+_STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    + _STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_TARGET
+    + r"(?=[ \t]+[A-Z][^.!?\n]{0,160}\s*\.)"
+)
+_STRUCTURAL_INLINE_NJ_LEGAL_ORDINAL_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    + r"(?P<citation>"
+    + _STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_TARGET
+    + r")"
+    + r"[ \t]+[A-Z][^.!?\n]{0,160}\s*\.[ \t]+"
+    + r"(?P=citation)"
+    + r"[ \t]+[A-Z][^.!?\n]{0,160}\s*\.[ \t]+"
+    + r"(?P<ordinal>[1-9]\d?)\.(?=[ \t]+[A-Z])"
 )
 _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN = re.compile(
     r"(?<![\w$£€])\d+(?:\.\d+){2,}(?![\w%])"
+)
+_STRUCTURAL_SOURCE_DOTTED_SECTION_REFERENCE_PATTERN = re.compile(
+    r"§{1,2}[ \t]*\d+(?:\.\d+){2,}(?![\d.])"
 )
 _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?:\b(?:section|sec\.?)|§{1,2})\s+\d+(?:[.-]\d+)*"
@@ -987,7 +1361,7 @@ _SOURCE_REFERENCE_PATTERNS = (
         # Rwanda excise schedule, "RWF 3,000", "GHS 100") - the amount
         # must survive for numeric grounding, so currency codes are
         # excluded from the reference pattern.
-        r"\b(?!(?:FRW|RWF|GHS|GHP|NGN|UGX|ZMW|ETB|USD|EUR|GBP|CAD|AUD|"
+        r"\b(?!(?:FRW|RWF|GHS|GHP|NGN|UGX|ZMW|ETB|USD|EUR|GBP|CAD|AUD|CHF|"
         r"KES|TZS|XAF|XOF|ZAR)\b)[A-Z]{2,6}[ \t]+\d+(?:\.\d+)*(?:\([^)]+\))*",
     ),
     re.compile(r"\b(?:Act|Order|Regulations?)\s+\d{4}\b"),
@@ -1133,6 +1507,73 @@ _SUBPOUND_MONEY_PATTERN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:pence|penny)\b", re.IGNORECASE
 )
 _TABLE_KEY_ASSIGNMENT_PATTERN = re.compile(r"\b\d+(?=\s*=)")
+_FORM_ARITHMETIC_OPERAND_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?:[$£€]\s*)?"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?))(?![\d,])"
+    r"(?:\s*(?P<percent>%))?",
+    re.IGNORECASE,
+)
+_FORM_ARITHMETIC_FRACTION_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)",
+    re.IGNORECASE,
+)
+_STANDALONE_FORM_FRACTION_PATTERN = re.compile(
+    r"(?m)^\s*(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)\s*$"
+)
+_CONTEXTUAL_ASCII_FRACTION_PATTERN = re.compile(
+    r"(?<![\d./])"
+    r"(?:(?P<whole>\d+)\s+)?"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)"
+    r"(?=\s*(?:times?\b|\(\s*Class\b|for\s+(?:property|RIIP|ZEV|Class)\b))",
+    re.IGNORECASE,
+)
+# The Unicode fraction slash (U+2044) exists only to typeset vulgar fractions,
+# so unlike the ASCII "/" above it needs no context guard: Israeli statutory
+# text prints "1<U+2044>4 credit points" in Income Tax Ordinance section 36,
+# and a date or a ratio is never written with it.
+# A run is a fraction only at whole-token boundaries: a digit, a decimal or
+# grouping mark, or another slash on either side means the numerator or
+# denominator would be a substring of some other number ("1.5⁄2" is not five
+# halves), and the run is left to the passes that read decimals. A unary minus
+# set against the numerator (or the whole number of a mixed number) belongs to
+# the value.
+# A hyphen after a Hebrew letter joins a prefix to the fraction ("כ-1⁄4")
+# and is no sign; only a sign that no Hebrew letter precedes negates. The
+# whole number of a mixed number stands on the fraction's own line: "10
+# 1⁄4" is ten and a quarter, "10\n\n1⁄4" is ten, then a quarter, and so
+# is "10\u20291⁄4"; only a space of some width joins them.
+_FRACTION_SLASH_PATTERN = re.compile(
+    "(?<![\\d\u2044.,])"
+    "(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?"
+    "(?P<numerator>\\d+)\\s*\u2044\\s*(?P<denominator>\\d+)"
+    "(?![\\d\u2044])(?![.,]\\d)"
+)
+_SMALL_MONTH_RANGE_PATTERN = re.compile(
+    r"\b(?P<start>\d{1,2})\s+(?:through|to)\s+"
+    r"(?P<end>\d{1,2})\s+months?\b",
+    re.IGNORECASE,
+)
+_FORM_IMPLIED_CENTS_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?P<dollars>\d{1,3}(?:[ ,]\d{3})*)[ \t]+"
+    r"(?P<cents>\d{2})[ \t]*$"
+    r"(?=(?:[ \t]*\r?\n){1,3}[ \t]*=)",
+)
+# Flattened PDF forms (Revenu Québec work charts, for example) print the
+# cents of an amount as a separate column with no decimal separator and no
+# line breaks between cells: "0 00 7,455 70 17,571 30". A cell only counts
+# when it sits in a run of adjacent cells or its dollars are comma-grouped,
+# so prose such as "196 50 people" is never joined. These only feed literal
+# grounding; the inventory keeps seeing the unjoined tokens.
+_INLINE_FORM_IMPLIED_CENTS_CELL = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}) \d{2}"
+_INLINE_FORM_IMPLIED_CENTS_RUN_PATTERN = re.compile(
+    rf"(?<![\d,.]){_INLINE_FORM_IMPLIED_CENTS_CELL}(?: {_INLINE_FORM_IMPLIED_CENTS_CELL})*(?![\d,.%:])"
+)
+_INLINE_FORM_IMPLIED_CENTS_CELL_PATTERN = re.compile(
+    r"(?P<dollars>\d{1,3}(?:,\d{3})+|\d{1,3}) (?P<cents>\d{2})"
+)
 _TABLE_ROW_LABEL_PATTERN = re.compile(
     r"\b(?:size|household size|unit size)\s+\d+(?:\s+or\s+more)?(?=\s*:)",
     re.IGNORECASE,
@@ -1381,6 +1822,5558 @@ _DUTCH_CARDINAL_PHRASE_PATTERN = re.compile(
     + r")\b",
     re.IGNORECASE,
 )
+# Israeli statutes name a number with a word far more often than with a digit.
+# National Insurance Law section 68(b) sets one rate for the fourth child and
+# another for the fifth, and section 68(c) a supplement for a parent entitled
+# for three children or more, without printing 3, 4 or 5 anywhere; Income Tax
+# Ordinance section 34 grants two credit points and prints no 2. The words are
+# spelled out here the way the French and Dutch tables above spell theirs.
+_HEBREW_NUMBER_WORD_VALUES = {
+    # Ordinals, masculine and feminine.
+    "ראשון": 1.0,
+    "ראשונה": 1.0,
+    "שני": 2.0,
+    "שנייה": 2.0,
+    "שניה": 2.0,
+    "שלישי": 3.0,
+    "שלישית": 3.0,
+    "רביעי": 4.0,
+    "רביעית": 4.0,
+    "חמישי": 5.0,
+    "חמישית": 5.0,
+    "שישי": 6.0,
+    "שישית": 6.0,
+    "שביעי": 7.0,
+    "שביעית": 7.0,
+    "שמיני": 8.0,
+    "שמינית": 8.0,
+    "תשיעי": 9.0,
+    "תשיעית": 9.0,
+    "עשירי": 10.0,
+    "עשירית": 10.0,
+    # Cardinals, including the construct forms a statute uses before a noun.
+    # Zero, which a list of rates or a floor states ("אפס, 10 ו־20 אחוזים").
+    "אפס": 0.0,
+    "אחד": 1.0,
+    "אחת": 1.0,
+    "שניים": 2.0,
+    "שניית": 2.0,
+    "שתיים": 2.0,
+    "שתים": 2.0,
+    "שתי": 2.0,
+    "שלוש": 3.0,
+    "שלש": 3.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "שלושת": 3.0,
+    "ארבע": 4.0,
+    "ארבעה": 4.0,
+    "ארבעת": 4.0,
+    "חמש": 5.0,
+    "חמישה": 5.0,
+    "חמשה": 5.0,
+    "חמשת": 5.0,
+    "שש": 6.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "ששת": 6.0,
+    "שבע": 7.0,
+    "שבעה": 7.0,
+    "שבעת": 7.0,
+    "שמונה": 8.0,
+    "שמונת": 8.0,
+    "תשע": 9.0,
+    "תשעה": 9.0,
+    "תשעת": 9.0,
+    "עשר": 10.0,
+    "עשרה": 10.0,
+    "עשרת": 10.0,
+}
+# One-letter Hebrew prefixes bind to the following word: the definite article
+# he, the conjunction vav, and the prepositions bet, kaf, lamed, mem and shin.
+# Two of them can stack ("and the fourth"), and a maqaf may sit between the
+# prefix and the word, as may an ASCII hyphen.
+_HEBREW_PREFIX_SEPARATOR = "[\u05be-]?"
+_HEBREW_WORD_PREFIX_PATTERN = (
+    "(?:[\u05d5\u05d4\u05d1\u05db\u05dc\u05de\u05e9]"
+    + _HEBREW_PREFIX_SEPARATOR
+    + "){0,2}"
+)
+# The same binding for the patterns that read a noun, a label or a marker
+# under a prefix: the prepositions alone, the prepositions or the article,
+# and the article alone, each across the same separator.
+_HEBREW_PREPOSITION_PREFIXES = (
+    "(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9]" + _HEBREW_PREFIX_SEPARATOR + "){0,2}"
+)
+_HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES = (
+    "(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9\u05d4]"
+    + _HEBREW_PREFIX_SEPARATOR
+    + "){0,2}"
+)
+_HEBREW_OPTIONAL_ARTICLE = "(?:\u05d4" + _HEBREW_PREFIX_SEPARATOR + ")?"
+# The alternation is longest-first so that a longer form is never shadowed by a
+# shorter one it contains, and the boundaries refuse a match that sits inside a
+# longer Hebrew word.
+_HEBREW_NUMBER_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<word>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_NUMBER_WORD_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    "(?![\u0590-\u05ff])"
+)
+# Hebrew builds eleven through nineteen as two words, unit then ten, and the
+# unit half is not always a standalone numeral: Income Tax Ordinance section
+# 33A divides the credit point by twelve and writes that as two words whose
+# first, on its own, is the plural of "year". Only the pair carries the value.
+_HEBREW_TEEN_UNIT_VALUES = {
+    "אחד": 1.0,
+    "אחת": 1.0,
+    "שנים": 2.0,
+    "שניים": 2.0,
+    "שתים": 2.0,
+    "שתיים": 2.0,
+    "שלוש": 3.0,
+    "שלש": 3.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "ארבע": 4.0,
+    "ארבעה": 4.0,
+    "חמש": 5.0,
+    "חמישה": 5.0,
+    "חמשה": 5.0,
+    "שש": 6.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "שבע": 7.0,
+    "שבעה": 7.0,
+    "שמונה": 8.0,
+    "תשע": 9.0,
+    "תשעה": 9.0,
+}
+_HEBREW_TEEN_TENS_WORDS = ("עשר", "עשרה")
+# The two halves are joined by a space, an ASCII hyphen, or a maqaf (U+05BE,
+# the Hebrew hyphen), and the captured Income Tax Ordinance Wikisource
+# snapshot prints the same number both ways within a few lines of itself:
+# section 35's "twelve months" appears as unit-space-ten and as
+# unit-maqaf-ten. The maqaf is inside the Hebrew block that the word
+# boundaries below refuse, so without this the hyphenated spellings match
+# nothing at all; with an ASCII hyphen they matched the two halves separately
+# and grounded 3 and 10 instead of 13.
+# A blank line, a form feed or a Unicode line or paragraph separator ends a
+# paragraph; number words never compose across one ("שלושה\n\nעשר" is
+# three, then ten), while a single line wrap joins them.
+# A line ends in "\r\n", "\r" or "\n" (a Windows, a classic Mac or a Unix
+# source, or one that mixes them), so a bare carriage return is a line end
+# to the readers that run before the cleaner normalizes it. A bare carriage
+# return is one only when no newline follows, so a CRLF is one line end to
+# a pattern that backtracks, never a CR and an LF that make a blank line.
+_LINE_END_FRAGMENT = LINE_END_FRAGMENT
+_PARAGRAPH_GAP_FRAGMENT = (
+    "(?:[\\u2028\\u2029\\x0b\\x0c\\x85]|"
+    + _LINE_END_FRAGMENT
+    + "[^\\S\\r\\n]*"
+    + _LINE_END_FRAGMENT
+    + ")"
+)
+_PARAGRAPH_GAP_PATTERN = re.compile(_PARAGRAPH_GAP_FRAGMENT)
+_HORIZONTAL_SPACE_FRAGMENT = HORIZONTAL_SPACE_FRAGMENT
+# A printed number in the Hebrew readers: grouped or plain digits with an
+# optional decimal part, or a decimal part alone (".5 אחוזים" is half a
+# percent); the readers' lookbehinds keep ".5" out of "3.5".
+# Whitespace a number may run across: spaces of any width and a single line
+# wrap, never a blank line or a paragraph separator ("10 וחצי מיליון" and
+# "10\nוחצי מיליון" are one amount; "10\n\nוחצי מיליון" is ten, then half a
+# million).
+_WRAP_SPACE_FRAGMENT = WRAP_SPACE_FRAGMENT
+_HEBREW_TEEN_SEPARATOR_PATTERN = (
+    "(?:(?!\\s*" + _PARAGRAPH_GAP_FRAGMENT + ")\\s+|\\s*[-\\u05be]\\s*)"
+)
+_HEBREW_TEEN_PATTERN = re.compile(
+    "(?<![\\u0590-\\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<unit>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_TEEN_UNIT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _HEBREW_TEEN_SEPARATOR_PATTERN
+    + "(?:"
+    + "|".join(re.escape(word) for word in _HEBREW_TEEN_TENS_WORDS)
+    + ")"
+    "(?![\\u0590-\\u05ff])"
+)
+# Hebrew builds twenty-three as "twenty and three" -- the ten, the
+# conjunction vav bound to the unit -- and a hundred or a thousand as a word
+# of its own or as a unit before the plural ("three hundreds"). The compound is
+# one number the statute states: reading the unit alone grounded 3 for
+# "twenty-three days" and demanded it back as a value of its own.
+_HEBREW_TENS_VALUES = {
+    "עשרים": 20.0,
+    "שלושים": 30.0,
+    "שלשים": 30.0,
+    "ארבעים": 40.0,
+    "חמישים": 50.0,
+    "חמשים": 50.0,
+    "שישים": 60.0,
+    "ששים": 60.0,
+    "שבעים": 70.0,
+    "שמונים": 80.0,
+    "תשעים": 90.0,
+}
+_HEBREW_ORDINAL_WORDS = frozenset(
+    {
+        "ראשון",
+        "ראשונה",
+        "שני",
+        "שנייה",
+        "שניה",
+        "שלישי",
+        "שלישית",
+        "רביעי",
+        "רביעית",
+        "חמישי",
+        "חמישית",
+        "שישי",
+        "שישית",
+        "שביעי",
+        "שביעית",
+        "שמיני",
+        "שמינית",
+        "תשיעי",
+        "תשיעית",
+        "עשירי",
+        "עשירית",
+    }
+)
+_HEBREW_UNIT_VALUES = {
+    word: value
+    for word, value in _HEBREW_NUMBER_WORD_VALUES.items()
+    if value <= 10.0 and word not in _HEBREW_ORDINAL_WORDS
+}
+_HEBREW_HUNDRED_WORDS = {"מאה": 100.0, "מאתיים": 200.0, "מאתים": 200.0}
+_HEBREW_THOUSAND_WORDS = {"אלף": 1000.0, "אלפיים": 2000.0}
+# Absolute, plural and construct forms ("שלושה מיליוני שקלים").
+_HEBREW_MILLION_WORDS = {
+    "מיליון": 1_000_000.0,
+    "מיליונים": 1_000_000.0,
+    "מיליוני": 1_000_000.0,
+}
+_HEBREW_BILLION_WORDS = {
+    "מיליארד": 1_000_000_000.0,
+    "מיליארדים": 1_000_000_000.0,
+    "מיליארדי": 1_000_000_000.0,
+}
+# The scale tiers of the spoken grammar, largest first: the scale words a
+# count precedes, the values a bare scale word stands for on its own, and
+# the kind recorded. "אלפיים" is a bare two thousand and counts nothing.
+_HEBREW_SCALE_KINDS = frozenset({"thousand", "million", "billion"})
+_HEBREW_PERCENT_NOUN_WORDS = frozenset({"אחוז", "אחוזים", "אחוזי"})
+
+
+def _hebrew_is_percent_noun(word: str) -> bool:
+    """Whether ``word`` is a percent noun, with or without the article."""
+    return word in _HEBREW_PERCENT_NOUN_WORDS or (
+        word.startswith("\u05d4")
+        and word[1:].lstrip("\u05be-") in _HEBREW_PERCENT_NOUN_WORDS
+    )
+
+
+_HEBREW_SCALE_TIERS: tuple[tuple[dict[str, float], dict[str, float], str], ...] = (
+    (_HEBREW_BILLION_WORDS, {"מיליארד": 1_000_000_000.0}, "billion"),
+    (_HEBREW_MILLION_WORDS, {"מיליון": 1_000_000.0}, "million"),
+    (
+        {"אלף": 1000.0, "אלפים": 1000.0, "אלפי": 1000.0},
+        {"אלף": 1000.0, "אלפיים": 2000.0},
+        "thousand",
+    ),
+)
+
+
+def _hebrew_alternation(words: Iterable[str]) -> str:
+    return "|".join(re.escape(word) for word in sorted(words, key=len, reverse=True))
+
+
+_HEBREW_SCALE_VALUES = {
+    "מאות": 100.0,
+    "אלפים": 1000.0,
+    "אלפי": 1000.0,
+    "אלף": 1000.0,
+    **_HEBREW_MILLION_WORDS,
+    **_HEBREW_BILLION_WORDS,
+}
+_HEBREW_TEEN_TENS = frozenset(_HEBREW_TEEN_TENS_WORDS)
+_HEBREW_MIXED_FRACTION_VALUES = {
+    "חצי": 0.5,
+    "מחצית": 0.5,
+    "שליש": 1.0 / 3.0,
+    "שלישית": 1.0 / 3.0,
+    "רבע": 0.25,
+    "רביעית": 0.25,
+    "חמישית": 0.2,
+    "שישית": 1.0 / 6.0,
+    "שביעית": 1.0 / 7.0,
+    "שמינית": 0.125,
+    "תשיעית": 1.0 / 9.0,
+    "עשירית": 0.1,
+}
+# The plural and construct fraction nouns a count precedes inside a mixed
+# number: "אחד ושני שלישים" is one and two thirds.
+_HEBREW_COUNTED_FRACTION_VALUES = {
+    "שלישים": 1.0 / 3.0,
+    "שלישיות": 1.0 / 3.0,
+    "שלישי": 1.0 / 3.0,
+    "רבעים": 0.25,
+    "רביעיות": 0.25,
+    "רבעי": 0.25,
+    "חמישיות": 0.2,
+    "שישיות": 1.0 / 6.0,
+    "שביעיות": 1.0 / 7.0,
+    "שמיניות": 0.125,
+    "תשיעיות": 1.0 / 9.0,
+    "עשיריות": 0.1,
+}
+_HEBREW_NUMBER_PREFIX_LETTERS = "\u05d5\u05d4\u05d1\u05db\u05dc\u05de\u05e9"
+# A maqaf (U+05BE) joins words the way a hyphen does, so it is not a word
+# character here: "שנים־עשר" is two tokens, joined the way "שנים-עשר" is.
+# A maqaf or hyphen after a one-letter prefix binds it to its word ("ו־חצי",
+# "ל־מיליון"), so the token carries it and the prefix readers strip both.
+_HEBREW_WORD_TOKEN_PATTERN = re.compile(
+    "(?:[\u05d5\u05d1\u05dc\u05de\u05db\u05e9\u05d4][\u05be-])?[\u0590-\u05bd\u05bf-\u05ff]+"
+)
+_HEBREW_TEEN_JOIN_PATTERN = re.compile("^\\s*[-\u05be]\\s*$")
+_HEBREW_PERCENT_WORD_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT + "+(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?(?![\u0590-\u05ff])"
+)
+_HEBREW_PERCENT_SIGN_AFTER_PATTERN = re.compile(_WRAP_SPACE_FRAGMENT + "*%")
+# The percent noun may precede its count -- "אחוז אחד" is one percent.
+_HEBREW_PERCENT_NOUN_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "אחוז(?:ים)?"
+    + _WRAP_SPACE_FRAGMENT
+    + "+$"
+)
+
+
+# A printed number followed by the percent word: "23 אחוזים" is 0.23 the way
+# "23%" is. The lookbehind keeps a fraction's denominator ("16 1⁄2 אחוזים")
+# for the fraction pass, which reads the percent word itself.
+# A hyphen after a Hebrew letter joins a prefix to the number ("ל-3", "ב-5")
+# and is no sign; only a sign that no Hebrew letter precedes negates, and a
+# maqaf is no letter ("ב־−2" is minus two under the prefix).
+_ASCII_SLASH_BEFORE_NUMBER_PATTERN = re.compile("/\\s*$")
+_SLASH_BEFORE_NUMBER_PATTERN = re.compile("[/\u2044]\\s*$")
+
+
+def _strip_hebrew_number_prefix(word: str, vocabulary: "Iterable[str]") -> str | None:
+    """Return the number word inside a prefixed token, or None."""
+    known = set(vocabulary)
+    candidate = word
+    for _ in range(3):
+        if candidate in known:
+            return candidate
+        if len(candidate) > 2 and candidate[0] in _HEBREW_NUMBER_PREFIX_LETTERS:
+            candidate = candidate[1:].lstrip("\u05be-")
+            continue
+        return None
+    return candidate if candidate in known else None
+
+
+_HEBREW_NUMBER_VOCABULARY = (
+    set(_HEBREW_UNIT_VALUES)
+    | set(_HEBREW_TENS_VALUES)
+    | set(_HEBREW_HUNDRED_WORDS)
+    | set(_HEBREW_THOUSAND_WORDS)
+    | set(_HEBREW_SCALE_VALUES)
+    | set(_HEBREW_TEEN_TENS)
+    | set(_HEBREW_MIXED_FRACTION_VALUES)
+)
+_HEBREW_RUN_START_VOCABULARY = frozenset(
+    _HEBREW_NUMBER_VOCABULARY | set(_HEBREW_TEEN_UNIT_VALUES) | {"שני", "שתי"}
+)
+_HEBREW_TEEN_ONLY_WORDS = frozenset(
+    set(_HEBREW_TEEN_UNIT_VALUES) - set(_HEBREW_UNIT_VALUES)
+)
+
+
+def _parse_hebrew_number_run(
+    words: "Sequence[str]",
+    start: int = 0,
+    money_context: bool | None = None,
+    text_separate_after: "Callable[[int], bool] | None" = None,
+) -> tuple[int, float, set[str]] | None:
+    """Parse the longest number a run of Hebrew words spells from its start.
+
+    Returns (words consumed, value, kinds seen). The grammar is the spoken
+    one: an optional thousands part (anything below a thousand, then אלף or
+    אלפים; or אלף, אלפיים alone), an optional hundreds part (מאה, מאתיים, or
+    a unit and מאות), then a teen, tens with a vav-bound unit, or a unit,
+    then a vav-bound fraction. The conjunction vav may sit on any word after
+    the first; the first may carry the ordinary one-letter prefixes.
+    """
+    units = {**_HEBREW_UNIT_VALUES, **_HEBREW_TEEN_UNIT_VALUES}
+    # The construct forms that count a following noun -- "שני אלפים", "שתי
+    # מאות", "עשרים ושני הימים" -- are written like the ordinal "second";
+    # they are units in front of a scale word and inside a compound after a
+    # ten or a hundred, never at the start of a run on their own.
+    scale_counts = {**units, "שני": 2.0, "שתי": 2.0}
+    construct_units = {"שני": 2.0, "שתי": 2.0}
+    # "שנים" and "שתים" count only inside a teen ("שנים עשר"); on their own
+    # they are the plural of "year" and the like, not a two.
+    teen_only = _HEBREW_TEEN_ONLY_WORDS
+    vocabulary = (
+        _HEBREW_NUMBER_VOCABULARY
+        | set(_HEBREW_TEEN_UNIT_VALUES)
+        | set(_HEBREW_TEEN_TENS)
+        | {"שני", "שתי"}
+    )
+
+    def word_at(position: int) -> str | None:
+        if position >= len(words):
+            return None
+        raw = words[position]
+        if position == start:
+            return _strip_hebrew_number_prefix(raw, vocabulary)
+        if raw in vocabulary:
+            return raw
+        if raw.startswith("\u05d5"):
+            # The conjunction's separator ("ו־שלושה") goes with it.
+            bound = raw[1:].lstrip("\u05be-")
+            if bound in vocabulary:
+                return bound
+        return None
+
+    def has_vav(position: int) -> bool:
+        return position < len(words) and words[position].startswith("\u05d5")
+
+    def fraction_noun_follows(position: int) -> bool:
+        return (
+            position + 1 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+        )
+
+    def opens_a_separate_amount(position: int, teens: bool = True) -> bool:
+        """Whether the count at ``position`` opens counted hundreds or a teen of its own.
+
+        "שלושים וארבע מאות" is thirty and four hundred, "עשרים ושלושה עשר"
+        twenty and thirteen: coordinated amounts, not compounds. A teen
+        after hundreds composes ("מאה ואחד עשר" is 111), so ``teens``
+        is off there; a malformed teen ("שתי עשרה") is no teen at all.
+        """
+        after = word_at(position + 1)
+        if after == "מאות":
+            return True
+        word = word_at(position)
+        return (
+            teens
+            and after in _HEBREW_TEEN_TENS
+            and not has_vav(position + 1)
+            and word in units
+            and word not in construct_units
+        )
+
+    def parse_small(position: int) -> tuple[int, float, str] | None:
+        word = word_at(position)
+        if word is None:
+            return None
+        if word in _HEBREW_TENS_VALUES:
+            total = _HEBREW_TENS_VALUES[word]
+            following = word_at(position + 1)
+            if (
+                following in scale_counts
+                and following not in _HEBREW_TEEN_TENS
+                and has_vav(position + 1)
+                and not fraction_noun_follows(position + 1)
+                and not opens_a_separate_amount(position + 1)
+            ):
+                return position + 2, total + scale_counts[following], "compound"
+            return position + 1, total, "tens"
+        if word in _HEBREW_TEEN_TENS:
+            return position + 1, 10.0, "unit"
+        if word in units or (word in construct_units and position > start):
+            following = word_at(position + 1)
+            if following in _HEBREW_TEEN_TENS and not has_vav(position + 1):
+                if word not in units:
+                    # "שני עשר" is no teen ("שנים עשר" is); the run is not a
+                    # number here, and imperfect source text never raises.
+                    return None
+                return position + 2, 10.0 + units[word], "teen"
+            if word in teen_only:
+                return None
+            if fraction_noun_follows(position):
+                # "שלושה רבעים" is three quarters, a fractional tail or a
+                # counted fraction, never a three.
+                return None
+            return position + 1, scale_counts[word], "unit"
+        return None
+
+    def parse_hundreds(position: int) -> tuple[int, float] | None:
+        word = word_at(position)
+        if word in _HEBREW_HUNDRED_WORDS:
+            return position + 1, _HEBREW_HUNDRED_WORDS[word]
+        if word in scale_counts and word_at(position + 1) == "מאות":
+            return position + 2, scale_counts[word] * 100.0
+        return None
+
+    def parse_below_thousand(position: int) -> tuple[int, float, set[str]] | None:
+        value = 0.0
+        kinds: set[str] = set()
+        cursor = position
+        hundreds = parse_hundreds(cursor)
+        if hundreds is not None:
+            cursor, amount = hundreds
+            value += amount
+            kinds.add("hundred")
+        small = parse_small(cursor)
+        if small is not None:
+            next_cursor, amount, kind = small
+            if (
+                hundreds is not None
+                and word_at(cursor) in scale_counts
+                and opens_a_separate_amount(cursor, teens=False)
+            ):
+                # "מאתיים ושלוש מאות": the three opens the next counted
+                # hundreds, a coordinated amount, not a remainder of the
+                # two hundred.
+                return cursor, value, kinds
+            cursor = next_cursor
+            value += amount
+            kinds.add(kind)
+        if cursor == position:
+            return None
+        return cursor, value, kinds
+
+    value = 0.0
+    kinds: set[str] = set()
+    cursor = start
+    scaled_tail = False
+    separate_after = False
+    if money_context is None:
+        # Callers with the text pass the context in; a bare run reads it
+        # from the words of its own clause before its start.
+        clause = start
+        while clause > 0 and not any(
+            character in _HEBREW_CLAUSE_STOP_CHARACTERS
+            for character in words[clause - 1]
+        ):
+            clause -= 1
+        money_context = (
+            _HEBREW_MONEY_CONTEXT_PATTERN.search(" ".join(words[clause:start]) + " ")
+            is not None
+        )
+    if (
+        money_context
+        and start < len(words)
+        and words[start].startswith("\u05dc")
+        and _strip_hebrew_number_prefix(words[start], _HEBREW_RUN_START_VOCABULARY)
+        != words[start]
+    ):
+        # A dative ל on the number ("תקציב המיועד לשלושה אלפים ומאתיים
+        # עובדים") names whom the amount is for; the amount noun does not
+        # govern it.
+        money_context = False
+
+    def separate_quantity_at(position: int) -> bool:
+        """Whether a quantity apart from a money amount begins at ``position``.
+
+        The word there is a unit or count noun, or -- through the caller's
+        text-level probe -- a printed continuation ("ו־500") leads to one:
+        "שלושה מיליון ושני אלפים ו־500 עובדים" counts 2,500 workers.
+        """
+        if not money_context:
+            return False
+        if (
+            position < len(words)
+            and words[position] in _HEBREW_SEPARATE_QUANTITY_WORD_FORMS
+        ):
+            return True
+        return text_separate_after is not None and text_separate_after(position)
+
+    def fraction_names_own_operand(position: int) -> bool:
+        """Whether the word at ``position`` gives the fraction before it its own operand.
+
+        A lower scale word ("וחצי אלף" is five hundred) or a partitive
+        ("וחמישית מההכנסה", "של"): the fraction is then no tail of the
+        scale before it.
+        """
+        if position >= len(words):
+            return False
+        if word_at(position) in _HEBREW_SCALE_VALUES or _hebrew_is_percent_noun(
+            words[position]
+        ):
+            return True
+        probe = " " + " ".join(words[position : position + 2])
+        return _HEBREW_FRACTION_OPERAND_AFTER_PATTERN.match(probe) is not None
+
+    def rate_count_follows(position: int) -> bool:
+        """Whether the words from ``position`` count a rate.
+
+        A percent noun right there ("ועשרים אחוזים"), or a fractional tail
+        and then the noun ("ושלושה וחצי אחוזים", "ושלושה ושלושה רבעים
+        אחוזים"): the count belongs to the rate, not to the amount before.
+        """
+        if position >= len(words):
+            return False
+        if _hebrew_is_percent_noun(words[position]):
+            return True
+        if not has_vav(position):
+            return False
+        tail = words[position][1:].lstrip("\u05be-")
+        if (
+            tail in _HEBREW_MIXED_FRACTION_VALUES
+            and position + 1 < len(words)
+            and _hebrew_is_percent_noun(words[position + 1])
+        ):
+            return True
+        return (
+            tail in _HEBREW_FRACTION_COUNT_VALUES
+            and position + 2 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and _hebrew_is_percent_noun(words[position + 2])
+        )
+
+    def parse_scale_part(
+        position: int,
+        scale_words: dict[str, float],
+        bare_values: dict[str, float],
+    ) -> tuple[int, float, bool] | None:
+        """A count and a scale word, or a bare scale word, at ``position``.
+
+        Returns (next position, amount, whether a fractional tail was
+        read). The tail right after the scale word scales with it: "מיליון
+        וחצי" is 1,500,000, "אלף וחצי" 1,500. Words are read through
+        ``word_at``, so a prefix ("בכמיליון") never reaches the tables.
+        """
+        word = word_at(position)
+        if word in bare_values:
+            # A bare scale word's tail scales by the tier's unit: "אלפיים
+            # וחצי" is 2,500, as "שני אלפים וחצי" is, not 3,000.
+            amount, scale, following = (
+                bare_values[word],
+                min(scale_words.values()),
+                position + 1,
+            )
+        elif (
+            word in _HEBREW_FRACTION_COUNT_VALUES
+            and position + 1 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and word_at(position + 2) in scale_words
+        ):
+            # A counted fractional multiplier: "שלושת רבעי מיליון" is 750,000.
+            scale = scale_words[word_at(position + 2)]
+            amount, following = (
+                _HEBREW_FRACTION_COUNT_VALUES[word]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[position + 1]]
+                * scale,
+                position + 3,
+            )
+        else:
+            count = parse_below_thousand(position)
+            if (
+                count is None
+                and word in scale_counts
+                and word_at(position + 1) in scale_words
+            ):
+                count = (position + 1, scale_counts[word], {"unit"})
+            if count is None and word in _HEBREW_MIXED_FRACTION_VALUES:
+                # A fractional multiplier: "חצי מיליון" is 500,000.
+                count = (
+                    position + 1,
+                    _HEBREW_MIXED_FRACTION_VALUES[word],
+                    {"fraction"},
+                )
+            elif (
+                count is not None
+                and has_vav(count[0])
+                and words[count[0]][1:].lstrip("\u05be-")
+                in _HEBREW_MIXED_FRACTION_VALUES
+                and word_at(count[0] + 1) in scale_words
+            ):
+                # A mixed multiplier: "שלושה וחצי מיליון" is 3,500,000.
+                count = (
+                    count[0] + 1,
+                    count[1]
+                    + _HEBREW_MIXED_FRACTION_VALUES[
+                        words[count[0]][1:].lstrip("\u05be-")
+                    ],
+                    count[2] | {"fraction"},
+                )
+            elif (
+                count is not None
+                and has_vav(count[0])
+                and words[count[0]][1:].lstrip("\u05be-")
+                in _HEBREW_FRACTION_COUNT_VALUES
+                and count[0] + 1 < len(words)
+                and words[count[0] + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+                and word_at(count[0] + 2) in scale_words
+            ):
+                # A mixed multiplier with a counted fraction: "שלושה ושלושה
+                # רבעים מיליון" is 3,750,000.
+                count = (
+                    count[0] + 2,
+                    count[1]
+                    + _HEBREW_FRACTION_COUNT_VALUES[
+                        words[count[0]][1:].lstrip("\u05be-")
+                    ]
+                    * _HEBREW_COUNTED_FRACTION_VALUES[words[count[0] + 1]],
+                    count[2] | {"fraction"},
+                )
+            scale_word = word_at(count[0]) if count is not None else None
+            if count is None or scale_word not in scale_words:
+                return None
+            scale = scale_words[scale_word]
+            amount, following = count[1] * scale, count[0] + 1
+        tail = False
+        if (
+            following < len(words)
+            and has_vav(following)
+            and words[following][1:].lstrip("\u05be-") in _HEBREW_MIXED_FRACTION_VALUES
+            and not fraction_names_own_operand(following + 1)
+            and not separate_quantity_at(following + 1)
+        ):
+            amount += (
+                _HEBREW_MIXED_FRACTION_VALUES[words[following][1:].lstrip("\u05be-")]
+                * scale
+            )
+            following += 1
+            tail = True
+        elif (
+            following + 1 < len(words)
+            and has_vav(following)
+            and words[following][1:].lstrip("\u05be-") in _HEBREW_FRACTION_COUNT_VALUES
+            and words[following + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and not fraction_names_own_operand(following + 2)
+            and not separate_quantity_at(following + 2)
+        ):
+            # A counted fractional tail scales with the scale word too:
+            # "מיליון ושני שלישים" is 1,666,666.67.
+            amount += (
+                _HEBREW_FRACTION_COUNT_VALUES[words[following][1:].lstrip("\u05be-")]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[following + 1]]
+                * scale
+            )
+            following += 2
+            tail = True
+        return following, amount, tail
+
+    for scale_words, bare_values, kind in _HEBREW_SCALE_TIERS:
+        if scaled_tail:
+            break
+        part = parse_scale_part(cursor, scale_words, bare_values)
+        if part is None:
+            continue
+        if kinds & _HEBREW_SCALE_KINDS and money_context:
+            # The whole lower-scale candidate -- "ושני אלפים וחמש מאות" --
+            # and the word after it: "שלושה מיליון ושני אלפים וחמש מאות
+            # עובדים" counts 2,500 workers, a separate quantity, not the
+            # million's lower scale; the number ends here.
+            candidate = _parse_hebrew_number_run(words, cursor, False)
+            candidate_end = cursor + candidate[0] if candidate is not None else part[0]
+            if separate_quantity_at(candidate_end):
+                separate_after = True
+                break
+        cursor, amount, tail = part
+        value += amount
+        kinds.add(kind)
+        if tail:
+            kinds.add("fraction")
+            scaled_tail = True
+    rest = None if scaled_tail or separate_after else parse_below_thousand(cursor)
+    if rest is not None and kinds & _HEBREW_SCALE_KINDS:
+        # The whole candidate remainder, fractional tail included, and the
+        # word after it.
+        candidate_end = rest[0]
+        if candidate_end < len(words) and has_vav(candidate_end):
+            after_tail = words[candidate_end][1:].lstrip("\u05be-")
+            if after_tail in _HEBREW_MIXED_FRACTION_VALUES:
+                candidate_end += 1
+            elif (
+                after_tail in _HEBREW_FRACTION_COUNT_VALUES
+                and candidate_end + 1 < len(words)
+                and words[candidate_end + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            ):
+                candidate_end += 2
+        if rate_count_follows(rest[0]) or separate_quantity_at(candidate_end):
+            # "שלושה מיליון ועשרים אחוזים", "שלושה מיליון ושלושה וחצי
+            # אחוזים": the count belongs to the rate; "קנס של שלושה מיליון
+            # ושלוש וחצי שנות מאסר": the three and a half count years, a
+            # separate quantity. Neither is the million's remainder.
+            rest = None
+    if rest is not None:
+        cursor, amount, rest_kinds = rest
+        value += amount
+        kinds |= rest_kinds
+    # A vav-bound fractional tail: "וחצי", or a counted fraction "ושני
+    # שלישים", "ושלושה רבעים".
+    if (
+        not scaled_tail
+        and not separate_after
+        and start < cursor < len(words)
+        and has_vav(cursor)
+    ):
+        tail = words[cursor][1:].lstrip("\u05be-")
+        tail_value: float | None = None
+        tail_end = cursor
+        if tail in _HEBREW_MIXED_FRACTION_VALUES:
+            tail_value = _HEBREW_MIXED_FRACTION_VALUES[tail]
+            tail_end = cursor + 1
+        elif (
+            tail in _HEBREW_FRACTION_COUNT_VALUES
+            and cursor + 1 < len(words)
+            and words[cursor + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+        ):
+            tail_value = (
+                _HEBREW_FRACTION_COUNT_VALUES[tail]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[cursor + 1]]
+            )
+            tail_end = cursor + 2
+        # After a scale word, a fraction that names its own operand -- the
+        # word after the whole fraction, counted or not -- is no tail.
+        if tail_value is not None and not (
+            kinds & {"thousand", "million", "billion"}
+            and (fraction_names_own_operand(tail_end) or separate_quantity_at(tail_end))
+        ):
+            value += tail_value
+            kinds.add("fraction")
+            cursor = tail_end
+    if cursor == start:
+        return None
+    return cursor - start, value, kinds
+
+
+# The word before a fraction word that says a fraction follows: a copula, a
+# quantity word, or a verb of paying, receiving, deducting or granting --
+# "ישלם חמישית ההכנסה" pays a fifth of the income; "דרגה חמישית המקנה" is a
+# fifth grade, and "דרגה" is none of these.
+# The verbs that pay, give, deduct, allocate or return an amount to
+# someone: the ones whose recipient may stand between them and the amount.
+_HEBREW_PAYING_VERBS = frozenset(
+    "ישלם תשלם ישלמו תשלמנה ישולם תשולם ישולמו משלם משלמת משלמים משלמות שילם שילמה "
+    "שילמו שולם שולמה שולמו נתן נתנה נתנו יתן תיתן ייתן יתנו נותן נותנת נותנים יינתן "
+    "תינתן ינתן ניתן ניתנת ניתנים יעביר תעביר יעבירו מעביר מעבירה העביר העבירה העבירו "
+    "יועבר תועבר הועבר הועברה ינכה תנכה ינכו מנכה מנכים מנכות ניכה ניכתה ניכו ינוכה "
+    "תנוכה ינוכו נוכה יופחת תופחת יופחתו הופחת הופחתה הפחית הפחיתה הפחיתו מפחית "
+    "מפחיתה יקזז תקזז מקזז מקזזת קיזז קיזזה קיזזו יקוזז תקוזז קוזז קוזזה יחזיר תחזיר "
+    "מחזיר מחזירה החזיר החזירה החזירו יוחזר תוחזר הוחזר הוחזרה ישיב תשיב משיב משיבה "
+    "יפריש תפריש מפריש מפרישה הפריש הפרישה הפרישו יפקיד תפקיד מפקיד מפקידה יקצה תקצה "
+    "מקצה הקצה הקצתה הקצו יוקצה תוקצה הוקצה הוקצתה יזוכה תזוכה יזכה תזכה זיכה זיכתה "
+    "לשלם לתת ליתן להעביר לנכות להפחית לקזז להחזיר להשיב להפריש להפקיד להקצות לזכות"
+    " ניתנה ניתנו נותנת הפקיד הפקידה הפקידו הופקד הופקדה מופקד מופקדת העניק העניקה"
+    " העניקו יעניק תעניק יעניקו מעניק מעניקה הוענק הוענקה מוענק מוענקת להעניק משולם"
+    " משולמת משולמים מועבר מועברת מנוכה מנוכית מופחת מופחתת מוקצה מוקצית מוחזר"
+    " מוחזרת מקוזז מקוזזת מזוכה שולמו".split()
+)
+# The other words of a clause that say a fraction follows: a copula, a
+# quantity word, a deduction noun, a verb of receiving, including or
+# constituting. They govern the word right after them only.
+_HEBREW_OTHER_FRACTION_CONTEXT_WORDS = frozenset(
+    "יהיה יהא תהיה תהא הוא היא הם הן של בשיעור בגובה בסך סכום היה הייתה היתה היו "
+    "מהווה מהוות מהווים יהווה תהווה יהוו תהוונה היווה היוותה היוו כולל כוללת כוללים "
+    "כוללות יכלול תכלול יכללו כלל כללה כללו מכיל מכילה מכילים יהיו תהיינה כדי עד "
+    "לפחות ניכוי הפחתה הנחה קיזוז הפרשה החזר תוספת הקצאה יקבל תקבל יקבלו מקבל מקבלת "
+    "קיבל קיבלה קיבלו יוגדל תוגדל גבה גבתה גבו נשא נשאה נשאו זכה זכתה זכו קבע קבעה "
+    "קבעו נקבע נקבעה נקבעו זכאי זכאית זכאים לקבל להגדיל לגבות לשאת ישא יישא תישא "
+    "יגבה תגבה יגבו".split()
+) | {"לכל היותר"}
+_HEBREW_FRACTION_CONTEXT_WORDS = (
+    "(?:"
+    + "|".join(
+        re.escape(word).replace("\\ ", "\\s+")
+        for word in sorted(
+            _HEBREW_PAYING_VERBS | _HEBREW_OTHER_FRACTION_CONTEXT_WORDS,
+            key=len,
+            reverse=True,
+        )
+    )
+    + ")"
+)
+_HEBREW_FRACTION_COPULA_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:[\u05d5\u05e9][\u05be-]?){0,2}"
+    + _HEBREW_FRACTION_CONTEXT_WORDS
+    + "\\s+$"
+)
+# The same words anywhere earlier in the clause: a recipient may stand
+# between the verb and the fraction ("שילם לעובדת החדשה חמישית השכר").
+_HEBREW_FRACTION_CONTEXT_IN_CLAUSE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:[\u05d5\u05e9][\u05be-]?){0,2}"
+    + _HEBREW_FRACTION_CONTEXT_WORDS
+    + "(?![\u0590-\u05ff])"
+)
+# A partitive or a construct that names the amount a fraction is taken of:
+# "משכרו" (of his wage), "מהכנסתה" (of her income), "משכר העובד" (of the
+# worker's wage), "חמישית השכר" (a fifth of the wage). The noun says fraction
+# whatever precedes -- "המעביד ישלם חמישית משכרו" and "על המעביד לשלם
+# חמישית השכר" pay a fifth -- while "לידה שלישית מזכה" keeps its ordinal,
+# because "זכה" names no amount.
+_HEBREW_AMOUNT_NOUN_STEMS = (
+    "שכר|משכורת|הכנס|קצב|גמל|גימל|סכום|תשלום|שווי|ערך|מחיר|רווח|הון|תמור|מענק|"
+    "עלות|פיצוי|פנסי|הפרש|קרן|ריבית|דמי|נכס|מס|"
+    "תקציב|הוצא|מחזור|חוב|הלווא|השקע|נזק|תרומ|עמל|דיבידנד|תגמול|אגר|קנס|"
+    "היטל|ארנונ|פרמי|מלג|תמיכ|סיוע|סובסידי|כספ|יתר|הטב|תקבול|פדיון|תמלוג|מקדמ|"
+    "פיקדון|פקדון|החזר|גמול|בונוס|תשר|קופ"
+)
+_HEBREW_FINAL_TO_MEDIAL = {
+    "\u05dd": "\u05de",  # ם → מ
+    "\u05df": "\u05e0",  # ן → נ
+    "\u05e5": "\u05e6",  # ץ → צ
+    "\u05e3": "\u05e4",  # ף → פ
+    "\u05da": "\u05db",  # ך → כ
+}
+
+
+def _hebrew_stems_with_medial_finals(stems: str) -> str:
+    """A stem alternation over the bases a noun's inflections build on.
+
+    A suffix moves a stem's final letter to its medial form: "תשלום" is
+    "תשלומים" in the plural and "תשלומיו" with a possessive, "סכום" is
+    "סכומים"; each stem ending in a final letter matches either form. A
+    feminine stem in ת drops it before the plural: "משכורת" is
+    "משכורות" and "משכורותיו", "ריבית" is "ריביות", "עלות" is "עלויות".
+    """
+    bases: list[str] = []
+    for stem in stems.split("|"):
+        if not stem:
+            continue
+        if stem.endswith("\u05d9\u05ea"):  # ־ית: ריבית, ריביות
+            bases.append(stem[:-2] + "\u05d9(?:\u05ea|\u05d5\u05ea)")
+        elif stem.endswith("\u05d5\u05ea"):  # ־ות: עלות, עלויות
+            bases.append(stem[:-2] + "\u05d5(?:\u05ea|\u05d9\u05d5\u05ea)")
+        elif stem.endswith("\u05ea"):  # ־ת: משכורת, משכורות
+            bases.append(stem[:-1] + "(?:\u05ea|\u05d5\u05ea)")
+        elif stem[-1] in _HEBREW_FINAL_TO_MEDIAL:
+            bases.append(
+                stem[:-1] + "[" + stem[-1] + _HEBREW_FINAL_TO_MEDIAL[stem[-1]] + "]"
+            )
+        else:
+            bases.append(stem)
+    return "|".join(bases)
+
+
+# The inflections a noun takes: a feminine or plural ending, then a
+# possessive suffix -- "הכנסה", "הכנסות", "הכנסתו", "קצבאות", "תשלומיו",
+# "ערכו". A possessive never follows the article ("הערכנו" is a verb, we
+# assessed, not "the our value"), so the possessed form is read only where
+# no article precedes the stem. "מס" takes its own forms alone: "מסים",
+# "מסי", "מסו", "מסיו"; "המסומנת" and "המספיקה" name no tax.
+_HEBREW_NOUN_NUMBER_SUFFIX = (
+    "(?:\u05d4|\u05ea|\u05d0?\u05d5\u05ea|\u05d9?\u05d9\u05dd|\u05d9)?"
+)
+_HEBREW_NOUN_POSSESSIVE_SUFFIX = (
+    "(?:\u05d9\u05d5|\u05d9\u05d4\u05dd|\u05d9\u05d4\u05df|\u05d9\u05d4|\u05d9\u05e0\u05d5"
+    "|\u05d9\u05db\u05dd|\u05d9\u05db\u05df|\u05d9\u05da|\u05d9\u05d9|\u05e0\u05d5"
+    "|\u05db\u05dd|\u05db\u05df|\u05d9|\u05da|\u05d5|\u05d4|\u05dd|\u05df)"
+)
+_HEBREW_MONEY_NOUN_STEMS_INFLECTED = _hebrew_stems_with_medial_finals(
+    _HEBREW_AMOUNT_NOUN_STEMS.replace("|מס|", "|")
+)
+_HEBREW_MONEY_NOUN = (
+    "(?:(?<!\u05d4)(?:"
+    + _HEBREW_MONEY_NOUN_STEMS_INFLECTED
+    + ")"
+    + _HEBREW_NOUN_NUMBER_SUFFIX
+    + _HEBREW_NOUN_POSSESSIVE_SUFFIX
+    + "|(?:"
+    + _HEBREW_MONEY_NOUN_STEMS_INFLECTED
+    + ")"
+    + _HEBREW_NOUN_NUMBER_SUFFIX
+    + "|(?<!\u05d4)מס(?:\u05d9?(?:\u05d5|\u05d4|\u05d4\u05dd|\u05d4\u05df|\u05e0\u05d5|\u05db\u05dd|\u05db\u05df|\u05da|\u05dd|\u05df)|\u05d9\u05d9)"
+    "|מס(?:ים|י)?)"
+)
+# The base is an amount noun in any of its inflections and no other word:
+# "מס" takes only its plural and construct ("מסים", "מסי"), so "המסומנת"
+# and "המספיקה" name no tax.
+_HEBREW_FRACTION_BASE_AMOUNT_PATTERN = re.compile(
+    # A partitive the pattern names ("מהשכר", "משכרו", "מן השכר", "של השכר"),
+    # an article ("השכר"), or nothing ("שכרו", "שכר המינימום"): the amount
+    # noun the fraction is taken of, in any of its inflections.
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:(?P<partitive>\u05de[\u05be-]?(?:\u05d4[\u05be-]?)?|(?:מן|מתוך|של)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:\u05d4[\u05be-]?)?)|\u05d4[\u05be-]?|)"
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+)
+# A money context: an amount noun ("קנס", "סכום", "מחזור", "שכר") shortly
+# before a scaled number says the number is money, so a unit or count noun
+# after its remainder names a separate quantity ("קנס של 3 מיליון ו־30 ימי
+# מאסר"). Without one, a trailing unit describes the whole compound ("מרחק
+# של שלושה אלפים ומאתיים מטרים" is 3,200 metres).
+# The two-letter stem "מס" (tax) takes only its own inflections here, or it
+# would read "מספר" (number) as money.
+# The words that may stand between the amount noun and the number it
+# governs: "קנס של", "מחזור שנתי של", "הקנס לא יעלה על", "סכום בסך", "השכר
+# יהיה". A verb or a noun of its own between them ("המענק יינתן למפעל
+# המעסיק לפחות") means the noun governs something else.
+_HEBREW_MONEY_CONTEXT_CONNECTORS = (
+    "של|בסך|בסכום|בגובה|בשיעור|בשווי|עד|לפחות|על|לא|יעלה|תעלה|יעלו|תעלינה|"
+    "עולה|עולים|עולות|העולה|העולים|העולות|יפחתו|תפחתנה|"
+    "יפחת|תפחת|פחות|הפחות|שלא|שאינו|שאינה|לכל|היותר|שנתי|שנתית|"
+    "חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|מזערי|מזערית|מינימלי|מינימלית|"
+    "מקסימלי|מקסימלית|ממוצע|ממוצעת|הממוצע|יהיה|יהא|תהיה|תהא|הוא|היא|הם|הן|"
+    # A dative ל is not among them: "תקציב ל־3 אלפים עובדים" and "תקציב
+    # המיועד ל־3 אלפים עובדים" name whom the budget is for, not its amount.
+    "בין|מ|ב|כ"
+)
+# Present participles that open a relative clause after a noun: employing,
+# holding, operating, paying, receiving, granting, supplying, producing,
+# selling, buying, managing, carrying out, owing, entitled.
+_HEBREW_RELATIVE_PARTICIPLES = (
+    "מעסיק|מעסיקה|מעסיקים|מחזיק|מחזיקה|מחזיקים|מפעיל|מפעילה|מפעילים|"
+    "משלם|משלמת|משלמים|מקבל|מקבלת|מקבלים|מעניק|מעניקה|מעניקים|מספק|מספקת|"
+    "מספקים|מייצר|מייצרת|מייצרים|מוכר|מוכרת|מוכרים|קונה|קונים|רוכש|רוכשת|"
+    "רוכשים|מנהל|מנהלת|מנהלים|מבצע|מבצעת|מבצעים|חייב|חייבת|חייבים|זכאי|"
+    "זכאית|זכאים|עוסק|עוסקת|עוסקים|מחייב|מחייבת"
+)
+# After a possessor, the way on to the number carries no bare preposition:
+# "של", a threshold phrase read as a unit ("לא יעלה על", "יפחת מ־", "לכל
+# היותר"), a copula, an articled adjective. A bare "בין", "ב", "כ", "מ" or
+# "על" after the possessor -- however many modifiers intervene ("המחולקת
+# לכל היותר בין") -- complements a participle, and the amount noun governs
+# nothing past it.
+_HEBREW_MONEY_POSSESSOR_CONNECTORS = (
+    "של|בסך|בסכום|בגובה|בשיעור|בשווי|עד|לפחות|לא|שלא|שאינו|שאינה|לכל|היותר|"
+    "הפחות|"
+    "יעלה\\s+על|תעלה\\s+על|יעלו\\s+על|תעלינה\\s+על|עולה\\s+על|עולים\\s+על|"
+    "עולות\\s+על|העולה\\s+על|העולים\\s+על|העולות\\s+על|"
+    "יפחת\\s+\u05de[\u05be-]?|תפחת\\s+\u05de[\u05be-]?|יפחתו\\s+\u05de[\u05be-]?|"
+    "תפחתנה\\s+\u05de[\u05be-]?|פחות\\s+\u05de[\u05be-]?|"
+    "יותר\\s+\u05de[\u05be-]?|למעלה\\s+\u05de[\u05be-]?|"
+    "יהיה|יהא|תהיה|תהא|יהיו|תהיינה|הוא|היא|הם|הן|"
+    "\u05d4[\u05be-]?(?:שנתי|שנתית|חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|"
+    "מזערי|מזערית|מינימלי|מינימלית|מקסימלי|מקסימלית|ממוצע|ממוצעת|"
+    "שנתיים|שנתיות|חודשיים|חודשיות|כוללים|כוללות|מרביים|מרביות|ממוצעים|ממוצעות)"
+)
+# A printed multiplier may stand between the noun and the scale word the
+# caller asks about ("קנס של 3 מיליון", asked at "מיליון").
+_HEBREW_MONEY_PRINTED_TAIL = (
+    "(?:\\s*(?<![\\d.,])[-\u2212]?(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)"
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+)?)?\\s*$"
+)
+# Two grammars lead from an amount noun to the number it governs.
+#
+# A construct chain: the amount noun in the construct state -- no article
+# of its own -- and one articled possessor ("סכום המענק", "הכנסת המפעל",
+# "מחזור העסקאות", "שכר העובד"), then preposition-free connectors alone. An
+# articled amount noun followed by an articled word is attribution, not
+# possession ("המענק המממן", "הקצבה המחולקת", "התקציב המכסה"): the word
+# opens a clause of its own, whatever it is, and binds nothing.
+#
+# The bare noun, with or without the article, and the connectors, with the
+# article or not ("המחזור השנתי הכולל", "הקנס יהיה לכל היותר בין").
+# "כולל" is the adjective "total" only where "של", a copula or another
+# adjective follows ("המחזור הכולל של", "התקציב הכולל שלא יעלה על"); before
+# a number, a threshold word or a noun it is the verb "includes", and what
+# it includes is a count of its own ("הסיוע כולל 3 אלפים ו־200 מיטות",
+# "התקציב הכולל לפחות 3 אלפים ו־200 עובדים").
+_HEBREW_MONEY_TOTAL_ADJECTIVE = (
+    "(?:\u05d4[\u05be-]?)?כולל(?:ת|ים|ות)?(?=\\s+(?:של|(?:שלא|לא)\\s+"
+    "(?:יעלה|תעלה|יעלו|תעלינה|יפחת|תפחת|יפחתו|תפחתנה)|שאינו|שאינה|שאינם|שאינן|"
+    "יהיה|יהא|תהיה|תהא|הוא|היא|הם|הן|"
+    "\u05d4[\u05be-]?(?:שנתי|שנתית|חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|מזערי|מזערית|"
+    "מינימלי|מינימלית|מקסימלי|מקסימלית|ממוצע|ממוצעת))(?![\u0590-\u05ff]))"
+)
+_HEBREW_MONEY_CONTEXT_CONNECTORS = (
+    _HEBREW_MONEY_TOTAL_ADJECTIVE + "|" + _HEBREW_MONEY_CONTEXT_CONNECTORS
+)
+_HEBREW_MONEY_POSSESSOR_CONNECTORS = (
+    _HEBREW_MONEY_TOTAL_ADJECTIVE + "|" + _HEBREW_MONEY_POSSESSOR_CONNECTORS
+)
+_HEBREW_MONEY_CONTEXT_PATTERN = re.compile(
+    "(?:"
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+    "\\s+(?!\u05d4[\u05be-]?(?:"
+    + _HEBREW_RELATIVE_PARTICIPLES
+    + ")(?![\u0590-\u05ff]))\u05d4[\u05be-]?[\u0590-\u05ff]{2,}(?:\\s+(?:"
+    + _HEBREW_MONEY_POSSESSOR_CONNECTORS
+    + ")(?![\u0590-\u05ff]))*"
+    + _HEBREW_MONEY_PRINTED_TAIL
+    + "|"
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+    "(?:\\s+(?:\u05d4[\u05be-]?)?(?:"
+    + _HEBREW_MONEY_CONTEXT_CONNECTORS
+    + ")[\u05be-]?)*"
+    + _HEBREW_MONEY_PRINTED_TAIL
+    + ")"
+)
+
+
+def _hebrew_money_context_before(text: str, position: int) -> bool:
+    """Whether an amount noun governs the number at ``position``.
+
+    The noun stands in the same sentence before it, with only connectors
+    between ("קנס של", "מחזור שנתי של", "הקנס לא יעלה על"), however the
+    text is spaced or wrapped.
+    """
+    return (
+        _HEBREW_MONEY_CONTEXT_PATTERN.search(
+            text,
+            _hebrew_clause_start_before(
+                text, position, _HEBREW_SENTENCE_STOP_ONLY_CHARACTERS
+            ),
+            position,
+        )
+        is not None
+    )
+
+
+# What follows a fraction word and gives it its own operand, so that the
+# fraction is no tail of a scale word before it: a lower scale word ("וחצי
+# אלף" is five hundred), "של"/"מן"/"מתוך", or a partitive or construct that
+# names an amount ("מההכנסה", "ההכנסה", "משכר העובד"). A verb that begins
+# with מ ("משולם", is paid) names no operand, and "3 מיליון וחצי משולם"
+# stays three and a half million.
+_HEBREW_FRACTION_OPERAND_AFTER_PATTERN = re.compile(
+    "(?:\\s+(?:"
+    + _hebrew_alternation(set(_HEBREW_SCALE_VALUES) | {"של", "מן", "מתוך"})
+    + ")(?![\u0590-\u05ff])|"
+    + _HEBREW_FRACTION_BASE_AMOUNT_PATTERN.pattern
+    # A percent noun or sign: "3 מיליון וחצי אחוז" is three million, and
+    # half a percent.
+    + "|"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?(?![\u0590-\u05ff])|"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%"
+    + ")"
+)
+
+
+def _iter_hebrew_compound_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Numbers a Hebrew statute spells with more than one word, or with a scale word."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens = [
+        (m.start(), m.end(), m.group(0))
+        for m in _HEBREW_WORD_TOKEN_PATTERN.finditer(text)
+    ]
+    # Runs of adjacent words are cut once, in one pass; a hyphen or maqaf
+    # joins a unit to its ten ("שנים-עשר", "שנים־עשר") and whitespace joins
+    # anything short of a paragraph boundary. Each run is then parsed from
+    # every start index without
+    # copying, and a start that is not a number word is skipped at once.
+    runs: list[tuple[int, int]] = []
+    run_start = 0
+    # A word a percent sign marks ("ועשרים%") counts a rate: a scaled
+    # amount before it ends before it, whatever the parser would compose.
+    percent_marked = {
+        index
+        for index, token in enumerate(tokens)
+        if _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, token[1])
+    }
+    for index in range(1, len(tokens) + 1):
+        if index < len(tokens):
+            gap = text[tokens[index - 1][1] : tokens[index][0]]
+            if _PARAGRAPH_GAP_PATTERN.search(gap) is None and (
+                gap.strip() == ""
+                or (
+                    _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                    and tokens[index][2] in _HEBREW_TEEN_TENS
+                )
+            ):
+                continue
+        runs.append((run_start, index))
+        run_start = index
+    for start, end in runs:
+        words = [token[2] for token in tokens[start:end]]
+
+        def text_separate_after(position: int, start: int = start) -> bool:
+            # The candidate ends before words[position]; its printed
+            # continuation, if any, starts after words[position - 1].
+            if position <= 0 or start + position - 1 >= len(tokens):
+                return False
+            text_end = tokens[start + position - 1][1]
+            chain_end = _hebrew_printed_continuation_end(text, text_end)
+            return chain_end != text_end and (
+                _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, chain_end)
+                is not None
+                or _HEBREW_PERCENT_WORD_PATTERN.match(text, chain_end) is not None
+                or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, chain_end) is not None
+            )
+
+        index = 0
+        while index < len(words):
+            head = _strip_hebrew_number_prefix(
+                words[index], _HEBREW_RUN_START_VOCABULARY
+            )
+            if head is None or (
+                head in _HEBREW_TEEN_ONLY_WORDS
+                and (
+                    index + 1 >= len(words) or words[index + 1] not in _HEBREW_TEEN_TENS
+                )
+            ):
+                index += 1
+                continue
+            run_money_context = _hebrew_money_context_before(
+                text, tokens[start + index][0]
+            )
+            parsed = _parse_hebrew_number_run(
+                words, index, run_money_context, text_separate_after
+            )
+            # Under a money amount the words up to a percent-marked word
+            # count a rate of their own; without one the whole scaled count
+            # is the rate ("שלושת אלפים וחמש מאות%" is 3,500 percent).
+            if (
+                parsed is not None
+                and parsed[2] & _HEBREW_SCALE_KINDS
+                and run_money_context
+            ):
+                marked = next(
+                    (
+                        offset
+                        for offset in range(index + 1, index + parsed[0])
+                        if start + offset in percent_marked
+                    ),
+                    None,
+                )
+                if marked is not None:
+                    # The rate's count is the longest number ending at the
+                    # marked word ("ועשרים וחמישה%" is twenty-five percent);
+                    # the amount ends before all of it.
+                    cut = marked
+                    for offset in range(index + 1, marked + 1):
+                        rate_words = words[offset : marked + 1]
+                        rate = _parse_hebrew_number_run(rate_words)
+                        if (
+                            rate is not None
+                            and rate[0] == len(rate_words)
+                            and not rate[2] & _HEBREW_SCALE_KINDS
+                        ) or _hebrew_fractional_count(rate_words) is not None:
+                            cut = offset
+                            break
+                    parsed = _parse_hebrew_number_run(
+                        words[:cut],
+                        index,
+                        _hebrew_money_context_before(text, tokens[start + index][0]),
+                        text_separate_after,
+                    )
+            if parsed is not None:
+                consumed, value, kinds = parsed
+                if consumed >= 2 or kinds & {
+                    "tens",
+                    "hundred",
+                    "thousand",
+                    "million",
+                    "billion",
+                    "compound",
+                }:
+                    matches.append(
+                        (
+                            (
+                                tokens[start + index][0],
+                                tokens[start + index + consumed - 1][1],
+                            ),
+                            value,
+                        )
+                    )
+                    index += consumed
+                    continue
+            index += 1
+    return matches
+
+
+# A fraction the statute names with a word: a half of the average wage, a fifth
+# of the income, two thirds. The feminine ordinal doubles as the fraction noun
+# ("חמישית" is both "fifth" and "a fifth"), so that reading is claimed only where
+# the grammar says fraction -- a count before it ("שתי חמישיות"), or no article
+# and a partitive after it ("חמישית מההכנסה") -- and "the fourth schedule" keeps
+# its ordinal. Half, third and quarter have nouns of their own and are always
+# fractions.
+_HEBREW_FRACTION_VALUES = {
+    "מחצית": 0.5,
+    "חצי": 0.5,
+    "שליש": 1.0 / 3.0,
+    "שלישים": 1.0 / 3.0,
+    "שלישית": 1.0 / 3.0,
+    "שלישיות": 1.0 / 3.0,
+    "רבע": 0.25,
+    "רבעים": 0.25,
+    "רביעית": 0.25,
+    "רביעיות": 0.25,
+    "חמישית": 0.2,
+    "חמישיות": 0.2,
+    "שישית": 1.0 / 6.0,
+    "שישיות": 1.0 / 6.0,
+    "שביעית": 1.0 / 7.0,
+    "שביעיות": 1.0 / 7.0,
+    "שמינית": 0.125,
+    "שמיניות": 0.125,
+    "תשיעית": 1.0 / 9.0,
+    "תשיעיות": 1.0 / 9.0,
+    "עשירית": 0.1,
+    "עשיריות": 0.1,
+}
+_HEBREW_UNAMBIGUOUS_FRACTION_WORDS = frozenset(
+    {"מחצית", "חצי", "שליש", "רבע"}
+) | frozenset(word for word in _HEBREW_FRACTION_VALUES if word.endswith(("ים", "יות")))
+_HEBREW_FRACTION_COUNT_VALUES = {
+    "שלשת": 3.0,
+    "עשר": 10.0,
+    "עשרה": 10.0,
+    "עשרת": 10.0,
+    "שלש": 3.0,
+    "חמשה": 5.0,
+    "שני": 2.0,
+    "שתי": 2.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "שלוש": 3.0,
+    "שלושת": 3.0,
+    "ארבעה": 4.0,
+    "ארבע": 4.0,
+    "ארבעת": 4.0,
+    "חמישה": 5.0,
+    "חמש": 5.0,
+    "חמשת": 5.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "שש": 6.0,
+    "ששת": 6.0,
+    "שבעה": 7.0,
+    "שבע": 7.0,
+    "שבעת": 7.0,
+    "שמונה": 8.0,
+    "שמונת": 8.0,
+    "תשעה": 9.0,
+    "תשע": 9.0,
+    "תשעת": 9.0,
+}
+
+# Defined after the fraction vocabularies its tail lookahead names.
+_HEBREW_DIGIT_PERCENT_PATTERN = re.compile(
+    "(?<![\\d.,\u2044/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+(?=\\d+\\s*/))?"
+    "(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "(?:\\s*/\\s*(?P<denominator>\\d+))?"
+    # The percent noun; the sign after a fraction ("1/2%", "3 1 / 2%"); or
+    # the sign before a Hebrew fractional tail ("3% וחצי" is three and a
+    # half percent). A bare number before a bare sign is the general digit
+    # pass's.
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+אחוז(?:ים|י)?(?![\u0590-\u05ff])|(?(denominator)"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%|"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%(?="
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "|(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff]))))"
+)
+# Construct plurals ("רבעי השכר", "שלישי ההכנסה") are fractions only after a
+# count, because "שלישי" alone is the ordinal "third".
+_HEBREW_FRACTION_CONSTRUCT_VALUES = {
+    "רבעי": 0.25,
+    "שלישי": 1.0 / 3.0,
+    "חמישיות": 0.2,
+    "שישיות": 1.0 / 6.0,
+    "שמיניות": 0.125,
+    "עשיריות": 0.1,
+}
+# Words that begin with מה but are no partitive: "מהווה" constitutes, "מהות"
+# is essence, "מהיר" is fast. "דרגה חמישית מהווה תנאי" is a fifth grade that
+# constitutes a condition, not a fifth of anything.
+_HEBREW_NOT_A_PARTITIVE_LOOKAHEAD = (
+    "(?!(?:מהווה|מהוות|מהווים|מהוה|מהות|מהותי|מהותית|מהותיים|מהיר|מהירה|מהירים|"
+    "מהירות|מהימן|מהימנה|מהימנות|מהנדס|מהנדסת|מהלך|מהלכי|מהלכים|מהיכן|מהדורה|"
+    "מהדורת|מהפך|מהפכה|מהר|מהרה)(?![֐-׿]))"
+)
+_HEBREW_FRACTION_WORD_PATTERN = re.compile(
+    "(?<![֐-׿])"
+    "(?P<prefix>(?:[ובכלמש][־-]?){0,2})"
+    # A count word, joined to the fraction word across spaces or one line
+    # wrap, never a blank line; the reader extends it to the whole number
+    # the numeral grammar reads before the fraction word ("אחת עשרה
+    # עשיריות").
+    "(?:(?P<count>"
+    + _hebrew_alternation(_HEBREW_FRACTION_COUNT_VALUES)
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+)?"
+    "(?P<article>(?:ה[־-]?)?)"
+    "(?P<fraction>"
+    + _hebrew_alternation(
+        set(_HEBREW_FRACTION_VALUES) | set(_HEBREW_FRACTION_CONSTRUCT_VALUES)
+    )
+    + ")"
+    "(?![֐-׿])"
+    "(?P<partitive>"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "מה[֐-׿]|מן(?![֐-׿])"
+    "|ה?אחוז(?:ים|י)?(?![֐-׿]))"
+    # The percent marker serves the fraction as the percent word does:
+    # "חמישית%" is a fifth of a percent.
+    "|" + _WRAP_SPACE_FRAGMENT + "*%)?"
+    "(?P<loose_partitive>"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:של(?![֐-׿])|"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "(?:מ|ה)[֐-׿]{2,}))?"
+)
+# The partitive that follows a bare percent noun said to be one percent:
+# "תוספת של אחוז מההכנסה" is a supplement of one percent of the income.
+_HEBREW_PARTITIVE_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "מה[֐-׿]|מן(?![֐-׿])|של(?![֐-׿]))"
+)
+# The partitive words that may stand between a fraction and its whole:
+# "שלוש עשיריות של האחוז", "חצי מן האחוז", "רבע מתוך השכר".
+_HEBREW_FRACTION_PARTITIVE_WORDS = frozenset({"של", "מן", "מתוך"})
+
+
+def _search_before(
+    pattern: "re.Pattern[str]", text: str, end: int, window: int = 64
+) -> "re.Match[str] | None":
+    """Search a pattern anchored at its end in the window before ``end``.
+
+    The patterns this serves read one or two words before a position; a
+    search over everything before each of thousands of positions is
+    quadratic. A lookbehind at the window's start still sees the text
+    before it, and ``$`` matches at ``end``. The window is measured before
+    the whitespace that ends at ``end``, so a line wrap and the indentation
+    after it ("10,\n            20") cost it nothing; a paragraph gap in
+    that whitespace is a boundary the window does not cross.
+    """
+    trimmed = end
+    while trimmed > 0 and text[trimmed - 1].isspace():
+        trimmed -= 1
+    if trimmed < end:
+        gap = _PARAGRAPH_GAP_PATTERN.search(text, trimmed, end)
+        if gap is not None:
+            return pattern.search(text, gap.end(), end)
+    return pattern.search(text, max(0, trimmed - window), end)
+
+
+_HEBREW_CLAUSE_BOUNDARY_CHARACTERS = frozenset(",;:.()[]\"'\u05f3\u05f4-\u2013\u2014\n")
+
+
+def _hebrew_fraction_context_in_clause(text: str, start: int) -> bool:
+    """Whether a word that says a fraction follows governs the word at ``start``.
+
+    A verb of paying governs across its recipient and no further: a phrase
+    in ל ("לעובדת החדשה", "לעובדת חדשה", "לעובדת בשם שירה", "לעובדת של
+    החברה") with whatever modifies the recipient, its name and its
+    possessor included, up to the next preposition, relative clause or
+    predicate. Any other context word governs the word right after it
+    only, so a receiving verb's object keeps its ordinal ("קיבלה לוחית
+    חמישית", a fifth plate); and a bare noun after a paying verb ("שילם
+    עבור בדיקה חמישית") or a relative marker takes the fraction word for
+    its own.
+    """
+    clause_start = _hebrew_clause_start_before(text, start)
+    matches = list(
+        _HEBREW_FRACTION_CONTEXT_IN_CLAUSE_PATTERN.finditer(text, clause_start, start)
+    )
+    # The nearest context word first; a nearer one that is no paying verb
+    # ("של" in "לעובדת של החברה") does not hide the paying verb before it.
+    for match in reversed(matches):
+        tokens = [
+            token
+            for token in (
+                token_match.group(0).strip(",;:()")
+                for token_match in _NON_SPACE_TOKEN_PATTERN.finditer(
+                    text, match.end(), start
+                )
+            )
+            if token
+        ]
+        if not tokens:
+            return True
+        verb = match.group(0).strip()
+        while (
+            verb[:1] in "\u05d5\u05e9"
+            and verb[1:].lstrip("\u05be-") in _HEBREW_PAYING_VERBS
+        ):
+            verb = verb[1:].lstrip("\u05be-")
+        if verb not in _HEBREW_PAYING_VERBS:
+            continue
+        if _hebrew_recipient_phrase(tokens):
+            return True
+    return False
+
+
+def _hebrew_recipient_phrase(tokens: list[str]) -> bool:
+    """Whether ``tokens`` are a recipient in ל with its modifiers and nothing more."""
+    first = (
+        tokens[0][1:].lstrip("\u05be-") if tokens[0].startswith("\u05d5") else tokens[0]
+    )
+    if not first.startswith("\u05dc") or _hebrew_word_is_an_amount_noun(first):
+        return False
+    skip_next = False
+    for token in tokens[1:]:
+        bare = token[1:].lstrip("\u05be-") if token.startswith("\u05d5") else token
+        if skip_next:
+            skip_next = False
+            continue
+        if bare in ("בשם", "של"):
+            # The recipient's name or possessor: the word after is theirs.
+            skip_next = True
+            continue
+        if bare in _HEBREW_RATE_NEUTRAL_WORDS:
+            continue
+        if (
+            bare in _HEBREW_RATE_PREPOSITIONS
+            or bare == "אשר"
+            or bare.startswith("\u05e9\u05d4")
+            or bare in _HEBREW_CONSEQUENT_VERBS
+            or bare in _HEBREW_RATE_COPULAS
+            or bare in _HEBREW_RATE_PARTICIPLES
+        ):
+            return False
+    return True
+
+
+def _hebrew_fraction_context_before(text: str, start: int) -> bool:
+    """Whether the clause before ``start`` says a fraction follows.
+
+    A copula, a quantity word or a verb of paying, receiving or deducting
+    right before it does; so does a clause start -- the beginning of the
+    text or a punctuation mark -- where "חמישית מההכנסה" opens a clause. A
+    noun there ("לידה", "דרגה") leaves an ordinal-shaped word an ordinal.
+    """
+    if _search_before(_HEBREW_FRACTION_COPULA_PATTERN, text, start) is not None:
+        return True
+    before = text[:start].rstrip()
+    return not before or before[-1] in _HEBREW_CLAUSE_BOUNDARY_CHARACTERS
+
+
+def _hebrew_fraction_count_before(
+    text: str, match: "re.Match[str]", tokens: "_HebrewWordTokens"
+) -> tuple[float, int] | None:
+    """The count before a fraction word, as the numeral grammar reads it.
+
+    "שלוש עשיריות" is three tenths, "אחת עשרה עשיריות" eleven tenths and
+    "אלף עשיריות" a hundred: the longest run of words flush before the
+    fraction word that the grammar reads whole is the count, and so is a
+    printed number there ("3 עשיריות"). A count word the grammar does not
+    read on its own ("שני", "שתי") stays the pattern's. Returns (count,
+    start of the count) or None.
+    """
+    fraction = match.group("fraction")
+    # A counted fraction is plural or construct ("שלוש עשיריות", "שלושת
+    # רבעי"); a number before a singular fraction word is not its count
+    # ("בסעיף 3 חמישית ההכנסה").
+    if fraction not in _HEBREW_COUNTED_FRACTION_VALUES:
+        return None
+    position = match.start("article")
+    run = _hebrew_word_run_before(text, position, tokens=tokens)
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        # Words the grammar reads with the fraction word as one number are
+        # a mixed number ("עשרים ושלוש עשיריות" is twenty and three
+        # tenths), which the compound pass reads whole; "מאה ועשרים
+        # עשיריות" it does not, and the hundred and twenty is the count.
+        mixed = _parse_hebrew_number_run([*words, fraction])
+        if mixed is not None and mixed[0] == width + 1:
+            continue
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is not None and parsed[0] == width:
+            return parsed[1], run[-width].start()
+    if not run:
+        # A printed count flush before the word: "3 עשיריות" is three
+        # tenths, "ל־3 רבעי השכר" three quarters of the wage.
+        return _hebrew_printed_count_before(text, position)
+    # A printed whole and a spelled tail before the word: "3 וחצי עשיריות"
+    # is three and a half tenths.
+    return _hebrew_printed_mixed_count(text, run)
+
+
+def _hebrew_printed_count_before(text: str, position: int) -> tuple[float, int] | None:
+    """A printed number flush before ``position``, across wrap space only.
+
+    Returns (value, start of the number) or None.
+    """
+    printed = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, position, 32)
+    if printed is None or _PARAGRAPH_GAP_PATTERN.search(text[printed.end() : position]):
+        return None
+    value = _hebrew_printed_endpoint_value(printed)
+    if value is None:
+        return None
+    return value, printed.start()
+
+
+def _iter_hebrew_fraction_word_readings(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Fraction words with their values, flagged when a count precedes them."""
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    tokens: "_HebrewWordTokens | None" = None
+    for match in _HEBREW_FRACTION_WORD_PATTERN.finditer(text):
+        word = match.group("fraction")
+        count = match.group("count")
+        # The match begins at the fraction word's own prefix ("וחצי"), or
+        # at its count's ("ושלוש עשיריות").
+        start = match.start()
+        if count and word not in _HEBREW_COUNTED_FRACTION_VALUES:
+            # "שלוש חמישית": a counted fraction is plural or construct, so
+            # the number before a singular fraction word is not its count,
+            # and the prefix before that number is the number's.
+            count = None
+            start = match.start("article")
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+        # The count the grammar reads before the word ("עשרים רבעי השכר")
+        # counts a construct form as a listed count word does.
+        counted = _hebrew_fraction_count_before(text, match, tokens)
+        if (
+            word in _HEBREW_FRACTION_CONSTRUCT_VALUES
+            and word not in _HEBREW_FRACTION_VALUES
+        ):
+            if not count and counted is None:
+                continue
+            value = _HEBREW_FRACTION_CONSTRUCT_VALUES[word]
+        else:
+            if word not in _HEBREW_UNAMBIGUOUS_FRACTION_WORDS:
+                if match.group("article"):
+                    continue
+                # "חמישית משכרו" is a fifth of his wage and "חמישית ההכנסה" a
+                # fifth of the income after "יהיה"; "לידה שלישית מזכה" is a
+                # third birth that qualifies and "דרגה חמישית המקנה" a fifth
+                # grade that confers. A bare מ- or ה-word after the fraction
+                # word counts only when a copula or a quantity word precedes.
+                # After a feminine noun the ordinal agrees with ("בדרגה
+                # חמישית", "בבדיקה חמישית", "בעיר חמישית") a bare definite
+                # amount noun begins the next phrase ("השכר גבוה יותר"), not
+                # the fraction's operand; only an explicit partitive
+                # ("מהשכר", "משכרו") makes the word a fraction there. A copula
+                # before it ("תהיה חמישית השכר") is clause context, read below.
+                base = _HEBREW_FRACTION_BASE_AMOUNT_PATTERN.match(
+                    text, match.end("fraction")
+                )
+                names_an_amount = (
+                    base is not None
+                    and not (
+                        base.group("partitive") is None
+                        and not _hebrew_fraction_context_before(text, match.start())
+                        and not _hebrew_fraction_context_in_clause(text, match.start())
+                        and _hebrew_word_before_can_be_feminine_singular(
+                            text, match.start("fraction")
+                        )
+                    )
+                    # "עשירית שקל" is a tenth of a shekel, "עשירית שנייה" a
+                    # tenth of a second: a unit after the word says fraction.
+                    or _hebrew_fraction_unit_after(
+                        text, match.end("fraction"), match.start()
+                    )
+                    == "fraction"
+                    # An ambiguous case reads as the fraction here only where
+                    # that is its primary reading; the integration records
+                    # both readings as alternatives either way.
+                    or (
+                        _hebrew_fraction_unit_after(
+                            text, match.end("fraction"), match.start()
+                        )
+                        == "ambiguous"
+                        and _hebrew_ambiguous_reading_prefers_duration(
+                            text, match.end("fraction")
+                        )
+                    )
+                )
+                loose = bool(match.group("loose_partitive")) and (
+                    _hebrew_fraction_context_before(text, match.start())
+                    or names_an_amount
+                )
+                # "מה" before a word is the partitive "of the" or the
+                # preposition מ before a noun that begins with ה: "לידה חמישית
+                # מהיריון נפרד" is a fifth birth from a separate pregnancy.
+                # It says fraction where the clause does (a copula, a verb of
+                # paying, a clause start) or where the noun names an amount
+                # ("מההכנסה"); "מן" and the percent noun always do.
+                partitive = match.group("partitive") or ""
+                strict = bool(partitive) and (
+                    not partitive.lstrip().startswith("\u05de\u05d4")
+                    or names_an_amount
+                    or _hebrew_fraction_context_before(text, match.start())
+                )
+                # "מן" after an ordinal a feminine noun carries, with no clause
+                # context saying a fraction follows, names a kind or a source
+                # ("בדיקה חמישית מן הסוג הזה", "פנייה חמישית מן הציבור"), not
+                # a whole, unless what follows names an amount ("מן השכר").
+                # A paying verb's reach across its recipient licenses a fraction
+                # of an amount only: "שילם לעובדת חמישית מן העובדות הזכאיות"
+                # pays a fifth employee among the eligible ones.
+                if (
+                    strict
+                    and partitive.lstrip().startswith("מן")
+                    and not names_an_amount
+                    and not _hebrew_fraction_context_before(text, match.start())
+                    and _hebrew_word_before_can_be_feminine_singular(
+                        text, match.start("fraction")
+                    )
+                ):
+                    strict = False
+                if not count and not strict and not loose and not names_an_amount:
+                    continue
+            value = _HEBREW_FRACTION_VALUES[word]
+        if counted is not None and (not count or counted[1] < start):
+            value *= counted[0]
+            start = counted[1]
+        elif count:
+            value *= _HEBREW_FRACTION_COUNT_VALUES[count]
+        matches.append(
+            ((start, match.end("fraction")), value, bool(count) or counted is not None)
+        )
+    # A vav-bound fraction word that is the tail of a rate before it ("שלושה%
+    # וחצי") is read with the rate by the percent passes; one inside a
+    # counted fraction's count ("וחצי" of "3 וחצי עשיריות") is that count's.
+    counted_spans = sorted(span for span, _, is_counted in matches if is_counted)
+    counted_starts = [span[0] for span in counted_spans]
+
+    def inside_a_count(span: tuple[int, int]) -> bool:
+        index = bisect_right(counted_starts, span[0]) - 1
+        while index >= 0 and counted_spans[index][1] > span[0]:
+            if counted_spans[index] != span and counted_spans[index][1] >= span[1]:
+                return True
+            index -= 1
+        return False
+
+    return [
+        (span, value, counted)
+        for span, value, counted in matches
+        if not _hebrew_fraction_word_is_percent_tail(text, span)
+        and not inside_a_count(span)
+    ]
+
+
+def _iter_hebrew_fraction_word_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    return [
+        (span, value) for span, value, _ in _iter_hebrew_fraction_word_readings(text)
+    ]
+
+
+# A percentage phrase: an optional count, the percent noun, an optional
+# vav-bound fractional tail -- "אחוז וחצי" is one and a half percent, "שני
+# אחוזים וחצי" two and a half. Read whole, before the word passes see any of
+# its words.
+_HEBREW_PERCENT_PHRASE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff\\d.,])"
+    "(?:(?P<digits>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    + _WRAP_SPACE_FRAGMENT
+    + "+"
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e])"
+    + _WRAP_SPACE_FRAGMENT
+    + "+"
+    "|(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+)?"
+    "(?P<noun_prefix>(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9][\u05be-]?){0,2})"
+    "(?P<noun>(?:\u05d4[\u05be-]?)?אחוז(?:ים)?)"
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")))?(?![\u0590-\u05ff])"
+)
+
+
+class _HebrewWordTokens:
+    """A text's Hebrew word tokens, cut once, with their ends for bisecting."""
+
+    __slots__ = ("matches", "ends")
+
+    def __init__(self, text: str) -> None:
+        self.matches = list(_HEBREW_WORD_TOKEN_PATTERN.finditer(text))
+        self.ends = [match.end() for match in self.matches]
+
+
+def _hebrew_word_run_before(
+    text: str,
+    end: int,
+    limit: int = 16,
+    tokens: _HebrewWordTokens | None = None,
+) -> list["re.Match[str]"]:
+    """The last run of joined Hebrew words ending flush at ``end``, newest last.
+
+    ``tokens`` is the text tokenized once by the caller: a source with
+    thousands of percentages must not be tokenized again before each one.
+    Only the run is walked, and it is bounded by ``limit``.
+    """
+    if tokens is None:
+        tokens = _HebrewWordTokens(text)
+    last = bisect_right(tokens.ends, end) - 1
+    if last < 0:
+        return []
+    final_gap = text[tokens.ends[last] : end]
+    if final_gap.strip() != "" or _PARAGRAPH_GAP_PATTERN.search(final_gap):
+        return []
+    run = [tokens.matches[last]]
+    for index in range(last - 1, -1, -1):
+        token = tokens.matches[index]
+        gap = text[token.end() : run[0].start()]
+        # A paragraph boundary ends the run ("שלושה\n\nעשר אחוזים" is
+        # three, then ten percent).
+        joined = _PARAGRAPH_GAP_PATTERN.search(gap) is None and (
+            gap.strip() == ""
+            or (
+                _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                and run[0].group(0) in _HEBREW_TEEN_TENS
+            )
+        )
+        if not joined or len(run) >= limit:
+            break
+        run.insert(0, token)
+    return run
+
+
+def _hebrew_definite_ordinal(word: str, bare: str) -> bool:
+    """Whether ``word`` is the ordinal ``bare`` under the definite article.
+
+    "השני" is "the second", never a count of two: the construct count is
+    written without the article ("שני אחוזים"), and the article on an
+    ordinal-shaped word makes it the ordinal.
+    """
+    if bare not in _HEBREW_ORDINAL_WORDS or not word.endswith(bare):
+        return False
+    return word[: len(word) - len(bare)].rstrip("\u05be-").endswith("\u05d4")
+
+
+def _hebrew_unary_sign_at(text: str, index: int) -> bool:
+    """Whether ``text[index]`` is a minus sign, not a prefix's hyphen ("ל-3")."""
+    if index < 0 or text[index] not in "-\u2212":
+        return False
+    # A letter before the hyphen makes it a prefix's ("ל-3"); a maqaf does
+    # not ("ב־−2" is minus two under the prefix).
+    return index == 0 or not ("\u05d0" <= text[index - 1] <= "\u05ea")
+
+
+def _hebrew_vav_fraction_tail(words: "Sequence[str]") -> float | None:
+    """The value of a vav-bound fractional tail: "וחצי", "ושלושה רבעים"."""
+    if not words or not words[0].startswith("\u05d5"):
+        return None
+    head = words[0][1:].lstrip("\u05be-")
+    if len(words) == 1 and head in _HEBREW_MIXED_FRACTION_VALUES:
+        return _HEBREW_MIXED_FRACTION_VALUES[head]
+    if (
+        len(words) == 2
+        and head in _HEBREW_FRACTION_COUNT_VALUES
+        and words[1] in _HEBREW_COUNTED_FRACTION_VALUES
+    ):
+        return (
+            _HEBREW_FRACTION_COUNT_VALUES[head]
+            * _HEBREW_COUNTED_FRACTION_VALUES[words[1]]
+        )
+    return None
+
+
+def _hebrew_printed_mixed_count(
+    text: str, run: "Sequence[re.Match[str]]"
+) -> tuple[float, int] | None:
+    """A printed whole and a spelled fractional tail before the percent noun.
+
+    "3 וחצי אחוזים" is three and a half percent: the run before the noun is
+    the tail alone, and the whole is the printed number flush before it.
+    Returns (count, start of the count) or None.
+    """
+    tail = _hebrew_vav_fraction_tail([token.group(0) for token in run])
+    if tail is None:
+        return None
+    printed = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, run[0].start(), 32)
+    if printed is None:
+        return None
+    whole = _hebrew_printed_endpoint_value(printed)
+    if whole is None:
+        return None
+    magnitude = abs(whole) + tail
+    return (-magnitude if printed.group("sign") else magnitude), printed.start()
+
+
+def _hebrew_fractional_count(words: "Sequence[str]") -> float | None:
+    """A count of the percent noun that is itself a fraction, or None.
+
+    "חצי אחוז" is half a percent, "שלושה רבעים אחוז" three quarters of a
+    percent; the numeral grammar reads neither, because a fraction word is
+    not a number on its own there. A partitive between the fraction and
+    the noun binds them the same: "שלוש עשיריות של האחוז", "חצי מן האחוז".
+    """
+    if len(words) >= 2 and words[-1] in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        return _hebrew_fractional_count(words[:-1])
+    if len(words) == 1:
+        bare = _strip_hebrew_number_prefix(
+            words[0],
+            set(_HEBREW_MIXED_FRACTION_VALUES) | set(_HEBREW_FRACTION_COUNT_VALUES),
+        )
+        if bare is None or _hebrew_definite_ordinal(words[0], bare):
+            return None
+        if bare in _HEBREW_MIXED_FRACTION_VALUES:
+            return _HEBREW_MIXED_FRACTION_VALUES[bare]
+        return _HEBREW_FRACTION_COUNT_VALUES[bare]
+    if len(words) == 2:
+        bare = _strip_hebrew_number_prefix(words[0], set(_HEBREW_FRACTION_COUNT_VALUES))
+        if (
+            bare is not None
+            and words[1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and not _hebrew_definite_ordinal(words[0], bare)
+        ):
+            return (
+                _HEBREW_FRACTION_COUNT_VALUES[bare]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[1]]
+            )
+    if len(words) >= 2 and words[-1] in _HEBREW_COUNTED_FRACTION_VALUES:
+        # Words the grammar reads with the fraction word as one number are
+        # a mixed number ("מיליון ושלושה רבעים"), the grammar's to read.
+        mixed = _parse_hebrew_number_run(words)
+        if mixed is not None and mixed[0] == len(words):
+            return None
+        # The count is whatever number the grammar reads whole: "אחת עשרה
+        # עשיריות האחוז" is eleven tenths of a percent, "מאה ועשרים
+        # עשיריות האחוז" a hundred and twenty.
+        parsed = _parse_hebrew_number_run(words[:-1])
+        if parsed is not None and parsed[0] == len(words) - 1:
+            return parsed[1] * _HEBREW_COUNTED_FRACTION_VALUES[words[-1]]
+    return None
+
+
+def _hebrew_printed_fraction_count(
+    text: str, run: "Sequence[re.Match[str]]"
+) -> tuple[float, int] | None:
+    """A printed count and a fraction word before the percent noun.
+
+    "3 עשיריות האחוז" is three tenths of a percent, "3 עשיריות של האחוז"
+    too, and "3 וחצי עשיריות האחוז" three and a half tenths: the run
+    before the noun is the fraction word, then any partitive, and the
+    printed count -- with its spelled tail, if any -- sits flush before
+    it. Returns (count, start of the count) or None.
+    """
+    if not run:
+        return None
+    end = len(run)
+    while end > 1 and run[end - 1].group(0) in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        end -= 1
+    word = run[end - 1].group(0)
+    if word not in _HEBREW_COUNTED_FRACTION_VALUES:
+        return None
+    # The count is the printed number flush before the fraction word, or
+    # a printed whole and its spelled tail ("3 וחצי עשיריות האחוז").
+    printed = (
+        _hebrew_printed_count_before(text, run[0].start())
+        if end == 1
+        else _hebrew_printed_mixed_count(text, run[: end - 1])
+    )
+    if printed is None:
+        return None
+    return printed[0] * _HEBREW_COUNTED_FRACTION_VALUES[word], printed[1]
+
+
+def _iter_hebrew_percent_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Percentage phrases with a spelled or printed count and/or a fractional tail, as rates."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    for match in _HEBREW_PERCENT_PHRASE_PATTERN.finditer(text):
+        tail = match.group("tail")
+        tail_count = match.group("tail_count")
+        end = match.end()
+        if (tail or tail_count) and _HEBREW_UNIT_AFTER_PATTERN.match(text, end):
+            # "שני אחוזים וחצי שקל": the half is the shekel's, not the rate's.
+            tail = tail_count = None
+            end = match.end("noun")
+        count_value: float | None = None
+        run: list["re.Match[str]"] = []
+        mixed: tuple[float, int] | None = None
+        count_head: "re.Match[str] | None" = None
+        count_start = match.start()
+        negative = False
+        continues_amount = False
+        if match.group("numerator"):
+            # A printed fraction with a spelled tail ("1/2 אחוז וחצי" is one
+            # percent) is read whole here; without a tail the fraction passes
+            # read it, printed figures and all.
+            if tail is None and tail_count is None:
+                continue
+            denominator = float(match.group("denominator"))
+            if denominator == 0:
+                continue
+            count_value = float(match.group("numerator")) / denominator + float(
+                (match.group("whole") or "0").replace(",", "")
+            )
+            count_start = match.start("whole" if match.group("whole") else "numerator")
+            # "שלושת אלפים ו־200 1/2 אחוזים": the fraction continues the
+            # scaled amount; the printed pass reads the whole rate.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(text, count_start, tokens):
+                continue
+            if _hebrew_unary_sign_at(text, count_start - 1):
+                negative = True
+                count_start -= 1
+        elif match.group("glyph"):
+            # A vulgar-fraction glyph, alone or after a whole ("½ אחוז", "2½
+            # אחוזים"), is the count as printed.
+            count_value = unicodedata.numeric(match.group("glyph")) + float(
+                (match.group("glyph_whole") or "0").replace(",", "")
+            )
+            count_start = match.start(
+                "glyph_whole" if match.group("glyph_whole") else "glyph"
+            )
+            if _hebrew_unary_sign_at(text, count_start - 1):
+                negative = True
+                count_start -= 1
+        elif match.group("digits"):
+            # A denominator ("16 1/2 אחוזים", "1⁄ 4 אחוזים") belongs to the
+            # fraction passes, which read the whole fraction as the rate.
+            if _search_before(
+                _SLASH_BEFORE_NUMBER_PATTERN, text, match.start("digits")
+            ):
+                continue
+            # A remainder of a printed scale amount before it ("3 אלפים
+            # ו־200 אחוזים" is 3,200 percent) is the printed pass's, unless
+            # a money amount makes the digits a rate of their own.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(
+                text, match.start("digits"), tokens
+            ) or _hebrew_endpoint_continues_an_amount(text, match.start("digits")):
+                continue
+            count_value = float(match.group("digits").replace(",", ""))
+            digits_start = match.start("digits")
+            if _hebrew_unary_sign_at(text, digits_start - 1):
+                negative = True
+                count_start = digits_start - 1
+        else:
+            # The count: the longest run of joined words before the noun that
+            # the numeral grammar reads whole, a fractional count ("חצי
+            # אחוז", "שלושה רבעים אחוז"), or a single (possibly prefixed)
+            # count word. An ordinal under the article ("הילד השני אחוז
+            # וחצי") is the noun phrase before the rate, not its count.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            run = _hebrew_word_run_before(text, match.start(), tokens=tokens)
+            if (
+                run
+                and run[0].group(0).startswith("\u05d5")
+                and any(token.group(0) in _HEBREW_PRINTED_SCALE_VALUES for token in run)
+                and _search_before(
+                    _HEBREW_DIGITS_BEFORE_PATTERN, text, run[0].start(), 32
+                )
+                is not None
+            ):
+                # "4 וחצי אלפים אחוזים": the tail and the scale word continue
+                # a printed multiplier; the printed pass reads the whole rate.
+                continue
+            mixed = _hebrew_printed_mixed_count(text, run)
+            if mixed is None:
+                mixed = _hebrew_printed_fraction_count(text, run)
+            if mixed is not None:
+                count_value, count_start = mixed
+                if count_value < 0:
+                    # "-3 וחצי אחוזים וחצי" is minus four percent: the sign
+                    # belongs to the whole, tail after the noun included.
+                    negative = True
+                    count_value = -count_value
+            # A scaled count is the rate's own ("שלושת אלפים אחוזים" is
+            # 3,000 percent) unless a money amount governs the run: "סכום
+            # של 3 מיליון ועשרים אחוזים" and "סכום של שלושה מיליון ועשרים
+            # אחוזים" are three million, and twenty percent, never a
+            # million-and-twenty percent. Read once at the run's start, so
+            # a shorter run beginning at the scale word cannot escape it.
+            number_start = next(
+                (
+                    run[-width].start()
+                    for width in range(len(run) if mixed is None else 0, 0, -1)
+                    if (
+                        (
+                            parsed := _parse_hebrew_number_run(
+                                [token.group(0) for token in run[-width:]]
+                            )
+                        )
+                        is not None
+                        and parsed[0] == width
+                    )
+                ),
+                None,
+            )
+            run_after_money = number_start is not None and _hebrew_money_context_before(
+                text, number_start
+            )
+            # A run that opens a scaled amount's continuation -- its first
+            # vav-bound number word walks back to the scale word -- is that
+            # amount's when the walk crosses a printed component ("3 אלפים
+            # ו־100 ועשרים אחוזים") or the continuation carries a scale word
+            # of its own ("סכום של 3 מיליון ושני אלפים וחמש מאות אחוזים"):
+            # the printed pass reads the whole rate. A plain spelled
+            # continuation ("סכום של 3 מיליון ועשרים אחוזים") is read here
+            # as well, to the same rate.
+            continues_amount = False
+            if mixed is None:
+                for offset, token in enumerate(run):
+                    if not token.group(0).startswith("\u05d5"):
+                        continue
+                    # The token opens a numeral run ("ושני" of "ושני אלפים"
+                    # parses only with its noun).
+                    words = [item.group(0) for item in run[offset:]]
+                    parsed = _parse_hebrew_number_run(words)
+                    if (
+                        parsed is None
+                        or parsed[0] < 1
+                        or not _hebrew_endpoint_continues_an_amount(text, token.start())
+                    ):
+                        continue
+                    continues_amount = _hebrew_endpoint_continues_an_amount(
+                        text, token.start(), crossing_printed=True
+                    ) or (
+                        parsed[0] == len(words)
+                        and bool(parsed[2] & _HEBREW_SCALE_KINDS)
+                    )
+                    break
+            for width in range(
+                len(run) if mixed is None and not continues_amount else 0, 0, -1
+            ):
+                words = [token.group(0) for token in run[-width:]]
+                parsed = _parse_hebrew_number_run(words)
+                if (
+                    parsed is not None
+                    and parsed[0] == len(words)
+                    and not (parsed[2] & _HEBREW_SCALE_KINDS and run_after_money)
+                ):
+                    count_value = parsed[1]
+                    count_head = run[-width]
+                    count_start = count_head.start()
+                    break
+                fractional = _hebrew_fractional_count(words)
+                if fractional is not None:
+                    count_value = fractional
+                    count_head = run[-width]
+                    count_start = count_head.start()
+                    break
+            if count_value is not None and _hebrew_unary_sign_at(text, count_start - 1):
+                # "−חצי אחוז", "−שלושה אחוזים": the sign before a spelled
+                # count signs the rate as it signs a printed one.
+                negative = True
+                count_start -= 1
+        if continues_amount:
+            continue
+        if (
+            count_value is None
+            and mixed is None
+            and run
+            and run[-1].group(0) in _HEBREW_SCALE_VALUES
+        ):
+            # A scale word left unread before the noun carries a printed
+            # multiplier ("3 אלפים אחוזים וחצי"): the printed pass reads
+            # the whole rate, tail included; a count of one is not it.
+            continue
+        if mixed is not None and (
+            _hebrew_digits_continue_printed_scale_amount(text, count_start, tokens)
+            or _hebrew_endpoint_continues_an_amount(text, count_start)
+        ):
+            # "3 אלפים ו־200 וחצי אחוזים": the mixed count continues the
+            # scaled amount; the printed pass reads the whole rate.
+            continue
+        if count_value is not None and mixed is None and count_head is not None:
+            # A count that begins with a scale word a printed multiplier
+            # precedes ("1.5 מיליון אחוזים"), or that continues such an
+            # amount ("3 אלפים וחמש מאות אחוזים"), is that multiplier's,
+            # remainder and all: the printed pass reads the whole rate.
+            # Under a money amount the remainder counts a rate of its own
+            # ("סכום של 3 מיליון ועשרים אחוזים"). The count's own head
+            # decides, not the run's: "2 אלפים עד שלושת אלפים ומאה אחוזים"
+            # keeps its upper endpoint.
+            head_word = count_head.group(0)
+            multiplied = (
+                head_word in _HEBREW_SCALE_VALUES
+                and _search_before(
+                    _HEBREW_DIGITS_BEFORE_PATTERN, text, count_head.start(), 32
+                )
+                is not None
+            ) or (
+                head_word.startswith("\u05d5")
+                and _hebrew_endpoint_continues_an_amount(text, count_head.start())
+            )
+            if multiplied and not _hebrew_money_context_before(
+                text, count_head.start()
+            ):
+                continue
+        if count_value is None and tail is None and tail_count is None:
+            # The bare singular noun in a quantity slot is one percent:
+            # "תוספת של אחוז מההכנסה" -- a quantity word before it and a
+            # partitive after it. "האחוז שנקבע" and "אחוז מסוים" name no
+            # rate and are left alone.
+            if (
+                match.group("noun") != "אחוז"
+                or _search_before(_HEBREW_FRACTION_COPULA_PATTERN, text, match.start())
+                is None
+                or _HEBREW_PARTITIVE_AFTER_PATTERN.match(text, match.end()) is None
+            ):
+                continue
+        value = count_value if count_value is not None else 1.0
+        if tail:
+            value += _HEBREW_MIXED_FRACTION_VALUES[tail]
+        elif tail_count:
+            value += (
+                _HEBREW_FRACTION_COUNT_VALUES[tail_count]
+                * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+            )
+        # The sign belongs to the whole mixed quantity, tail included.
+        if negative:
+            value = -value
+        matches.append(((count_start, end), value / 100))
+    return matches
+
+
+# A printed number and a Hebrew scale word are one amount: "3.5 מיליון" is
+# 3,500,000, "2 אלף" 2,000, "3 וחצי מיליון" 3,500,000. Read before the
+# digit passes, which would otherwise take the multiplier as a value of
+# its own and the scale word as another.
+_HEBREW_PRINTED_SCALE_FRACTIONS = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_COUNTS = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_COUNTED = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_WORDS = _hebrew_alternation(
+    set(_HEBREW_BILLION_WORDS) | set(_HEBREW_MILLION_WORDS) | {"אלף", "אלפים", "אלפי"}
+)
+_HEBREW_PRINTED_SCALE_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    # A printed fraction, mixed ("2 1⁄2") or bare ("1⁄2", "1⁄ 2"), or a
+    # decimal; each is a complete multiplier.
+    "(?:(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    "|(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e]))"
+    # A vav-bound fractional tail before the scale word: one fraction word
+    # ("3 וחצי מיליון") or a counted fraction ("3 ושלושה רבעים מיליון").
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")(?![\u0590-\u05ff])|(?P<tail_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + ")(?![\u0590-\u05ff])))?"
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<scale>"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + ")(?![\u0590-\u05ff])"
+    # A scaled tail after the scale word: a whole fraction word that does
+    # not name its own operand (a lower scale word, a partitive, a
+    # construct with an amount noun).
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<after_tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")(?![\u0590-\u05ff])|(?P<after_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<after_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + ")(?![\u0590-\u05ff]))(?!"
+    + _HEBREW_FRACTION_OPERAND_AFTER_PATTERN.pattern
+    + "))?"
+)
+# The conjunction before a printed lower-scale remainder: "3 מיליון ו־200
+# אלף", "ו-200", "ו 200".
+_HEBREW_PRINTED_REMAINDER_JOIN_PATTERN = re.compile(
+    "" + _WRAP_SPACE_FRAGMENT + "+\u05d5[\u05be-]?" + _WRAP_SPACE_FRAGMENT + "*"
+)
+# The most characters a join between a spelled amount and a printed part spans.
+_HEBREW_PRINTED_JOIN_WIDTH = 12
+_HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN = re.compile(
+    "" + _WRAP_SPACE_FRAGMENT + "+\u05d5[\u05be-]?" + _WRAP_SPACE_FRAGMENT + "*$"
+)
+
+
+def _hebrew_digits_continue_printed_scale_amount(
+    text: str, position: int, tokens: "_HebrewWordTokens | None" = None
+) -> bool:
+    """Whether the digits at ``position`` are a remainder of a printed scale amount.
+
+    "3 אלפים ו־200": the 200 continues the 3,000, and whatever unit follows
+    belongs to the whole. Under a money amount the digits count a rate or a
+    quantity of their own instead.
+    """
+    join = _search_before(
+        _HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN, text, position, 6
+    )
+    if join is None:
+        return False
+    scale_end = _end_before_space(text, join.start())
+    scale_word = _search_before(_HEBREW_SCALE_WORD_BEFORE_PATTERN, text, scale_end, 24)
+    if scale_word is None:
+        return False
+    multiplier_end = _end_before_space(text, scale_word.start())
+    if (
+        _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, multiplier_end, 32)
+        is not None
+    ):
+        # A printed multiplier: "3 אלפים ו־200".
+        return not _hebrew_money_context_before(text, scale_word.start())
+    # A spelled scaled amount: "שלושת אלפים ו־200". The longest spelled number
+    # ending at the scale word carries a scale kind.
+    run = _hebrew_word_run_before(
+        text,
+        scale_end,
+        tokens=tokens if tokens is not None else _HebrewWordTokens(text),
+    )
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is not None and parsed[0] == len(words):
+            return bool(
+                parsed[2] & _HEBREW_SCALE_KINDS
+            ) and not _hebrew_money_context_before(text, run[-width].start())
+    return False
+
+
+_HEBREW_SCALE_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:" + _HEBREW_PRINTED_SCALE_WORDS + ")\\s*$"
+)
+# A printed remainder below every scale: "3 מיליון ו־200 שקלים" is
+# 3,000,200. Not a rate ("ו־20 אחוזים", "ו־20%"), not another multiplier.
+_HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN = re.compile(
+    # A number, or a bare fraction with any spacing around its slash ("1/2",
+    # "1 / 2", "1 ⁄ 2"), read atomically.
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?"
+    + _WRAP_SPACE_FRAGMENT
+    + "*(?>(?:(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "(?:\\s*[/\u2044]\\s*(?P<bare_denominator>\\d+))?"
+    # A glyph after the number ("ו־2½ שקלים") is the remainder's fraction,
+    # and a bare glyph ("ו־½ שקלים") is the remainder.
+    "(?:[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?P<remainder_glyph>[\u00bc-\u00be\u2150-\u215e]))?"
+    "|(?P<bare_remainder_glyph>[\u00bc-\u00be\u2150-\u215e])))"
+    # The whole mixed number, read atomically so a tail once read is never
+    # given back: a printed fraction ("3 1/2", "3 1⁄2", "3 1 / 2") or a
+    # spelled tail ("3 וחצי", "3 ושלושה רבעים").
+    "(?>(?:"
+    + _HORIZONTAL_SPACE_FRAGMENT
+    + "+(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+))?)"
+    "(?>(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")|(?P<tail_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + "))(?![\u0590-\u05ff]))?)"
+    # Then neither a rate marker nor a scale word: "ו־3 1/2 אחוזים" and
+    # "ו־3 וחצי%" count a rate, "ו־200 אלף" is a lower scale.
+    "(?![\\d.,/\u2044%])(?!\\s*[/\u2044%])(?!\\s+(?:"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + "|אחוז)[\u0590-\u05ff]*)"
+)
+
+
+# Outside a money context a percent unit after the remainder makes the whole
+# a rate ("3 אלפים ו־200 אחוזים" is 3,200 percent), so the remainder is read
+# without the percent lookaheads and the unit is read after it.
+_HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN = re.compile(
+    _HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN.pattern.replace(
+        "(?![\\d.,/\u2044%])(?!\\s*[/\u2044%])", "(?![\\d.,/\u2044])(?!\\s*[/\u2044])"
+    ).replace("|אחוז)[\u0590-\u05ff]*)", ")[\u0590-\u05ff]*)")
+)
+
+
+def _hebrew_printed_plain_remainder_pattern(money_context: bool) -> "re.Pattern[str]":
+    return (
+        _HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN
+        if money_context
+        else _HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN
+    )
+
+
+def _hebrew_printed_plain_remainder_value(match: "re.Match[str]") -> float | None:
+    """The value a plain printed remainder states, fraction and tail included."""
+    if match.groupdict().get("bare_remainder_glyph"):
+        value = unicodedata.numeric(match.group("bare_remainder_glyph"))
+    else:
+        value = float(match.group("number").replace(",", ""))
+    if match.group("bare_denominator"):
+        denominator = float(match.group("bare_denominator"))
+        if denominator == 0:
+            return None
+        value /= denominator
+    if match.groupdict().get("remainder_glyph"):
+        value += unicodedata.numeric(match.group("remainder_glyph"))
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value += float(match.group("numerator")) / denominator
+    if match.group("tail"):
+        value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+    elif match.group("tail_count"):
+        value += (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+        )
+    return value
+
+
+# A range whose endpoints share one trailing scale word: "בין 3 ל־5 מיליון"
+# runs from three million to five million, "שלושה עד חמישה מיליון" too, and
+# "עשרים ושלושה עד שלושים מיליון" from twenty-three million. "בין 3 למיליון"
+# has a scale word for its upper endpoint alone and stays apart.
+_HEBREW_SHARED_SCALE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<scale>"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + ")(?![\u0590-\u05ff])"
+)
+# "ו־" closes a list that shares the scale word ("1, 2 ו־3 מיליון"); a
+# continuation's vav never stands before a bare small number the lower
+# endpoint rules admit, so the two do not meet.
+# A comma joins a list too ("1, 2, 3 מיליון"); the reference, label and
+# complete-amount guards on the lower endpoint keep "סעיף 5, 3 מיליון" apart.
+# A comma never joins: it separates clauses as often as it lists ("על הכנסה
+# עד 500, 3 מיליון" states a threshold), and nothing in the text tells the
+# two apart. A list closed by a conjunction shares from the joined pair on.
+# A vav never joins either: a vav-paired list ("2 ו־3 מיליון, בהתאמה") does
+# not occur in the statute text these passes serve, and the same vav joins
+# clauses ("ההכנסה עומדת על 500 ו־2 ו־3 מיליון ישולמו"), which nothing in
+# the text tells apart. "או" alternatives and bounded ranges remain.
+# Nor does "או": an "או"-joined amount list ("1 או 2 מיליון") does not occur
+# in the statute text these passes serve, and the same "או" sets one amount
+# beside another ("הקנס הוא 500 או 3 מיליון"), which nothing in the text
+# tells apart. Bounded and explicit ranges remain.
+_HEBREW_SHARED_SCALE_JOIN_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?P<join>לבין|ובין|ועד|עד|או|ל|\u05d5)(?:[\u05be-]\\s*|\\s+)"
+    "|(?P<comma>,\\s*))$"
+)
+# A noun that numbers the lower endpoint rather than counting it: "תוספת 2
+# עד מאה ועשרים אלף" is supplement 2, up to 120,000, and shares nothing.
+_HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES + "(?:"
+    "תוספת|תוספות|סעיף|סעיפים|פסקה|פסקאות|תקנה|תקנות|פרט|פרטים|לוח|טור|שורה|"
+    "חלק|פרק|סימן|נספח|טופס|דרגה|שלב|קבוצה|רמה|סוג|מספר|מס'"
+    ")\\s+$"
+)
+
+
+def _hebrew_scale_floor(value: float) -> float:
+    """The largest place (a billion down to a ten) that divides ``value``.
+
+    A remainder must lie below the place the amount so far ends at: after
+    "3 אלפים ומאה" (3,100) a printed "ו־20" is a remainder, after "3 אלפים
+    ומאה ועשרים" (3,120) only units are.
+    """
+    for scale in (1_000_000_000.0, 1_000_000.0, 1000.0, 100.0, 10.0):
+        if value >= scale and value % scale == 0:
+            return scale
+    return 1.0
+
+
+# Construct counts ("שלושת אלפים", "חמשת אלפים") bind to the noun after
+# them and read as one number; a range lower bound before one shares
+# nothing with it ("2 עד שלושת אלפים" runs from 2 to 3,000).
+_HEBREW_CONSTRUCT_COUNT_WORDS = frozenset(
+    {"שני", "שתי", "שלושת", "ארבעת", "חמשת", "ששת", "שבעת", "שמונת", "תשעת", "עשרת"}
+)
+
+
+def _hebrew_spelled_endpoint_before(
+    text: str, end: int, tokens: "_HebrewWordTokens"
+) -> tuple[int, float] | None:
+    """The longest spelled number ending flush at ``end`` with no scale word of its own."""
+    run = _hebrew_word_run_before(text, end, tokens=tokens)
+    if run and run[-1].group(0) in _HEBREW_CONSTRUCT_COUNT_WORDS:
+        return None
+    # A printed whole with a spelled tail ("2 וחצי") is one endpoint.
+    mixed = _hebrew_printed_mixed_count(text, run)
+    if mixed is not None:
+        return mixed[1], mixed[0]
+    # A printed count with a fraction word ("2 עשיריות") is one endpoint
+    # too: "בין 2 עשיריות לבין 3 אלפים אחוזים" runs from two tenths of it.
+    counted = _hebrew_printed_fraction_count(text, run)
+    if counted is not None:
+        return counted[1], counted[0]
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if (
+            parsed is not None
+            and parsed[0] == len(words)
+            and not parsed[2] & _HEBREW_SCALE_KINDS
+        ):
+            return run[-width].start(), parsed[1]
+        # A fraction is an endpoint too: "בין חצי ל־3 מיליון", "בין שלושה
+        # רבעים ל־3 מיליון".
+        fractional = _hebrew_fractional_count(words)
+        if fractional is not None:
+            return run[-width].start(), fractional
+    return None
+
+
+# A vav join flush before a position: "ו־" before "100" in "3 אלפים ו־100".
+_HEBREW_VAV_JOIN_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])\u05d5(?:\u05be|-)?\\s*$"
+)
+
+
+# The Hebrew word flush before a position, prefix and all.
+_HEBREW_WORD_FLUSH_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])[\u0590-\u05ff][\u0590-\u05ff\u05f3\u05f4']*\\s*$"
+)
+
+
+def _hebrew_endpoint_continues_an_amount(
+    text: str, start: int, crossing_printed: bool = False
+) -> bool:
+    """Whether the number at ``start`` is a vav-bound remainder of a scaled amount before it.
+
+    The walk back crosses every vav-bound component, printed or spelled,
+    one word or several ("וחמש מאות"), to the scale word: "3 אלפים וחמש
+    מאות ו־20" continues at the 20 and at the hundreds alike. A range's
+    lower endpoint that continues an amount is that amount's, complete on
+    its own ("בין 3 אלפים ומאה ל־4 אלפים" runs from 3,100), and a percent
+    phrase's count that does is the printed pass's rate ("סכום של 3 מיליון
+    ועשרים אחוזים"). With ``crossing_printed`` only a walk that crosses a
+    printed component counts, the case where the count is not the whole
+    continuation ("3 אלפים ו־100 ועשרים אחוזים").
+    """
+    position = start
+    crossed_printed = False
+    for _ in range(16):
+        if (
+            text.startswith("\u05d5", position)
+            and position > 0
+            and text[position - 1].isspace()
+        ):
+            join_start = position
+        else:
+            join = _search_before(_HEBREW_VAV_JOIN_BEFORE_PATTERN, text, position, 4)
+            if join is None:
+                return False
+            join_start = join.start()
+        if (
+            _search_before(_HEBREW_SCALE_WORD_BEFORE_PATTERN, text, join_start, 24)
+            is not None
+        ):
+            return crossed_printed or not crossing_printed
+        before = _end_before_space(text, join_start)
+        previous = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, before, 32)
+        if previous is not None:
+            if previous.start() >= position:
+                return False
+            position = previous.start()
+            crossed_printed = True
+            continue
+        # The spelled component before the join, one word or several
+        # ("וחמש מאות"): back to its vav-bound first word, the words one
+        # numeral run.
+        words: list[str] = []
+        cursor = before
+        component_start: int | None = None
+        for _ in range(8):
+            word = _search_before(_HEBREW_WORD_FLUSH_BEFORE_PATTERN, text, cursor, 24)
+            if word is None:
+                break
+            token = word.group(0).rstrip()
+            words.insert(0, token)
+            if token.startswith("\u05d5"):
+                component_start = word.start()
+                break
+            cursor = _end_before_space(text, word.start())
+        if component_start is None or component_start >= position:
+            return False
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is None or parsed[0] != len(words):
+            return False
+        position = component_start
+    return False
+
+
+def _iter_hebrew_shared_scale_range_matches(
+    text: str,
+    structural_spans: "Sequence[tuple[int, int]]" = (),
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """The lower endpoint of a range whose scale word both endpoints share.
+
+    Each endpoint is printed (sign and fraction included) or spelled, one
+    word or several; the upper endpoint stands flush before the scale word
+    and the join (ל־, עד, ועד, או, לבין) flush before it. ``structural_spans``
+    are the reference spans the structural pass found: "תוספת 2 עד שלושת
+    אלפים" names a supplement, not a range's lower bound.
+    """
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    tokens: _HebrewWordTokens | None = None
+    for scale_match in _HEBREW_SHARED_SCALE_WORD_PATTERN.finditer(text):
+        scale = _HEBREW_PRINTED_SCALE_VALUES[scale_match.group("scale")]
+        upper_end = _end_before_space(text, scale_match.start())
+        if upper_end == scale_match.start():
+            continue
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+        printed_upper = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, upper_end, 32
+        )
+        if printed_upper is not None:
+            upper_value = _hebrew_printed_endpoint_value(printed_upper)
+            if upper_value is None:
+                continue
+            upper_start = printed_upper.start()
+        else:
+            spelled_upper = _hebrew_spelled_endpoint_before(text, upper_end, tokens)
+            if spelled_upper is None:
+                continue
+            upper_start = spelled_upper[0]
+            upper_value = spelled_upper[1]
+        # The unit is read after the whole upper endpoint, remainder
+        # included: "בין 2 ל־3 אלפים ומאתיים אחוזים" runs from twenty. A
+        # unit word after it -- a currency word or a percent noun --
+        # distributes over "או"; a bare scale word does not.
+        upper_tail = _hebrew_continuation_after(
+            text, scale_match.end(), scale, False, judge=False
+        )
+        upper_end_whole = upper_tail[1] if upper_tail is not None else scale_match.end()
+        is_rate = _hebrew_percent_unit_after(text, upper_end_whole) is not None
+        unit_word_after = _hebrew_unit_word_after(text, upper_end_whole)
+        if _hebrew_unary_sign_at(text, upper_start - 1):
+            # "−שלושה עד −שניים אלפים": the upper endpoint's sign is its
+            # own; the join stands before it.
+            upper_start -= 1
+        join = _search_before(
+            _HEBREW_SHARED_SCALE_JOIN_BEFORE_PATTERN, text, upper_start, 12
+        )
+        needs_bound = False
+        vav_join = False
+        comma_join = False
+        if join is not None:
+            lower_end = _end_before_space(text, join.start())
+            comma_join = join.group("comma") is not None
+            if lower_end == join.start() and not comma_join:
+                continue
+            vav_join = join.group("join") == "\u05d5"
+        else:
+            # A ל prefix on a spelled upper endpoint joins under "בין" or
+            # "מ־" before the lower endpoint: "בין שלושה לחמישה מיליון".
+            upper_word = _HEBREW_WORD_TOKEN_PATTERN.match(text, upper_start)
+            if printed_upper is not None or upper_word is None:
+                continue
+            head = upper_word.group(0)
+            if (
+                head[:1] not in ("\u05dc", "\u05d5")
+                or _strip_hebrew_number_prefix(
+                    head[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                )
+                is None
+            ):
+                continue
+            lower_end = _end_before_space(text, upper_start)
+            if lower_end == upper_start:
+                continue
+            vav_join = head.startswith("\u05d5")
+            needs_bound = not vav_join
+        printed_lower = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, lower_end, 32
+        )
+        lower_complete = False
+        if printed_lower is not None:
+            lower_value = _hebrew_printed_endpoint_value(printed_lower)
+            if lower_value is None:
+                continue
+            # "בין 2,000 ל־3 אלפים", "בין 1500 ל־3 מיליון": a grouped or
+            # thousand-plus number is a complete amount, not a multiplier
+            # that omits its scale -- unless a verified heading lists
+            # multipliers ("הסכומים הם 900, 1000 ו־1100 מיליון").
+            lower_complete = "," in printed_lower.group(0) or abs(lower_value) >= 1000
+            lower_span = (printed_lower.start(), lower_end)
+        else:
+            spelled_lower = _hebrew_spelled_endpoint_before(text, lower_end, tokens)
+            if spelled_lower is None:
+                continue
+            lower_span = (spelled_lower[0], lower_end)
+            lower_value = spelled_lower[1]
+            if _hebrew_unary_sign_at(text, lower_span[0] - 1):
+                # "בין −חצי ל־3 מיליון": the sign is the endpoint's, span
+                # and value alike.
+                lower_value = -lower_value
+                lower_span = (lower_span[0] - 1, lower_end)
+        if _hebrew_endpoint_continues_an_amount(text, lower_span[0]):
+            continue
+        if _hebrew_operand_is_denominated(text, lower_span[0], lower_span[1]):
+            # "בין ₪ 500 ל־3 מיליון": a denominated amount shares no scale.
+            continue
+        if needs_bound and (
+            _search_before(_HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16)
+            is None
+        ):
+            # A מ prefix attached to a spelled lower endpoint is the bound:
+            # "משלושה לחמישה מיליון", "מחצי לשלושה מיליון".
+            lower_word = _HEBREW_WORD_TOKEN_PATTERN.match(text, lower_span[0])
+            if (
+                printed_lower is not None
+                or lower_word is None
+                or not lower_word.group(0).startswith("\u05de")
+                or _strip_hebrew_number_prefix(
+                    lower_word.group(0)[1:].lstrip("\u05be-"),
+                    _HEBREW_RUN_START_VOCABULARY,
+                )
+                is None
+            ):
+                continue
+        if (
+            _span_overlaps(lower_span, structural_spans)
+            or _search_before(
+                _HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN, text, lower_span[0], 24
+            )
+            is not None
+            or _search_before(_HEBREW_RANGE_WALK_STOP_PATTERN, text, lower_span[0], 24)
+            is not None
+        ):
+            continue
+        # "2 עד 3 אלפים אחוזים": the shared scale word carries a percent unit
+        # too, and both endpoints are rates.
+        heading_end = _hebrew_list_heading_end(text, lower_span[0], is_rate)
+        headed = heading_end is not None
+        if lower_complete and not headed:
+            continue
+        list_coordinated = vav_join or comma_join
+        if list_coordinated and not headed:
+            # "הסכומים הם 2 ו־3 מיליון שקלים, בהתאמה" shares; "ההכנסה עומדת על
+            # 500 ו־2 ו־3 מיליון ישולמו" joins clauses.
+            continue
+        if (
+            join is not None
+            and join.group("join") == "או"
+            and not unit_word_after
+            and not headed
+        ):
+            # "הקנס הוא 500 או 3 מיליון.", "סכום של 500 או 3 מיליון": a bare
+            # scale word does not distribute; "2 או 3 מיליון שקלים" and "1
+            # או 2 או 3 אלפים אחוזים" share.
+            continue
+        if (
+            (join is None or join.group("join") != "או")
+            and not list_coordinated
+            and lower_value >= upper_value
+            and _search_before(_HEBREW_BETWEEN_BEFORE_PATTERN, text, lower_span[0], 16)
+            is not None
+            # A range of rates under a rate word shares whatever its order:
+            # "שיעור המס יהיה בין 7 ובין 5 אלפים אחוזים" runs from seven
+            # thousand percent.
+            and not (is_rate and _hebrew_rate_word_before(text, lower_span[0]))
+        ):
+            # A "בין" range of amounts ascends: "בין 500 ל־3 מיליון" runs from
+            # 500 shekels; "יופחת מ־5 ל־3 מיליון" decreases and shares.
+            continue
+        matches.append(
+            (
+                lower_span,
+                lower_value * scale / 100 if is_rate else lower_value * scale,
+                is_rate,
+            )
+        )
+        if not headed and (join is None or join.group("join") != "או"):
+            continue
+        # Earlier alternatives share the unit too: "1 או 2 או 3 מיליון
+        # שקלים". The walk back stops at a reference, a label noun, a
+        # complete amount, a denominated amount and a bare start.
+        # The walk runs to the list's grammatical boundary, however many
+        # members the list has; only a step that fails to move it earlier
+        # ends it.
+        cursor = lower_span[0]
+        while True:
+            earlier_join = _search_before(
+                _HEBREW_RANGE_WALK_JOIN_PATTERN, text, cursor, 12
+            )
+            if earlier_join is not None:
+                earlier_flush = _end_before_space(text, earlier_join.start())
+                coordinated_crossing = (
+                    earlier_join.group("vav") is not None
+                    or earlier_join.group("comma") is not None
+                )
+            elif (
+                headed
+                and cursor > 0
+                and text[cursor] == "\u05d5"
+                and text[cursor - 1].isspace()
+            ):
+                earlier_flush = _end_before_space(text, cursor)
+                coordinated_crossing = True
+            else:
+                break
+            if not headed and (
+                coordinated_crossing
+                or not earlier_join.group(0).lstrip().startswith("או")
+            ):
+                break
+            earlier_printed = _search_before(
+                _HEBREW_DIGITS_BEFORE_PATTERN, text, earlier_flush, 32
+            )
+            if earlier_printed is not None:
+                earlier_value = _hebrew_printed_endpoint_value(earlier_printed)
+                if earlier_value is None or (
+                    not headed
+                    and ("," in earlier_printed.group(0) or abs(earlier_value) >= 1000)
+                ):
+                    break
+                earlier_span = (earlier_printed.start(), earlier_flush)
+            else:
+                earlier_spelled = _hebrew_spelled_endpoint_before(
+                    text, earlier_flush, tokens
+                )
+                if earlier_spelled is None:
+                    break
+                earlier_span = (earlier_spelled[0], earlier_flush)
+                earlier_value = earlier_spelled[1]
+                if _hebrew_unary_sign_at(text, earlier_span[0] - 1):
+                    earlier_value = -earlier_value
+                    earlier_span = (earlier_span[0] - 1, earlier_flush)
+            if (
+                _span_overlaps(earlier_span, structural_spans)
+                or _hebrew_endpoint_continues_an_amount(text, earlier_span[0])
+                or _search_before(
+                    _HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+                or _search_before(
+                    _HEBREW_RANGE_WALK_STOP_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+                or _hebrew_operand_is_denominated(
+                    text, earlier_span[0], earlier_span[1]
+                )
+            ):
+                break
+            if headed and earlier_span[0] < heading_end:
+                # The heading bounds the list: an item before it is no item.
+                break
+            matches.append(
+                (
+                    earlier_span,
+                    earlier_value * scale / 100 if is_rate else earlier_value * scale,
+                    is_rate,
+                )
+            )
+            if earlier_span[0] >= cursor:
+                break
+            cursor = earlier_span[0]
+    return matches
+
+
+# The whitespace before a vav-bound spelled remainder    return matches
+
+
+# The whitespace before a vav-bound spelled remainder ("3 מיליון ומאתיים אלף").
+_HEBREW_SPELLED_REMAINDER_GAP_PATTERN = re.compile(
+    "\\s+(?=\u05d5[\u05be-]?[\u0590-\u05ff])"
+)
+_HEBREW_PRINTED_SCALE_VALUES = {
+    **_HEBREW_BILLION_WORDS,
+    **_HEBREW_MILLION_WORDS,
+    "אלף": 1000.0,
+    "אלפים": 1000.0,
+    "אלפי": 1000.0,
+}
+
+
+def _hebrew_spelled_remainder_after(
+    text: str, end: int, scale: float, money_context: bool = False, judge: bool = True
+) -> tuple[int, float] | None:
+    """A vav-bound spelled amount below ``scale`` right after ``end``.
+
+    "3 מיליון ומאתיים אלף" continues a printed multiplier with the next
+    scales down. Returns (its end, its value) or None. With ``judge`` the
+    amount is refused under a money context when a rate or a separate
+    quantity follows the continuation; a caller reading the whole
+    continuation judges it once, at its end.
+    """
+    gap = _HEBREW_SPELLED_REMAINDER_GAP_PATTERN.match(text, end)
+    if gap is None:
+        return None
+    tokens: list[tuple[int, int, str]] = []
+    for match in _HEBREW_WORD_TOKEN_PATTERN.finditer(text, gap.end()):
+        if not tokens and match.start() != gap.end():
+            return None
+        if tokens and text[tokens[-1][1] : match.start()].strip() != "":
+            break
+        tokens.append((match.start(), match.end(), match.group(0)))
+        if len(tokens) >= 16:
+            break
+    if not tokens:
+        return None
+    parsed = _parse_hebrew_number_run([token[2] for token in tokens], 0)
+    if parsed is None:
+        return None
+    consumed, value, _kinds = parsed
+    if not 0 < value < scale:
+        return None
+    if (
+        consumed < len(tokens)
+        and tokens[consumed][2] in _HEBREW_COUNTED_FRACTION_VALUES
+    ):
+        # "ושני שלישים" is two thirds, a fraction with its own reading, not
+        # a remainder of two.
+        return None
+    if judge and money_context:
+        # "סכום של 3 מיליון ועשרים אחוזים": the twenty counts a rate, not
+        # the million's remainder, and so does the whole continuation it
+        # opens ("ומאתיים ו־20 אחוזים"). "קנס של 3 מיליון ושלושים ימי
+        # מאסר", "מחזור של 3 מיליון ושני אלפים ו־500 עובדים": a separate
+        # quantity. Without a money amount the whole is the rate: "3 אלפים
+        # וחמש מאות אחוזים" is 3,500 percent.
+        continuation_end = _hebrew_printed_continuation_end(
+            text, tokens[consumed - 1][1]
+        )
+        if (
+            _HEBREW_PERCENT_WORD_PATTERN.match(text, continuation_end) is not None
+            or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, continuation_end)
+            or _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, continuation_end)
+        ):
+            return None
+    return tokens[consumed - 1][1], value
+
+
+# The conjunction may carry a maqaf or a hyphen ("% ו־חצי"), as the
+# fraction-word suppression allows.
+_HEBREW_PERCENT_TAIL_AFTER_PATTERN = re.compile(
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5(?:[\u05be-]"
+    + _WRAP_SPACE_FRAGMENT
+    + "*)?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff])"
+)
+
+
+_HEBREW_PERCENT_MARKER_BEFORE_TAIL_PATTERN = re.compile(
+    "(?:%|(?<![\u0590-\u05ff])(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+$"
+)
+
+
+def _hebrew_fraction_word_is_percent_tail(text: str, span: tuple[int, int]) -> bool:
+    """Whether a vav-bound fraction word is the tail of a rate before it.
+
+    "שלושה% וחצי", "3% ושלושה רבעים": the percent passes read the tail
+    with the rate. A unit of its own after the word ("אחוזים וחצי שקל")
+    keeps the word a quantity of that unit.
+    """
+    return (
+        text[span[0] : span[0] + 1] == "\u05d5"
+        and _search_before(
+            _HEBREW_PERCENT_MARKER_BEFORE_TAIL_PATTERN, text, span[0], 12
+        )
+        is not None
+        and _HEBREW_UNIT_AFTER_PATTERN.match(text, span[1]) is None
+    )
+
+
+def _hebrew_percent_unit_after(text: str, end: int) -> tuple[int, float] | None:
+    """A percent noun or sign right after ``end``, with its fractional tail.
+
+    Returns (where the unit and its tail end, the tail's value in percent):
+    "אחוזים וחצי" adds half a percent, "אחוזים ושלושה רבעים" three quarters.
+    """
+    unit = _HEBREW_PERCENT_WORD_PATTERN.match(text, end)
+    if unit is None:
+        unit = _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, end)
+    if unit is None:
+        return None
+    tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, unit.end())
+    if tail is None or _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+        # "אחוזים וחצי שקל": the half is the shekel's, not the rate's.
+        return unit.end(), 0.0
+    if tail.group("tail"):
+        return tail.end(), _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+    return tail.end(), (
+        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+    )
+
+
+def _hebrew_printed_scale_part(
+    match: "re.Match[str]",
+) -> tuple[float, float, bool] | None:
+    """The amount a printed-multiplier match states before any tail after its scale word.
+
+    Returns (value, the scale, whether signed), or None for a malformed
+    fraction.
+    """
+    scale = _HEBREW_PRINTED_SCALE_VALUES[match.group("scale")]
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value = float((match.group("whole") or "0").replace(",", "")) + float(
+            match.group("numerator")
+        ) / (denominator)
+    elif match.group("glyph"):
+        value = unicodedata.numeric(match.group("glyph")) + float(
+            (match.group("glyph_whole") or "0").replace(",", "")
+        )
+    else:
+        value = float(match.group("number").replace(",", ""))
+    if match.group("tail"):
+        value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+    elif match.group("tail_count"):
+        value += (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+        )
+    return value * scale, scale, bool(match.group("sign"))
+
+
+def _hebrew_printed_after_tail(match: "re.Match[str]", scale: float) -> float:
+    """The scaled fraction after the scale word ("3 מיליון וחצי"), or zero."""
+    if match.group("after_tail"):
+        return _HEBREW_MIXED_FRACTION_VALUES[match.group("after_tail")] * scale
+    if match.group("after_count"):
+        return (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("after_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("after_fraction")]
+            * scale
+        )
+    return 0.0
+
+
+def _hebrew_continuation_after(
+    text: str, end: int, floor: float, money_context: bool, judge: bool = True
+) -> tuple[int, int, float, str, bool] | None:
+    """The descending continuation after ``end``, read whole before it is judged.
+
+    Printed lower scales ("ו־200 אלף"), printed plain remainders ("ו־20")
+    and spelled remainders ("ומאתיים אלף", "וחמש מאות") follow one another
+    in any order, each below the place the amount so far ends at: "3
+    מיליון ו־200 אלף ו־100 ועשרים ו־3" continues three million to
+    3,200,123. Returns (where the continuation starts, where it ends, its
+    value, its verdict, whether it opens with a printed component) or
+    None when nothing continues.
+
+    The verdict is "remainder" unless ``judge`` finds, under a money
+    context, a percent unit after the whole continuation ("סכום של 3
+    מיליון ו־2 אלף אחוזים" states 2,000 percent after the amount; "סכום של
+    3 אלפים ו־100 ועשרים אחוזים" 120 percent) or a separate quantity
+    ("קנס של 3 אלפים ו־100 ועשרים ימי מאסר" counts 120 days of prison):
+    "rate" and "separate". Either is the caller's to read whole, as a
+    rate or a quantity of its own.
+    """
+    total = 0.0
+    start: int | None = None
+    printed_first = False
+    position, current_floor = end, floor
+    while current_floor > 1:
+        join = _HEBREW_PRINTED_REMAINDER_JOIN_PATTERN.match(text, position)
+        if join is not None:
+            part_match = _HEBREW_PRINTED_SCALE_PATTERN.match(text, join.end())
+            if part_match is not None:
+                part = _hebrew_printed_scale_part(part_match)
+                if part is None:
+                    break
+                part_value, part_scale, negative = part
+                part_value += _hebrew_printed_after_tail(part_match, part_scale)
+                if negative or not 0 < part_value < current_floor:
+                    break
+                if start is None:
+                    start, printed_first = part_match.start(), True
+                total += part_value
+                position, current_floor = part_match.end(), part_scale
+                continue
+        plain = _HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN.match(text, position)
+        if plain is not None:
+            plain_value = _hebrew_printed_plain_remainder_value(plain)
+            if plain_value is not None and 0 < plain_value < current_floor:
+                if start is None:
+                    start, printed_first = plain.start("number"), True
+                total += plain_value
+                position = plain.end()
+                current_floor = _hebrew_scale_floor(plain_value)
+                continue
+        spelled = _hebrew_spelled_remainder_after(
+            text, position, current_floor, money_context, judge=False
+        )
+        if spelled is not None:
+            if start is None:
+                gap = _HEBREW_SPELLED_REMAINDER_GAP_PATTERN.match(text, position)
+                start = gap.end() if gap is not None else position
+            position, spelled_value = spelled
+            total += spelled_value
+            current_floor = _hebrew_scale_floor(spelled_value)
+            continue
+        break
+    if start is None:
+        return None
+    verdict = "remainder"
+    if judge and money_context:
+        if (
+            _HEBREW_PERCENT_WORD_PATTERN.match(text, position) is not None
+            or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, position) is not None
+        ):
+            verdict = "rate"
+        elif _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, position) is not None:
+            verdict = "separate"
+    return start, position, total, verdict, printed_first
+
+
+def _hebrew_printed_continuation_end(
+    text: str, end: int, money_context: bool = True
+) -> int:
+    """Where an amount's continuation ends: lower scales and remainders, printed or spelled."""
+    tail = _hebrew_continuation_after(
+        text, end, float("inf"), money_context, judge=False
+    )
+    return tail[1] if tail is not None else end
+
+
+def _iter_hebrew_printed_scale_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Printed multipliers with a Hebrew scale word, as one amount each.
+
+    A percent noun or sign right after the amount makes it a rate, read
+    with its unit before the span is reserved: "3 אלפים אחוזים" is 30, as
+    "שלושת אלפים אחוזים" is.
+
+    A scale word carrying a prefix is not a multiplier's scale: "בין 3
+    למיליון" runs between 3 and a million, and each endpoint stands on its
+    own. A fractional tail after the scale word scales with it ("3 מיליון
+    וחצי", "3 מיליון ושני שלישים") unless it names its own operand. The
+    continuation after an amount -- lower scales and remainders, printed
+    or spelled, in any order -- is read whole before any of it is judged
+    or composed, and a spelled leading amount before a printed part
+    ("שלושה מיליון ו־200 אלף") is composed the same way. A continuation
+    that a money context judges a rate or a separate quantity is read
+    whole as one of its own: "סכום של 3 מיליון ו־2 אלף אחוזים" is three
+    million and 2,000 percent, "קנס של 3 אלפים ו־100 ועשרים ימי מאסר" a
+    fine and 120 days.
+    """
+    parts: list[tuple[int, int, float, float, bool]] = []
+    for match in _HEBREW_PRINTED_SCALE_PATTERN.finditer(text):
+        part = _hebrew_printed_scale_part(match)
+        if part is None:
+            # A malformed fraction is no multiplier; the digit passes read
+            # its parts as they stand.
+            continue
+        value, scale, negative = part
+        end = match.end()
+        if (
+            (match.group("after_tail") or match.group("after_count"))
+            and _hebrew_money_context_before(text, match.start())
+            and _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, end)
+        ):
+            # "קנס של 3 מיליון וחצי שנת מאסר": the half counts a year, a
+            # separate quantity; the amount ends at its scale word.
+            end = match.end("scale")
+        else:
+            value += _hebrew_printed_after_tail(match, scale)
+        parts.append((match.start(), end, value, scale, negative))
+    # A spelled leading amount before a printed part: "שלושה מיליון ו־200
+    # אלף". Keyed by where the spelled amount ends.
+    spelled_before = {
+        span[1]: (span[0], value, _hebrew_scale_floor(value))
+        for span, value in _iter_hebrew_compound_number_matches(text)
+        if value > 0
+    }
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    # Continuations judged a quantity or a rate of their own, read whole.
+    own: list[tuple[tuple[int, int], float, bool]] = []
+    # Parts arrive in text order and never overlap one another, so whether a
+    # spelled span overlaps any part is one bisection, and the spelled amount
+    # a join binds to a part ends within the join's width before it.
+    part_starts = [part[0] for part in parts]
+
+    def overlaps_a_part(span_start: int, span_end: int) -> bool:
+        index = bisect.bisect_right(part_starts, span_end - 1)
+        return index > 0 and parts[index - 1][1] > span_start
+
+    # Every span composed here, in text order: a spelled amount inside one
+    # ("מאה" of "3 אלפים ומאה ו־20") is no leading amount of its own.
+    composed: list[tuple[int, int]] = []
+
+    def emit(start: int, end: int, value: float, negative: bool) -> None:
+        unit = _hebrew_percent_unit_after(text, end)
+        if unit is not None:
+            unit_end, unit_tail = unit
+            rate = (value + unit_tail) / 100
+            matches.append(((start, unit_end), -rate if negative else rate, True))
+            composed.append((start, unit_end))
+        else:
+            matches.append(((start, end), -value if negative else value, False))
+            composed.append((start, end))
+
+    def emit_led(spelled_start: int, end: int, value: float) -> None:
+        # "−שלושה מיליון ו־200 אלף", "−אלפיים ו־300": the leading spelled
+        # amount's sign is the whole's, span and value alike.
+        negative = _hebrew_unary_sign_at(text, spelled_start - 1)
+        emit(spelled_start - 1 if negative else spelled_start, end, value, negative)
+
+    def emit_own(start: int, end: int, value: float, verdict: str) -> None:
+        if verdict == "separate":
+            own.append(((start, end), value, False))
+            composed.append((start, end))
+            return
+        unit = _hebrew_percent_unit_after(text, end)
+        if unit is not None:
+            unit_end, unit_tail = unit
+            own.append(((start, unit_end), (value + unit_tail) / 100, True))
+            composed.append((start, unit_end))
+
+    consumed: set[int] = set()
+
+    def consume_from(index: int, end: int) -> None:
+        while index < len(parts) and parts[index][0] < end:
+            consumed.add(index)
+            index += 1
+
+    merged_spelled: set[int] = set()
+    for index, (start, end, value, floor, negative) in enumerate(parts):
+        if index in consumed:
+            continue
+        money_context = _hebrew_money_context_before(text, start)
+        led = False
+        if not negative:
+            for spelled_end in range(max(0, start - _HEBREW_PRINTED_JOIN_WIDTH), start):
+                entry = spelled_before.get(spelled_end)
+                if entry is None:
+                    continue
+                spelled_start, spelled_value, spelled_floor = entry
+                if not (
+                    floor < spelled_floor
+                    and not overlaps_a_part(spelled_start, spelled_end)
+                    and _HEBREW_PRINTED_REMAINDER_JOIN_PATTERN.fullmatch(
+                        text, spelled_end, start
+                    )
+                    is not None
+                ):
+                    continue
+                # The spelled amount leads: its whole continuation, this part
+                # included, is read before any of it is composed. "מחזור של
+                # שלושה מיליון ו־2 אלף ו־500 עובדים" counts 2,500 workers, a
+                # quantity of its own, and the spelled amount stays its own.
+                spelled_context = _hebrew_money_context_before(text, spelled_start)
+                tail = _hebrew_continuation_after(
+                    text, spelled_end, spelled_floor, spelled_context
+                )
+                if tail is None:
+                    break
+                tail_start, tail_end, tail_value, verdict, _printed_first = tail
+                consume_from(index, tail_end)
+                merged_spelled.add(spelled_end)
+                if verdict == "remainder":
+                    emit_led(spelled_start, tail_end, spelled_value + tail_value)
+                else:
+                    emit_own(tail_start, tail_end, tail_value, verdict)
+                led = True
+                break
+        if led:
+            continue
+        tail = _hebrew_continuation_after(text, end, floor, money_context)
+        if tail is not None:
+            tail_start, tail_end, tail_value, verdict, _printed_first = tail
+            consume_from(index + 1, tail_end)
+            if verdict == "remainder":
+                end, value = tail_end, value + tail_value
+            else:
+                emit_own(tail_start, tail_end, tail_value, verdict)
+        emit(start, end, value, negative)
+    # A spelled amount and a printed continuation with no printed multiplier
+    # right after it: "שלושה מיליון ו־200 שקלים". A continuation that opens
+    # spelled composes with the spelled amount in the compound pass, and is
+    # read here only when judged a rate or a quantity of its own.
+    composed.sort()
+    composed_starts = [span[0] for span in composed]
+
+    def inside_a_composed_span(span_start: int, span_end: int) -> bool:
+        index = bisect.bisect_right(composed_starts, span_start) - 1
+        return index >= 0 and composed[index][1] >= span_end
+
+    for spelled_end, (
+        spelled_start,
+        spelled_value,
+        spelled_floor,
+    ) in spelled_before.items():
+        if (
+            spelled_end in merged_spelled
+            or spelled_floor <= 1
+            or overlaps_a_part(spelled_start, spelled_end)
+            or inside_a_composed_span(spelled_start, spelled_end)
+        ):
+            continue
+        spelled_money = _hebrew_money_context_before(text, spelled_start)
+        tail = _hebrew_continuation_after(
+            text, spelled_end, spelled_floor, spelled_money
+        )
+        if tail is None:
+            continue
+        tail_start, end, tail_value, verdict, printed_first = tail
+        if verdict != "remainder":
+            emit_own(tail_start, end, tail_value, verdict)
+        elif printed_first:
+            emit_led(spelled_start, end, spelled_value + tail_value)
+    matches.extend(own)
+    return sorted(set(matches))
+
+
+# A printed whole and a vav-bound spelled fractional tail are one number
+# wherever they stand: "3 וחצי נקודות זיכוי" is three and a half credit
+# points, "2 ושלושה רבעים" two and three quarters. Before a percent noun the
+# phrase pass reads the same words as a rate first.
+_HEBREW_PRINTED_MIXED_NUMBER_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))(?![.,]\\d)"
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff])"
+)
+
+
+# A counted fraction word after a number makes the number its count: "3 וחצי
+# עשיריות" is three and a half tenths, read by the fraction reader.
+_HEBREW_COUNTED_FRACTION_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _hebrew_alternation(_HEBREW_COUNTED_FRACTION_VALUES)
+    + ")(?![\u0590-\u05ff])"
+)
+
+
+def _iter_hebrew_printed_mixed_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Printed wholes with spelled fractional tails: (span, value, is a rate).
+
+    A percent marker right after the tail ("3 וחצי%") makes the number a
+    rate, marker included in the span. A counted fraction word after the
+    tail makes the number a count ("3 וחצי עשיריות"), the fraction
+    reader's to read.
+    """
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    for match in _HEBREW_PRINTED_MIXED_NUMBER_PATTERN.finditer(text):
+        if _HEBREW_COUNTED_FRACTION_AFTER_PATTERN.match(text, match.end()):
+            continue
+        value = float(match.group("whole").replace(",", ""))
+        if match.group("tail"):
+            value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+        else:
+            value += (
+                _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+                * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+            )
+        marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(text, match.end())
+        if marker is not None:
+            # The tail after the marker is the rate's too, unless a unit of
+            # its own follows: "3 וחצי% וחצי" is four percent.
+            end = marker.end()
+            tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, end)
+            if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(
+                text, tail.end()
+            ):
+                if tail.group("tail"):
+                    value += _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+                else:
+                    value += (
+                        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+                        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+                    )
+                end = tail.end()
+            if match.group("sign"):
+                value = -value
+            matches.append(((match.start(), end), value, True))
+        else:
+            if match.group("sign"):
+                value = -value
+            matches.append((match.span(), value, False))
+    return matches
+
+
+# A range of rates shares its percent noun: "בין 2 ל־3 אחוזים", "בין שניים
+# לשלושה אחוזים", "2 עד 3 אחוזים", "מ־2 עד 3 אחוזים". The passes above read
+# the upper endpoint with the noun; this reads the lower one as a rate too.
+_HEBREW_PERCENT_NOUN_ANYWHERE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "אחוז(?:ים)?"
+    "(?![\u0590-\u05ff])"
+    # The marker shares its rate across a range as the noun does ("בין 2
+    # ל־3%").
+    "|%"
+)
+# A printed endpoint flush before a position: a signed number, or a signed
+# fraction with an optional whole ("-2", "1/2", "16 1⁄2"). A number after a
+# slash is a denominator, never an endpoint of its own.
+_HEBREW_DIGITS_BEFORE_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    "|(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    # A vulgar-fraction glyph, alone or after a whole ("½", "2½", "2 ½").
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?"
+    "(?P<glyph>[\u00bc-\u00be\u2150-\u215e]))\\s*$"
+)
+
+
+def _hebrew_printed_endpoint_value(match: "re.Match[str]") -> float | None:
+    """The value a printed endpoint match states, sign, fraction and glyph included."""
+    groups = match.groupdict()
+    if groups.get("glyph"):
+        value = unicodedata.numeric(groups["glyph"]) + float(
+            (groups.get("glyph_whole") or "0").replace(",", "")
+        )
+        return -value if groups.get("sign") else value
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value = float(match.group("numerator")) / denominator + float(
+            (match.group("whole") or "0").replace(",", "")
+        )
+    else:
+        value = float(match.group("number").replace(",", ""))
+    return -value if match.group("sign") else value
+
+
+# The join between the endpoints. "עד", "ועד", "לבין" and "או" make a range
+# or a pair of rates on their own; "ל־", a ל prefix on a spelled endpoint
+# and "ו־" do so only under "בין" or "מ־" before the lower endpoint. A
+# spaced dash is no join: in a tax schedule row ("על כל שקל חדש מ־84,120 –
+# 10%") it separates a threshold from its rate.
+# The cleaner detaches a maqaf into a space, so "ל־3" arrives here as "ל 3".
+# A comma never joins, here or in the walk back: it separates clauses as often
+# as it lists ("על הכנסה עד 500, 10% מס" states a threshold), and nothing in
+# the text tells the two apart. A list closed by a conjunction shares from the
+# joined pair on ("1, 2 או 3 אחוזים" shares the two and the three).
+# A vav never joins either, here or in the walk back: a vav-paired list ("2
+# ו־3 אחוזים, בהתאמה") does not occur in the statute text these passes serve,
+# and the same vav joins clauses ("ההכנסה עומדת על 500 ו־2 ו־3% ממנה ינוכו"),
+# which nothing in the text tells apart. "או" alternatives and bounded ranges
+# remain.
+_HEBREW_RANGE_JOIN_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?P<free>עד|ועד|לבין|ובין|או)\\s+"
+    "|(?<![\u0590-\u05ff])(?P<bound>[\u05dc\u05d5])(?:\u05be|[-\u2013]|\\s)\\s*"
+    # A comma joins within a headed list only ("השיעורים הם 10, 20 ו־30
+    # אחוזים").
+    "|(?P<comma>,\\s*))$"
+)
+_HEBREW_RANGE_WALK_JOIN_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?:עד|ועד|או)\\s+"
+    "|(?<![\u0590-\u05ff])(?P<vav>\u05d5)(?:\u05be|-)?\\s*"
+    "|(?P<comma>,\\s*))$"
+)
+# An earlier number the walk must not scale: an age, a year, a form number,
+# a grade ("לילד עד גיל 5, 2 או 3 אחוזים"). A reference ("לפי סעיף קטן 5, 2
+# או 3 אחוזים") is stopped at by its structural span.
+_HEBREW_RANGE_WALK_STOP_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "(?:גיל|בן|בת|שנת|מספר|מס'|טופס|עמוד|שורה|דרגה|קטגוריה|סוג|רמה)"
+    # A possessive suffix on the label ("שגילו 5", "גילה 5") is the same label.
+    "(?:[\u05d5\u05d4\u05dd\u05df\u05d9\u05da]|כם|כן|נו)?\\s*$"
+)
+_HEBREW_BETWEEN_BEFORE_PATTERN = re.compile("(?<![\u0590-\u05ff])בין\\s*$")
+_HEBREW_RANGE_LOWER_BOUND_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:בין|\u05de(?:\u05be|-)?|החל \u05de(?:\u05be|-)?)\\s*$"
+)
+
+
+def _hebrew_spelled_span_carries_a_scale(text: str, start: int, end: int) -> bool:
+    """Whether the spelled number in ``text[start:end]`` carries a scale.
+
+    The parser's classification decides ("אלפיים" is two thousand, a scaled
+    numeral with no scale word), with the scale vocabulary as the fallback
+    for a run the parser reads only with its prefix stripped.
+    """
+    words = text[start:end].split()
+    if not words:
+        return False
+    parsed = _parse_hebrew_number_run(words)
+    if parsed is None and words[0][:1] in "\u05dc\u05de\u05d1\u05db":
+        parsed = _parse_hebrew_number_run([words[0][1:].lstrip("\u05be-")] + words[1:])
+    if parsed is not None and parsed[2] & _HEBREW_SCALE_KINDS:
+        return True
+    return any(
+        word in _HEBREW_PRINTED_SCALE_VALUES or word in _HEBREW_SCALE_VALUES
+        for word in words
+    )
+
+
+# A currency mark on an operand: a sign before it ("$500", "₪ 500") or a
+# currency word or sign after it ("500 ש"ח", "500 שקלים", "500 ₪").
+# Whitespace and bidirectional formatting between a currency mark and its
+# amount ("₪\u200f 500", "₪" and any run of spaces).
+_HEBREW_BIDI_MARKS = frozenset(
+    "\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u061c"
+)
+
+
+def _hebrew_currency_gap_character(character: str) -> bool:
+    """Whitespace of any kind, a newline included, or a bidirectional control."""
+    return character.isspace() or character in _HEBREW_BIDI_MARKS
+
+
+# A unit word distributes over "או"; a sign or a bare scale word does not.
+# "125 או 150 אחוזים" and "2 או 3 מיליון שקלים" share their unit, "50 או 2%"
+# and "500 או 3 מיליון" set one quantity beside another -- the reading every
+# reviewed case takes, and the one the text itself carries. An explicit rate
+# word in the same clause before the pair ("בשיעור של 2 או 3%") makes a
+# signed pair share too.
+_HEBREW_RATE_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<rate>(?:[\u05d1\u05d4\u05d5\u05dc\u05e9][\u05be-]?){0,2}שיעור(?:ים|י)?|אחוז(?:ים)?|(?:ה[\u05be-]?)?ריבית)"
+    # Any modifiers may stand between the rate word and the pair ("הריבית
+    # השנתית החלה על יתרת ההלוואה הכוללת תהיה 10 או 30%"); a clause stop
+    # ends the scope.
+    "(?:\\s+[^\\s.;:,\\n]+)*\\s*$"
+)
+_HEBREW_CLAUSE_STOP_CHARACTERS = frozenset(".;:,\n")
+_HEBREW_SENTENCE_STOP_ONLY_CHARACTERS = frozenset(".;:")
+
+
+def _hebrew_clause_start_before(
+    text: str, start: int, stops: frozenset[str] = _HEBREW_CLAUSE_STOP_CHARACTERS
+) -> int:
+    """Where the clause holding ``start`` begins.
+
+    A stop character ends it, and so does a blank line or a paragraph
+    separator; a newline on its own is a line wrap inside the clause
+    ("הריבית תהיה\n    10 או 30%") and is whitespace.
+    """
+    position = start
+    while position > 0:
+        character = text[position - 1]
+        if character == "\n":
+            # A newline preceded, across horizontal space, by another is a
+            # blank line and ends the clause; alone it is a wrap.
+            gap_start = position - 1
+            while gap_start > 0 and _is_horizontal_space(text[gap_start - 1]):
+                gap_start -= 1
+            if gap_start > 0 and text[gap_start - 1] == "\n":
+                break
+            position -= 1
+            continue
+        if character in stops or character in "\u2028\u2029\x0b\x0c\x85":
+            break
+        position -= 1
+    return position
+
+
+_NON_SPACE_TOKEN_PATTERN = re.compile(r"\S+")
+_HEBREW_MONEY_NOUN_WORD_PATTERN: "re.Pattern[str] | None" = None
+
+
+_HEBREW_BARE_MONEY_NOUN_PATTERN: "re.Pattern[str] | None" = None
+
+
+def _hebrew_word_is_an_amount_noun(word: str) -> bool:
+    """Whether ``word`` is an amount noun by its own letters, article or not.
+
+    "מענק" and "שכר" begin with letters that are also prefixes; read as a
+    word they are the grant and the wage, not "from" or "that" anything.
+    "מהשכר" is not: a preposition precedes its noun.
+    """
+    global _HEBREW_BARE_MONEY_NOUN_PATTERN
+    if _HEBREW_BARE_MONEY_NOUN_PATTERN is None:
+        _HEBREW_BARE_MONEY_NOUN_PATTERN = re.compile(
+            _HEBREW_OPTIONAL_ARTICLE + _HEBREW_MONEY_NOUN + "$"
+        )
+    return _HEBREW_BARE_MONEY_NOUN_PATTERN.match(word) is not None
+
+
+def _hebrew_word_governs_an_amount(word: str) -> bool:
+    """Whether ``word`` is an amount noun, under a prefix or not ("קנס", "הסכום")."""
+    global _HEBREW_MONEY_NOUN_WORD_PATTERN
+    if _HEBREW_MONEY_NOUN_WORD_PATTERN is None:
+        _HEBREW_MONEY_NOUN_WORD_PATTERN = re.compile(
+            _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES + _HEBREW_MONEY_NOUN + "$"
+        )
+    return _HEBREW_MONEY_NOUN_WORD_PATTERN.match(word) is not None
+
+
+# The words of a rate expression between its rate word and its pair. The
+# copulas and the participles that predicate an amount, beside the listed
+# future verbs; the prepositions that open a phrase; the comparatives and
+# limits that connect a predicate to its pair; and the negations and
+# adverbs that stand anywhere.
+_HEBREW_RATE_COPULAS = frozenset(
+    {
+        "הוא",
+        "היא",
+        "הם",
+        "הן",
+        "הינו",
+        "הינה",
+        "הינם",
+        "הינן",
+        "היה",
+        "הייתה",
+        "היתה",
+        "היו",
+    }
+)
+_HEBREW_RATE_PARTICIPLES = frozenset(
+    {
+        "עומד",
+        "עומדת",
+        "עומדים",
+        "עומדות",
+        "מסתכם",
+        "מסתכמת",
+        "מסתכמים",
+        "מסתכמות",
+        "נקבע",
+        "נקבעת",
+        "נקבעים",
+        "נקבעות",
+        "מגיע",
+        "מגיעה",
+        "מגיעים",
+        "מגיעות",
+        "מהווה",
+        "מהווים",
+        "מהוות",
+        "עולה",
+        "עולים",
+        "עולות",
+        "עלה",
+        "עלתה",
+    }
+)
+_HEBREW_RATE_PREPOSITIONS = frozenset(
+    {
+        "על",
+        "של",
+        "לפי",
+        "עבור",
+        "מן",
+        "בעד",
+        "בשל",
+        "לגבי",
+        "אצל",
+        "תחת",
+        "בין",
+        "עד",
+        "ועד",
+        "כלפי",
+        "אל",
+        "אחרי",
+        "לפני",
+        "בתוך",
+        "מתוך",
+        "לעניין",
+        "בהתאם",
+        "כאמור",
+        "כמפורט",
+        "כנגד",
+        "לרבות",
+        "למעט",
+        "בגין",
+        "בגובה",
+        "בסך",
+        "בסכום",
+        "בשיעור",
+        "בשווי",
+        "כדי",
+        "מעל",
+        "מתחת",
+        "במקום",
+        "ליד",
+    }
+)
+_HEBREW_RATE_COMPARATIVES = frozenset(
+    {
+        "גבוהה",
+        "גבוה",
+        "גבוהים",
+        "גבוהות",
+        "נמוכה",
+        "נמוך",
+        "נמוכים",
+        "נמוכות",
+        "שווה",
+        "שווים",
+        "שוות",
+        "קטן",
+        "קטנה",
+        "גדול",
+        "גדולה",
+        "לפחות",
+        "לכל",
+        "היותר",
+        "הפחות",
+        "פחות",
+        "יותר",
+    }
+)
+# Nouns whose first letter is a root ה, not the article: "הסכם" (an
+# agreement) is indefinite and heads a construct ("הסכם ההלוואה"), where
+# "המותר" (the permitted) is definite and closes its phrase. The stems
+# cover the plural, the construct and the suffixed forms.
+_HEBREW_HE_INITIAL_NOUN_STEMS = (
+    "הסכם",
+    "הלווא",
+    "הכנס",
+    "הורא",
+    "הודע",
+    "החלט",
+    "הצע",
+    "הסדר",
+    "הטב",
+    "הפרש",
+    "הכשר",
+    "השקע",
+    "הוצא",
+    "הנח",
+    "העבר",
+    "הגש",
+    "הרשא",
+    "הצהר",
+    "הפחת",
+    "העלא",
+    "הקצב",
+    "הקצא",
+    "הכר",
+    "הבטח",
+    "הגבל",
+    "הגדר",
+    "הוכח",
+    "המחא",
+    "המלצ",
+    "הנפק",
+    "הסמכ",
+    "הסכמ",
+    "העדפ",
+    "הערכ",
+    "הפסק",
+    "הפקד",
+    "הקל",
+    "הרחב",
+    "השלמ",
+    "השתתפ",
+    "התאמ",
+    "התחייב",
+    "התקשר",
+    "היטל",
+    "הון",
+    "הכשר",
+    "הליך",
+    "הצמד",
+    "הבהר",
+    "הרש",
+    "החזר",
+)
+
+
+def _hebrew_word_is_definite(word: str) -> bool:
+    """Whether ``word`` carries the article: a leading ה that is no root letter."""
+    return word.startswith("\u05d4") and not word.startswith(
+        _HEBREW_HE_INITIAL_NOUN_STEMS
+    )
+
+
+_HEBREW_RATE_NEUTRAL_WORDS = frozenset(
+    {"לא", "אינה", "אינו", "אינם", "אינן", "גם", "רק", "אף", "כן", "בלבד", "אך"}
+)
+# Clause adverbs and conjunctions: they hold no phrase of their own and
+# close the phrase before them ("מהמותר בחוק אז הקנס").
+_HEBREW_RATE_CLAUSE_ADVERBS = frozenset(
+    {"אז", "לכן", "לפיכך", "אולם", "אבל", "אלא", "כי", "וכן", "ואז", "ולכן", "ולפיכך"}
+)
+
+
+_HEBREW_RATE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<rate>(?:[\u05d1\u05d4\u05d5\u05dc\u05e9][\u05be-]?){0,2}שיעור(?:ים|י)?|אחוז(?:ים)?|(?:ה[\u05be-]?)?ריבית)"
+    "(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_rate_expression_governs(words: list[str], construct: bool) -> bool:
+    """Whether the words after a rate word, up to the pair, keep the pair the rate's.
+
+    The main predicate is the last listed verb, copula or participle
+    before the pair: every predicate before it belongs to a relative
+    clause in the subject ("שהבנק יקבע תהיה", "שבנק ישראל יקבע תהיה",
+    "שהבנק עומד לגבות היא"), whatever opened the clause. After the main
+    predicate only its connectors may stand -- prepositions and their
+    objects, comparatives and limits, prefixed phrases, attributives
+    ("תעמוד על", "תהיה לפחות", "תהיה בשיעור של"): an amount noun ("תהיה
+    לפי הקנס של") or any other content word ("יוטל קנס", "יוטל עונש")
+    takes the pair away. Before the main predicate, the subject's head is
+    the word its attributives, prefixed phrases and prepositional phrases
+    modify ("הקנס המרבי", "הקנס הקבוע בחוק"); a definite amount noun there
+    that no phrase holds is a new subject and takes the pair ("אז הקנס
+    יהיה", "מן המותר הקנס יהיה"), while one a preposition or a construct
+    holds ("על ההלוואה", "יתרת ההלוואה", "הסכם ההלוואה") is the rate's own
+    modifier. An amount noun right before the pair or before its "של"
+    takes the pair whatever precedes ("קנס של 50 או 2%").
+    """
+
+    def _known_predicate(word: str) -> bool:
+        return (
+            word in _HEBREW_CONSEQUENT_VERBS
+            or word in _HEBREW_RATE_COPULAS
+            or word in _HEBREW_RATE_PARTICIPLES
+        )
+
+    def _prefixed(word: str) -> bool:
+        return word[:1] in "\u05d1\u05dc\u05de\u05db"
+
+    def _attributive(word: str) -> bool:
+        return (
+            _hebrew_word_is_definite(word) and not _hebrew_word_governs_an_amount(word)
+        ) or word.startswith("\u05e9")
+
+    bares = [
+        word[1:].lstrip("\u05be-")
+        if word.startswith("\u05d5") and len(word) > 1
+        else word
+        for word in words
+    ]
+    main = max(
+        (
+            index
+            for index, bare in enumerate(bares)
+            if bare not in _HEBREW_RATE_NEUTRAL_WORDS and _known_predicate(bare)
+        ),
+        default=None,
+    )
+    # After the main predicate: its connectors only.
+    if main is not None:
+        expect_object = False
+        for bare in bares[main + 1 :]:
+            if (
+                bare in _HEBREW_RATE_NEUTRAL_WORDS
+                or bare in _HEBREW_RATE_CLAUSE_ADVERBS
+            ):
+                continue
+            if bare in _HEBREW_RATE_PREPOSITIONS:
+                expect_object = True
+                continue
+            if _hebrew_word_governs_an_amount(bare):
+                return False
+            if expect_object:
+                expect_object = False
+                continue
+            if (
+                bare in _HEBREW_RATE_COMPARATIVES
+                or _prefixed(bare)
+                or _attributive(bare)
+            ):
+                continue
+            return False
+    # Before it: which words a phrase holds. A phrase is a preposition with
+    # its object and the construct and attributives after it, a prefixed
+    # word, a relative clause up to its verb, a known predicate of a
+    # relative clause, or an attributive of the noun before it. The last
+    # word no phrase holds begins the noun phrase the main predicate is
+    # predicated of; when an amount noun heads it, the pair is that
+    # amount's ("אז הקנס יהיה", "מן המותר הקנס יהיה", "הקנס לפי הוראת בנק
+    # ישראל יהיה", "קנס הפיגורים יהיה", "הקנס שבנק ישראל יקבע יהיה").
+    subject = bares[:main] if main is not None else bares
+    held: list[bool] = []
+    in_phrase = False
+    expect_object = construct
+    last_definite = False
+    relative = False
+    # A bare noun no phrase holds heads a construct: the bare words after
+    # it are its complements ("קנס פיגורים").
+    construct_head = False
+    for bare in subject:
+        if bare in _HEBREW_RATE_NEUTRAL_WORDS:
+            held.append(True)
+            continue
+        if bare in _HEBREW_RATE_CLAUSE_ADVERBS:
+            held.append(True)
+            in_phrase = False
+            last_definite = False
+            construct_head = False
+            relative = False
+            continue
+        if not (
+            (
+                bare[:1] not in "\u05d1\u05dc\u05de\u05db\u05d4\u05e9"
+                or (
+                    _hebrew_word_is_an_amount_noun(bare)
+                    and not _hebrew_word_is_definite(bare)
+                )
+            )
+            and bare not in _HEBREW_RATE_PREPOSITIONS
+            and not _known_predicate(bare)
+            and bare != "אשר"
+            and not relative
+            and not expect_object
+        ):
+            construct_head = False
+        if _known_predicate(bare):
+            held.append(True)
+            relative = False
+            continue
+        amount_noun = _hebrew_word_is_an_amount_noun(bare)
+        if not amount_noun and (bare == "אשר" or bare.startswith("\u05e9")):
+            # A clause whose verb is inside its opening word ("שנקבעה", ש
+            # before a verb's first letter) is complete; one whose subject
+            # is ("שהבנק", "שבנק ישראל", "אשר הבנק") runs to its verb.
+            held.append(True)
+            relative = bare == "אשר" or bare[1:2] not in "\u05d9\u05ea\u05e0\u05d0"
+            continue
+        if relative:
+            held.append(True)
+            if not (
+                bare in _HEBREW_RATE_PREPOSITIONS
+                or _prefixed(bare)
+                or bare.startswith("\u05d4")
+            ):
+                relative = False
+            continue
+        if bare in _HEBREW_RATE_PREPOSITIONS:
+            in_phrase = True
+            expect_object = True
+            last_definite = False
+            held.append(True)
+            continue
+        if expect_object:
+            expect_object = False
+            last_definite = _hebrew_word_is_definite(bare)
+            held.append(True)
+            continue
+        if _prefixed(bare) and not amount_noun:
+            # The object inside the word keeps its article ("מהמותר",
+            # "מהתקרה") or lacks it ("בחוק", "בהסכם").
+            in_phrase = True
+            last_definite = _hebrew_word_is_definite(bare[1:].lstrip("\u05be-"))
+            held.append(True)
+            continue
+        if bare.startswith("\u05d4") or (
+            amount_noun and _hebrew_word_is_definite(bare)
+        ):
+            if not _hebrew_word_governs_an_amount(bare):
+                # An attributive of the noun before it.
+                held.append(True)
+            else:
+                # A definite noun after a definite object is a new phrase;
+                # after a bare object it is the construct's complement.
+                held.append(in_phrase and not last_definite)
+            last_definite = _hebrew_word_is_definite(bare)
+            continue
+        # A bare word after a definite object ends the phrase ("מן המותר אז").
+        if last_definite:
+            in_phrase = False
+        last_definite = False
+        if construct_head:
+            held.append(True)
+            continue
+        held.append(in_phrase)
+        construct_head = not in_phrase
+        continue
+    start_index = max(
+        (index for index, flag in enumerate(held) if not flag), default=None
+    )
+    if (
+        start_index is not None
+        and not (construct and start_index == 0)
+        and _hebrew_word_governs_an_amount(subject[start_index])
+    ):
+        return False
+    if words and _hebrew_word_governs_an_amount(words[-1]):
+        return False
+    return not (
+        len(words) >= 2
+        and words[-1] == "של"
+        and _hebrew_word_governs_an_amount(words[-2])
+    )
+
+
+def _hebrew_rate_word_before(text: str, start: int) -> bool:
+    """An explicit rate word before ``start`` whose expression governs the pair there.
+
+    Every rate word in the clause is a candidate, the earliest first; an
+    expression that ends before the pair ("הריבית תבוטל והקנס יהיה בשיעור
+    של 10 או 30%") yields to the next rate word. Numbers, joins and number
+    words between a rate word and the pair -- a reference, a member read
+    earlier -- are passed over.
+    """
+    clause_start = _hebrew_clause_start_before(text, start)
+    for rate in _HEBREW_RATE_WORD_PATTERN.finditer(text, clause_start, start):
+        words: list[str] = []
+        for token_match in _NON_SPACE_TOKEN_PATTERN.finditer(text, rate.end(), start):
+            token = token_match.group(0).strip(",;:()")
+            if (
+                not token
+                or any(character.isdigit() for character in token)
+                or "%" in token
+                or token in _HEBREW_LIST_JOIN_WORDS
+                or _strip_hebrew_number_prefix(token, _HEBREW_RUN_START_VOCABULARY)
+                is not None
+            ):
+                continue
+            words.append(token)
+        if _hebrew_rate_expression_governs(
+            words, not rate.group("rate").startswith("\u05d4")
+        ):
+            return True
+    return False
+
+
+# A plural noun naming the kind of quantity the unit gives, as the subject of
+# the copula or construct right before the list, heads a coordinated list:
+# "שיעורי המס הם 2 ו־3 אחוזים", "השיעורים יהיו 1, 2 ו־3 אחוזים", "הסכומים הם
+# 2 ו־3 מיליון שקלים", "בסכומים של 1, 2 ו־3 מיליון". The list runs from the
+# heading to the unit, commas and vavs within it joining; a noun that governs
+# another predicate ("שיעורי המס יחולו על הכנסה של 500 ו־2 ו־3%") heads
+# nothing, a bare plural copula ("ההכנסות הן 500 ו־2 ו־3%") is no such noun,
+# and a conditional clause ("אם התשלומים הם 500, 2 או 3%") states a condition.
+_HEBREW_LIST_COPULAS = "הם|הן|יהיו|תהיינה|הינם|הינן|של|כדלקמן:?|הבאים:?|הבאות:?"
+# Before a true copula the whole subject phrase stands between the plural
+# noun and the copula -- a construct chain ("שיעורי מס ערך מוסף הם", "סכומי
+# שכר העבודה הם"), a relative clause ("השיעורים שנקבעו בצו שר האוצר הם")
+# -- since no predicate can; any words, numbers and parentheticals ("הקנסות
+# שהוטלו על 5 עובדים הם", "השיעורים לפי סעיף 2(א) הם", "בצו (להלן הצו) הם"),
+# to the copula within the clause. Before the genitive "של"
+# a predicate can intervene ("הקנסות ייגזרו מתשלום של", "השיעורים יחולו על
+# ההכנסה של"), so only a nominal chain may stand there: definite nouns
+# ("סכומי הקנס של") and the construct nouns of the unit's kind ("שיעורי מס
+# הכנסה של").
+_HEBREW_HEADING_CONSTRUCT_NOUNS = (
+    "מס|מסי|הכנסה|הכנסת|ביטוח|לאומי|בריאות|דמי|תשלומי|מענקי|סכומי|שיעורי|ריבית|היטל"
+)
+_HEBREW_HEADING_NOMINAL_COMPLEMENT = (
+    "(?:\\s+(?:\u05d4[\u05be-]?[\u0590-\u05ff]+|"
+    + _HEBREW_HEADING_CONSTRUCT_NOUNS
+    + ")){0,3}"
+)
+_HEBREW_HEADING_SUBJECT_COMPLEMENT = (
+    '(?:\\s+(?:[\u0590-\u05ff]+(?:[\u05f4"-][\u0590-\u05ff]+)?'
+    "|\\d[\\d.,]*(?:\\([^()\\n]{1,8}\\))*|\\([^()\\n]{1,80}\\)))*"
+)
+_HEBREW_LIST_TRUE_COPULAS = "הם|הן|יהיו|תהיינה|הינם|הינן|כדלקמן:?|הבאים:?|הבאות:?"
+_HEBREW_HEADING_TAIL = (
+    "(?:"
+    + _HEBREW_HEADING_SUBJECT_COMPLEMENT
+    + "\\s+(?:"
+    + _HEBREW_LIST_TRUE_COPULAS
+    + ")|"
+    + _HEBREW_HEADING_NOMINAL_COMPLEMENT
+    + "\\s+של)(?![\u0590-\u05ff])"
+)
+# A heading noun may carry the conjunction and the relative or conditional
+# stack ("והשיעורים הם", "ששיעורי המס הם", "כשהתשלומים הם"); a "כש" in the
+# stack opens the condition the marker search below would otherwise find
+# before the noun.
+_HEBREW_HEADING_NOUN_STACK = "(?P<stack>\u05d5?(?:\u05db\u05e9|\u05e9)?)"
+_HEBREW_PLURAL_RATE_HEADING_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_HEADING_NOUN_STACK
+    + "(?:ה[\u05be-]?שיעורים|שיעורי|ב[\u05be-]?שיעורים|שיעורים"
+    "|ה[\u05be-]?ריביות|ריביות)" + _HEBREW_HEADING_TAIL
+)
+_HEBREW_PLURAL_AMOUNT_HEADING_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_HEADING_NOUN_STACK
+    + "(?:ה[\u05be-]?סכומים|סכומי|ב[\u05be-]?סכומים|סכומים"
+    "|ה[\u05be-]?תשלומים|תשלומי|תשלומים|ה[\u05be-]?מענקים|מענקי"
+    "|ה[\u05be-]?קנסות|קנסות|ה[\u05be-]?קצבאות|קצבאות)" + _HEBREW_HEADING_TAIL
+)
+# A conditional marker in the heading's own comma segment, after a preamble
+# ("לעניין זה, כאשר התשלומים הם") or with a vav ("וכאשר"), opens a
+# condition; "כש" is a prefix on the next word. A condition completed before
+# the segment ("אם ההכנסה נמוכה, השיעורים הם 10, 20 ו־30 אחוזים") leaves the
+# list headed. Within a condition the list is headed when it lies wholly
+# inside it -- a comma, a stop or a list tail such as "בהתאמה" follows the
+# unit ("אם השיעורים הם 10, 20 ו־30 אחוזים בהתאמה, תחול ההוראה") -- and
+# heads nothing when the clause runs on past the unit into the consequent
+# ("כאשר התשלומים הם 500, 2 או 3 מיליון שקלים ישולמו כמענק").
+_HEBREW_CONDITIONAL_CLAUSE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?(?:אם|כאשר|אילו|לכשיהיה)(?![\u0590-\u05ff])"
+    # "ככל ש", "במקרה ש" and "כש" end in the relative ש, a prefix on the
+    # word that follows ("ככל שהתשלומים הם"): the marker ends inside that
+    # word, which the caller allows when the word is the heading noun.
+    "|(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?(?:ככל|במקרה)\\s+ש(?=[\u0590-\u05ff])"
+    "|(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?כש(?=[\u0590-\u05ff])"
+)
+_HEBREW_SENTENCE_STOP_CHARACTERS = frozenset(".;:\n")
+_HEBREW_LIST_TAIL_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:(?<![\u0590-\u05ff])(?:בהתאמה|לפחות|בלבד|ומעלה|לכל\\s+היותר"
+    "|לפי\\s+העניין|בקירוב)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?:[,.;:\\n)]|$)"
+)
+# A line wrap inside a list -- after a comma, a join or the heading's copula
+# ("הסכומים הם 1,\n2 ו־3 מיליון", "הסכומים הם\n1, 2 ו־3 מיליון") -- is
+# whitespace; any other newline, a blank line included, ends the clause, so
+# table rows and numbered paragraphs stay apart.
+_HEBREW_SOFT_WRAP_BEFORE_PATTERN = re.compile(
+    "(?:,|\u05d5[\u05be-]|(?<![\u0590-\u05ff])(?:או|עד|ועד|לבין|ובין|"
+    "הם|הן|יהיו|תהיינה|הינם|הינן|של|כדלקמן:?|הבאים:?|הבאות:?)|:)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*$"
+)
+
+
+_HEBREW_LIST_JOIN_WORDS = frozenset({"או", "עד", "ועד", "\u05d5"})
+_HEBREW_LIST_INTRODUCERS = ("כדלקמן", "הבאים", "הבאות")
+
+
+# The colon that introduces the list ("השיעורים הם: 10, 20 ו־30") is body too.
+_HEBREW_LIST_BODY_FILLER_PATTERN = re.compile(
+    "[\\s\\d.,:%/\u2044\u05be\\-\u2013\u2212$\u20ac\u00a3\u20aa\u20b9\u00a5"
+    "\u00bc-\u00be\u2150-\u215e\u200e\u200f\u202a-\u202e\u2066-\u2069]*"
+)
+
+
+def _hebrew_list_body_only(text: str, start: int, end: int) -> bool:
+    """Whether ``text[start:end]`` holds list items and joins alone.
+
+    Numbers, number words, scale words, percent nouns, currency words,
+    joins, commas and signs: "10, 20 ו־" is a list body, "10% ו־20%, הקנס
+    יהיה" is not, and nor is prose in any other script.
+    """
+    position = start
+    while position < end:
+        filler = _HEBREW_LIST_BODY_FILLER_PATTERN.match(text, position, end)
+        position = filler.end()
+        if position >= end:
+            return True
+        word_match = _HEBREW_WORD_TOKEN_PATTERN.match(text, position, end)
+        if word_match is None:
+            return False
+        word = word_match.group(0).rstrip("\u05be-")
+        bare = (
+            word[1:].lstrip("\u05be-")
+            if len(word) > 1 and word.startswith("\u05d5")
+            else word
+        )
+        if not (
+            word in _HEBREW_LIST_JOIN_WORDS
+            or _strip_hebrew_number_prefix(word, _HEBREW_RUN_START_VOCABULARY)
+            is not None
+            or word in _HEBREW_PRINTED_SCALE_VALUES
+            or bare in _HEBREW_PRINTED_SCALE_VALUES
+            or _hebrew_is_percent_noun(word)
+            or _hebrew_is_percent_noun(bare)
+            or word in _HEBREW_CURRENCY_WORDS
+            or bare in _HEBREW_CURRENCY_WORDS
+            or word in _HEBREW_MIXED_FRACTION_VALUES
+            or bare in _HEBREW_MIXED_FRACTION_VALUES
+            or word in _HEBREW_COUNTED_FRACTION_VALUES
+            or bare in _HEBREW_COUNTED_FRACTION_VALUES
+            or word in _HEBREW_FRACTION_COUNT_VALUES
+        ):
+            return False
+        position = word_match.end()
+    return True
+
+
+def _hebrew_list_body_end(text: str, start: int) -> int:
+    """Where the list body running from ``start`` ends.
+
+    The end of its last number, join, scale word, percent noun or currency
+    word: "10, 20 ו־30 אחוזים בהתאמה" ends after the noun.
+    """
+    position = start
+    end = start
+    limit = len(text)
+    while position < limit:
+        filler = _HEBREW_LIST_BODY_FILLER_PATTERN.match(text, position, limit)
+        consumed = text[position : filler.end()].rstrip(" \t\n,.;:")
+        if consumed:
+            end = position + len(consumed)
+        position = filler.end()
+        if position >= limit:
+            break
+        word_match = _HEBREW_WORD_TOKEN_PATTERN.match(text, position, limit)
+        if word_match is None:
+            break
+        word = word_match.group(0).rstrip("\u05be-")
+        bare = (
+            word[1:].lstrip("\u05be-")
+            if len(word) > 1 and word.startswith("\u05d5")
+            else word
+        )
+        if not (
+            word in _HEBREW_LIST_JOIN_WORDS
+            or _strip_hebrew_number_prefix(word, _HEBREW_RUN_START_VOCABULARY)
+            is not None
+            or word in _HEBREW_PRINTED_SCALE_VALUES
+            or bare in _HEBREW_PRINTED_SCALE_VALUES
+            or _hebrew_is_percent_noun(word)
+            or _hebrew_is_percent_noun(bare)
+            or word in _HEBREW_CURRENCY_WORDS
+            or bare in _HEBREW_CURRENCY_WORDS
+            or word in _HEBREW_MIXED_FRACTION_VALUES
+            or bare in _HEBREW_MIXED_FRACTION_VALUES
+            or word in _HEBREW_COUNTED_FRACTION_VALUES
+            or bare in _HEBREW_COUNTED_FRACTION_VALUES
+            or word in _HEBREW_FRACTION_COUNT_VALUES
+        ):
+            break
+        end = word_match.end()
+        position = end
+    return end
+
+
+# Within a condition the comma before the consequent is the one after the
+# condition, so a headed list inside the condition is followed by that
+# comma, a clause separator or a list tail, with at most modifiers of the
+# unit between ("אחוזים מהכנסה נמוכה, תחול ההוראה", "אחוזים מערך יבולו,
+# תחול ההוראה", "שקלים מסוימים, ישולם מענק"); a list the consequent
+# swallowed runs on to the sentence end with words between and no comma
+# ("שקלים משולמים כמענק.") or shows the consequent's verb before the comma
+# ("שקלים ישולמו כמענק, והיתרה תוחזר", "שקלים יקבל העובד, והיתרה תוחזר").
+# No shape tells "ישלם" from "יחיד", nor "ישולמו" from the possessive
+# "יבולו": the verb is known by word alone. A statute writes its
+# consequents in the third-person future of a closed list of verbs, in
+# the singular ("ישלם", "תשלם", "ישולם", "תחול", "יינתן", "יקבל",
+# "יוענק") and the plural ("ישולמו", "יחולו", "יקבלו"); any other word
+# after the unit modifies it. A relative clause carries its own verb --
+# "אשר", or ש before the article ("שהמעסיק"), a preposition with its
+# suffix ("שעליה", "שבגינה", "שממנה"), a verb-shaped word ("שנקבע") or a
+# past plural ("ששולמו"), the lexical ש-words (שכיר, שוטף, שנתי)
+# excepted. A relative clause on any subject, definite or not ("ששופט
+# יקבע", "שבית דין אזורי לעבודה יקבע"), shows itself by its own verb
+# within a few words. A Hebrew word almost never begins in ו, so ש before
+# ו is a root letter ("שותפה", "שוכרת", "שווי", "שומה"), never the relative
+# prefix, the ועדה family excepted ("שועדת הערר תקבע", "שוועדת הערר
+# תקבע"). Before another letter the lexical ש-nouns a statute uses
+# (שליח, שכן, שמאי) are listed; every other ש-word is the prefix.
+# The ש-initial words a statute uses that open no relative clause.
+_HEBREW_LEXICAL_SHIN_STEMS = (
+    "של",
+    "שכיר",
+    "שכירה",
+    "שכירים",
+    "שוטף",
+    "שוטפת",
+    "שוטפים",
+    "שנתי",
+    "שנתית",
+    "שנתיים",
+    "שקל",
+    "שקלים",
+    "שיעור",
+    "שיעורי",
+    "שיעורים",
+    "שכר",
+    "שלם",
+    "שלמה",
+    "שלמים",
+    "שנה",
+    "שנת",
+    "שני",
+    "שתי",
+    "שלושה",
+    "שלוש",
+    "שבעה",
+    "שבע",
+    "שמונה",
+    "שישה",
+    "שש",
+    "שירות",
+    "שירותי",
+    "שווי",
+    "שוק",
+    "שער",
+    "שערי",
+    "שטח",
+    "שטחי",
+    "שם",
+    "שמות",
+    "שלב",
+    "שלבי",
+    "שעה",
+    "שעות",
+    "שיטה",
+    "שיטת",
+    "שינוי",
+    "שינויים",
+    "שימוש",
+    "שאלה",
+    "שבוע",
+    "שבועות",
+    "שאר",
+    "שומה",
+    "שומת",
+    "שומות",
+    "שיפוי",
+    "שיקום",
+    "שיקול",
+    "שיקולים",
+    "שיפור",
+    "שילוב",
+    "שיתוף",
+    "שליטה",
+    "שלטון",
+    "שמירה",
+    "שטר",
+    "שטרות",
+    "שיווק",
+    "שדה",
+    "שדות",
+    "שבח",
+    "שגיאה",
+    "שאירים",
+    "שאיר",
+    "שביתה",
+    "שהות",
+    "שעבוד",
+    "שיעבוד",
+    "שותף",
+    "שותפה",
+    "שותפת",
+    "שותפות",
+    "שותפים",
+    "שליח",
+    "שליחה",
+    "שליחי",
+    "שלוח",
+    "שלוחה",
+    "שלוחות",
+    "שכן",
+    "שכנה",
+    "שכנים",
+    "שמאי",
+    "שמאים",
+    "שמאות",
+    "שוכר",
+    "שוכרת",
+    "שוכרים",
+    "שולח",
+    "שולחת",
+    "שולחים",
+    "שמש",
+    "שוער",
+    "שגריר",
+    "שגרירות",
+    "שחקן",
+    "שדרן",
+    "שרת",
+    "שלט",
+    "שלטים",
+    "שלד",
+    "שריפה",
+    "שרשרת",
+    "שביל",
+    "שבוי",
+    "שגרה",
+    "שיר",
+    "שירה",
+    "שדרה",
+    "שעון",
+    "שפה",
+    "שפע",
+    "שקט",
+    "שקע",
+    "שכונה",
+    "שכונת",
+    "שמחה",
+    "שאלות",
+    "שאילתה",
+    "שדרות",
+    "שלוחת",
+    "שליטת",
+    "שמות",
+    "שמי",
+    "שמו",
+    "שמה",
+    "שמם",
+    "שרה",
+    "שרון",
+    "שמעון",
+    "שאול",
+    "שלומית",
+    "שולה",
+)
+_HEBREW_LEXICAL_SHIN_WORDS = "(?:" + "|".join(_HEBREW_LEXICAL_SHIN_STEMS) + ")"
+_HEBREW_RELATIVE_MARKER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:אשר|(?!"
+    + _HEBREW_LEXICAL_SHIN_WORDS
+    + "(?![\u0590-\u05ff]))"
+    "\u05e9[\u05be-]?(?:\u05d4[\u05be-]?[\u0590-\u05ff]+"
+    "|(?:\u05d5[\u05be-]?)?\u05d5(?:עדה|עדת|עד|תק|תיק|תיקה)"
+    "|(?:על|ב|בגינ|ממנ|מ|ממ|לגבי|בשל|בעד|כנגד|כלפי|אל|אצל|תחת|לפי|בתוכ|מתוכ)"
+    "(?:ו|ה|הם|הן|ם|ן|נו|יו|יה|יהם|יהן)"
+    "|[\u05d9\u05ea\u05e0\u05d0][\u0590-\u05ff]{2,}"
+    "|(?!\u05d5)[\u0590-\u05ff]{2,}\u05d5))(?![\u0590-\u05ff])"
+)
+_HEBREW_WORD_AFTER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:\u05d5[\u05be-]?)?(?P<word>[\u0590-\u05ff]{2,})(?![\u0590-\u05ff])"
+)
+# The third-person singular future forms a statute writes its consequents
+# in, masculine and feminine; the plural is derived from the masculine. A
+# form that is also a noun (תושב, תורה, תעלה, יוסף, תוסף) is left out.
+_HEBREW_CONSEQUENT_VERB_STEMS = (
+    "ישלם תשלם ישולם תשולם ינכה תנכה ינוכה תנוכה יחול תחול יהיה תהיה ייתן תיתן "
+    "יינתן תינתן ינתן תנתן ישית תשית יטיל תטיל יוטל תוטל יחייב תחייב יחויב תחויב "
+    "יזכה תזכה יזוכה תזוכה יראה תראה ייראה תיראה יחשב תחשב ייחשב תיחשב יחושב תחושב "
+    "יפחית תפחית יופחת תופחת יחזיר תחזיר יוחזר תוחזר יקבע תקבע ייקבע תיקבע יאשר "
+    "תאשר יאושר תאושר יישא תישא ישא תשא יגבה תגבה ייגבה תיגבה יקזז תקזז יקוזז תקוזז "
+    "יעביר תעביר יועבר תועבר ישמש תשמש ימסור תמסור יימסר תימסר ידחה תדחה יידחה "
+    "תידחה יקטן תקטן יגדל תגדל יעלה יירד תרד ייזקף תיזקף יזקוף תזקוף יצורף "
+    "תצורף יצרף תצרף יוסיף תוסיף ייווסף תיווסף יחלט תחלט יחולט תחולט "
+    "יורה יחליט תחליט יוחלט תוחלט יפרע תפרע ייפרע תיפרע יעמוד תעמוד יעמיד "
+    "תעמיד יועמד תועמד יקבל תקבל יתקבל תתקבל יוענק תוענק יעניק תעניק יגרע תגרע "
+    "ייגרע תיגרע ייעשה תיעשה יעשה תעשה יבוצע תבוצע יתבצע תתבצע יורשה תורשה יאפשר "
+    "תאפשר יימנע תימנע יופסק תופסק יבוטל תבוטל יחודש תחודש יוארך תוארך "
+    "יושלם תושלם יימחק תימחק יוגש תוגש יגיש תגיש ישולב תשולב יוכר תוכר יכיר תכיר "
+    "יוקצה תוקצה יוסדר תוסדר יפצה תפצה יפוצה תפוצה ישפה תשפה ישופה תשופה יימשך "
+    "תימשך ימשיך תמשיך יחדל תחדל יפסיק תפסיק תוצא יוציא תוציא יביא תביא יובא "
+    "תובא ייכלל תיכלל יכלול תכלול יחיל תחיל יוחל תוחל ישמור תשמור יישמר תישמר "
+    "יפקיד תפקיד יופקד תופקד ישחרר תשחרר ישוחרר תשוחרר יעכב תעכב יעוכב תעוכב ינהג "
+    "תנהג ינהל תנהל ינוהל תנוהל יפעל תפעל יופעל תופעל יתחייב תתחייב יתווסף תתווסף "
+    "יגיע תגיע יובהר תובהר יראו ישלח תשלח יישלח תישלח יודיע תודיע יוזמן תוזמן "
+    "יעריך תעריך יוערך תוערך יחשוב תחשוב יחסיר תחסיר יופחתו יעודכן תעודכן יעדכן "
+    "תעדכן יצמיד תצמיד יוצמד תוצמד ישונה תשונה תשנה"
+).split()
+
+
+_HEBREW_MEDIAL_FORMS = str.maketrans("ךםןףץ", "כמנפצ")
+
+
+def _hebrew_plural_future(stem: str) -> str:
+    """The third-person plural of a masculine singular future form.
+
+    The ו suffix moves a final letter to its medial form ("ישולם" becomes
+    "ישולמו"), and replaces a final ה ("יזכה" becomes "יזכו").
+    """
+    if stem.endswith("\u05d4"):
+        return stem[:-1] + "\u05d5"
+    return stem[:-1] + stem[-1].translate(_HEBREW_MEDIAL_FORMS) + "\u05d5"
+
+
+_HEBREW_CONSEQUENT_VERBS = frozenset(_HEBREW_CONSEQUENT_VERB_STEMS) | frozenset(
+    _hebrew_plural_future(stem)
+    for stem in _HEBREW_CONSEQUENT_VERB_STEMS
+    if stem.startswith("\u05d9")
+)
+_HEBREW_LIST_TAIL_WORD_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?<![\u0590-\u05ff])(?:בהתאמה|לפחות|בלבד|ומעלה|לכל\\s+היותר"
+    "|לפי\\s+העניין|בקירוב)(?![\u0590-\u05ff])"
+)
+_HEBREW_CLAUSE_SEPARATOR_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*[,;:\\n)]"
+)
+_HEBREW_SENTENCE_END_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:[.!?]|"
+    + _PARAGRAPH_GAP_FRAGMENT
+    + "|$)"
+)
+_HEBREW_UNIT_MODIFIER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:(?:של|על|לפי|לכל|בעד|לגבי|מן)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+[\u0590-\u05ff]+"
+    "|[\u0590-\u05ff]+)(?![\u0590-\u05ff])"
+)
+
+
+# The inflections of a listed ש-noun ("שליחים", "שליחיו", "שליחי") are the
+# noun too; a suffix moves the stem's final letter to its medial form
+# ("שכן" becomes "שכנו", "שחקן" becomes "שחקניו").
+# An entry that is itself an inflection, a numeral or a name ("שמם", "שמות",
+# "שליחי", "שלושה", "שרון") inflects no further, so "שממנו" stays the
+# preposition it is; a base noun ("שם", "שכן", "שוכר") inflects.
+_HEBREW_LEXICAL_SHIN_FIXED_FORMS = frozenset(
+    "של שכירה שכירים שוטפת שוטפים שנתית שנתיים שקלים שיעורי שיעורים שלמה שלמים "
+    "שנת שני שתי שלושה שלוש שבעה שבע שמונה שישה שש שירותי שערי שטחי שמות שלבי "
+    "שעות שיטת שינויים שבועות שאר שומת שומות שיקולים שטרות שדות שאירים שיעבוד "
+    "שותפה שותפת שותפות שותפים שליחה שליחי שלוחה שלוחות שכנה שכנים שמאים שמאות "
+    "שוכרת שוכרים שולחת שולחים שגרירות שלטים שירה שכונת שאלות שדרות שלוחת שליטת "
+    "שמי שמו שמה שמם שרה שרון שמעון שאול שלומית שולה".split()
+)
+_HEBREW_SHIN_SUFFIXES = "(?:ים|ות|יו|יה|יהם|יהן|נו|י|ו|ה|ם|ן|ת|ך|כם|כן)"
+# The possessives a plural stem takes ("שאלותיו", "שכניו", "שליחותיהם").
+_HEBREW_SHIN_PLURAL_SUFFIXES = "(?:יו|יה|יהם|יהן|ינו|יך|יכם|יכן|י)"
+
+
+def _hebrew_lexical_shin_variants(stem: str) -> str:
+    """The stem and the inflections it takes: a plural on its plural stem
+    ("שאלות" gives "שאלותיו", "שכנים" gives "שכניו"), a feminine on its ת
+    construct stem and its plural ("שאלה" gives "שאלתו" and "שאלותיו"), a
+    fixed form none, any other on its medial final letter ("שכן" gives
+    "שכנו")."""
+    if stem.endswith("ות"):
+        return stem + "|" + stem + _HEBREW_SHIN_PLURAL_SUFFIXES
+    if stem.endswith("ים"):
+        return stem + "|" + stem[:-2] + "\u05d9" + _HEBREW_SHIN_SUFFIXES
+    if stem.endswith("\u05d4"):
+        return (
+            stem
+            + "|"
+            + stem[:-1]
+            + "\u05ea"
+            + _HEBREW_SHIN_SUFFIXES
+            + "|"
+            + stem[:-1]
+            + "ות"
+            + _HEBREW_SHIN_PLURAL_SUFFIXES
+        )
+    if stem in _HEBREW_LEXICAL_SHIN_FIXED_FORMS:
+        return stem
+    return (
+        stem
+        + "|"
+        + stem[:-1]
+        + stem[-1].translate(_HEBREW_MEDIAL_FORMS)
+        + _HEBREW_SHIN_SUFFIXES
+    )
+
+
+_HEBREW_LEXICAL_SHIN_WORD_PATTERN = re.compile(
+    "(?:"
+    + "|".join(
+        _hebrew_lexical_shin_variants(stem) for stem in _HEBREW_LEXICAL_SHIN_STEMS
+    )
+    + ")$"
+)
+
+
+# The markers whose form is unmistakable: ש before the article, a suffixed
+# preposition ("שממנו", "שעליה") or the ועדה family. They are read before
+# the lexical nouns, which are read before the generic markers.
+_HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:אשר|\u05e9[\u05be-]?(?:\u05d4[\u05be-]?[\u0590-\u05ff]+"
+    "|(?:\u05d5[\u05be-]?)?\u05d5(?:עדה|עדת|עד|תק|תיק|תיקה)"
+    "|(?:על|ב|בגינ|ממנ|מ|ממ|לגבי|בשל|בעד|כנגד|כלפי|אל|אצל|תחת|לפי|בתוכ|מתוכ)"
+    "(?:ו|ה|הם|הן|ם|ן|נו|יו|יה|יהם|יהן)))(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_opens_relative_clause(text: str, position: int) -> bool:
+    """Whether a relative marker opens a clause at ``position``.
+
+    "אשר", ש before the article, a suffixed preposition ("שממנו") or the
+    ועדה family are markers whatever the lexicon says; then a listed ש-noun
+    in any inflection ("שליחים ישלמו", "שכנו ישלם") is no marker, and
+    neither is a possessive on a ש-root ("שוכריו ישלמו"), ש before ו being a
+    root letter; then a verb-shaped word or a past plural is one.
+    """
+    word = _HEBREW_WORD_AFTER_PATTERN.match(text, position)
+    lexical = word is not None and (
+        _HEBREW_LEXICAL_SHIN_WORD_PATTERN.match(word.group(0).strip()) is not None
+    )
+    if _HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN.match(text, position) is not None:
+        # "שמו" is "his name" as much as "that from him": a word both marker
+        # and noun decides nothing, and the caller reports the ambiguity.
+        return not lexical
+    if lexical:
+        return False
+    return _HEBREW_RELATIVE_MARKER_PATTERN.match(text, position) is not None
+
+
+# Ambiguity is explicit. A bare word after the unit that no class of
+# evidence decides -- no preposition, article or vav prefix, no plural
+# ending, outside the lexicons and the closed sets -- may be the consequent's
+# verb or a modifier of the unit ("מהכנסה נמוכה", "מהכנסת יחיד", "ממס ישיר").
+# So may a bare ש-word that is neither a relative marker nor a listed
+# ש-noun ("ששופט יקבע", "שבית דין יקבע"): the relative prefix on a subject
+# with its own verb, or a noun before the consequent's verb. Unless a lexicon
+# verb or the sentence end decides later -- and after such a ש-word the verb
+# decides nothing, since it may be the relative clause's own -- the list is
+# AMBIGUOUS: it grounds as today, unscaled, and the source reports the
+# shared-unit reading as a candidate a reviewed assertion may select.
+# Exhausted input and a token that is no word are ambiguous, never a
+# consequent. ש before ו is a root letter ("שותפה", "שוכרת", "שווי"), never
+# the prefix, the ועדה family excepted.
+HEBREW_HEADED_LIST_IN_CONDITION = "hebrew-headed-list-in-condition"
+_HEBREW_AMBIGUOUS_AS_HEADED: "ContextVar[bool]" = ContextVar(
+    "_HEBREW_AMBIGUOUS_AS_HEADED", default=False
+)
+_HEBREW_AMBIGUOUS_HEADINGS: "ContextVar[list[tuple[int, int, int, bool]] | None]" = (
+    ContextVar("_HEBREW_AMBIGUOUS_HEADINGS", default=None)
+)
+_HEBREW_DECIDED_MODIFIER_WORDS = frozenset(
+    "נטו ברוטו נומינלי נומינלית נומינליים אלו אלה אותם אותן אותו אותה חדשים חדש "
+    "ישראל ירושלים יהודה יחד יחדיו יותר נוסף נוספת אחר אחרת אחד אחת או את אם אף "
+    "אך אל אפילו אילו איפוא אולי תוך תחת נגד".split()
+)
+
+
+def _hebrew_word_is_undecided(token: str) -> bool:
+    """Whether no class of evidence tells ``token`` for a modifier or a verb."""
+    if token in _HEBREW_DECIDED_MODIFIER_WORDS:
+        return False
+    if token[0] == "\u05e9":
+        if _HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN.match(token) is not None:
+            # Reached only when the word is a lexical noun too ("שמו").
+            return True
+        if len(token) > 1 and token[1] == "\u05d5":
+            return False
+        return _HEBREW_LEXICAL_SHIN_WORD_PATTERN.match(token) is None
+    if token[0] in "בלמכהו" and len(token) >= 3:
+        return False
+    if token.endswith(("ים", "ות")):
+        return False
+    return True
+
+
+def _hebrew_list_end_state(text: str, body_end: int) -> str:
+    """How the list ends inside its condition: closed, consequent or ambiguous.
+
+    A comma, a clause separator or a list tail after the unit, however
+    many decided modifiers between, closes it ("אחוזים מההכנסה החייבת, תחול
+    ההוראה"); the consequent's verb, known by word ("שקלים ישולמו כמענק",
+    "שקלים יקבל העובד"), or the sentence ending with words between and no
+    comma ("שקלים משולמים כמענק.") is the clause running on; an undecided
+    word before the comma ("מהכנסה נמוכה,") leaves the list ambiguous, and
+    after an undecided ש-word ("ששופט יקבע,") so does the verb.
+    """
+    position = body_end
+    relative = False
+    ambiguous = False
+    shin_ambiguous = False
+    # The walk runs to the boundary that decides the list; a word that no
+    # pattern reads ends it undecided.
+    while True:
+        if _HEBREW_LIST_TAIL_WORD_PATTERN.match(text, position) is not None:
+            return "ambiguous" if ambiguous else "closed"
+        if _HEBREW_CLAUSE_SEPARATOR_PATTERN.match(text, position) is not None:
+            return "ambiguous" if ambiguous else "closed"
+        if _HEBREW_SENTENCE_END_PATTERN.match(text, position) is not None:
+            if position == body_end:
+                return "closed"
+            return "ambiguous" if ambiguous else "consequent"
+        if _hebrew_opens_relative_clause(text, position):
+            relative = True
+        elif not relative:
+            word = _HEBREW_WORD_AFTER_PATTERN.match(text, position)
+            if word is not None:
+                token = word.group(0).strip()
+                if word.group("word") in _HEBREW_CONSEQUENT_VERBS:
+                    if not shin_ambiguous:
+                        return "consequent"
+                elif _hebrew_word_is_undecided(token):
+                    ambiguous = True
+                    if token[0] == "\u05e9":
+                        shin_ambiguous = True
+        modifier = _HEBREW_UNIT_MODIFIER_PATTERN.match(text, position)
+        if modifier is None or modifier.end() <= position:
+            return "ambiguous"
+        position = modifier.end()
+
+
+_HEBREW_LIST_COLON_WORDS = (
+    "כדלקמן",
+    "הבאים",
+    "הבאות",
+    "הם",
+    "הן",
+    "יהיו",
+    "תהיינה",
+    "הינם",
+    "הינן",
+)
+
+
+def _hebrew_member_starts_at(text: str, index: int) -> bool:
+    """Whether a list member -- a digit, a number word, a fraction glyph, or
+    a sign before one of them -- starts at ``index``."""
+    if index >= len(text):
+        return False
+    character = text[index]
+    if character in "-\u2212":
+        return (
+            _hebrew_member_starts_at(text, index + 1)
+            and text[index + 1] not in "-\u2212"
+        )
+    return (
+        character.isdigit()
+        or "\u0590" <= character <= "\u05ff"
+        or "\u00bc" <= character <= "\u00be"
+        or "\u2150" <= character <= "\u215e"
+    )
+
+
+def _is_horizontal_space(character: str) -> bool:
+    """A space of any width that is no line break (U+00A0, U+2003 included)."""
+    return character.isspace() and character not in "\n\r\x0b\x0c\x85\u2028\u2029"
+
+
+def _end_before_space(text: str, end: int) -> int:
+    """The end of the text before ``end`` with its trailing whitespace
+    dropped, found in place: ``len(text[:end].rstrip())`` without the copy."""
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
+def _hebrew_list_heading_end(text: str, start: int, rate: bool) -> int | None:
+    """Where the heading of the list the number at ``start`` belongs to ends, or None.
+
+    The clause runs back to a sentence stop, except the colon that
+    introduces a list ("כדלקמן:"); the last plural noun of the unit's kind
+    with its copula heads the list, and only list items may stand between it
+    and the number; within a condition the list must end before the clause
+    runs on.
+    """
+    clause_start = start
+    depth = 0
+    while clause_start > 0:
+        character = text[clause_start - 1]
+        if character == ")":
+            depth += 1
+        elif character == "(" and depth > 0:
+            depth -= 1
+        elif character in _HEBREW_SENTENCE_STOP_CHARACTERS and depth == 0:
+            # A stop inside a parenthetical ("(להלן: הצו)") is none.
+            if character == "\n":
+                resumed = clause_start
+                while resumed < len(text) and _is_horizontal_space(text[resumed]):
+                    resumed += 1
+                if (
+                    resumed < len(text)
+                    and _hebrew_member_starts_at(text, resumed)
+                    and _search_before(
+                        _HEBREW_SOFT_WRAP_BEFORE_PATTERN, text, clause_start - 1, 24
+                    )
+                    is not None
+                ):
+                    # A soft wrap inside the list, indented or not, a
+                    # signed number or number word after it or not ("1,\n2
+                    # ו־3", "הם\n  1, 2", "10,\n  -20 ו־30", "10,\n  -עשרים").
+                    clause_start -= 1
+                    continue
+            if (
+                character == "."
+                and clause_start >= 2
+                and clause_start < len(text)
+                and text[clause_start - 2].isdigit()
+                and text[clause_start].isdigit()
+            ):
+                # A decimal point ("10.5, 20 ו־30") is no stop.
+                clause_start -= 1
+                continue
+            if character == ":" and text.endswith(
+                _HEBREW_LIST_COLON_WORDS, 0, _end_before_space(text, clause_start - 1)
+            ):
+                # The colon that introduces a list ("כדלקמן:", "הם:").
+                clause_start -= 1
+                continue
+            break
+        clause_start -= 1
+    pattern = (
+        _HEBREW_PLURAL_RATE_HEADING_PATTERN
+        if rate
+        else _HEBREW_PLURAL_AMOUNT_HEADING_PATTERN
+    )
+    heading: "re.Match[str] | None" = None
+    for match in pattern.finditer(text, clause_start, start):
+        heading = match
+    if heading is None or not _hebrew_list_body_only(text, heading.end(), start):
+        return None
+    segment_start = text.rfind(",", clause_start, heading.start()) + 1
+    # The marker may end inside the heading's own stack ("ככל שהתשלומים",
+    # "כשהתשלומים"); one further in, in the subject phrase, is no marker.
+    stack_end = heading.start() + len(heading.group("stack"))
+    marker = _HEBREW_CONDITIONAL_CLAUSE_PATTERN.search(
+        text, max(clause_start, segment_start), heading.end()
+    )
+    if marker is not None and marker.end() <= stack_end:
+        state = _hebrew_list_end_state(text, _hebrew_list_body_end(text, start))
+        if state == "consequent":
+            return None
+        if state == "ambiguous":
+            headings = _HEBREW_AMBIGUOUS_HEADINGS.get()
+            if headings is not None:
+                headings.append((heading.start(), heading.end(), start, rate))
+            if not _HEBREW_AMBIGUOUS_AS_HEADED.get():
+                return None
+    return heading.end()
+
+
+def _hebrew_percent_tail_after(text: str, end: int) -> tuple[float, int] | None:
+    """The fractional tail after a percent marker ("% וחצי") and where it
+    ends, or None when there is none or a unit of its own follows it."""
+    tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, end)
+    if tail is None or _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+        return None
+    if tail.group("tail"):
+        return _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")], tail.end()
+    return (
+        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")],
+        tail.end(),
+    )
+
+
+def _hebrew_vav_pair_is_coordinated(text: str, start: int, rate: bool) -> bool:
+    return _hebrew_list_heading_end(text, start, rate) is not None
+
+
+@dataclass(frozen=True)
+class AmbiguousReadingMember:
+    """One member of an ambiguous list: its text, the reading that grounds
+    and the shared-unit reading a reviewed assertion may select."""
+
+    span: tuple[int, int]
+    text: str
+    unscaled: float
+    scaled: float
+
+
+@dataclass(frozen=True)
+class AmbiguousReadingGroup:
+    """A list the source leaves ambiguous, with both candidate readings."""
+
+    label: str
+    heading: str
+    span: tuple[int, int]
+    text: str
+    members: tuple[AmbiguousReadingMember, ...]
+
+
+# A printed mixed number with an ASCII slash in Hebrew text ("2 1/2, 10
+# ו־30 אחוזים") is one number, as it is with the fraction slash; a Hebrew
+# letter or a list mark must follow, so a date or a ratio never joins.
+_HEBREW_ASCII_MIXED_FRACTION_PATTERN = re.compile(
+    "(?<![\\d.,/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*/\\s*(?P<denominator>\\d+)"
+    "(?![\\d/])(?=\\s*(?:[\u0590-\u05ff,;.]|$))"
+)
+# A vulgar-fraction glyph in Hebrew text, bare or after a whole, signed or
+# not ("½", "-½", "2½, 10 ו־30 אחוזים"), is one number, a rate when a
+# percent marker follows ("2½%"); read before the general glyph reader.
+_HEBREW_GLYPH_NUMBER_PATTERN = re.compile(
+    "(?<![\\d.,/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e])(?![\\d])"
+)
+
+
+def _hebrew_member_unscaled_value(
+    cleaned: str,
+    span: tuple[int, int],
+    grounded: "Sequence[NumericOccurrence]",
+) -> float | None:
+    """The value the member at ``span`` grounds as, read as the source reads it.
+
+    The normal extraction over the cleaned text already reads signs,
+    printed and mixed fractions and number words; the occurrence whose
+    span the member covers gives the value.
+    """
+    raw = cleaned[span[0] : span[1]]
+    piece = raw.strip()
+    piece_start = span[0] + (len(raw) - len(raw.lstrip()))
+    piece_end = piece_start + len(piece)
+    for occurrence in grounded:
+        if occurrence.start == piece_start and occurrence.end == piece_end:
+            return occurrence.value
+    # A member no occurrence spans grounds as nothing the report may claim.
+    return None
+
+
+def hebrew_ambiguous_reading_groups(text: str) -> list[AmbiguousReadingGroup]:
+    """The lists a Hebrew source leaves ambiguous, with both readings.
+
+    A headed list inside a condition whose end no evidence decides grounds
+    unscaled; this reports, per such list, the members with the reading
+    that grounds and the shared-unit reading, so an encoder sees why the
+    latter is ungrounded and a reviewer sees what an assertion would select.
+    Spans and text are in the cleaned source the numeric passes read.
+    """
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(text)
+    _schedule, cleaned = _iter_collapsed_schedule_row_occurrences(cleaned_tracked.text)
+    structural = _structural_numeric_component_spans(cleaned)
+
+    def run() -> dict[tuple[int, int], float]:
+        found: dict[tuple[int, int], float] = {}
+        for span, rate in _iter_hebrew_percent_range_lower_matches(cleaned, structural):
+            found.setdefault(span, rate)
+        for span, value, _is_rate in _iter_hebrew_shared_scale_range_matches(
+            cleaned, structural
+        ):
+            found.setdefault(span, value)
+        return found
+
+    base = run()
+    headings: list[tuple[int, int, int, bool]] = []
+    as_headed_token = _HEBREW_AMBIGUOUS_AS_HEADED.set(True)
+    headings_token = _HEBREW_AMBIGUOUS_HEADINGS.set(headings)
+    try:
+        widened = run()
+    finally:
+        _HEBREW_AMBIGUOUS_AS_HEADED.reset(as_headed_token)
+        _HEBREW_AMBIGUOUS_HEADINGS.reset(headings_token)
+    candidates = {span: value for span, value in widened.items() if span not in base}
+    if not candidates:
+        return []
+    grounded = _tokenize_numeric_occurrences_from_text(cleaned).grounding
+    anchors = sorted({(hs, he) for hs, he, _start, _rate in headings})
+    groups: list[AmbiguousReadingGroup] = []
+    for index, (heading_start, heading_end) in enumerate(anchors):
+        limit = anchors[index + 1][0] if index + 1 < len(anchors) else len(cleaned)
+        members: list[AmbiguousReadingMember] = []
+        for span in sorted(candidates):
+            if span[0] < heading_end or span[0] >= limit:
+                continue
+            unscaled = _hebrew_member_unscaled_value(cleaned, span, grounded)
+            if unscaled is None:
+                continue
+            members.append(
+                AmbiguousReadingMember(
+                    span, cleaned[span[0] : span[1]], unscaled, candidates[span]
+                )
+            )
+        if not members:
+            continue
+        group_end = max(member.span[1] for member in members)
+        unit_end = _hebrew_list_body_end(cleaned, group_end)
+        groups.append(
+            AmbiguousReadingGroup(
+                HEBREW_HEADED_LIST_IN_CONDITION,
+                cleaned[heading_start:heading_end],
+                (heading_start, unit_end),
+                cleaned[heading_start:unit_end],
+                tuple(members),
+            )
+        )
+    return groups
+
+
+def _ambiguous_reading_ungrounded_literal_hint(
+    source_text: str | None, value: float
+) -> str:
+    """Name the ambiguous list whose shared-unit reading ``value`` matches."""
+    if not source_text or re.search("[\u0590-\u05ff]", source_text) is None:
+        return ""
+    for group in hebrew_ambiguous_reading_groups(source_text):
+        if not any(
+            math.isclose(
+                value, member.scaled, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE
+            )
+            for member in group.members
+        ):
+            continue
+        unscaled = ", ".join(f"{member.unscaled:g}" for member in group.members)
+        scaled = ", ".join(f"{member.scaled:g}" for member in group.members)
+        return (
+            f" Ambiguous reading ({group.label}): \u00ab{group.text}\u00bb may share "
+            f"its unit across the list; its members ground as {unscaled} here and "
+            f"would read {scaled} under the shared unit. The shared-unit reading "
+            "is not grounded until a reviewed reading assertion selects it."
+        )
+    return ""
+
+
+# A colon-terminated currency heading ("הסכומים בשקלים:") denominates the
+# bare numbers of the clauses after it: "הקנס יהיה 50 או 2 אחוזים" under it
+# keeps 50, while a rate word in the clause still makes a pair rates.
+_HEBREW_CURRENCY_HEADING_PATTERN = re.compile(
+    '(?<![\u0590-\u05ff])(?:כל\\s+)?(?:ה[\u05be-]?)?סכומים\\s+ב[\u05be-]?(?:שקלים(?:\\s+חדשים)?|ש"ח|ש״ח|דולרים|דולר|יורו|אירו|לירות)\\s*:'
+)
+
+
+@functools.lru_cache(maxsize=32)
+def _hebrew_paragraph_and_heading_index(
+    text: str,
+) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...]]:
+    """Where each paragraph gap ends and where each currency heading lies.
+
+    Computed once per text and looked up by bisection, so a clause deep in
+    a long text costs no more than one at its head.
+    """
+    gaps = tuple(match.end() for match in _PARAGRAPH_GAP_PATTERN.finditer(text))
+    headings = tuple(
+        match.span() for match in _HEBREW_CURRENCY_HEADING_PATTERN.finditer(text)
+    )
+    return gaps, headings
+
+
+def _hebrew_paragraph_start(text: str, start: int) -> int:
+    """Where the paragraph holding ``start`` begins: after the last blank
+    line, form feed or Unicode line or paragraph separator before it."""
+    gaps, _ = _hebrew_paragraph_and_heading_index(text)
+    index = bisect.bisect_right(gaps, start)
+    return gaps[index - 1] if index else 0
+
+
+def _hebrew_currency_heading_before(text: str, start: int) -> bool:
+    """Whether a colon-terminated currency heading governs the clause at ``start``.
+
+    The heading denominates the clauses after it to the end of its
+    paragraph, however long: a blank line ends its reach, a distance does
+    not.
+    """
+    _, headings = _hebrew_paragraph_and_heading_index(text)
+    index = bisect.bisect_right(headings, (start, start))
+    if index == 0:
+        return False
+    heading_start, heading_end = headings[index - 1]
+    return heading_end <= start and heading_start >= _hebrew_paragraph_start(
+        text, start
+    )
+
+
+def _hebrew_unit_word_after(text: str, end: int) -> bool:
+    """A currency word or a percent noun right after ``end``: a unit that distributes over "או"."""
+    after = end
+    while after < len(text) and _hebrew_currency_gap_character(text[after]):
+        after += 1
+    word = _HEBREW_WORD_TOKEN_PATTERN.match(text, after)
+    if word is None:
+        return False
+    token = word.group(0)
+    return token in _HEBREW_CURRENCY_WORDS or _hebrew_is_percent_noun(token)
+
+
+def _hebrew_operand_is_denominated(text: str, start: int, end: int) -> bool:
+    """Whether the operand in ``text[start:end]`` carries a currency mark of its own.
+
+    "$500 או 2% מהמחזור", "בין ₪ 500 ל־3 מיליון", "CAD 500", "500 EUR",
+    "500 שקלים": a denominated amount is an amount, whatever join or
+    shared scale word follows it. The markers are the pipeline's own,
+    with the shekel sign and the Hebrew currency words; whitespace and
+    bidirectional formatting between the mark and the amount are skipped,
+    however long the run.
+    """
+    before = start
+    while before > 0 and _hebrew_currency_gap_character(text[before - 1]):
+        before -= 1
+    if (
+        _search_before(_HEBREW_CURRENCY_MARK_BEFORE_PATTERN, text, before, 40)
+        is not None
+    ):
+        return True
+    after = end
+    while after < len(text) and _hebrew_currency_gap_character(text[after]):
+        after += 1
+    if _HEBREW_CURRENCY_MARK_AFTER_PATTERN.match(text, after) is not None:
+        return True
+    word = _HEBREW_WORD_TOKEN_PATTERN.match(text, after)
+    return word is not None and word.group(0) in _HEBREW_CURRENCY_WORDS
+
+
+def _hebrew_endpoint_words(text: str, start: int, end: int) -> list[str]:
+    """The words of a range endpoint, less a partitive after them ("של האחוז")."""
+    words = text[start:end].split()
+    while len(words) > 1 and words[-1] in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        words.pop()
+    return words
+
+
+def _hebrew_endpoint_is_a_mixed_number(words: "Sequence[str]") -> bool:
+    """Whether a fraction word ends the endpoint as a mixed number's tail.
+
+    "2 וחצי" and "3 ושלושה רבעים" are mixed numbers: the vav-bound tail
+    belongs to the number before it. "3 עשיריות", "שלושה רבעים" and "2
+    וחצי עשיריות" (a mixed count of tenths) are not.
+    """
+    return len(words) >= 2 and (
+        _hebrew_vav_fraction_tail(words[-1:]) is not None
+        or (len(words) >= 3 and _hebrew_vav_fraction_tail(words[-2:]) is not None)
+    )
+
+
+def _hebrew_endpoint_fraction_unit(text: str, start: int, end: int) -> float | None:
+    """The fraction word's value where the endpoint is a count of it, else None.
+
+    "3 עשיריות", "אלף עשיריות", "2 וחצי עשיריות" and "שלוש עשיריות של"
+    count a fraction word, which a bare endpoint before them shares. A
+    fraction word that is a mixed number's tail ("3 ושלושה רבעים") is the
+    number's own, and "3", "אלף" and "2 וחצי" count none.
+    """
+    words = _hebrew_endpoint_words(text, start, end)
+    if not words or _hebrew_endpoint_is_a_mixed_number(words):
+        return None
+    return _HEBREW_COUNTED_FRACTION_VALUES.get(words[-1])
+
+
+_HEBREW_ENDPOINT_FRACTION_WORDS = frozenset(
+    set(_HEBREW_FRACTION_VALUES)
+    | set(_HEBREW_MIXED_FRACTION_VALUES)
+    | set(_HEBREW_COUNTED_FRACTION_VALUES)
+    | set(_HEBREW_FRACTION_CONSTRUCT_VALUES)
+)
+
+
+def _hebrew_endpoint_is_a_fraction(text: str, start: int, end: int) -> bool:
+    """Whether the endpoint is a fraction of its own, which shares no fraction word.
+
+    "חצי", "מחצי", "−חצי", "רבע", "שלושה רבעים", "3 עשיריות" and the
+    printed "½", "1/2" and "1⁄2" are complete; "2", "שתיים", "−2" and the
+    mixed "2 וחצי" and "2½" take the fraction word of the counted fraction
+    after them ("בין 2 וחצי ל־3 עשיריות האחוז").
+    """
+    words = _hebrew_endpoint_words(text, start, end)
+    if not words or _hebrew_endpoint_is_a_mixed_number(words):
+        return False
+    # A unary sign is the endpoint's, not its first word's.
+    words[0] = words[0].lstrip("-\u2212")
+    printed = _HEBREW_DIGITS_BEFORE_PATTERN.fullmatch(" ".join(words))
+    if printed is not None:
+        return bool(
+            (printed.group("glyph") and not printed.group("glyph_whole"))
+            or (printed.group("numerator") and not printed.group("whole"))
+        )
+    return (
+        _strip_hebrew_number_prefix(words[-1], _HEBREW_ENDPOINT_FRACTION_WORDS)
+        is not None
+    )
+
+
+def _hebrew_number_run_ending_at(
+    text: str,
+    end: int,
+    tokens: "_HebrewWordTokens",
+    allow_scale: bool = False,
+) -> tuple[int, float, str] | None:
+    """The longest spelled number ending flush at ``end``: (start, value, first word)."""
+    run = _hebrew_word_run_before(text, end, tokens=tokens)
+    # A printed whole with a spelled tail ("2 וחצי") is one endpoint; its
+    # first word is the tail, which carries no range prefix of its own.
+    mixed = _hebrew_printed_mixed_count(text, run)
+    if mixed is not None:
+        return mixed[1], mixed[0], ""
+    # A printed count with a fraction word ("3 עשיריות", "3 וחצי עשיריות")
+    # is one endpoint the same way: "בין 2 עשיריות ל־3 עשיריות האחוז".
+    counted = _hebrew_printed_fraction_count(text, run)
+    if counted is not None:
+        return counted[1], counted[0], ""
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if (
+            parsed is not None
+            and parsed[0] == len(words)
+            and (allow_scale or not parsed[2] & _HEBREW_SCALE_KINDS)
+        ):
+            return run[-width].start(), parsed[1], words[0]
+        # A fraction word is an endpoint too: "בין חצי לשלושה אחוזים", "רבע
+        # עד חצי אחוז".
+        fractional = _hebrew_fractional_count(words)
+        if fractional is not None:
+            return run[-width].start(), fractional, words[0]
+    return None
+
+
+def _iter_hebrew_percent_range_lower_matches(
+    text: str,
+    structural_spans: "Sequence[tuple[int, int]]" = (),
+) -> list[tuple[tuple[int, int], float]]:
+    """The lower endpoint of a range of rates, as a rate, with its span.
+
+    ``structural_spans`` are the reference spans the structural pass found;
+    the walk back over earlier alternatives stops at one ("לפי סעיף קטן 5, 2
+    או 3 אחוזים" keeps subsection 5), while a supplement's amounts are no
+    reference and share the noun ("תוספת 1, 2 או 3 אחוזים").
+    """
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    # The printed-scale pass's complete amounts ("3 אלפים", "3 וחצי אלפים",
+    # "3 אלפים ומאה"), keyed by where they end, and its rates' spans: an
+    # endpoint is read whole. Built once, at the first noun.
+    printed_amounts: dict[int, tuple[int, float]] = {}
+    printed_rates: list[tuple[int, int]] = []
+    printed_rate_values: dict[int, float] = {}
+    rate_starts: list[int] = []
+    for noun in _HEBREW_PERCENT_NOUN_ANYWHERE_PATTERN.finditer(text):
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+            for span, value, is_rate in _iter_hebrew_printed_scale_matches(text):
+                if is_rate:
+                    printed_rates.append(span)
+                    printed_rate_values[span[0]] = value * 100
+                elif span[1] not in printed_amounts and any(
+                    word in _HEBREW_PRINTED_SCALE_VALUES
+                    for word in text[span[0] : span[1]].split()
+                ):
+                    # Matches arrive sorted, so the longest amount ending
+                    # at a position is the first. Only an amount with a
+                    # scale word is an endpoint here; a spelled lead with a
+                    # plain printed remainder ("חמש מאות ו־2") is not.
+                    printed_amounts[span[1]] = (span[0], value)
+            rate_starts = [span[0] for span in printed_rates]
+        # The upper endpoint, printed or spelled, right before the noun -- a
+        # printed multiplier with its scale word ("4 אלפים אחוזים", "4 וחצי
+        # אלפים אחוזים") is one endpoint, the printed-scale pass's rate.
+        upper_first: str | None = None
+        upper_scaled = False
+        rate_index = bisect.bisect_right(rate_starts, noun.start()) - 1
+        digits = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, noun.start(), 32)
+        upper_percent: float | None = None
+        if rate_index >= 0 and printed_rates[rate_index][1] > noun.start():
+            upper_start = printed_rates[rate_index][0]
+            upper_scaled = True
+            upper_percent = printed_rate_values.get(upper_start)
+        elif digits is not None:
+            upper_start = digits.start()
+            upper_percent = _hebrew_printed_endpoint_value(digits)
+        else:
+            spelled = _hebrew_number_run_ending_at(text, noun.start(), tokens, True)
+            if spelled is None:
+                continue
+            upper_start, upper_percent, upper_first = spelled
+            # A spelled endpoint with a scale of its own ("לשלושת אלפים
+            # ומאתיים אחוזים", "אלפיים") is scaled as a printed one is.
+            upper_scaled = _hebrew_spelled_span_carries_a_scale(
+                text, upper_start, noun.start()
+            )
+        # A counted fraction's fraction word is shared by a bare endpoint
+        # before it ("בין שתיים לשלוש עשיריות האחוז" runs from two tenths of
+        # a percent), and a scale word inside its count ("אלף עשיריות") is
+        # the count's alone, not a scale the lower endpoint shares.
+        upper_fraction = _hebrew_endpoint_fraction_unit(text, upper_start, noun.start())
+        if upper_fraction is not None:
+            upper_scaled = False
+        # A unary sign on the upper endpoint ("−שלושה או −חצי אחוז") is the
+        # endpoint's; the join stands before the sign.
+        if _hebrew_unary_sign_at(text, upper_start - 1):
+            upper_start -= 1
+        # The join before it.
+        join = _search_before(_HEBREW_RANGE_JOIN_BEFORE_PATTERN, text, upper_start, 12)
+        vav_join = False
+        comma_join = False
+        if join is not None:
+            lower_end = join.start()
+            # "ל־" needs "בין" or "מ־" before the lower endpoint; "ו־" joins
+            # a coordinated pair only ("שיעורי המס הם 2 ו־3 אחוזים, בהתאמה").
+            vav_join = join.group("bound") == "\u05d5"
+            comma_join = join.group("comma") is not None
+            needs_bound = join.group("free") is None and not vav_join and not comma_join
+        elif (
+            upper_first is not None
+            and upper_first[:1] in ("\u05dc", "\u05d5")
+            and _strip_hebrew_number_prefix(
+                upper_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+            )
+            is not None
+        ):
+            # The whitespace before the upper endpoint stays, so a printed
+            # lower endpoint ("בין 2 לשלושה אחוזים") ends flush before it. A
+            # vav prefix joins a coordinated pair only ("שניים ושלושה
+            # אחוזים, בהתאמה").
+            lower_end = upper_start
+            vav_join = upper_first.startswith("\u05d5")
+            needs_bound = not vav_join
+        else:
+            continue
+        # The lower endpoint, printed or spelled, right before the join.
+        lower_digits = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, lower_end, 32
+        )
+        lower_flush = _end_before_space(text, lower_end)
+        lower_amount = printed_amounts.get(lower_flush)
+        spelled_lower = (
+            None
+            if lower_amount is not None or lower_digits is not None
+            else _hebrew_number_run_ending_at(text, lower_end, tokens, True)
+        )
+        # A lower endpoint carries a scale of its own when it is a printed
+        # amount or its spelled words include a scale word, remainder and
+        # all ("שלושת אלפים ומאה").
+        # A lower endpoint is complete on its own when it is a printed
+        # amount, a spelled number with a scale, or a grouped or
+        # thousand-plus printed number ("בין 2,000 ל־3 אלפים אחוזים"); only
+        # a small bare number omits the upper endpoint's scale. Under a
+        # heading every printed member shares the scale ("השיעורים הם 900,
+        # 1000 ו־1100 אלפים אחוזים"), and the shared-scale pass reads it.
+        # A fraction before a scaled upper endpoint, counted or not ("בין
+        # חצי לבין 3 אלפים אחוזים", "בין שלושה רבעים לבין 3 אלפים אחוזים"),
+        # takes the scale, which the shared-scale pass reads; a counted
+        # fraction's own scale word ("אלף עשיריות") is no shared scale, so
+        # a counted upper endpoint is never scaled here.
+        lower_scaled = (
+            lower_amount is not None
+            or (
+                spelled_lower is not None
+                and _hebrew_spelled_span_carries_a_scale(
+                    text, spelled_lower[0], lower_flush
+                )
+            )
+            or (
+                lower_digits is not None
+                and (
+                    "," in lower_digits.group(0)
+                    or abs(_hebrew_printed_endpoint_value(lower_digits) or 0) >= 1000
+                )
+                and not (
+                    upper_scaled
+                    and _hebrew_vav_pair_is_coordinated(
+                        text, lower_digits.start(), True
+                    )
+                )
+            )
+        )
+        if upper_scaled and not lower_scaled:
+            # The upper endpoint's scale word is shared with a scale-less
+            # lower endpoint ("2 עד 3 אלפים אחוזים"); the shared-scale pass
+            # reads that pair. Here both endpoints carry a scale of their
+            # own.
+            continue
+        if lower_amount is not None:
+            # "בין 3 אלפים ל־4 אלפים אחוזים", "בין 3 וחצי אלפים ל־4 אלפים
+            # אחוזים", "בין 3 אלפים ומאה ל־4 אלפים אחוזים": the lower
+            # endpoint is the whole printed amount.
+            lower_span = (lower_amount[0], lower_flush)
+            lower_value = lower_amount[1]
+            lower_first = None
+        elif lower_digits is not None:
+            lower_value = _hebrew_printed_endpoint_value(lower_digits)
+            if lower_value is None:
+                continue
+            lower_span = (lower_digits.start(), _end_before_space(text, lower_end))
+            lower_first = None
+        else:
+            if spelled_lower is None:
+                continue
+            lower_span = (spelled_lower[0], lower_flush)
+            lower_value = spelled_lower[1]
+            lower_first = spelled_lower[2]
+            if _hebrew_unary_sign_at(text, lower_span[0] - 1):
+                # "−שלושה עד שלושה אחוזים", "בין −חצי ל־3 אחוזים": the sign
+                # is the endpoint's, span and value alike, and the bound is
+                # read before it.
+                lower_value = -lower_value
+                lower_span = (lower_span[0] - 1, lower_flush)
+        if upper_fraction is not None and not _hebrew_endpoint_is_a_fraction(
+            text, lower_span[0], lower_span[1]
+        ):
+            lower_value *= upper_fraction
+        if _hebrew_operand_is_denominated(text, lower_span[0], lower_span[1]):
+            # "$500 או 2% מהמחזור": a denominated amount shares no unit.
+            continue
+        heading_end = _hebrew_list_heading_end(text, lower_span[0], True)
+        headed = heading_end is not None
+        list_coordinated = vav_join or comma_join
+        if list_coordinated and not headed:
+            continue
+        if (
+            join is not None
+            and join.group("free") == "או"
+            and not headed
+            and (
+                "%" in noun.group(0)
+                or _hebrew_currency_heading_before(text, lower_span[0])
+            )
+            and not _hebrew_rate_word_before(text, lower_span[0])
+        ):
+            # "קנס של 50 או 2% מהמחזור", "הקנס יהיה 50 או 2%": a sign does not
+            # distribute, so the number before "או" keeps its value unless a
+            # rate word in the clause makes the pair rates ("בשיעור של 2 או
+            # 3%"). The noun distributes: "תשלום של 125 או 150 אחוזים".
+            continue
+        if (
+            (join is None or join.group("free") != "או")
+            and not list_coordinated
+            and upper_percent is not None
+            and lower_value >= upper_percent
+            and _search_before(_HEBREW_BETWEEN_BEFORE_PATTERN, text, lower_span[0], 16)
+            is not None
+            # A fraction of its own before the noun is a rate whatever the
+            # order: "בין ½ ל־3 עשיריות האחוז" and "בין חצי לבין שלוש
+            # עשיריות האחוז" run from half a percent.
+            and not _hebrew_endpoint_is_a_fraction(text, lower_span[0], lower_span[1])
+            # So is any number where a rate word governs the clause, whatever
+            # its size: "שיעור המס יהיה בין 5 ל־3 אחוזים" runs from five
+            # percent, "בין 3½ ל־2½ אחוזים" from three and a half, and
+            # "שיעור הזיכוי יהיה בין 150 ל־125 אחוזים" from a hundred and
+            # fifty.
+            and not _hebrew_rate_word_before(text, lower_span[0])
+        ):
+            # With no rate word, a "בין" range of bare numbers ascends: "הקנס
+            # יהיה בין 500 ל־3 אחוזים" is no range of rates; "יופחת מ־5 ל־3
+            # אחוזים" decreases and is one.
+            continue
+        if (
+            needs_bound
+            and not (
+                _search_before(
+                    _HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16
+                )
+                is not None
+                # "משניים לשלושה אחוזים": the bound is the מ prefix on the
+                # spelled lower endpoint itself.
+                or (
+                    lower_first is not None
+                    and lower_first.startswith("\u05de")
+                    and _strip_hebrew_number_prefix(
+                        lower_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                    )
+                    is not None
+                )
+            )
+        ):
+            continue
+        # An explicit range -- "עד", "ועד", "לבין", "או", or "בין"/"מ־" before
+        # the lower endpoint -- scales a thousand-plus endpoint as a rate:
+        # "בין 1,000 ל־2,000 אחוזים" runs from ten. Without one, a scale
+        # word or a thousand-plus amount before the join is an amount of
+        # its own: "3 מיליון ו־20 אחוזים" is three million, and twenty
+        # percent.
+        explicit_range = (
+            (join is not None and join.group("free") is not None)
+            or _search_before(
+                _HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16
+            )
+            is not None
+            or (
+                lower_first is not None
+                and lower_first.startswith("\u05de")
+                and _strip_hebrew_number_prefix(
+                    lower_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                )
+                is not None
+            )
+        )
+        if lower_value >= 1000 and not explicit_range and not headed:
+            continue
+        matches.append((lower_span, lower_value / 100))
+        # Earlier alternatives share the noun too: "1 או 2 או 3 אחוזים", "1, 2
+        # או 3 אחוזים". Walk back over free joins and commas.
+        # The walk runs to the list's grammatical boundary, however many
+        # members the list has; only a step that fails to move it earlier
+        # ends it.
+        cursor = lower_span[0]
+        while True:
+            earlier_join = _search_before(
+                _HEBREW_RANGE_WALK_JOIN_PATTERN, text, cursor, 12
+            )
+            if earlier_join is not None:
+                earlier_end = earlier_join.start()
+                coordinated_crossing = (
+                    earlier_join.group("vav") is not None
+                    or earlier_join.group("comma") is not None
+                )
+            elif (
+                headed
+                and cursor > 0
+                and text[cursor] == "\u05d5"
+                and text[cursor - 1].isspace()
+            ):
+                # A vav on the endpoint itself ("אחד ושניים ושלושה אחוזים").
+                earlier_end = cursor
+                coordinated_crossing = True
+            else:
+                break
+            if not headed and coordinated_crossing:
+                # An unheaded list joins by "או" alone; a headed list by any
+                # connector within its body.
+                break
+            earlier_digits = _search_before(
+                _HEBREW_DIGITS_BEFORE_PATTERN, text, earlier_end, 32
+            )
+            earlier_flush = _end_before_space(text, earlier_end)
+            earlier_amount = printed_amounts.get(earlier_flush)
+            if earlier_amount is not None:
+                earlier_span = (earlier_amount[0], earlier_flush)
+                earlier_value = earlier_amount[1]
+            elif earlier_digits is not None:
+                earlier_value = _hebrew_printed_endpoint_value(earlier_digits)
+                if earlier_value is None:
+                    break
+                earlier_span = (
+                    earlier_digits.start(),
+                    _end_before_space(text, earlier_end),
+                )
+            else:
+                earlier = _hebrew_number_run_ending_at(text, earlier_end, tokens, True)
+                if earlier is None:
+                    break
+                earlier_span = (earlier[0], _end_before_space(text, earlier_end))
+                earlier_value = earlier[1]
+                if _hebrew_unary_sign_at(text, earlier_span[0] - 1):
+                    earlier_value = -earlier_value
+                    earlier_span = (earlier_span[0] - 1, earlier_span[1])
+            if upper_fraction is not None and not _hebrew_endpoint_is_a_fraction(
+                text, earlier_span[0], earlier_span[1]
+            ):
+                earlier_value *= upper_fraction
+            if (
+                _span_overlaps(earlier_span, structural_spans)
+                or _search_before(
+                    _HEBREW_RANGE_WALK_STOP_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+            ):
+                break
+            if earlier_value >= 1000 and not explicit_range and not headed:
+                break
+            if _hebrew_operand_is_denominated(text, earlier_span[0], earlier_span[1]):
+                break
+            if (
+                not headed
+                and earlier_join is not None
+                and earlier_join.group(0).lstrip().startswith("או")
+                and (
+                    "%" in noun.group(0)
+                    or _hebrew_currency_heading_before(text, earlier_span[0])
+                )
+                and not _hebrew_rate_word_before(text, earlier_span[0])
+            ):
+                break
+            if headed and earlier_span[0] < heading_end:
+                # The heading bounds the list: an item before it is no item.
+                break
+            matches.append((earlier_span, earlier_value / 100))
+            if earlier_span[0] >= cursor:
+                break
+            cursor = earlier_span[0]
+    return matches
+
+
 _EUROPEAN_RAW_NUMBER = r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)(?:\s*[,.]\d{1,4})?"
 _RANGE_ENDPOINT_RAW_NUMBER = (
     r"-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+)(?:[,.]\d{1,4})?"
@@ -1388,7 +7381,7 @@ _RANGE_ENDPOINT_RAW_NUMBER = (
 _PERCENTAGE_RAW_NUMBER = (
     r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
     r"(?:\s*[,.]\d{1,4})?"
-    r"|-?\d+\.\d+"
+    r"|-?\d+\.\d+|(?<!\d)-?\.\d+"
 )
 _BELGIAN_NUMERIC_RANGE_PATTERN = re.compile(
     rf"\b(?P<start>{_RANGE_ENDPOINT_RAW_NUMBER})\s*(?:à|tot|t/m)\s*"
@@ -1400,12 +7393,1287 @@ _EUROPEAN_MONEY_AMOUNT_PATTERN = re.compile(
     r"(?:\s*\]\s*\d+)?\s*(?:euro|euros|eur\b|€)",
     re.IGNORECASE,
 )
+# A hyphen after a Hebrew letter joins a prefix to the number ("ל-3%") and
+# is no sign; a sign no letter precedes still negates ("-3%").
+# A bidirectional formatting mark inside a numeric token ("−\u200f.5%",
+# "3\u200f%") is nothing to the reader.
+_BIDI_MARKS_FRAGMENT = BIDI_MARKS_FRAGMENT
+# A comma-grouped number keeps its groups and its decimal part ("1,234.5",
+# "1,234,567"), read whole before the plainer shapes, so no suffix of it
+# is a number of its own.
+_PERCENTAGE_RAW_NUMBER_UNSIGNED = (
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?"
+    r"|(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)(?:\s*[,.]\d{1,4})?|\d+\.\d+|(?<!\d)\.\d+"
+)
+_BIDI_MARKS_PATTERN = re.compile(_BIDI_MARKS_FRAGMENT)
+_GROUPED_THOUSANDS_DECIMAL_PATTERN = re.compile(
+    r"-?\d{1,3}(?:,\d{3})+(?P<decimal>\.\d+)?"
+)
+_HEBREW_LETTER_PATTERN = re.compile("[\u0590-\u05ff]")
 _DIRECT_PERCENTAGE_PATTERN = re.compile(
-    rf"(?P<number>{_PERCENTAGE_RAW_NUMBER})\s*(?:%|\bp\.?\s*c\.?\b)",
+    rf"(?P<number>(?:(?<![\u05d0-\u05ea\d.,])[-\u2212]{_BIDI_MARKS_FRAGMENT}*)?(?<![\d.,])(?:{_PERCENTAGE_RAW_NUMBER_UNSIGNED}){_BIDI_MARKS_FRAGMENT}*)"
+    r"\s*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
 _PERCENT_MARKER_AFTER_NUMBER_PATTERN = re.compile(
     r"\s*(?:%|\bp\.?\s*c\.?\b)",
+    re.IGNORECASE,
+)
+# The same marker across wrap space only: a blank line or a paragraph
+# separator between a figure and "%" leaves the figure a figure ("3 וחצי"
+# before a blank line and a sign is three and a half, not a rate).
+_PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT + r"*(?:%|\bp\.?\s*c\.?\b)",
+    re.IGNORECASE,
+)
+_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
+    r"[ \t]*(?:"
+    r"%|"
+    r"\bp\.?[ \t]*c\.?\b|"
+    r"\bpercent\b|"
+    r"\bper[ \t-]+cent(?:um)?\b|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b"
+    r")",
+    re.IGNORECASE,
+)
+_GENERIC_RATE_MARKER_PATTERN = re.compile(
+    r"(?:"
+    r"%|"
+    r"\bp\.?[ \t]*c(?:\.(?!\w)|(?![\w.]))|"
+    r"\bpercent\b|"
+    r"\bper[ \t-]+cent(?:um)?\b|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b"
+    r")",
+    re.IGNORECASE,
+)
+_TABLE_RATE_HEADER_PATTERN = re.compile(
+    r"(?:"
+    r"\bpercent(?:age)?\b|"
+    r"\bper[ \t-]+cent(?:um)?\b|"
+    r"\bProzent\b|"
+    r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
+    r"\bvom[ \t]+Hundert\b"
+    r")",
+    re.IGNORECASE,
+)
+_DANISH_RATE_MARKER_BODY = (
+    r"(?:\bpct(?:\.(?!\w)|(?![\w.]))|\bprocent(?:point|enhed(?:er)?)?\b)"
+)
+_DANISH_RATE_MARKER_PATTERN = re.compile(_DANISH_RATE_MARKER_BODY, re.IGNORECASE)
+_TEMPORAL_YEAR_BODY = r"(?:18|19|20)\d{2}"
+_TEMPORAL_YEAR_END = r"(?!\w|[.,]\d)"
+_TEMPORAL_YEAR_TOKEN_PATTERN = re.compile(
+    rf"(?<!\w){_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+)
+_GERMAN_MONTH_NAME_BODY = (
+    r"(?:jan(?:uar)?|feb(?:ruar)?|märz|maerz|mrz|apr(?:il)?|mai|"
+    r"jun(?:i)?|jul(?:i)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+    r"okt(?:ober)?|nov(?:ember)?|dez(?:ember)?)\.?"
+)
+_GERMAN_DAY_MONTH_YEAR_PATTERN = re.compile(
+    rf"(?<!\w)(?P<day>0?[1-9]|[12]\d|3[01])\.\s*"
+    rf"{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_GERMAN_MONTH_YEAR_PATTERN = re.compile(
+    rf"\b{_GERMAN_MONTH_NAME_BODY}\s+(?:des\s+Jahres\s+)?"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_ENGLISH_MONTH_DAY_YEAR_PATTERN = re.compile(
+    rf"\b{_MONTH_NAME_BODY}\s+(?P<day>0?[1-9]|[12]\d|3[01])"
+    rf"(?:st|nd|rd|th)?\s*,?\s*(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"{_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_ENGLISH_DAY_MONTH_YEAR_PATTERN = re.compile(
+    rf"(?<!\w)(?P<day>0?[1-9]|[12]\d|3[01])"
+    rf"(?:st|nd|rd|th)?\s+{_MONTH_NAME_BODY}\s+"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_ENGLISH_MONTH_YEAR_PATTERN = re.compile(
+    rf"\b{_MONTH_NAME_BODY}\s+(?P<year>{_TEMPORAL_YEAR_BODY})"
+    rf"{_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_TEMPORAL_YEAR_CUE_PATTERN = re.compile(
+    rf"\b(?:"
+    rf"jahr(?:es|e|en)?|kalenderjahr(?:es|e|en)?|"
+    rf"veranlagungszeitr(?:aum(?:s|es)?|äume(?:n)?)|"
+    rf"besteuerungszeitr(?:aum(?:s|es)?|äume(?:n)?)|"
+    rf"steuerjahr(?:es|e|en)?|"
+    rf"years?|calendar\s+years?|tax(?:able)?\s+years?|assessment\s+years?"
+    rf")\b\s*(?:[:=]\s*)?"
+    rf"(?:(?:vor|nach|ab|bis|seit|before|after|from|through)\s+)?"
+    rf"(?P<years>{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+    rf"(?:\s*(?:bis|to|through|thru|[-–—/]|,|und|and|or)\s*"
+    rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END})*)",
+    re.IGNORECASE,
+)
+_TEMPORAL_YEAR_RANGE_PATTERN = re.compile(
+    rf"(?<!\w)(?P<start>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}\s*"
+    rf"(?:bis(?:\s+(?:einschließlich|einschl\.?))?|to|through|thru|"
+    rf"[-\u2010-\u2015])\s*"
+    rf"(?P<end>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_TEMPORAL_PREPOSITION_YEAR_PATTERN = re.compile(
+    rf"\b(?:ab(?:\s+dem)?|bis(?:\s+zum)?|vom|seit|zum|"
+    rf"from|since|until|effective\s+from)\s+"
+    rf"(?P<year>{_TEMPORAL_YEAR_BODY}){_TEMPORAL_YEAR_END}",
+    re.IGNORECASE,
+)
+_DANISH_STRUCTURAL_REFERENCE_PATTERN = re.compile(
+    r"(?:§{1,2}\s*|\b(?:stk\.?|nr\.?)\s*)"
+    r"\d+(?:\s*[a-z](?![a-z]))?"
+    r"(?:\s*(?:,|og|til|[-–—])\s*\d+(?:\s*[a-z](?![a-z]))?)*",
+    re.IGNORECASE,
+)
+_DANISH_STRUCTURAL_SENTENCE_PATTERN = re.compile(
+    r"\b\d+\.(?:\s*(?:,|og|til|[-–—])\s*\d+\.)*\s*pkt\.",
+    re.IGNORECASE,
+)
+_GERMAN_STRUCTURAL_LABEL_PATTERN = re.compile(
+    r"\b(?:Regelbedarfsstufe(?:n)?|Stufe(?:n)?|Anlage(?:n)?)\s+"
+    r"\d+[a-z]?(?:\s*(?:,|und|bis|[-–—])\s*\d+[a-z]?)*",
+    re.IGNORECASE,
+)
+_GERMAN_STRUCTURAL_REFERENCE_PATTERN = re.compile(
+    r"(?:§{1,2}\s*|"
+    r"\b(?:Artikel(?:s|n)?|Art\.|Absatz(?:es)?|Absätze(?:n)?|Abs\.|"
+    r"Satz(?:es)?|Sätze(?:n)?|Nummer(?:n)?|Nr\.)\s*)"
+    r"\d+[a-z]?(?:\s*(?:,|und|bis|[-–—])\s*\d+[a-z]?)*",
+    re.IGNORECASE,
+)
+_ENGLISH_STRUCTURAL_REFERENCE_PATTERN = re.compile(
+    r"\b(?:articles?|sections?|secs?\.?|subsections?|paragraphs?|"
+    r"regs?\.?|regulations?)"
+    r"\s+\d+(?:\.\d+)*(?:\s*(?:,|and|through|to|[-–—])\s*"
+    r"\d+(?:\.\d+)*)*",
+    re.IGNORECASE,
+)
+_ENGLISH_STRUCTURAL_DIGIT_LABEL_PATTERN = re.compile(
+    r"\b(?:2nd|3rd)\s+digit\b",
+    re.IGNORECASE,
+)
+# A Hebrew structural noun -- chapter, schedule, part, sign, section,
+# paragraph, table, column, item, regulation -- followed by the ordinal or
+# the number that names the unit: "בפרק השני", "בתוספת הרביעית", "לפי סעיף
+# 121ב". The ordinal or number identifies a place in the instrument, not a
+# quantity the instrument sets, so it is no recall obligation; "the fourth
+# child" carries no such noun and stays substantive.
+_HEBREW_STRUCTURAL_ORDINALS = _hebrew_alternation(
+    {
+        "ראשונה",
+        "ראשון",
+        "שנייה",
+        "שניה",
+        "שני",
+        "שלישית",
+        "שלישי",
+        "רביעית",
+        "רביעי",
+        "חמישית",
+        "חמישי",
+        "שישית",
+        "שישי",
+        "שביעית",
+        "שביעי",
+        "שמינית",
+        "שמיני",
+        "תשיעית",
+        "תשיעי",
+        "עשירית",
+        "עשירי",
+    }
+)
+_HEBREW_STRUCTURAL_UNITS = _hebrew_alternation(
+    (set(_HEBREW_NUMBER_WORD_VALUES) | set(_HEBREW_TEEN_UNIT_VALUES))
+    - {
+        "ראשונה",
+        "ראשון",
+        "שנייה",
+        "שניה",
+        "שני",
+        "שלישית",
+        "שלישי",
+        "רביעית",
+        "רביעי",
+        "חמישית",
+        "חמישי",
+        "שישית",
+        "שישי",
+        "שביעית",
+        "שביעי",
+        "שמינית",
+        "שמיני",
+        "תשיעית",
+        "תשיעי",
+        "עשירית",
+        "עשירי",
+    }
+)
+_HEBREW_STRUCTURAL_TENS = "עשרים|שלושים|ארבעים|חמישים|שישים|שבעים|שמונים|תשעים"
+# One number of the grammar after a structural noun, no more: a teen ("השתיים
+# עשרה"), thousands and hundreds with a vav-bound remainder ("אלף ומאתיים",
+# "מאה ועשרים"), tens with a vav-bound unit or ordinal ("העשרים ואחד"), or a
+# lone ordinal or unit. A count that follows without a vav ("התוספת השנייה
+# שלושה ילדים") is the statute's own quantity and stays substantive.
+_HEBREW_STRUCTURAL_TEEN = (
+    "(?:" + _HEBREW_STRUCTURAL_UNITS + ")[\\s\u05be-]+(?:עשר|עשרה)"
+)
+_HEBREW_STRUCTURAL_REMAINDER = (
+    "(?:"
+    + _HEBREW_STRUCTURAL_TEEN
+    + "|(?:"
+    + _HEBREW_STRUCTURAL_TENS
+    + ")(?:\\s+\u05d5[\u05be-]?(?:\u05d4[\u05be-]?)?(?:"
+    + _HEBREW_STRUCTURAL_UNITS
+    + "|"
+    + _HEBREW_STRUCTURAL_ORDINALS
+    + "))?"
+    + "|"
+    + _HEBREW_STRUCTURAL_UNITS
+    + "|"
+    + _HEBREW_STRUCTURAL_ORDINALS
+    + ")"
+)
+# One number of the grammar after a structural noun, no more: thousands and
+# hundreds with a vav-bound remainder ("אלף ומאתיים", "מאה ואחד עשר"), a
+# teen, tens with a vav-bound unit or ordinal, a lone unit ("סעיף שלוש") or
+# ordinal. A count that follows without a vav ("התוספת השנייה שלושה ילדים")
+# is the statute's own quantity and stays substantive.
+_HEBREW_STRUCTURAL_NUMBER_WORD_BODY = (
+    "(?:"
+    "(?:אלף|אלפיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+אלפים)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?(?:מאה|מאתיים|(?:"
+    + _HEBREW_STRUCTURAL_UNITS
+    + ")\\s+מאות))?"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|(?:מאה|מאתיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+מאות)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|" + _HEBREW_STRUCTURAL_REMAINDER + ")"
+)
+_HEBREW_STRUCTURAL_NUMBER_WORD = (
+    _HEBREW_OPTIONAL_ARTICLE + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+)
+# A plural noun may head a list of definite spelled references ("התוספות
+# השנייה, השלישית והרביעית"); every item after the first carries the
+# article, which a count never does, so "ושלושה ילדים" after a list stays
+# substantive.
+_HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL = (
+    "(?:\\s*,\\s*\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + ")*"
+    + "(?:\\s+(?:\u05d5[\u05be-]?|או\\s+)\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + ")?"
+)
+_HEBREW_STRUCTURAL_NUMBER_WORD_LIST = (
+    _HEBREW_STRUCTURAL_NUMBER_WORD + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+)
+# A reference label: digits, an optional letter, and any parenthesized
+# labels ("1", "1א", "1(א)", "2(ב)(3)"). The digits are a whole number: the
+# "1" of "1,500" and the "2" of "2,500" are no labels, so "1, 2, 4, 1,500 עד
+# 2,500 דולר" ends its list at 4; nor is the numerator of "1⁄2".
+_HEBREW_STRUCTURAL_DIGIT = (
+    "\\d+(?![,.]\\d)(?!\\s*[/\u2044]\\s*\\d)[\u05d0-\u05ea]?"
+    "(?:\\((?:\\d+[\u05d0-\u05ea]?|[\u05d0-\u05ea]{1,2})\\))*"
+)
+# The unit nouns a quantity carries: money, time, rates, measures, weights,
+# volumes, energy, and counts of people and things. A number before one of
+# these is a quantity, never a reference label. An abbreviation is written
+# with an ASCII quote or with gershayim (ק"ג, ק״ג); both are matched.
+# Units of measure: money, time, rates, lengths, areas, weights, volumes,
+# energy. A fraction word before one of these is a fraction ("עשירית שקל").
+_HEBREW_MEASURE_UNIT_WORDS = (
+    "שקלים חדשים",
+    "שקלים",
+    "שקל",
+    'ש"ח',
+    "₪",
+    "%",
+    "דולר",
+    "דולרים",
+    "יורו",
+    "אירו",
+    'ליש"ט',
+    "לירות",
+    "אגורות",
+    "ימים",
+    "ימי",
+    "יום",
+    "חודשים",
+    "חודשי",
+    "חודש",
+    "שנים",
+    "שנות",
+    "שנה",
+    "שבועות",
+    "שבוע",
+    "שעות",
+    "שעת",
+    "שעה",
+    "דקות",
+    "דקה",
+    "שניות",
+    "רבעונים",
+    "רבעון",
+    "תקופות",
+    "נקודות",
+    "נקודת",
+    "אחוז",
+    "אחוזים",
+    "מטרים רבועים",
+    "מטרים",
+    "מטר",
+    'ס"מ',
+    "סנטימטרים",
+    "סנטימטר",
+    'מ"מ',
+    "מילימטרים",
+    "מילימטר",
+    'ק"מ',
+    "קילומטרים",
+    "קילומטר",
+    'מ"ר',
+    'מ"ק',
+    "דונמים",
+    "דונם",
+    'ק"ג',
+    "קילוגרמים",
+    "קילוגרם",
+    "גרמים",
+    "גרם",
+    "טונות",
+    "טון",
+    "ליטרים",
+    "ליטר",
+    'מ"ל',
+    "מיליליטר",
+    'קוט"ש',
+    "קילוואט",
+    "וואט",
+    'כ"ס',
+    "מעלות",
+    "אגורה",
+    "נקודה",
+    "לירה",
+    "שנייה",
+    "שניה",
+)
+# Count nouns: people and things. A number before one is a quantity, but
+# several double as predicates ("זכאית", "מקבלת"), so a fraction word
+# before one keeps its ordinal reading ("דרגה חמישית זכאית").
+_HEBREW_COUNT_NOUN_WORDS = (
+    "יחידות",
+    "יחידה",
+    "פעמים",
+    "נפשות",
+    "נפש",
+    "בני אדם",
+    "אנשים",
+    "נשים",
+    "גברים",
+    "עובדים",
+    "עובדות",
+    "מועסקים",
+    "מועסקות",
+    "תלמידים",
+    "תלמידות",
+    "סטודנטים",
+    "סטודנטיות",
+    "תושבים",
+    "תושבות",
+    "חיילים",
+    "חיילות",
+    "קשישים",
+    "קשישות",
+    "מקומות",
+    "חדרים",
+    "קומות",
+    "דירות",
+    "רכבים",
+    "כלי רכב",
+    "ילדים",
+    "ילדות",
+    "ילד",
+    "ילדה",
+    "בנים",
+    "בנות",
+    "הורים",
+    "אימהות",
+    "אמהות",
+    "אבות",
+    "משפחות",
+    "משקי בית",
+    "יחידים",
+    "זוגות",
+    "מבוטחים",
+    "מבוטחות",
+    "זכאים",
+    "זכאיות",
+    "מקבלים",
+    "מקבלות",
+    "נהנים",
+    "נכים",
+    "נכות",
+    "עיוורים",
+    "עיוורות",
+    "חולים",
+    "חולות",
+    "גמלאים",
+    "גמלאיות",
+    "פנסיונרים",
+    "מובטלים",
+    "מובטלות",
+    "עצמאים",
+    "עצמאיות",
+    "שכירים",
+    "שכירות",
+    "מעסיקים",
+    "מעבידים",
+    "ספקים",
+    "לקוחות",
+    "תאגידים",
+    "עסקים",
+    "מפעלים",
+    "יישובים",
+    "רשויות",
+    "מוסדות",
+    "בתי ספר",
+    "כיתות",
+    "מיטות",
+    "מטופלים",
+    "מטופלות",
+    "יתומים",
+    "אלמנות",
+    "אלמנים",
+    "משפחה",
+    "משק בית",
+    "עובד",
+    "עובדת",
+    "מבוטח",
+    "מבוטחת",
+    "תלמיד",
+    "תלמידה",
+    "תושב",
+    "תושבת",
+    "אדם",
+    "איש",
+    "אישה",
+    "הורה",
+    "זכאי",
+    "זכאית",
+    "נכה",
+    "גמלאי",
+    "גמלאית",
+    "עצמאי",
+    "עצמאית",
+    "שכיר",
+    "שכירה",
+    "מעסיק",
+    "מעביד",
+    "מקבל",
+    "מקבלת",
+    "רכב",
+    "דירה",
+    "חדר",
+    "קומה",
+    "מקום",
+    "פעם",
+    "מיטה",
+    "כיתה",
+    "מוסד",
+    "עסק",
+    "מפעל",
+    "יישוב",
+    "רשות",
+    "תאגיד",
+    "ספק",
+    "לקוח",
+    "לקוחה",
+    "חייל",
+    "חיילת",
+    "קשיש",
+    "קשישה",
+    "סטודנט",
+    "סטודנטית",
+    "מטופל",
+    "מטופלת",
+    "יתום",
+    "יתומה",
+    "אלמן",
+    "אלמנה",
+    "חולה",
+    "עיוור",
+    "עיוורת",
+    "מובטל",
+    "מובטלת",
+    "פנסיונר",
+    "פנסיונרית",
+    "בן",
+    "בת",
+    "אם",
+    "אב",
+    "זוג",
+    "יחיד",
+)
+_HEBREW_STRUCTURAL_UNIT_NOUN_WORDS = (
+    _HEBREW_MEASURE_UNIT_WORDS + _HEBREW_COUNT_NOUN_WORDS
+)
+
+
+def _hebrew_unit_alternation(units: "Iterable[str]") -> str:
+    """The units as a regex alternation.
+
+    An abbreviation's quote is ASCII or gershayim, and a masculine plural
+    brings its construct form ("מקבלים" and "מקבלי קצבאות", "עובדים" and
+    "עובדי המפעל").
+    """
+    forms: set[str] = set()
+    for unit in units:
+        forms.add(unit)
+        if unit.endswith("ים") and len(unit) > 3:
+            forms.add(unit[:-2] + "י")
+    return "|".join(
+        re.escape(unit).replace('"', '["\u05f4]')
+        for unit in sorted(forms, key=len, reverse=True)
+    )
+
+
+_HEBREW_STRUCTURAL_UNIT_NOUNS = _hebrew_unit_alternation(
+    _HEBREW_STRUCTURAL_UNIT_NOUN_WORDS
+)
+# A unit right after a position: the fractional tail before it belongs to
+# the unit's quantity, not to a rate before the tail.
+_HEBREW_UNIT_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+# The unit that says fraction after an ordinal-shaped word: a unit of
+# measure only. A count noun there may be a predicate ("דרגה חמישית זכאית",
+# "דירה חמישית בת שלושה חדרים"), and the word keeps its ordinal reading.
+# ... and not one that opens a temporal phrase: "לידה חמישית שנה לאחר
+# הלידה הקודמת" is a fifth birth a year after the previous one, not a fifth
+# of a year.
+# A bound after the unit ("עשירית שקל לפחות") is no such phrase.
+_HEBREW_FRACTION_UNIT_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _hebrew_unit_alternation(_HEBREW_MEASURE_UNIT_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_TIME_UNIT_WORDS = (
+    "ימים",
+    "ימי",
+    "יום",
+    "חודשים",
+    "חודשי",
+    "חודש",
+    "שנים",
+    "שנות",
+    "שנה",
+    "שבועות",
+    "שבוע",
+    "שעות",
+    "שעת",
+    "שעה",
+    "דקות",
+    "דקה",
+    "שניות",
+    "שנייה",
+    "שניה",
+    "רבעונים",
+    "רבעון",
+    "תקופות",
+)
+_HEBREW_TIME_UNIT_AFTER_PATTERN = re.compile(
+    "\\s+(?:"
+    + _hebrew_unit_alternation(_HEBREW_TIME_UNIT_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+# The money units a scaled amount and its remainder share ("3 מיליון ו־200
+# שקלים"). Any other unit or count noun after a remainder names a separate
+# quantity: "3 מיליון ו־30 ימי מאסר" is a fine of three million, and thirty
+# days; "3 מיליון ו־20 עובדים" a turnover, and twenty workers.
+_HEBREW_CURRENCY_WORDS = frozenset(
+    {
+        "שקלים חדשים",
+        "שקלים",
+        "שקל",
+        'ש"ח',
+        "₪",
+        "דולר",
+        "דולרים",
+        "יורו",
+        "אירו",
+        'ליש"ט',
+        "לירות",
+        "לירה",
+        "אגורות",
+        "אגורה",
+    }
+)
+_HEBREW_SEPARATE_QUANTITY_WORDS = (
+    frozenset(
+        set(_HEBREW_MEASURE_UNIT_WORDS)
+        | set(_HEBREW_COUNT_NOUN_WORDS)
+        | set(_HEBREW_TIME_UNIT_WORDS)
+        # Construct singulars the unit lists lack: "שנת מאסר", "יום עבודה".
+        | {"שנת", "שבוע", "יום"}
+    )
+    - _HEBREW_CURRENCY_WORDS
+    - {"%", "אחוז", "אחוזים"}
+)
+_HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN = re.compile(
+    "\\s+(?:"
+    + _hebrew_unit_alternation(_HEBREW_SEPARATE_QUANTITY_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_separate_quantity_word_forms() -> frozenset[str]:
+    """The first word of every separate-quantity unit, construct plurals included."""
+    forms: set[str] = set()
+    for unit in _HEBREW_SEPARATE_QUANTITY_WORDS:
+        head = unit.split()[0]
+        forms.add(head)
+        if head.endswith("ים") and len(head) > 3:
+            forms.add(head[:-2] + "\u05d9")
+    return frozenset(forms)
+
+
+_HEBREW_SEPARATE_QUANTITY_WORD_FORMS = _hebrew_separate_quantity_word_forms()
+# The feminine nouns a feminine ordinal modifies: the evidence that
+# "חמישית" after one of them is "fifth".
+_HEBREW_ORDINAL_CONTEXT_NOUN_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "(?:לידה|דירה|דרגה|פעם|שנה|קומה|כיתה|רמה|קטגוריה|מדרגה|שכבה|סדרה|תקופה|עונה|"
+    "מנה|יחידה|ילדה|בת|אישה|עובדת|מבוטחת|תלמידה|תוספת|פסקה|תקנה|הוראה|נקודה|שורה|"
+    "מהדורה|גרסה|קבוצה|רשימה|הודעה|בקשה|תביעה|החלטה|ישיבה|שנת|מיטה|מכונה|מדינה|"
+    "משמרת|משפחה|מחלה|מלגה|מקדמה|מדידה|מכירה|מסירה|ירושה|יצירה)\\s+$"
+)
+# Any feminine noun the ordinal may modify: one of the nouns above, or a
+# word ending in ה or ת ("בדיקה", "משמרת"); a verb ("יופעל", "ישולם") ends
+# in neither, and the copulas that do ("יהיה", "תהיה") are clause context.
+# A present participle ("ממתינה") begins with מ and a future verb ("ישהה")
+# with י; neither is a noun candidate here. The nouns that begin with those
+# letters ("ילדה", "יחידה", "מדרגה", "מיטה") are listed above.
+# A small unit of time after an ordinal-shaped fraction word makes a
+# fractional duration ("עשירית שנייה", "חמישית דקה"); a large one after a
+# noun makes an ordinal with a time adverbial ("מרפאה חמישית שנה לאחר").
+_HEBREW_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<word>[\u0590-\u05ff]{2,})\\s+$"
+)
+# Feminine singular nouns that end in neither ה nor ת: a fund, a city, a
+# land, a road, a stone, a wind, a soul, a cup, a fire, the sun, an eye, a
+# hand, a foot, an ear, a belly, a shoulder, a knee, a tooth, a tongue, a
+# bone, a bird, a square, a well, a vine, an arm, a yard, a wing, a time,
+# a finger, a palm.
+_HEBREW_IRREGULAR_FEMININE_NOUNS = frozenset(
+    {
+        "קרן",
+        "עיר",
+        "ארץ",
+        "דרך",
+        "אבן",
+        "רוח",
+        "נפש",
+        "כוס",
+        "אש",
+        "שמש",
+        "עין",
+        "יד",
+        "רגל",
+        "אוזן",
+        "בטן",
+        "כתף",
+        "ברך",
+        "שן",
+        "לשון",
+        "עצם",
+        "ציפור",
+        "צפור",
+        "כיכר",
+        "באר",
+        "גפן",
+        "זרוע",
+        "חצר",
+        "כנף",
+        "פעם",
+        "אצבע",
+        "כף",
+    }
+)
+_HEBREW_NOUN_PREFIX_LETTERS = frozenset("הבלמושכ")
+
+
+def _hebrew_word_before_can_be_feminine_singular(text: str, start: int) -> bool:
+    """Whether the word before ``start`` can be a feminine singular noun.
+
+    The regular shape ends in ה or ת; the irregular nouns are listed, and
+    read through up to two clitic prefixes ("הקרן", "בעיר", "ולדרך").
+    Without a word before it, nothing can carry the ordinal.
+    """
+    match = _search_before(_HEBREW_WORD_BEFORE_PATTERN, text, start)
+    if match is None:
+        return False
+    word = match.group("word")
+    if word[-1] in "\u05d4\u05ea":
+        return True
+    return any(
+        word[cut:] in _HEBREW_IRREGULAR_FEMININE_NOUNS
+        and all(letter in _HEBREW_NOUN_PREFIX_LETTERS for letter in word[:cut])
+        for cut in range(3)
+    )
+
+
+_HEBREW_SMALL_TIME_UNIT_AFTER_PATTERN = re.compile(
+    "\\s+(?:שנייה|שניה|שניות|דקה|דקות|שעה|שעות|שעת)(?![\u0590-\u05ff])"
+)
+# The verbs that govern a duration ("ממתינה עשירית שנייה", "תשהה עשירית
+# שנייה", "יופעל", "יידחה"): a word before the fraction word that is one of
+# these is a verb whatever its ending, and what follows is a duration.
+_HEBREW_DURATION_VERB_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:\u05d5|\u05e9|כש|וכש)?(?:"
+    "ממתין|ממתינה|ממתינים|ממתינות|המתין|המתינה|המתינו|ימתין|תמתין|ימתינו|להמתין|"
+    "שוהה|שוהים|שוהות|שהה|שהתה|שהו|ישהה|תשהה|ישהו|לשהות|"
+    "מופעל|מופעלת|הופעל|הופעלה|יופעל|תופעל|יופעלו|"
+    "נדחה|נדחתה|נדחו|יידחה|תידחה|יידחו|דוחה|"
+    "מתעכב|מתעכבת|התעכב|התעכבה|יתעכב|תתעכב|יעוכב|תעוכב|"
+    "מתבצע|מתבצעת|בוצע|בוצעה|יבוצע|תבוצע|יתבצע|תתבצע|"
+    "מסתיים|מסתיימת|הסתיים|הסתיימה|יסתיים|תסתיים|"
+    "נפסק|נפסקת|נפסקה|ייפסק|תיפסק|נמשך|נמשכת|נמשכה|יימשך|תימשך|"
+    "מתחיל|מתחילה|החל|החלה|יחל|תחל|יתחיל|תתחיל|"
+    "נכנס|נכנסת|נכנסה|ייכנס|תיכנס|חל|חלה|יחול|תחול|"
+    "פועל|פועלת|פעל|פעלה|פעלו|יפעל|תפעל|יפעלו|"
+    "ישולם|תשולם|שולם|שולמה|ישלם|תשלם|יינתן|תינתן|ניתן|ניתנה|יועבר|תועבר)\\s+$"
+)
+
+
+def _hebrew_ordinal_context(text: str, start: int, unit_position: int) -> str:
+    """How an ordinal-shaped fraction word before a time unit and a temporal phrase reads.
+
+    "ordinal" where a listed noun the ordinal modifies stands right before
+    it ("לידה חמישית שנה לאחר"); "duration" where a verb that governs a
+    duration does, with or without a conjunction prefix ("והמתינה עשירית
+    שנייה לאחר"); "ambiguous" otherwise -- "מרפאה חמישית שנה לאחר" and
+    "נעדר חמישית שנה לאחר" are both grammatical, and no lexicon settles
+    them. The ambiguous case is recorded with both readings, so an
+    encoding may state either.
+    """
+    if _search_before(_HEBREW_ORDINAL_CONTEXT_NOUN_PATTERN, text, start) is not None:
+        return "ordinal"
+    if _search_before(_HEBREW_DURATION_VERB_BEFORE_PATTERN, text, start) is not None:
+        return "duration"
+    # Agreement: a feminine singular ordinal modifies a feminine singular
+    # noun -- the regular shape ends in ה or ת, and the irregular nouns
+    # ("קרן", "עיר") are listed. A word before it that can be neither, a
+    # plural ("העובדים נעדרו") or a masculine singular ("העובד נעדר"),
+    # cannot carry the ordinal, and the fraction word reads as a duration.
+    if not _hebrew_word_before_can_be_feminine_singular(text, start):
+        return "duration"
+    return "ambiguous"
+
+
+def _hebrew_ambiguous_reading_prefers_duration(text: str, unit_position: int) -> bool:
+    """The primary reading of an ambiguous case: a fraction of a second, minute or hour reads as a duration first."""
+    return _HEBREW_SMALL_TIME_UNIT_AFTER_PATTERN.match(text, unit_position) is not None
+
+
+_HEBREW_TEMPORAL_AFTER_UNIT_PATTERN = re.compile(
+    "\\s+(?:לאחר|אחרי|לפני|מיום|ממועד|מתום|מאז|קודם)(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_fraction_unit_after(text: str, position: int, start: int) -> str:
+    """Whether a unit of measure after ``position`` says the word before is a fraction.
+
+    "fraction", "no", or "ambiguous". A unit that opens a temporal phrase
+    ("שנה לאחר") says fraction only where the clause before the word says
+    a quantity follows or a duration verb governs it; a listed noun before
+    the word says ordinal; anything else is ambiguous.
+    """
+    unit = _HEBREW_FRACTION_UNIT_AFTER_PATTERN.match(text, position)
+    if unit is None:
+        return "no"
+    # Only a unit of time opens a temporal phrase; "עשירית שקל לאחר הגשת
+    # הבקשה" is a tenth of a shekel whatever follows.
+    if _HEBREW_TIME_UNIT_AFTER_PATTERN.match(text, position) is None:
+        return "fraction"
+    if _HEBREW_TEMPORAL_AFTER_UNIT_PATTERN.match(text, unit.end()) is None:
+        return "fraction"
+    if _hebrew_fraction_context_before(text, start):
+        return "fraction"
+    context = _hebrew_ordinal_context(text, start, position)
+    if context == "duration":
+        return "fraction"
+    if context == "ordinal":
+        return "no"
+    return "ambiguous"
+
+
+def _iter_hebrew_ambiguous_ordinal_fraction_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, float]]:
+    """Ordinal-shaped fraction words read both ways: (span, primary, alternative).
+
+    "מרפאה חמישית שנה לאחר" is a fifth clinic a year after, or a fifth of
+    a year after; both are grammatical and nothing in the text settles it.
+    The primary reading is the duration for a fraction of a second, a
+    minute or an hour, the ordinal otherwise; the other is recorded as an
+    alternative the encoding may state instead.
+    """
+    matches: list[tuple[tuple[int, int], float, float]] = []
+    for match in _HEBREW_FRACTION_WORD_PATTERN.finditer(text):
+        word = match.group("fraction")
+        if (
+            match.group("count")
+            or match.group("article")
+            or word in _HEBREW_UNAMBIGUOUS_FRACTION_WORDS
+            or word not in _HEBREW_FRACTION_VALUES
+            or word not in _HEBREW_ORDINAL_WORDS
+        ):
+            continue
+        if (
+            _hebrew_fraction_unit_after(text, match.end("fraction"), match.start())
+            != "ambiguous"
+        ):
+            continue
+        fraction = _HEBREW_FRACTION_VALUES[word]
+        ordinal = round(1.0 / fraction)
+        span = (match.start(), match.end("fraction"))
+        if _hebrew_ambiguous_reading_prefers_duration(text, match.end("fraction")):
+            matches.append((span, fraction, float(ordinal)))
+        else:
+            matches.append((span, float(ordinal), fraction))
+    return matches
+
+
+# Every word the numeric grammar reads, for the guards below.
+_HEBREW_STRUCTURAL_NUMBER_WORD_ANY = _hebrew_alternation(
+    _HEBREW_NUMBER_VOCABULARY
+    | set(_HEBREW_MILLION_WORDS)
+    | set(_HEBREW_BILLION_WORDS)
+    | set(_HEBREW_TEEN_UNIT_VALUES)
+    | set(_HEBREW_COUNTED_FRACTION_VALUES)
+    | set(_HEBREW_FRACTION_COUNT_VALUES)
+    | {"שני", "שתי", "שניים", "שתיים"}
+)
+# A quantity, not a further reference: a number followed by a unit noun,
+# with the rest of the number ("3 1⁄2", "3 וחצי") between: a printed
+# fraction or vav-bound number words. A bare number word after a reference
+# ("התוספת השנייה שלושה ילדים") is the statute's own count, not a tail.
+_HEBREW_STRUCTURAL_QUANTITY_TAIL = (
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+|\\s+\u05d5[\u05be-]?(?:"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_ANY
+    + ")){0,16}"
+)
+_HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED = (
+    "(?!"
+    + _HEBREW_STRUCTURAL_QUANTITY_TAIL
+    + "\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + "))"
+)
+# The words that name a statute, absolute and construct: what a schedule
+# or a section is "of" or "to" ("של החוק", "של פקודת מס הכנסה", "של הוראת
+# השעה", "לחוק").
+_HEBREW_STATUTE_NAME_WORDS = "(?:חוק|חוקי|חוקת|פקודה|פקודת|תקנות|תקנה|תקנת|צו|צווי|הוראה|הוראת|הוראות|כללים|כללי|תכנית|תוכנית|תכניות|תוכניות|החלטה|החלטת|החלטות|הסכם|הסכמי|הסכמים|אמנה|אמנת)"
+# After a spelled reference the number is complete, and a vav-bound word is
+# the conjunction ("התוספות השנייה ושלושה ילדים"): the unit must follow at once.
+# Nor is a spelled reference one when a partitive names the amount it is
+# a fraction of: "תוספת חמישית מהשכר" is a supplement of a fifth of the
+# wage, an amount to encode, where "התוספת החמישית לחוק" is a schedule.
+_HEBREW_STRUCTURAL_NOT_A_QUANTITY = (
+    "(?!\\s*(?:" + _HEBREW_STRUCTURAL_UNIT_NOUNS + "))"
+    # A fraction-shaped ordinal before a partitive is a fraction, not a
+    # reference ("תוספת חמישית מן התקבולים", "תוספת חמישית מהשכר"), unless
+    # the partitive names the statute itself ("התוספת השנייה של החוק"); a
+    # number that is no fraction word ("השנייה") and a verb after it
+    # ("מגדירה") leave the reference a reference.
+    "(?!(?:(?<=שלישית)|(?<=רביעית)|(?<=חמישית)|(?<=שישית)|(?<=שביעית)|(?<=שמינית)"
+    "|(?<=תשיעית)|(?<=עשירית)|(?<=מחצית))\\s+(?:(?:מן|מתוך|של)\\s+"
+    "(?!(?:\u05d4[\u05be-]?)?" + _HEBREW_STATUTE_NAME_WORDS + "(?![\u0590-\u05ff]))"
+    "(?:\u05d4[\u05be-]?)?[\u0590-\u05ff]{2,}"
+    # An attached מ before an amount noun ("משכרו") is the partitive; any
+    # other reading of an attached מ is the fraction reader's to make.
+    "|\u05de[\u05be-]?(?:\u05d4[\u05be-]?)?"
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])))"
+)
+_HEBREW_STRUCTURAL_LIST_JOIN = "(?:\u05d5[\u05be-]?|או)"
+_HEBREW_STRUCTURAL_RANGE_JOIN = "(?:עד|[-\u2013\u2014])"
+# Nor the first half of a coordinated quantity or a range of amounts,
+# printed or spelled: in "1, 2, 4, 100 או 200 דולר", "1, 2, 4, 100 עד 200
+# דולר" and "תוספת שתיים עד שלוש נקודות" the number before the join is an
+# amount with the one after it.
+# The endpoint after the join is anything the numeric grammar reads: a
+# printed number with an optional printed fraction ("3 1⁄2") or spelled tail
+# ("3 וחצי"), or a run of up to sixteen number words ("שלושים ואחד אלף
+# מאתיים ושלושים וחמישה"), before the unit.
+# The guards below read an endpoint with the numeral grammar inside an atomic
+# group: "עשרים ואחד" is twenty-one, and once read it is never re-partitioned
+# into twenty and a conjoined one when no unit follows. A vav-bound word the
+# grammar does not admit ("שתיים ושלוש") is a conjunction, joining a new
+# endpoint. Nested ambiguous repetition here once backtracked exponentially.
+_HEBREW_STRUCTURAL_FRACTION_TAIL = (
+    "(?:"
+    + _hebrew_alternation(_HEBREW_MIXED_FRACTION_VALUES)
+    + "|(?:"
+    + _hebrew_alternation(_HEBREW_FRACTION_COUNT_VALUES)
+    + ")\\s+(?:"
+    + _hebrew_alternation(_HEBREW_COUNTED_FRACTION_VALUES)
+    + "))"
+)
+_HEBREW_STRUCTURAL_PRINTED_ENDPOINT = (
+    "(?>(?:[\u05db\u05de\u05d1\u05dc](?:\u05be|-)?)?(?:(?<![\u05d0-\u05ea])[-\u2212])?"
+    "(?:(?:\\d+\\s+)?\\d+\\s*[/\u2044]\\s*\\d+"
+    "|(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:[.,]\\d+)?)"
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+)?"
+    "(?:\\s+\u05d5" + _HEBREW_STRUCTURAL_FRACTION_TAIL + ")?)"
+)
+# A spelled amount: an optional thousands part (a count below a thousand and
+# אלף, or אלף, אלפיים, a unit and אלפים), an optional hundreds part, a
+# remainder (a teen, tens with a vav-bound unit, a unit), and a vav-bound
+# fractional tail. The first word may carry a vav.
+_HEBREW_STRUCTURAL_BELOW_THOUSAND = (
+    "(?:(?:מאה|מאתיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+מאות)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|" + _HEBREW_STRUCTURAL_REMAINDER + ")"
+)
+# A spelled amount: a counted fraction ("שלושה רבעים", read before the bare
+# count could claim its first word), or a number below a million -- an
+# optional multiplier below a thousand and אלף, then an optional part below
+# a thousand -- and a vav-bound fractional tail. The first word may carry a
+# vav.
+_HEBREW_STRUCTURAL_SPELLED_ENDPOINT = (
+    "(?>(?:[\u05d5\u05db\u05de\u05d1\u05dc\u05e9][\u05be-]?){0,2}(?:"
+    + _HEBREW_STRUCTURAL_FRACTION_TAIL
+    + "|(?:"
+    + _HEBREW_STRUCTURAL_BELOW_THOUSAND
+    + "\\s+)?(?:אלף|אלפיים|אלפים)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_BELOW_THOUSAND + ")?"
+    "|"
+    + _HEBREW_STRUCTURAL_BELOW_THOUSAND
+    + ")(?:\\s+\u05d5[\u05be-]?"
+    + _HEBREW_STRUCTURAL_FRACTION_TAIL
+    + ")?)"
+)
+_HEBREW_STRUCTURAL_COORDINATED_ENDPOINT = (
+    "(?:"
+    + _HEBREW_STRUCTURAL_PRINTED_ENDPOINT
+    + "|"
+    + _HEBREW_STRUCTURAL_SPELLED_ENDPOINT
+    + ")"
+)
+# A conjunction: "או", "עד", "ועד", "לבין", "ובין", a dash, a vav before a
+# printed number, or the whitespace before a vav-bound word the endpoint
+# grammar left unread.
+_HEBREW_STRUCTURAL_CONJUNCTION = (
+    "(?:\\s*(?:או|עד|ועד|לבין|ובין)\\s+|\\s*\u05d5[\u05be-]?\\s*(?=\\d)|\\s*[-\u2013]\\s*"
+    "|\\s+(?=\u05d5[\u05be-]?[\u0590-\u05ff]))"
+)
+# One or more endpoints after a conjunction, then the unit ("1 או 2 או 3
+# שקלים", "שתיים ושלוש נקודות"). A comma is no join here: after a closed
+# reference list the sentence goes on ("סעיפים 1 ו־2, 100 דולר").
+_HEBREW_STRUCTURAL_COORDINATED_QUANTITY = (
+    "(?>(?:"
+    + _HEBREW_STRUCTURAL_CONJUNCTION
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")+)\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY = (
+    "(?!" + _HEBREW_STRUCTURAL_COORDINATED_QUANTITY + ")"
+)
+# After a supplement noun a comma may open a list of amounts ("תוספת 1, 2 או
+# 3 שקלים") as long as a conjunction closes it before the unit; "סעיף 1, 100
+# שקלים" has no conjunction and keeps its reference.
+_HEBREW_STRUCTURAL_LIST_OF_AMOUNTS = (
+    "(?>(?:\\s*,\\s*"
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")*)(?>(?:"
+    + _HEBREW_STRUCTURAL_CONJUNCTION
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")+)\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS = (
+    "(?!" + _HEBREW_STRUCTURAL_LIST_OF_AMOUNTS + ")"
+)
+_HEBREW_COORDINATED_UNIT_AFTER_PATTERN = re.compile(
+    _HEBREW_STRUCTURAL_COORDINATED_QUANTITY
+)
+_HEBREW_LIST_OF_AMOUNTS_AFTER_PATTERN = re.compile(_HEBREW_STRUCTURAL_LIST_OF_AMOUNTS)
+# One item of a list: a reference, or a range of two ("1 עד 3", "1–3").
+_HEBREW_STRUCTURAL_DIGIT_ITEM = (
+    _HEBREW_STRUCTURAL_DIGIT
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_RANGE_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+)
+_HEBREW_STRUCTURAL_PLURAL_NOUNS = (
+    "פרקים|תוספות|חלקים|סימנים|סעיפים קטנים|סעיפים|פסקאות|לוחות|טורים|פרטים|תקנות"
+)
+# "תוספת" is a schedule and a supplement; the other singular nouns are only
+# ever structural, so only "תוספת" takes the comma-allowed list-of-amounts
+# guard ("תוספת 1, 2 או 3 שקלים"); "סעיף 5, 2 או 3 אחוזים" keeps section 5.
+_HEBREW_STRUCTURAL_SUPPLEMENT_NOUN = "תוספת"
+_HEBREW_CITATION_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:(?:לפי|על\\s+פי|מכוח)\\s+|בהתאם\\s+ל|(?:כאמור|האמור|כמפורט|המפורט|הקבוע|הקבועה|המנויה)\\s+ב)$"
+)
+_HEBREW_STRUCTURAL_SINGULAR_NOUNS = (
+    "פרק|תוספת|חלק|סימן|סעיף קטן|סעיף|פסקת משנה|פסקה|לוח|טור|פרט|תקנה"
+)
+_HEBREW_STRUCTURAL_STRICT_SINGULAR_NOUNS = (
+    "פרק|חלק|סימן|סעיף קטן|סעיף|פסקת משנה|פסקה|לוח|טור|פרט|תקנה"
+)
+_HEBREW_STRUCTURAL_NOUN_PREFIX = _HEBREW_PREPOSITION_PREFIXES + _HEBREW_OPTIONAL_ARTICLE
+_HEBREW_STRUCTURAL_REFERENCE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_STRUCTURAL_NOUN_PREFIX + "(?:"
+    # A cited "תוספת" -- "לפי תוספת 5", "בהתאם לתוספת 5", "כאמור בתוספת 5",
+    # with any whitespace after the citation word -- is a schedule; the
+    # citation word joins the span.
+    "(?:(?:לפי|על\\s+פי|מכוח)\\s+|(?:בהתאם|כאמור|האמור|כמפורט|המפורט|הקבוע|הקבועה|המנויה)"
+    "\\s+)"
+    + _HEBREW_STRUCTURAL_NOUN_PREFIX
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "\\s+(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|" + _HEBREW_STRUCTURAL_NUMBER_WORD + _HEBREW_STRUCTURAL_NOT_A_QUANTITY + ")"
+    "|"
+    # A plural noun heads a list of items -- each a reference or a range --
+    # joined by commas and closed by at most one conjunction ("1, 2, 4",
+    # "1, 2 או 3", "1 עד 3 ו־5"); after the closing join the sentence goes
+    # on, whatever follows ("1 ו־2, 100 או 200 דולר"), and a comma-joined
+    # item is never a quantity nor the first half of one.
+    "(?:" + _HEBREW_STRUCTURAL_PLURAL_NOUNS + ")\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + "(?:\\s*,\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")*"
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    # A spelled reference under the article is a reference whatever follows
+    # ("התוספות השנייה ושלושה ילדים" keeps its three children substantive); a
+    # bare one may be the first half of a quantity ("תוספות שתיים עד שלוש
+    # נקודות").
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")"
+    # A singular noun takes one item, or a pair joined by a conjunction --
+    # never a comma, which ends the reference ("סעיף 1, 100 שקלים").
+    # A supplement: "תוספת" with or without a prefix ("הקצבה תוגדל בתוספת 1, 2
+    # או 3 אחוזים"). A cited one is taken by the citation branch first, which
+    # the scan reaches earlier.
+    "|" + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN + "\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS
+    + ")"
+    "|(?:"
+    + _HEBREW_STRUCTURAL_STRICT_SINGULAR_NOUNS
+    # A definite "תוספת" ("התוספת השנייה"), or one followed by a number and
+    # "לחוק"/"לפקודה", is a schedule; a cited one is matched with its citation
+    # word below.
+    + "|(?:(?<=\\u05d4)|(?<=\\u05d4[\\u05be-]))"
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "|"
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "(?=\\s+\\d+[\\u05d0-\\u05ea]?\\s+ל[\\u05be-]?(?:חוק|פקודה|תקנות|צו)(?![\\u0590-\\u05ff]))"
+    + ")\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")"
+    ")"
+    "(?![\u0590-\u05ff\\d])"
+)
+# A structural noun followed by a Hebrew word: the start of a reference
+# whose number is spelled.
+_HEBREW_STRUCTURAL_NOUN_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_STRUCTURAL_NOUN_PREFIX
+    + "(?:(?P<plural>"
+    + _HEBREW_STRUCTURAL_PLURAL_NOUNS
+    + ")|(?P<singular>"
+    + _HEBREW_STRUCTURAL_SINGULAR_NOUNS
+    + "))\\s+(?=[\u0590-\u05ff])"
+)
+
+
+def _hebrew_structural_word_reference_spans(text: str) -> list[tuple[int, int]]:
+    """References whose spelled number the numeral grammar reads whole.
+
+    The pattern above reads ordinals and one bounded cardinal after the
+    noun. This reads the same grammar the number passes do -- "סעיף שני
+    אלפים" is section 2,000, "פרק שנים עשר אלף" chapter 12,000 -- so a
+    reference never leaves the rest of its own number substantive. The
+    grammar reads no ordinal, so "התוספת השנייה שלושה ילדים" is left to the
+    pattern, which stops at the ordinal and keeps the three children.
+    """
+    spans: list[tuple[int, int]] = _SpanList()
+    for match in _HEBREW_STRUCTURAL_NOUN_PATTERN.finditer(text):
+        tokens: list["re.Match[str]"] = []
+        for token in _HEBREW_WORD_TOKEN_PATTERN.finditer(text, match.end()):
+            if tokens:
+                gap = text[tokens[-1].end() : token.start()]
+                if not (
+                    gap.strip() == ""
+                    or (
+                        _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                        and token.group(0) in _HEBREW_TEEN_TENS
+                    )
+                ):
+                    break
+            elif token.start() != match.end():
+                break
+            tokens.append(token)
+            if len(tokens) >= 16:
+                break
+        if not tokens:
+            continue
+        parsed = _parse_hebrew_number_run([token.group(0) for token in tokens])
+        if parsed is None:
+            continue
+        end = tokens[parsed[0] - 1].end()
+        if end < len(text) and text[end].isdigit():
+            continue
+        # "תוספת שתי נקודות זיכוי" is a supplement of two credit points and
+        # "תוספת שתיים עד שלוש נקודות" two to three: a number with a unit
+        # after it, or coordinated with one, is a quantity whatever noun
+        # precedes.
+        coordinated = (
+            _HEBREW_LIST_OF_AMOUNTS_AFTER_PATTERN
+            if match.group("singular") == _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+            and _search_before(_HEBREW_CITATION_BEFORE_PATTERN, text, match.start())
+            is None
+            else _HEBREW_COORDINATED_UNIT_AFTER_PATTERN
+        )
+        if _HEBREW_UNIT_AFTER_PATTERN.match(text, end) is not None or (
+            not tokens[0].group(0).startswith("\u05d4")
+            and coordinated.match(text, end) is not None
+        ):
+            continue
+        spans.append((match.start(), end))
+    return spans
+
+
+# A weekday is the word "day" and a bare ordinal -- "יום שני" is Monday --
+# and names a date, not a count; "ביום השני" (on the second day) carries the
+# article and stays an ordinal the statute may be counting with.
+_HEBREW_WEEKDAY_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])[\u05d1\u05dc\u05de]?יום\\s+"
+    "(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)(?![\u0590-\u05ff])"
+)
+_STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?:"
+    r"\(\d+[a-z]?\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
+    r"|\d+[a-z]?\.)",
+    re.IGNORECASE,
+)
+_STRUCTURAL_GLUED_SENTENCE_MARKER_PATTERN = re.compile(
+    r"(?<![\w])(?:[1-9]\d?)(?=[A-ZÄÖÜ])"
+)
+_CURRENCY_MARKER_FRAGMENT = (
+    r"(?:[$£€¥₹]|"
+    r"(?:euros?|eur|dollars?|usd|pounds?|gbp|cad|aud|chf)\b|"
+    r"(?:(?:u\.?\s*s\.?|united\s+states|canadian|australian)\s+dollars?|"
+    r"swiss\s+francs?)\b)"
+)
+_CURRENCY_MARKER_BEFORE_NUMBER_PATTERN = re.compile(
+    rf"{_CURRENCY_MARKER_FRAGMENT}\s*$",
+    re.IGNORECASE,
+)
+_CURRENCY_MARKER_AFTER_NUMBER_PATTERN = re.compile(
+    rf"^\s*{_CURRENCY_MARKER_FRAGMENT}",
+    re.IGNORECASE,
+)
+# The same markers, with the shekel sign and the codes Hebrew sources add,
+# flush before or after an operand the Hebrew range passes weigh.
+_HEBREW_CURRENCY_MARK_FRAGMENT = (
+    rf"(?:{_CURRENCY_MARKER_FRAGMENT}|\u20aa|(?<![A-Za-z])(?:ils|nis|jpy)(?![A-Za-z]))"
+)
+_HEBREW_CURRENCY_MARK_BEFORE_PATTERN = re.compile(
+    rf"{_HEBREW_CURRENCY_MARK_FRAGMENT}$", re.IGNORECASE
+)
+_HEBREW_CURRENCY_MARK_AFTER_PATTERN = re.compile(
+    _HEBREW_CURRENCY_MARK_FRAGMENT, re.IGNORECASE
+)
+_DANISH_CURRENCY_MARKER_PATTERN = re.compile(
+    r"(?:\bkr(?:\.(?!\w)|(?![\w.]))|\bkroner\b|\børe\b)",
+    re.IGNORECASE,
+)
+_GENERIC_CURRENCY_MARKER_PATTERN = re.compile(
+    _CURRENCY_MARKER_FRAGMENT,
     re.IGNORECASE,
 )
 _VEHICLE_TAX_FISCAL_POWER_TABLE_CELL_PATTERN = re.compile(
@@ -1487,6 +8755,28 @@ _DATE_DECOMPOSITION_CUE_TOKENS = {
 
 
 @dataclass(frozen=True)
+class NumericOccurrence:
+    """One normalized numeric candidate anchored to its exact source token."""
+
+    value: float
+    start: int
+    end: int
+    raw: str
+    has_rate_context: bool = False
+    has_temporal_context: bool = False
+    has_structural_context: bool = False
+    source_value: float | None = None
+    requires_rate_context: bool = False
+    is_word_number: bool = False
+    alternative_values: tuple[float, ...] = ()
+
+    @property
+    def span(self) -> tuple[int, int]:
+        """Return the half-open source span for this occurrence."""
+        return self.start, self.end
+
+
+@dataclass(frozen=True)
 class NamedScalarOccurrence:
     """One direct named scalar definition found in a RuleSpec file."""
 
@@ -1529,9 +8819,6 @@ _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
 )
 _APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
-_UPSTREAM_SOURCE_CHECK_BASELINE_PATH = (
-    Path(".axiom") / "upstream-source-check-baseline.txt"
-)
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
     r"(?:as defined in|defined in|meaning given in|within the meaning of|described in)\s+"
     r"section\s+(?P<section>[0-9A-Za-z.-]+(?:\([^)]+\))*)"
@@ -1540,93 +8827,62 @@ _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
 )
 
 
-def _load_nearby_eval_source_metadata(rulespec_file: Path) -> dict[str, object] | None:
-    """Load source-metadata from a nearby eval workspace when present.
-
-    When several workspaces share a parent directory (e.g. /tmp encode runs
-    for siblings a, c, d under one eval root), pick the manifest whose
-    citation maps to the same RuleSpec output path as `rulespec_file`. Falling
-    back to the first alphabetical manifest mixes up sibling subsections —
-    validate of c.yaml would silently load a/'s metadata and reject (c) for
-    not covering (a)'s siblings.
-    """
-    rulespec_norm = _rulespec_file_normalized_target(rulespec_file)
-    fallback: dict[str, object] | None = None
-    for ancestor in rulespec_file.parents:
-        eval_root = ancestor / "_eval_workspaces"
-        if not eval_root.exists():
-            continue
-        for manifest_path in sorted(eval_root.glob("**/context-manifest.json")):
-            try:
-                payload = json.loads(manifest_path.read_text())
-            except Exception:
-                continue
-            metadata = payload.get("source_metadata")
-            if not isinstance(metadata, dict):
-                continue
-            if fallback is None:
-                fallback = metadata
-            if rulespec_norm is None:
-                continue
-            citation_raw = payload.get("citation")
-            manifest_norms: list[tuple[str, ...]] = []
-            for candidate in (
-                citation_raw,
-                metadata.get("requested_source"),
-                metadata.get("corpus_citation_path"),
-            ):
-                if not isinstance(candidate, str):
-                    continue
-                candidate_norm = _citation_to_normalized_target(candidate)
-                if candidate_norm is not None:
-                    manifest_norms.append(candidate_norm)
-            if rulespec_norm in manifest_norms:
-                return metadata
-    return fallback
-
-
-def _load_applied_encoding_manifest_source_metadata(
-    rulespec_file: Path,
-    policy_repo_path: Path,
-) -> dict[str, object] | None:
-    """Load durable requested-source metadata from a generated apply manifest."""
-    try:
-        relative_rulespec = rulespec_file.resolve().relative_to(
-            policy_repo_path.resolve()
-        )
-    except (OSError, ValueError):
-        return None
-    manifest_path = (
-        policy_repo_path
-        / _APPLIED_ENCODING_MANIFEST_DIR
-        / relative_rulespec.with_suffix(".json")
-    )
-    if not manifest_path.exists():
-        return None
-    try:
-        payload = json.loads(manifest_path.read_text())
-    except (OSError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    source_metadata = payload.get("source_metadata")
-    metadata: dict[str, object] = (
-        dict(source_metadata) if isinstance(source_metadata, dict) else {}
-    )
-    citation = payload.get("citation")
-    if isinstance(citation, str) and citation.strip():
-        metadata.setdefault("requested_source", citation.strip())
-    return metadata or None
-
-
 def _requested_source_from_metadata(metadata: dict[str, object] | None) -> str | None:
     if not isinstance(metadata, dict):
         return None
-    requested_source = metadata.get("requested_source")
+    attestation = metadata.get("source_attestation")
+    if not isinstance(attestation, dict):
+        return None
+    requested_source = attestation.get("requested_corpus_citation_path")
     if not isinstance(requested_source, str):
         return None
     requested_source = requested_source.strip()
     return requested_source or None
+
+
+def _authenticated_same_act_aliases_from_metadata(
+    metadata: dict[str, object] | None,
+) -> tuple[str, ...]:
+    """Derive session-law aliases only from resolver-authenticated metadata."""
+
+    if not isinstance(metadata, dict):
+        return ()
+    aliases: list[str] = []
+    attestation = metadata.get("source_attestation")
+    row = attestation.get("row") if isinstance(attestation, dict) else None
+    row_metadata = row.get("metadata") if isinstance(row, dict) else None
+    law_vintage = (
+        row_metadata.get("law_vintage") if isinstance(row_metadata, dict) else None
+    )
+    if isinstance(law_vintage, dict):
+        bill = law_vintage.get("bill")
+        legislature = law_vintage.get("legislature")
+        if isinstance(bill, str) and bill.strip():
+            normalized_bill = " ".join(bill.split())
+            if isinstance(legislature, str):
+                year_match = re.search(r"\b(20\d{2})\b", legislature)
+                if year_match is not None:
+                    aliases.append(f"{year_match.group(1)} {normalized_bill}")
+
+    source_path = row.get("source_path") if isinstance(row, dict) else None
+    if isinstance(source_path, str):
+        bill_match = re.search(
+            r"(?:^|/)(?P<year>20\d{2})-(?P<chamber>hb|sb)-0*(?P<number>\d+)"
+            r"(?:[-./]|$)",
+            source_path,
+            flags=re.IGNORECASE,
+        )
+        if bill_match is not None:
+            chamber = (
+                "House Bill"
+                if bill_match.group("chamber").casefold() == "hb"
+                else "Senate Bill"
+            )
+            aliases.append(
+                f"{bill_match.group('year')} {chamber} "
+                f"{int(bill_match.group('number'))}"
+            )
+    return tuple(dict.fromkeys(aliases))
 
 
 def _rulespec_file_normalized_target(rulespec_file: Path) -> tuple[str, ...] | None:
@@ -1643,13 +8899,13 @@ def _citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
     if corpus_target is not None:
         return corpus_target
     try:
-        parts = parse_usc_citation(citation)
+        parts = parse_usc_citation(normalize_rulespec_path_segment(citation))
     except Exception:
         return None
     if parts is None:
         return None
     pieces = ["statutes", parts.title, parts.section, *parts.fragments]
-    return tuple(p.lower() for p in pieces if p)
+    return tuple(normalize_rulespec_path_segment(p).lower() for p in pieces if p)
 
 
 def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | None:
@@ -1667,7 +8923,11 @@ def _corpus_citation_to_normalized_target(citation: str) -> tuple[str, ...] | No
     target_ref = _parse_rulespec_target(candidate)
     if target_ref is not None:
         return _rulespec_relative_path_parts(target_ref.relative_path)
-    parts = [part.strip().lower() for part in candidate.split("/") if part.strip()]
+    parts = [
+        normalize_rulespec_path_segment(part.strip()).lower()
+        for part in candidate.split("/")
+        if part.strip()
+    ]
     if len(parts) < 3 or not (parts[0] == "us" or parts[0].startswith("us-")):
         return None
     class_part = parts[1]
@@ -1726,7 +8986,10 @@ def _preserve_state_statute_dotted_leaf_for_normalization(
     if jurisdiction != "us-co" or root != "statutes" or len(tail) < 2:
         return False
     if len(tail) == 2 and tail[0].isdigit():
-        return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)+", tail[-1]))
+        crs_segments = tail[-1].split("-")
+        return len(crs_segments) == 3 and all(
+            re.fullmatch(r"\d+(?:\.\d+)*", segment) for segment in crs_segments
+        )
     if not re.fullmatch(r"\d+(?:\.\d+)+", tail[-1]):
         return False
     return bool(re.fullmatch(r"\d+(?:-\d+)+(?:\.\d+)?", tail[-2]))
@@ -2006,7 +9269,7 @@ def _range_endpoint_normalized_target(
 
 
 def _clean_source_citation_fragment(fragment: str) -> str:
-    cleaned = fragment.strip()
+    cleaned = normalize_rulespec_path_segment(fragment.strip())
     cleaned = re.sub(r"^(?:and|or)\s+", "", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.rstrip(".")
     cleaned = _USC_ABBREVIATION_RE.sub("USC", cleaned)
@@ -2131,10 +9394,11 @@ def _infer_us_state_code_from_rulespec_path(
     rulespec_source_content: str = "",
 ) -> str | None:
     """Infer a US state code from canonical RuleSpec repo paths or legal ids."""
-    path_text = rulespec_file.as_posix().lower()
-    match = re.search(r"(?:^|/)rulespec-us-([a-z]{2})(?:/|$)", path_text)
-    if match:
-        return match.group(1).upper()
+    content_root = find_policy_repo_root(rulespec_file)
+    if content_root is not None:
+        match = re.fullmatch(r"us-([a-z]{2})", content_root.name)
+        if match:
+            return match.group(1).upper()
 
     source_text = rulespec_source_content.lower()
     match = re.search(r"\bus-([a-z]{2}):", source_text)
@@ -2398,6 +9662,308 @@ def _policyengine_period_string(value: Any, fallback: str = "2024-01") -> str:
     return value_text
 
 
+def _rule_grounding_values(
+    rule: Any,
+    *,
+    selector_table_keys: Mapping[str, Any] | None = None,
+) -> list[tuple[int, str, float]]:
+    """Extract the grounding-required numeric literals declared by one rule."""
+    values: list[tuple[int, str, float]] = []
+    if not isinstance(rule, dict):
+        return values
+    rule_name = str(rule.get("name") or "").strip()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return values
+    for version in versions:
+        if not isinstance(version, dict):
+            continue
+        formula = version.get("formula")
+        if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+            value = float(formula)
+            if value not in GROUNDING_ALLOWED_VALUES:
+                values.append((1, str(formula), value))
+        elif isinstance(formula, str):
+            values.extend(
+                _extract_formula_grounding_values(
+                    1,
+                    formula,
+                    structural_selector_keys=(
+                        (selector_table_keys or {}).get(rule_name)
+                        if _is_structural_selector_rule(rule)
+                        else None
+                    ),
+                )
+            )
+        table_values = version.get("values")
+        if isinstance(table_values, dict):
+            for table_value in table_values.values():
+                extracted = _numeric_rule_value(table_value)
+                if extracted is None:
+                    continue
+                raw, value = extracted
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    values.append((1, raw, value))
+    return values
+
+
+def _rule_grounding_values_by_path(
+    rule: Any,
+    *,
+    selector_table_keys: Mapping[str, Any] | None = None,
+) -> list[tuple[str, str, float]]:
+    """Like ``_rule_grounding_values`` but anchors each literal to its version path.
+
+    Each literal is tagged with the RuleSpec path it lives at
+    (``versions[i].formula`` or ``versions[i].values``) so grounding can be
+    bound to the proof atom anchored to that exact path.
+    """
+    out: list[tuple[str, str, float]] = []
+    if not isinstance(rule, dict):
+        return out
+    rule_name = str(rule.get("name") or "").strip()
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return out
+    for index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        formula_path = f"versions[{index}].formula"
+        values_path = f"versions[{index}].values"
+        formula = version.get("formula")
+        if isinstance(formula, (int, float)) and not isinstance(formula, bool):
+            value = float(formula)
+            if value not in GROUNDING_ALLOWED_VALUES:
+                out.append((formula_path, str(formula), value))
+        elif isinstance(formula, str):
+            for _line, raw, value in _extract_formula_grounding_values(
+                1,
+                formula,
+                structural_selector_keys=(
+                    (selector_table_keys or {}).get(rule_name)
+                    if _is_structural_selector_rule(rule)
+                    else None
+                ),
+            ):
+                out.append((formula_path, raw, value))
+        table_values = version.get("values")
+        if isinstance(table_values, dict):
+            for table_value in table_values.values():
+                extracted = _numeric_rule_value(table_value)
+                if extracted is None:
+                    continue
+                raw, value = extracted
+                if value not in GROUNDING_ALLOWED_VALUES:
+                    out.append((values_path, raw, value))
+    return out
+
+
+@dataclass(frozen=True)
+class _NumericEvidenceItem:
+    """One source fragment and the citation identity that selects its profile."""
+
+    citation_path: str | None
+    text: str
+
+
+def _rule_atom_numeric_evidence_items_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+    *,
+    require_body_bound_evidence: bool = True,
+) -> dict[str, tuple[_NumericEvidenceItem, ...]]:
+    """Map each proof anchor to separately profileable numeric evidence items.
+
+    Evidence is excerpt-first: the atom's excerpt/quote/table cells — the
+    encoder's chosen, excerpt-verified text for the value at that exact path.
+    A citation-only atom (no excerpt) falls back to the resolved text of the
+    provision THAT atom cites, which matches the strength of the long-standing
+    module-source semantics while keeping the boundary per anchored atom: an
+    unrelated atom in the same rule can launder nothing, because neither its
+    excerpt nor its cited provision is consulted for another path's literal.
+    Fragments retain their own citation and are never joined before tokenization.
+    (Follow-up ratchet: require excerpts on numeric-bearing atoms.)
+    """
+    by_path: dict[str, list[_NumericEvidenceItem]] = {}
+    cited_by_path: dict[str, list[tuple[str, str]]] = {}
+    explicit_evidence_paths: set[str] = set()
+    if not isinstance(rule, dict):
+        return {}
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    if not isinstance(proof, dict):
+        proof = rule.get("proof")
+    if not isinstance(proof, dict):
+        return {}
+    atoms = proof.get("atoms")
+    if not isinstance(atoms, list):
+        return {}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = str(atom.get("path") or "").strip()
+        source = atom.get("source")
+        if not path or not isinstance(source, dict):
+            continue
+        raw_citation_path = source.get("corpus_citation_path")
+        citation_identity = (
+            raw_citation_path if isinstance(raw_citation_path, str) else None
+        )
+        citation_path = (
+            citation_identity.strip() if citation_identity is not None else ""
+        )
+        resolved_text = (
+            proof_source_texts.get(citation_path)
+            if proof_source_texts is not None and citation_path
+            else None
+        )
+        fragments = by_path.setdefault(path, [])
+        for evidence_field in ("excerpt", "quote"):
+            text = source.get(evidence_field)
+            if not isinstance(text, str) or not text.strip():
+                continue
+            explicit_evidence_paths.add(path)
+            excerpt_is_body_bound = (
+                not require_body_bound_evidence
+                or proof_source_texts is None
+                or not citation_path
+                or (
+                    resolved_text is not None
+                    and _source_evidence_fragment_is_body_bound(text, resolved_text)
+                )
+            )
+            if excerpt_is_body_bound:
+                fragments.append(_NumericEvidenceItem(citation_identity, text.strip()))
+        table = source.get("table")
+        if isinstance(table, dict):
+            for cell in table.values():
+                if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
+                    explicit_evidence_paths.add(path)
+                    text = str(cell).strip()
+                    cell_is_body_bound = (
+                        not require_body_bound_evidence
+                        or proof_source_texts is None
+                        or not citation_path
+                        or (
+                            resolved_text is not None
+                            and _source_evidence_fragment_is_body_bound(
+                                text, resolved_text
+                            )
+                        )
+                    )
+                    if cell_is_body_bound:
+                        fragments.append(_NumericEvidenceItem(citation_identity, text))
+        if citation_path:
+            cited_by_path.setdefault(path, []).append(
+                (citation_path, citation_identity or citation_path)
+            )
+    evidence: dict[str, tuple[_NumericEvidenceItem, ...]] = {}
+    for path, fragments in by_path.items():
+        if fragments:
+            evidence[path] = tuple(fragments)
+            continue
+        if path in explicit_evidence_paths:
+            evidence[path] = ()
+            continue
+        resolved: list[_NumericEvidenceItem] = []
+        if proof_source_texts is not None:
+            for citation_path, citation_identity in cited_by_path.get(path, []):
+                text = proof_source_texts.get(citation_path)
+                if text:
+                    resolved.append(_NumericEvidenceItem(citation_identity, text))
+        evidence[path] = tuple(resolved)
+    return evidence
+
+
+def _rule_atom_evidence_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+) -> dict[str, str]:
+    """Return the legacy joined view used by non-numeric evidence consumers."""
+    return {
+        path: "\n".join(item.text for item in items)
+        for path, items in _rule_atom_numeric_evidence_items_by_path(
+            rule,
+            proof_source_texts,
+        ).items()
+    }
+
+
+def _source_evidence_fragment_is_body_bound(
+    evidence_text: str,
+    source_text: str,
+) -> bool:
+    # Whitespace collapses as the proof check collapses it: every paragraph
+    # gap kept, so an excerpt quotes a blank line as a blank line.
+    normalized_evidence = collapse_evidence_whitespace(evidence_text).casefold()
+    normalized_source = collapse_evidence_whitespace(source_text).casefold()
+    if not normalized_evidence:
+        return False
+    if _bounded_source_evidence_match(normalized_evidence, normalized_source):
+        return True
+    # The proof check reads "ל־ 1⁄2" and "ל־1⁄2" as one text; numeric evidence
+    # is bound the same way, across wrap space and never a paragraph gap.
+    return "\u05be" in source_text and _bounded_source_evidence_match(
+        collapse_evidence_whitespace(bind_maqaf_space(evidence_text)).casefold(),
+        collapse_evidence_whitespace(bind_maqaf_space(source_text)).casefold(),
+    )
+
+
+def _rule_verified_source_excerpt_pairs_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None,
+) -> dict[str, tuple[tuple[str | None, str], ...]]:
+    """Map proof anchors to citation-only or verified excerpt/source evidence."""
+    if not isinstance(rule, dict) or proof_source_texts is None:
+        return {}
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    if not isinstance(proof, dict):
+        proof = rule.get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return {}
+
+    by_path: dict[str, list[tuple[str | None, str]]] = {}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = str(atom.get("path") or "").strip()
+        source = atom.get("source")
+        if not path or not isinstance(source, dict):
+            continue
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        resolved_text = proof_source_texts.get(citation_path) if citation_path else None
+        excerpts = [
+            str(source.get(field) or "").strip() for field in ("excerpt", "quote")
+        ]
+        if not resolved_text:
+            continue
+        normalized_source = collapse_evidence_whitespace(resolved_text).lower()
+        maqaf_source = collapse_evidence_whitespace(
+            bind_maqaf_space(resolved_text)
+        ).lower()
+        selected_excerpts = [excerpt for excerpt in excerpts if excerpt]
+        if not selected_excerpts:
+            table = source.get("table")
+            if isinstance(table, dict) and table:
+                # Structured table coordinates are the atom's selected evidence.
+                # Do not widen them to the entire cited provision for semantic
+                # exemptions such as source-described rounding operations.
+                continue
+            by_path.setdefault(path, []).append((None, resolved_text))
+            continue
+        for excerpt in selected_excerpts:
+            normalized_excerpt = collapse_evidence_whitespace(excerpt).lower()
+            if normalized_excerpt and (
+                normalized_excerpt in normalized_source
+                or collapse_evidence_whitespace(bind_maqaf_space(excerpt)).lower()
+                in maqaf_source
+            ):
+                by_path.setdefault(path, []).append((excerpt, resolved_text))
+    return {path: tuple(pairs) for path, pairs in by_path.items()}
+
+
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     """Extract grounded numeric values from RuleSpec definitions."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -2410,43 +9976,11 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
             values: list[tuple[int, str, float]] = []
             selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
             for rule in payload["rules"]:
-                if not isinstance(rule, dict):
-                    continue
-                rule_name = str(rule.get("name") or "").strip()
-                versions = rule.get("versions")
-                if not isinstance(versions, list):
-                    continue
-                for version in versions:
-                    if not isinstance(version, dict):
-                        continue
-                    formula = version.get("formula")
-                    if isinstance(formula, (int, float)) and not isinstance(
-                        formula, bool
-                    ):
-                        value = float(formula)
-                        if value not in GROUNDING_ALLOWED_VALUES:
-                            values.append((1, str(formula), value))
-                    elif isinstance(formula, str):
-                        values.extend(
-                            _extract_formula_grounding_values(
-                                1,
-                                formula,
-                                structural_selector_keys=(
-                                    selector_table_keys.get(rule_name)
-                                    if _is_structural_selector_rule(rule)
-                                    else None
-                                ),
-                            )
-                        )
-                    table_values = version.get("values")
-                    if isinstance(table_values, dict):
-                        for table_value in table_values.values():
-                            extracted = _numeric_rule_value(table_value)
-                            if extracted is None:
-                                continue
-                            raw, value = extracted
-                            if value not in GROUNDING_ALLOWED_VALUES:
-                                values.append((1, raw, value))
+                values.extend(
+                    _rule_grounding_values(
+                        rule, selector_table_keys=selector_table_keys
+                    )
+                )
             return values
 
     return []
@@ -2571,10 +10105,419 @@ def _is_half_up_rounding_helper_scalar(symbol_name: str, value: float) -> bool:
     if value != 0.5:
         return False
     normalized = symbol_name.lower()
-    if "half_increment" in normalized:
+    if "rounding" in normalized and (
+        "half_increment" in normalized or "half_unit" in normalized
+    ):
         return True
     return "half_up" in normalized and (
         "rounding" in normalized or "offset" in normalized
+    )
+
+
+def _half_up_rounding_source_matchers() -> tuple[
+    tuple[re.Pattern[str], ...],
+    re.Pattern[str],
+    re.Pattern[str],
+]:
+    """Build the narrow instruction, invalidation, and prohibition matchers."""
+    threshold_value = r"(?:five|5)"
+    threshold = (
+        r"(?:"
+        + threshold_value
+        + r"\s+or\s+(?:more|greater)|at\s+least\s+"
+        + threshold_value
+        + r"|equal\s+to\s+or\s+greater\s+than\s+"
+        + threshold_value
+        + r"|greater\s+than\s+or\s+equal\s+to\s+"
+        + threshold_value
+        + r")\b"
+        r"(?=\s*(?:[,.;:]|$|\bthen\b))"
+    )
+    second_digit = r"(?:the\s+)?(?:second|2nd)\s+digit"
+    third_digit = r"(?:the\s+)?(?:third|3rd)\s+digit"
+    decimal_position = r"(?:\s+after\s+the\s+decimal\s+point)?"
+    third_digit_position = third_digit + decimal_position
+    unit = r"(?:one|1)"
+    active_instruction = (
+        r"\b(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_action = (
+        r"(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+    )
+    passive_action = (
+        second_digit
+        + decimal_position
+        + r"\s+(?:(?:shall|must|should|will)\s+be|is)\s+"
+        r"(?:increas\w*|round\w*\s+up)\s+by\s+" + unit
+    )
+    passive_then_condition = (
+        passive_action
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_instruction = (
+        r"\b(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+        + r"\s*[:,]?\s*(?:then\s+)?(?:"
+        + reverse_action
+        + "|"
+        + passive_action
+        + ")"
+    )
+    invalidation = re.compile(
+        r"(?:\b(?:(?:this|that)\s+(?:rounding\s+)?"
+        r"(?:rule|procedure|method|instruction)|the\s+rounding\s+"
+        r"(?:rule|procedure|method|instruction))\b"
+        r".{0,80}\b(?:do(?:es|ne)?\s+not\s+apply|"
+        r"(?:shall|should|must)\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"may\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"cannot\s+be\s+(?:applied|used)|is\s+not\s+applicable|"
+        r"is\s+inapplicable|is\s+(?:prohibit\w*|disallow\w*|forbid\w*))\b|"
+        r"\b(?:do\s+not|never|(?:shall|should|must|may)\s+not|cannot)\s+"
+        r"do\s+so\b|"
+        r"\bdoing\s+so\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\bwhich\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+(?:illustrative|an?\s+example)"
+        r"(?:\s+only)?\b|"
+        r"\bonly\s+as\s+an?\s+illustration\b|"
+        r"\b(?:it|this)\s+is\s+not\s+(?:allowed|permitted|authorized)\b)"
+    )
+    negated_or_excepted = re.compile(
+        r"\b(?:do\s+not|never|avoid(?:s|ed|ing)?)\b"
+        r"(?:(?![.;:]|,\s*(?:but|and)\b)[\s\S])*?"
+        r"\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:not\s+to|rather\s+than)\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:cannot|can\s+not|does\s+not|did\s+not|"
+        r"won['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"shan['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+        r"(?:do|does|did|will|would|could|must|shall|should|is|are)"
+        r"n['\N{RIGHT SINGLE QUOTATION MARK}]t"
+        r"(?:\s+to)?|can['\N{RIGHT SINGLE QUOTATION MARK}]t)\b"
+        r"(?:(?![,;:])[\s\S]){0,80}\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:is\s+)?(?:prohibit\w*|forbid\w*|"
+        r"not\s+(?:permitted|allowed|authorized))\s+to\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\bno\s+need\s+to\s+(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:except(?:ion)?|excluding|unless|subject\s+to)\b|"
+        r"\bfor\s+example\b|"
+        r"\b(?:for|only\s+as\s+an?)\s+illustration\b|"
+        r"\b(?:but|although)\b.{0,80}"
+        r"(?:\b(?:(?:may|shall|should|must|will|would|could)\s+not\s+|cannot\s+)"
+        r"(?:apply|be\s+(?:applied|used)|do\s+so)\b|"
+        r"\bonly\s+(?:an?\s+)?example\b|"
+        r"\bnot\s+(?:calculations?|computations?)\b)"
+    )
+    return (
+        tuple(
+            re.compile(pattern)
+            for pattern in (
+                active_instruction,
+                reverse_instruction,
+                passive_then_condition,
+            )
+        ),
+        invalidation,
+        negated_or_excepted,
+    )
+
+
+def _normalized_half_up_rounding_source_text(source_text: str) -> str:
+    normalized = re.sub(r"[^\S\n]+", " ", source_text.strip()).lower()
+    normalized = re.sub(r",\s*\n\s*", ", ", normalized)
+    return re.sub(r"(?<=[a-z0-9)])\n\s*(?=[a-z0-9])", " ", normalized)
+
+
+def _half_up_rounding_clause_instruction_spans(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[tuple[int, int], ...]:
+    """Return structurally affirmative instructions in one source clause."""
+    normalized = source_text.lower()
+    if negated_or_excepted.search(normalized):
+        return ()
+    candidate_spans = sorted(
+        {
+            match.span()
+            for pattern in instruction_patterns
+            for match in pattern.finditer(normalized)
+        }
+    )
+    accepted: list[tuple[int, int]] = []
+    for span in candidate_spans:
+        start, _end = span
+        prefix_start = accepted[-1][1] if accepted else 0
+        prefix = normalized[prefix_start:start]
+        if accepted:
+            if not re.fullmatch(r"\s*,?\s*(?:and|or)\s+", prefix):
+                continue
+        elif prefix.strip(" \t\r\n,:"):
+            structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.fullmatch(prefix)
+            official_context = re.fullmatch(
+                r"\s*(?:if|when)\s+.{1,240}\b(?:has|have)\s+"
+                r"(?:three|3)\s+or\s+more\s+digits?\s+after\s+the\s+"
+                r"decimal\s+point\s*,\s*",
+                prefix,
+            )
+            unrelated_contrast = re.fullmatch(r".+,\s*but\s+", prefix)
+            if (
+                not structural_prefix
+                and not official_context
+                and not unrelated_contrast
+            ):
+                continue
+        accepted.append(span)
+    return tuple(accepted)
+
+
+def _half_up_rounding_clause_instruction_count(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> int:
+    """Count exact instructions in one clause after clause-level exclusions."""
+    return len(
+        _half_up_rounding_clause_instruction_spans(
+            source_text, instruction_patterns, negated_or_excepted
+        )
+    )
+
+
+def _half_up_rounding_supported_line_flags(
+    lines: list[str],
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[bool, ...]:
+    """Mark complete instruction lines not negated by the preceding line."""
+    flags: list[bool] = []
+    for index, line in enumerate(lines):
+        supported = bool(
+            _half_up_rounding_clause_instruction_count(
+                line, instruction_patterns, negated_or_excepted
+            )
+        )
+        if supported and index:
+            preceding_line = lines[index - 1].strip().lower()
+            dangling_negation = bool(
+                re.search(
+                    r"\b(?:do\s+not|never|avoid|cannot|can\s+not|"
+                    r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+                    r"will\s+not|would\s+not|could\s+not|not\s+to)\s*$",
+                    preceding_line,
+                )
+                or re.fullmatch(
+                    r"\s*(?:do\s+not|never|avoid)\s*,\s*[^,]+,?\s*",
+                    preceding_line,
+                )
+            )
+            supported = not dangling_negation
+        flags.append(supported)
+    return tuple(flags)
+
+
+def normalize_source_backed_half_up_rounding_occurrence_text(
+    source_text: str,
+) -> str:
+    """Spell out increments only inside recognized affirmative instructions."""
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    case_insensitive_patterns = tuple(
+        re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
+    )
+
+    def normalize_instruction_units(text: str) -> str:
+        spans = _half_up_rounding_clause_instruction_spans(
+            text, case_insensitive_patterns, negated_or_excepted
+        )
+        if not spans:
+            return text
+        for start, end in sorted(spans, reverse=True):
+            instruction = re.sub(
+                r"(\bby\s+)1\b",
+                r"\g<1>one",
+                text[start:end],
+                flags=re.IGNORECASE,
+            )
+            text = text[:start] + instruction + text[end:]
+        return text
+
+    parts = re.split(r"([.!?;]+)", source_text)
+    clause_indexes = [
+        index for index in range(0, len(parts), 2) if parts[index].strip()
+    ]
+    for position, part_index in enumerate(clause_indexes):
+        clause = parts[part_index]
+        context_indexes = clause_indexes[max(0, position - 1) : position + 2]
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(parts[index] for index in context_indexes)
+        )
+        if invalidation.search(context):
+            continue
+        lines = clause.splitlines(keepends=True)
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if any(supported_line_flags):
+            parts[part_index] = "".join(
+                normalize_instruction_units(line)
+                if supported_line_flags[index]
+                else line
+                for index, line in enumerate(lines)
+            )
+        else:
+            parts[part_index] = normalize_instruction_units(clause)
+    return "".join(parts)
+
+
+def _is_source_backed_half_up_rounding_helper(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> bool:
+    """Return True for an explicit source-backed half-up digit instruction."""
+    return bool(
+        _source_backed_half_up_rounding_instruction_count(
+            symbol_name, value, source_text
+        )
+    )
+
+
+def _source_backed_half_up_rounding_instruction_count(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> int:
+    """Count supported instructions while retaining adjacent invalidations."""
+    if not _is_half_up_rounding_helper_scalar(symbol_name, value):
+        return 0
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    punctuation_clauses = [
+        clause.strip() for clause in re.split(r"[.!?;]+", source_text) if clause.strip()
+    ]
+    clauses: list[str] = []
+    for clause in punctuation_clauses:
+        lines = [line.strip() for line in clause.splitlines() if line.strip()]
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if not any(supported_line_flags):
+            clauses.append(clause)
+            continue
+        for index, line in enumerate(lines):
+            raw_supported = bool(
+                _half_up_rounding_clause_instruction_count(
+                    line, instruction_patterns, negated_or_excepted
+                )
+            )
+            if raw_supported and not supported_line_flags[index] and index:
+                clauses.append(f"{lines[index - 1]}\n{line}")
+            else:
+                clauses.append(line)
+    count = 0
+    for index, clause in enumerate(clauses):
+        instruction_count = _half_up_rounding_clause_instruction_count(
+            clause, instruction_patterns, negated_or_excepted
+        )
+        if not instruction_count:
+            continue
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(clauses[max(0, index - 1) : index + 2])
+        )
+        if not invalidation.search(context):
+            count += instruction_count
+    return count
+
+
+def source_backed_half_up_rounding_helper_count(
+    content: str,
+    authoritative_source_text: str,
+) -> int:
+    """Count source instructions supported by at least one direct helper."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            for rule in rules:
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, _raw, value in _rule_grounding_values_by_path(
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                ):
+                    if not _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    ):
+                        continue
+                    instruction_count = (
+                        _source_backed_half_up_rounding_instruction_count(
+                            rule_name,
+                            value,
+                            authoritative_source_text,
+                        )
+                    )
+                    if instruction_count:
+                        return instruction_count
+    return 0
+
+
+def _is_direct_half_up_rounding_helper_value(
+    rule: Any,
+    anchor_path: str,
+    value: float,
+) -> bool:
+    """Return True only for a helper version whose whole formula is ``0.5``."""
+    if not isinstance(rule, dict):
+        return False
+    rule_name = str(rule.get("name") or "").strip()
+    if not _is_half_up_rounding_helper_scalar(rule_name, value):
+        return False
+    match = re.fullmatch(r"versions\[(\d+)\]\.formula", anchor_path)
+    versions = rule.get("versions")
+    if match is None or not isinstance(versions, list):
+        return False
+    index = int(match.group(1))
+    if index >= len(versions) or not isinstance(versions[index], dict):
+        return False
+    direct_value = _numeric_rule_value(versions[index].get("formula"))
+    return direct_value is not None and direct_value[1] == value
+
+
+def _strip_ambiguous_half_up_terms(text: str) -> str:
+    """Remove ``half-up`` prose while retaining substantive word-form halves."""
+    return re.sub(
+        r"\bhalf[- ]up\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
     )
 
 
@@ -2942,14 +10885,20 @@ def _call_body_contains_any(
         search_start = call_start + 1
 
 
-def extract_numbers_from_text(text: str) -> set[float]:
+def _extract_legacy_grounding_values(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
-    original_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    original_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    text = _clean_source_text_for_numeric_extraction(text)
+    text = _clean_source_text_for_numeric_extraction(original_text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
-    occupied_spans: list[tuple[int, int]] = []
+    occupied_spans: list[tuple[int, int]] = _SpanList()
     numbers.update(two_line_table_occurrences)
     numbers.update(schedule_occurrences)
 
@@ -2976,7 +10925,29 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_dotted_date_year_values(original_text))
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
+    numbers.update(_extract_form_arithmetic_operand_values(original_text))
+    numbers.update(_extract_contextual_ascii_fraction_values(original_text))
+    numbers.update(_extract_small_month_range_values(original_text))
+    numbers.update(value for _, value in implied_cents_matches)
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
+
+    for match in GLUED_UNIT_NUMBER_PATTERN.finditer(text):
+        span = match.span()
+        with contextlib.suppress(ValueError):
+            numbers.add(float(match.group("number").replace(",", "")))
+            occupied_spans.append(span)
+
+    for match in CENTS_VALUE_NUMBER_PATTERN.finditer(text):
+        span = match.span()
+        if _span_overlaps(span, occupied_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            # The explicit cents unit is the context guard. Keep the existing
+            # bare-number candidate and add its substantive currency fraction.
+            numbers.add(value)
+            numbers.add(value / 100)
+            occupied_spans.append(span)
 
     for span, value in _iter_normalized_special_numeric_matches(text):
         if _span_overlaps(span, occupied_spans):
@@ -2985,6 +10956,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
         occupied_spans.append(span)
     numbers.update(_iter_ascii_mixed_fraction_percentage_component_values(text))
     numbers.update(_extract_percentage_context_values(text))
+    for span, value in _iter_word_quantity_fraction_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_standalone_fraction_word_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -3054,10 +11030,28 @@ def extract_numbers_from_text(text: str) -> set[float]:
     for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(text):
         if _span_overlaps(match.span(1), occupied_spans):
             continue
+        # A percentage-marked span ("1.075%") contributes only its scaled
+        # reading via the direct percentage parser; adding an unscaled
+        # reading (1075 or 1.075) here would let a bare formula literal
+        # ground against a percentage source. The span is still occupied so
+        # later generic matchers cannot extract a partial prefix ("12.345"
+        # out of "12.345.678%").
+        if _number_span_is_immediately_followed_by_percent_marker(text, match.span(1)):
+            occupied_spans.append(match.span(1))
+            continue
         raw = _normalize_grouped_thousands_number(match.group(1))
         with contextlib.suppress(ValueError):
             numbers.add(float(raw))
             occupied_spans.append(match.span(1))
+        # A single dot-group ("1.075") is ambiguous: European grouped
+        # thousands (1075) or a plain dotted decimal (1.075 — the Scottish
+        # CTR band-E multiplier, SSI 2021/249 reg 79). Since this loop
+        # occupies the span, the plain-decimal matcher below never sees it,
+        # so record the dotted-decimal reading as well. Multi-group values
+        # ("12.345.678") stay European-only.
+        if re.fullmatch(r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)):
+            with contextlib.suppress(ValueError):
+                numbers.add(float(match.group(1)))
 
     for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(text):
         span = match.span(1)
@@ -3108,6 +11102,60 @@ def _iter_normalized_special_numeric_matches(
     """Return normalized special-case numeric matches like percentages, pence, and table values."""
     matches: list[tuple[tuple[int, int], float]] = []
     fraction_chars = "".join(re.escape(glyph) for glyph in _UNICODE_FRACTION_VALUES)
+
+    for match in re.finditer(
+        rf"\b(?P<whole>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+and\s+"
+        rf"(?P<numerator>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
+        rf"one[-\s]+{_DECIMAL_FRACTION_DENOMINATOR_PATTERN}\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        whole = _parse_strict_cardinal_number_words(match.group("whole"))
+        numerator = _parse_strict_cardinal_number_words(match.group("numerator"))
+        denominator = _DECIMAL_FRACTION_DENOMINATORS.get(
+            match.group("denominator").lower().removesuffix("s")
+        )
+        if whole is None or numerator is None or denominator is None:
+            continue
+        matches.append((match.span(), (whole + numerator / denominator) / 100))
+
+    for match in re.finditer(
+        rf"\b(?:(?P<whole>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+and\s+)?"
+        rf"(?P<numerator>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})[-\s]+"
+        rf"{_DECIMAL_FRACTION_DENOMINATOR_PATTERN}\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        whole_text = match.group("whole")
+        whole = (
+            0 if whole_text is None else _parse_strict_cardinal_number_words(whole_text)
+        )
+        numerator = _parse_strict_cardinal_number_words(match.group("numerator"))
+        denominator = _DECIMAL_FRACTION_DENOMINATORS.get(
+            match.group("denominator").lower().removesuffix("s")
+        )
+        if whole is None or numerator is None or denominator is None:
+            continue
+        matches.append((match.span(), (whole + numerator / denominator) / 100))
+
+    for match in re.finditer(
+        rf"\b(?P<numerator>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})[-\s]+"
+        rf"{_DECIMAL_FRACTION_DENOMINATOR_PATTERN}\s+of\s+"
+        rf"(?P<percent>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
+        r"(?:percent|per\s*cent(?:um)?)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        numerator = _parse_strict_cardinal_number_words(match.group("numerator"))
+        percent = _parse_strict_cardinal_number_words(match.group("percent"))
+        denominator = _DECIMAL_FRACTION_DENOMINATORS.get(
+            match.group("denominator").lower().removesuffix("s")
+        )
+        if numerator is None or percent is None or denominator is None:
+            continue
+        matches.append((match.span(), numerator / denominator * percent / 100))
 
     for match in re.finditer(
         rf"\b(?P<number>{_CARDINAL_NUMBER_WORD_PATTERN.pattern})\s+"
@@ -3237,6 +11285,7 @@ def _iter_cardinal_word_number_matches(
     text: str,
     *,
     compound_only: bool = False,
+    split_adjacent_labels: bool = True,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
@@ -3250,11 +11299,54 @@ def _iter_cardinal_word_number_matches(
         if split_values is not None:
             matches.extend(split_values)
             continue
+        adjacent_values = (
+            _split_adjacent_cardinal_labels(phrase, offset=match.start())
+            if split_adjacent_labels
+            else None
+        )
+        if adjacent_values is not None:
+            matches.extend(adjacent_values)
+            continue
         value = _parse_cardinal_number_words(phrase)
         if value is None:
             continue
         matches.append((match.span(), value))
     return matches
+
+
+def _split_adjacent_cardinal_labels(
+    phrase: str, *, offset: int = 0
+) -> list[tuple[tuple[int, int], float]] | None:
+    """Keep flattened unscaled labels ("One Two Three") as separate numbers.
+
+    A valid compound such as "twenty one" remains one value. Scaled and
+    coordinated phrases retain their existing parsers; this only separates
+    adjacent bare cardinals that cannot form a conventional English number.
+    """
+    words = list(re.finditer(r"[A-Za-z]+", phrase))
+    if len(words) < 2 or any(
+        word.group().lower() not in _CARDINAL_WORD_VALUES for word in words
+    ):
+        return None
+    if _parse_strict_cardinal_number_words(phrase) is not None:
+        return None
+    values: list[tuple[tuple[int, int], float]] = []
+    index = 0
+    while index < len(words):
+        first = last = words[index]
+        value = _CARDINAL_WORD_VALUES[first.group().lower()]
+        if index + 1 < len(words):
+            following = words[index + 1]
+            compound = _parse_strict_cardinal_number_words(
+                phrase[first.start() : following.end()]
+            )
+            if compound is not None:
+                value = compound
+                last = following
+                index += 1
+        values.append(((offset + first.start(), offset + last.end()), value))
+        index += 1
+    return values
 
 
 def _iter_digit_scale_number_matches(
@@ -3314,6 +11406,99 @@ def _iter_dutch_cardinal_phrase_matches(
     return matches
 
 
+def _iter_hebrew_number_word_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return Hebrew ordinal and cardinal number words with their values."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    # Longest spans first: the caller drops a match whose span overlaps one
+    # already taken, so a compound ("twenty and three"), a counted fraction
+    # ("two fifths") and a teen (unit then ten) each claim their words before
+    # the single-word pass would read a constituent on its own. A compound
+    # that lies inside a counted fraction is its count ("אחת עשרה עשיריות"
+    # is eleven tenths, not eleven); one that reaches past it is a mixed
+    # number whose tail the fraction is ("שלושה ושני שלישים").
+    fractions = _iter_hebrew_fraction_word_readings(text)
+    counted = sorted(span for span, _, is_counted in fractions if is_counted)
+    counted_starts = [span[0] for span in counted]
+
+    def inside_a_counted_fraction(span: tuple[int, int]) -> bool:
+        index = bisect_right(counted_starts, span[0]) - 1
+        while index >= 0 and counted[index][1] > span[0]:
+            if counted[index][1] >= span[1]:
+                return True
+            index -= 1
+        return False
+
+    matches.extend(
+        match
+        for match in _iter_hebrew_compound_number_matches(text)
+        if not inside_a_counted_fraction(match[0])
+    )
+    matches.extend((span, value) for span, value, _ in fractions)
+    for match in _HEBREW_TEEN_PATTERN.finditer(text):
+        unit = _HEBREW_TEEN_UNIT_VALUES.get(match.group("unit"))
+        if unit is None:
+            continue
+        matches.append((match.span(), 10.0 + unit))
+    for match in _HEBREW_NUMBER_WORD_PATTERN.finditer(text):
+        value = _HEBREW_NUMBER_WORD_VALUES.get(match.group("word"))
+        if value is None:
+            continue
+        if match.group("word") in _HEBREW_SECOND_WORDS and _hebrew_measured_second(
+            text, match
+        ):
+            continue
+        matches.append((match.span(), value))
+    return matches
+
+
+# "שנייה" is the ordinal "second" ("לידה שנייה", "הפעם השנייה") and the
+# unit of time ("חצי שנייה", "מחצית השנייה", "שנייה אחת", "בכל שנייה"); the
+# construct "שניית" ("שניית המתנה") is only ever the unit.
+_HEBREW_SECOND_WORDS = frozenset({"שנייה", "שניה", "שניית"})
+_HEBREW_FRACTION_BEFORE_SECOND_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + "(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(
+            set(_HEBREW_FRACTION_VALUES) | {"אלפית", "מאית"}, key=len, reverse=True
+        )
+    )
+    + ")\\s+$"
+)
+_HEBREW_MEASURED_SECOND_BEFORE_PATTERN = re.compile(
+    "(?:\\d|(?<![\u0590-\u05ff])(?:כל|בכל|תוך|בתוך|למשך|במשך|מדי|לאחר|אחרי|כעבור|"
+    "בחלוף|מקץ|לפני|עד|על|מעל|לפחות))\\s+$"
+)
+_HEBREW_MEASURED_SECOND_AFTER_PATTERN = re.compile("\\s+אח[תד](?![\u0590-\u05ff])")
+
+
+def _hebrew_measured_second(text: str, match: "re.Match[str]") -> bool:
+    """Whether this "שנייה" is the unit of time rather than the ordinal.
+
+    A fraction word before it says unit even under the article ("מחצית
+    השנייה" is half a second); otherwise the article says ordinal ("הפעם
+    השנייה"). A digit or "כל"/"תוך"/"למשך" before it says unit, and a
+    following "אחת" does only where the clause before it says a quantity
+    follows ("יהיה שנייה אחת"), not after a noun ("דירה שנייה אחת").
+    """
+    if match.group("word") == "שניית":
+        return True
+    start = match.start()
+    if _search_before(_HEBREW_FRACTION_BEFORE_SECOND_PATTERN, text, start) is not None:
+        return True
+    if "\u05d4" in text[start : match.start("word")]:
+        return False
+    if _search_before(_HEBREW_MEASURED_SECOND_BEFORE_PATTERN, text, start) is not None:
+        return True
+    return _HEBREW_MEASURED_SECOND_AFTER_PATTERN.match(
+        text, match.end()
+    ) is not None and _hebrew_fraction_context_before(text, start)
+
+
 def _parse_belgian_numeric_phrase(raw: str) -> float | None:
     normalized = re.sub(r"\s+", " ", raw.strip().lower())
     if not normalized:
@@ -3338,7 +11523,14 @@ def _iter_percentage_numeric_phrase_values(raw: str) -> list[float]:
         with contextlib.suppress(ValueError):
             dotted_decimal = float(cleaned)
             values.append(dotted_decimal)
-        if not re.fullmatch(r"-?[1-9]\d{0,2}(?:\.0{3})+", cleaned):
+        # A dotted value keeps its European grouped reading only when the
+        # shape is unambiguous grouping: every group all-zero ("1.000"), or
+        # two or more groups ("12.345.678" — not a valid plain decimal, so
+        # the grouped reading is the only one and must be scaled by the
+        # percentage caller rather than dropped).
+        if not re.fullmatch(
+            r"-?[1-9]\d{0,2}(?:\.0{3})+|-?[1-9]\d{0,2}(?:\.\d{3}){2,}", cleaned
+        ):
             return values
     parsed = _parse_belgian_numeric_phrase(raw)
     if parsed is not None and not any(math.isclose(parsed, value) for value in values):
@@ -3376,8 +11568,50 @@ def _iter_direct_percentage_rate_matches(
     text: str,
 ) -> list[tuple[tuple[int, int], float]]:
     values: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    hebrew_text = _HEBREW_LETTER_PATTERN.search(text) is not None
     for match in _DIRECT_PERCENTAGE_PATTERN.finditer(text):
-        for value in _iter_percentage_numeric_phrase_values(match.group("number")):
+        # The denominator of a fraction before the sign ("1/2%", "1 ⁄ 2%")
+        # is no rate of its own; the fraction is read whole elsewhere. Nor
+        # is a remainder of a Hebrew printed scale amount ("3 אלפים ו־200%"
+        # is 3,200 percent).
+        if _search_before(_SLASH_BEFORE_NUMBER_PATTERN, text, match.start("number"), 8):
+            continue
+        # A Hebrew fractional tail after the sign belongs to the rate ("3%
+        # וחצי" is 3.5 percent): the Hebrew digit pass reads it whole.
+        tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, match.end())
+        if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+            continue
+        # The join is read before the wrap space, whatever its width, as
+        # the continuation check reads it: "ו־" eight spaces before "250"
+        # joins as "ו־250" does.
+        if _search_before(
+            _HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN,
+            text,
+            match.start("number"),
+            6,
+        ):
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(
+                text, match.start("number"), tokens
+            ):
+                continue
+        # A Unicode minus signs the rate as the ASCII hyphen does ("−.5%",
+        # "−3.5%"), and a formatting mark inside the token is nothing; the
+        # span keeps them both.
+        raw = _BIDI_MARKS_PATTERN.sub("", match.group("number")).replace("\u2212", "-")
+        # A comma-grouped number with a decimal part ("1,234.5") or more
+        # than one group ("1,234,567") is grouped thousands in any script;
+        # one group without a decimal part is so in Hebrew text ("1,234%"
+        # is 1,234 percent), where the comma never marks a decimal.
+        grouped = _GROUPED_THOUSANDS_DECIMAL_PATTERN.fullmatch(raw)
+        if grouped is not None and (
+            grouped.group("decimal") or hebrew_text or raw.count(",") > 1
+        ):
+            values.append((match.span("number"), float(raw.replace(",", "")) / 100))
+            continue
+        for value in _iter_percentage_numeric_phrase_values(raw):
             values.append((match.span("number"), value / 100))
     return values
 
@@ -3435,6 +11669,96 @@ def _extract_annual_context_values(text: str) -> set[float]:
     if _ANNUAL_CONTEXT_PATTERN.search(text):
         return {12.0}
     return set()
+
+
+def _extract_form_arithmetic_operand_values(text: str) -> list[float]:
+    """Extract operands printed in official form calculation cells."""
+
+    values: list[float] = []
+    fraction_spans: list[tuple[int, int]] = _SpanList()
+    for match in (
+        *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(text),
+        *_STANDALONE_FORM_FRACTION_PATTERN.finditer(text),
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group("denominator"))
+            values.append(float(match.group("numerator")) / denominator)
+            fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(text):
+        if _span_overlaps(match.span(), fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            values.append(value / 100 if match.group("percent") else value)
+    return values
+
+
+def _extract_contextual_ascii_fraction_values(text: str) -> list[float]:
+    """Extract source-stated factors such as ``1 1/2`` and ``7/8 times``."""
+
+    values: list[float] = []
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group("whole") or "0").replace(",", ""))
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            values.append(whole + numerator / denominator)
+    return values
+
+
+def _extract_small_month_range_values(text: str) -> list[float]:
+    """Expand bounded month-count ranges explicitly stated by official tables."""
+
+    values: list[float] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        preceding_context = text[max(0, match.start() - 500) : match.start()]
+        row_context = text[match.start() : match.end() + 80]
+        if (
+            0 <= start <= end <= 24
+            and re.search(
+                r"\bmonthly\s+proration\s+table\b",
+                preceding_context,
+                re.IGNORECASE,
+            )
+            and re.search(r"\bline\s+[A-E]\b", row_context, re.IGNORECASE)
+        ):
+            values.extend(float(value) for value in range(start, end + 1))
+    return values
+
+
+def _iter_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match fixed-width form amounts whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _FORM_IMPLIED_CENTS_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            dollars = float(match.group("dollars").replace(",", "").replace(" ", ""))
+            cents = float(match.group("cents"))
+            matches.append((match.span(), dollars + cents / 100))
+    return matches
+
+
+def _iter_inline_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match inline "dollars cents" form cells whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for run in _INLINE_FORM_IMPLIED_CENTS_RUN_PATTERN.finditer(text):
+        cells = list(_INLINE_FORM_IMPLIED_CENTS_CELL_PATTERN.finditer(run.group(0)))
+        for cell in cells:
+            if len(cells) < 2 and "," not in cell.group("dollars"):
+                continue
+            with contextlib.suppress(ValueError):
+                dollars = float(cell.group("dollars").replace(",", ""))
+                cents = float(cell.group("cents"))
+                span = (run.start() + cell.start(), run.start() + cell.end())
+                matches.append((span, dollars + cents / 100))
+    return matches
 
 
 def _extract_vehicle_tax_fiscal_power_table_values(text: str) -> set[float]:
@@ -3536,6 +11860,61 @@ def _parse_cardinal_number_words(text: str) -> float | None:
     return value
 
 
+def _parse_strict_cardinal_number_words(text: str) -> float | None:
+    """Parse a conventionally ordered English cardinal phrase, or fail closed."""
+    tokens = [token for token in re.split(r"[-\s]+", text.strip().lower()) if token]
+    if not tokens or tokens[0] == "and" or tokens[-1] == "and":
+        return None
+    tokens = [token for token in tokens if token != "and"]
+
+    def parse_under_thousand(group: list[str]) -> float | None:
+        if not group:
+            return None
+        total = 0.0
+        if len(group) >= 2 and group[1] == "hundred":
+            hundreds = _CARDINAL_WORD_VALUES.get(group[0])
+            if hundreds is None or not 1 <= hundreds <= 9:
+                return None
+            total = hundreds * 100
+            group = group[2:]
+            if not group:
+                return total
+        if len(group) == 1:
+            remainder = _CARDINAL_WORD_VALUES.get(group[0])
+            return total + remainder if remainder is not None else None
+        if len(group) == 2:
+            tens = _CARDINAL_WORD_VALUES.get(group[0])
+            units = _CARDINAL_WORD_VALUES.get(group[1])
+            if tens in {20, 30, 40, 50, 60, 70, 80, 90} and units is not None:
+                if 1 <= units <= 9:
+                    return total + tens + units
+        return None
+
+    total = 0.0
+    group: list[str] = []
+    previous_scale = math.inf
+    for token in tokens:
+        scale = _CARDINAL_SCALE_WORD_VALUES.get(token)
+        if scale is None or scale == 100:
+            group.append(token)
+            continue
+        if scale >= previous_scale:
+            return None
+        parsed_group = parse_under_thousand(group)
+        if parsed_group is None:
+            return None
+        total += parsed_group * scale
+        previous_scale = scale
+        group = []
+
+    if group:
+        parsed_group = parse_under_thousand(group)
+        if parsed_group is None:
+            return None
+        total += parsed_group
+    return total or None
+
+
 def _parse_fraction_word(text: str) -> float | None:
     normalized = re.sub(r"[-\s]+", " ", text.strip().lower())
     return _FRACTION_WORD_VALUES.get(normalized)
@@ -3548,6 +11927,38 @@ def _iter_standalone_fraction_word_matches(
         value = _parse_fraction_word(match.group(1))
         if value is not None:
             yield match.span(1), value
+
+
+def _iter_word_quantity_fraction_matches(
+    text: str,
+) -> Iterator[tuple[tuple[int, int], float]]:
+    """Yield word fractions used as quantities, excluding ordinary prose senses."""
+    values = {
+        "half": 0.5,
+        "quarter": 0.25,
+        "third": 1 / 3,
+        "one half": 0.5,
+        "a half": 0.5,
+        "one quarter": 0.25,
+        "a quarter": 0.25,
+        "one third": 1 / 3,
+        "a third": 1 / 3,
+        "two thirds": 2 / 3,
+        "three quarters": 0.75,
+    }
+    for match in _WORD_QUANTITY_FRACTION_PATTERN.finditer(text):
+        for group_name in (
+            "of_fraction",
+            "equal_fraction",
+            "prefixed_fraction",
+            "replace_fraction",
+            "replacement_fraction",
+        ):
+            raw = match.group(group_name)
+            if raw is None:
+                continue
+            normalized = re.sub(r"[-\s]+", " ", raw.lower())
+            yield match.span(group_name), values[normalized]
 
 
 def _extract_percentage_context_values(text: str) -> set[float]:
@@ -3604,89 +12015,356 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     return values
 
 
+class _SpanList(list[tuple[int, int]]):
+    """A list of taken spans with a coverage mask beside it.
+
+    A pass takes spans one candidate at a time and asks, for each, whether
+    a taken span overlaps it; over a list of thousands of members the
+    question was answered by scanning every taken span, so the pass cost
+    the square of its size. The mask answers it in the candidate's own
+    length. The list itself is unchanged for every reader of it.
+    """
+
+    __slots__ = ("_mask",)
+
+    def __init__(self, spans: "Iterable[tuple[int, int]]" = ()) -> None:
+        super().__init__()
+        self._mask = bytearray()
+        for span in spans:
+            self.append(span)
+
+    def append(self, span: tuple[int, int]) -> None:
+        super().append(span)
+        start, end = max(span[0], 0), span[1]
+        if end > len(self._mask):
+            self._mask.extend(bytes(end - len(self._mask)))
+        if start < end:
+            self._mask[start:end] = b"\x01" * (end - start)
+
+    def extend(self, spans: "Iterable[tuple[int, int]]") -> None:
+        for span in spans:
+            self.append(span)
+
+    def overlaps(self, span: tuple[int, int]) -> bool:
+        start, end = max(span[0], 0), span[1]
+        if start >= end:
+            return any(not (end <= s or start >= e) for s, e in self)
+        return 1 in self._mask[start:end]
+
+
 def _span_overlaps(
-    span: tuple[int, int], occupied_spans: list[tuple[int, int]]
+    span: tuple[int, int], occupied_spans: "Sequence[tuple[int, int]]"
 ) -> bool:
+    if isinstance(occupied_spans, _SpanList):
+        return occupied_spans.overlaps(span)
     return any(
         not (span[1] <= start or span[0] >= end) for start, end in occupied_spans
     )
 
 
-def _clean_source_text_for_numeric_extraction(text: str) -> str:
-    """Strip structural source scaffolding before numeric extraction."""
-    text = re.sub(r"\\r\\n|\\n|\\r", "\n", text)
-    text = text.replace(r"\t", "\t")
-    # Detach the Ghana cedi symbol (and other cent/currency glyphs) glued to a
-    # following amount so grouped-thousands parsing sees a clean boundary:
-    # "GH¢5,880" -> "GH¢ 5,880". Without the space the digit run starts right
-    # after ¢, the grouped-thousands matcher's currency lookbehind never fires,
-    # and "5,880" is misread as the trailing "880". The lookbehind fires only
-    # when the glyph precedes a digit, so cent-suffixed values ("50¢") are left
-    # untouched. Covers the cent sign, cedi sign, fullwidth cent sign, and
-    # naira sign.
-    text = re.sub(r"([¢₵￠₦])(?=\d)", r"\1 ", text)
-    # Nigerian gazette prints denominate naira with an ASCII "N" glued to the
-    # amount ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). Detach
-    # it the same way, but only when the N is a standalone prefix (not part
-    # of a longer token) and the amount is comma-grouped, so identifiers like
-    # "N95" or gazette references like "N26" stay untouched.
-    text = re.sub(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})", "N ", text)
-    # Zambian prints denominate kwacha with an ASCII "K" (or lowercase "k")
-    # glued to the amount ("K452", "K2.34/ltr", "k0.25/ltr" in the Customs
-    # and Excise amendment schedules). Detach it the same way; the alnum
-    # lookbehind keeps mid-token letters ("4K", "HK5") untouched, and
-    # over-detaching a rare non-currency "K2" only adds a harmless
-    # candidate value to numeric extraction.
-    text = re.sub(r"(?<![A-Za-z0-9])[Kk](?=\d)", lambda m: m.group(0) + " ", text)
-    # OCR'd schedule tables render band ranges with the hyphen glued to
-    # the upper bound ("0 -2,000 0%" in the Ethiopia Proclamation
-    # 1395/2025 scan), so the bound parses as a negative amount. A
-    # hyphen preceded by digit-plus-space and followed by a digit is a
-    # range separator, not a minus - detach it. True negative amounts
-    # ("a loss of -2,000") lose the sign only when directly preceded by
-    # a spaced digit, which statutory prose does not produce.
-    text = re.sub(r"(?<=\d )-(?=\d)", "- ", text)
-    # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
-    # glued to the amount ("200,000/=" and "200,000=" in the Local
-    # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
-    # Strip the glued suffix so grouped-thousands parsing sees a clean
-    # boundary; a spaced "=" (a real equation, "x = 5") is left untouched.
-    text = re.sub(r"(?<=\d)/?=(?=\s|$)", "", text)
-    cleaned_lines: list[str] = []
+def _span_containment_index(
+    spans: Sequence[tuple[int, int]],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Build a bisectable index for containment in possibly nested spans."""
+    starts: list[int] = []
+    prefix_max_ends: list[int] = []
+    max_end = -1
+    for start, end in sorted(spans):
+        starts.append(start)
+        max_end = max(max_end, end)
+        prefix_max_ends.append(max_end)
+    return tuple(starts), tuple(prefix_max_ends)
+
+
+def _span_is_contained_in_index(
+    span: tuple[int, int],
+    starts: Sequence[int],
+    prefix_max_ends: Sequence[int],
+) -> bool:
+    """Return whether a span is enclosed by an indexed source interval."""
+    index = bisect_right(starts, span[0]) - 1
+    return index >= 0 and prefix_max_ends[index] >= span[1]
+
+
+def _merge_numeric_spans(
+    spans: Iterable[tuple[int, int]],
+) -> tuple[tuple[int, int], ...]:
+    """Merge overlapping structural spans into ordered context walls."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if start >= end:
+            continue
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return tuple(merged)
+
+
+@dataclass(frozen=True)
+class _NumericContextBoundaries:
+    """Bisectable hard walls that local marker scans may not cross."""
+
+    spans: tuple[tuple[int, int], ...]
+    starts: tuple[int, ...]
+
+    @classmethod
+    def from_spans(
+        cls,
+        spans: Iterable[tuple[int, int]],
+    ) -> "_NumericContextBoundaries":
+        merged = _merge_numeric_spans(spans)
+        return cls(merged, tuple(start for start, _end in merged))
+
+    def lower_bound(self, position: int) -> int:
+        """Return the nearest wall edge at or before ``position``."""
+        index = bisect_right(self.starts, position) - 1
+        if index < 0:
+            return 0
+        _start, end = self.spans[index]
+        return position if end >= position else end
+
+    def upper_bound(self, position: int, text_length: int) -> int:
+        """Return the nearest wall edge at or after ``position``."""
+        previous = bisect_right(self.starts, position) - 1
+        if previous >= 0 and self.spans[previous][1] >= position:
+            return position
+        following = bisect_left(self.starts, position)
+        if following < len(self.spans):
+            return self.spans[following][0]
+        return text_length
+
+
+@dataclass(frozen=True)
+class _EqualLengthNumericMask:
+    """A space-masked parsing buffer whose offsets remain source offsets."""
+
+    text: str
+    spans: tuple[tuple[int, int], ...]
+
+
+def _apply_equal_length_numeric_mask(
+    text: str,
+    spans: Iterable[tuple[int, int]],
+) -> _EqualLengthNumericMask:
+    """Blank exact source spans without changing the buffer length."""
+    merged = _merge_numeric_spans(spans)
+    if not merged:
+        return _EqualLengthNumericMask(text, ())
+    characters = list(text)
+    for start, end in merged:
+        characters[start:end] = " " * (end - start)
+    return _EqualLengthNumericMask("".join(characters), merged)
+
+
+def _snap_mask_spans_to_numeric_envelopes(
+    text: str,
+    spans: Iterable[tuple[int, int]],
+    *,
+    profile: str,
+) -> tuple[tuple[int, int], ...]:
+    """Extend mask edges that fall strictly inside source numeric envelopes."""
+    merged = _merge_numeric_spans(spans)
+    if not merged:
+        return ()
+    envelopes = tuple(_iter_locale_numeric_envelopes(text, profile=profile))
+    if not envelopes:
+        return merged
+    envelope_starts = tuple(start for start, _end in envelopes)
+
+    def snapped_edge(position: int, *, toward_start: bool) -> int:
+        envelope_index = bisect_right(envelope_starts, position) - 1
+        if envelope_index < 0:
+            return position
+        envelope_start, envelope_end = envelopes[envelope_index]
+        if envelope_start < position < envelope_end:
+            return envelope_start if toward_start else envelope_end
+        return position
+
+    return _merge_numeric_spans(
+        (
+            snapped_edge(start, toward_start=True),
+            snapped_edge(end, toward_start=False),
+        )
+        for start, end in merged
+    )
+
+
+def _format_character_filtered_view(text: str) -> tuple[str, tuple[int, ...]]:
+    """Return a Cf-free scan buffer and retained-character source offsets."""
+    retained = [
+        (index, character)
+        for index, character in enumerate(text)
+        if unicodedata.category(character) != "Cf"
+    ]
+    return (
+        "".join(character for _index, character in retained),
+        tuple(index for index, _character in retained),
+    )
+
+
+def _numeric_joiner_filtered_view(text: str) -> tuple[str, tuple[int, ...]]:
+    """Return a joiner-free view while retaining separator-class format marks."""
+    retained = [
+        (index, character)
+        for index, character in enumerate(text)
+        if character not in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+    ]
+    return (
+        "".join(character for _index, character in retained),
+        tuple(index for index, _character in retained),
+    )
+
+
+def _format_ignorable_pattern_source_spans(
+    text: str,
+    patterns: Sequence[re.Pattern[str]],
+) -> tuple[tuple[int, int], ...]:
+    """Match while skipping Cf characters and map intervals to source text."""
+    scan_text, source_offsets = _format_character_filtered_view(text)
+    spans: set[tuple[int, int]] = set()
+    for pattern in patterns:
+        for match in pattern.finditer(scan_text):
+            if match.start() == match.end():
+                continue
+            spans.add(
+                (
+                    source_offsets[match.start()],
+                    source_offsets[match.end() - 1] + 1,
+                )
+            )
+    return tuple(sorted(spans))
+
+
+def _normalize_numeric_adjacency_context(text: str) -> str:
+    """Normalize a predicate-only context window and skip Unicode format marks."""
+    normalized = unicodedata.normalize("NFKC", text)
+    return "".join(
+        character for character in normalized if unicodedata.category(character) != "Cf"
+    )
+
+
+def _normalized_numeric_context_before(
+    text: str,
+    start: int,
+    *,
+    retained_limit: int,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> str:
+    """Read leftward until the normalized view has enough non-Cf characters."""
+    lower_bound = boundaries.lower_bound(start) if boundaries is not None else 0
+    cursor = start
+    retained = 0
+    while cursor > lower_bound and retained < retained_limit:
+        cursor -= 1
+        retained += sum(
+            unicodedata.category(character) != "Cf"
+            for character in unicodedata.normalize("NFKC", text[cursor])
+        )
+    normalized = _normalize_numeric_adjacency_context(text[cursor:start])
+    while cursor > lower_bound and len(normalized) < retained_limit:
+        cursor -= 1
+        normalized = _normalize_numeric_adjacency_context(text[cursor:start])
+    return normalized[-retained_limit:]
+
+
+def _normalized_numeric_context_after(
+    text: str,
+    end: int,
+    *,
+    retained_limit: int,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> str:
+    """Read rightward until the normalized view has enough non-Cf characters."""
+    upper_bound = (
+        boundaries.upper_bound(end, len(text)) if boundaries is not None else len(text)
+    )
+    cursor = end
+    retained = 0
+    while cursor < upper_bound and retained < retained_limit:
+        retained += sum(
+            unicodedata.category(character) != "Cf"
+            for character in unicodedata.normalize("NFKC", text[cursor])
+        )
+        cursor += 1
+    normalized = _normalize_numeric_adjacency_context(text[end:cursor])
+    while cursor < upper_bound and len(normalized) < retained_limit:
+        cursor += 1
+        normalized = _normalize_numeric_adjacency_context(text[end:cursor])
+    return normalized[:retained_limit]
+
+
+def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
+    """Mask Danish structural scaffolding while preserving every source offset."""
+    mask_spans: list[tuple[int, int]] = list(
+        _format_ignorable_pattern_source_spans(
+            text,
+            (_STRUCTURAL_SOURCE_DOTTED_SECTION_REFERENCE_PATTERN,),
+        )
+    )
+    structural_spans = _structural_numeric_component_spans(text, profile="da-DK")
+
+    def masked_text() -> str:
+        return _apply_equal_length_numeric_mask(text, mask_spans).text
+
+    def add_matches(patterns: Sequence[re.Pattern[str]]) -> None:
+        current = masked_text()
+        mask_spans.extend(
+            match.span() for pattern in patterns for match in pattern.finditer(current)
+        )
+
     preserve_split_schedule_value = False
-    for line in text.splitlines():
+    line_offset = 0
+    for line_with_ending in text.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
+        line_span = (line_offset, line_offset + len(line))
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
-            cleaned_lines.append(line)
             preserve_split_schedule_value = False
+            line_offset += len(line_with_ending)
             continue
         preserve_split_schedule_value = False
         if _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(structural_stripped):
-            cleaned_lines.append(line)
             preserve_split_schedule_value = True
+            line_offset += len(line_with_ending)
             continue
-        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
-            continue
-        if _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped):
-            continue
-        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
-            continue
-        if _TABLE_HEADING_PATTERN.match(structural_stripped):
-            continue
-        if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
-            continue
-        if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
-            structural_stripped
+        if (
+            _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+            or _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped)
+            or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
+            or _TABLE_HEADING_PATTERN.match(structural_stripped)
+            or _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped)
+            or _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
+                structural_stripped
+            )
         ):
+            mask_spans.append(line_span)
+            line_offset += len(line_with_ending)
             continue
 
-        normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
-        normalized_line = _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN.sub(
-            "", normalized_line, count=1
+        quote_prefix_length = len(line) - len(
+            line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         )
+        if quote_prefix_length:
+            mask_spans.append((line_offset, line_offset + quote_prefix_length))
+        normalized_start = quote_prefix_length
+        normalized_line = line[normalized_start:]
+        citation_prefix = _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN.match(
+            normalized_line
+        )
+        if citation_prefix is not None:
+            mask_spans.append(
+                (
+                    line_offset + normalized_start + citation_prefix.start(),
+                    line_offset + normalized_start + citation_prefix.end(),
+                )
+            )
+            normalized_start += citation_prefix.end()
+            normalized_line = line[normalized_start:]
+
         value_row_match = _VALUE_BEARING_TABLE_ROW_PATTERN.match(normalized_line)
         schedule_row_match = (
             _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(normalized_line)
@@ -3695,45 +12373,657 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
             or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(normalized_line)
         )
         if value_row_match and not schedule_row_match:
-            normalized_line = value_row_match.group(1)
-        normalized_line = _TABLE_ROW_LABEL_PATTERN.sub("size", normalized_line)
-        cleaned_lines.append(_STRUCTURAL_SOURCE_PREFIX_PATTERN.sub("", normalized_line))
+            value_start, value_end = value_row_match.span(1)
+            mask_spans.extend(
+                (
+                    (
+                        line_offset + normalized_start,
+                        line_offset + normalized_start + value_start,
+                    ),
+                    (
+                        line_offset + normalized_start + value_end,
+                        line_offset + len(line),
+                    ),
+                )
+            )
+            line_offset += len(line_with_ending)
+            continue
 
-    cleaned = "\n".join(cleaned_lines)
-    cleaned = _SOURCE_URL_PATTERN.sub(" ", cleaned)
-    cleaned = re.sub(
-        r"\[[^\]]*\d[^\]]*\]",
+        mask_spans.extend(
+            (
+                line_offset + normalized_start + match.start(),
+                line_offset + normalized_start + match.end(),
+            )
+            for match in _TABLE_ROW_LABEL_PATTERN.finditer(normalized_line)
+        )
+        structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        if structural_prefix is not None:
+            prefix_span = (
+                line_offset + normalized_start + structural_prefix.start(),
+                line_offset + normalized_start + structural_prefix.end(),
+            )
+            preserve_dotted_amount = False
+            if structural_prefix.group("bare_dotted") is not None:
+                dotted_span = (
+                    line_offset
+                    + normalized_start
+                    + structural_prefix.start("bare_dotted"),
+                    line_offset
+                    + normalized_start
+                    + structural_prefix.end("bare_dotted"),
+                )
+                boundaries = _NumericContextBoundaries.from_spans(
+                    (*mask_spans, *structural_spans)
+                )
+                preserve_dotted_amount = _danish_grouped_scalar_has_context(
+                    masked_text(),
+                    dotted_span,
+                    boundaries=boundaries,
+                )
+            if not preserve_dotted_amount:
+                mask_spans.append(prefix_span)
+        line_offset += len(line_with_ending)
+
+    add_matches((_SOURCE_URL_PATTERN,))
+    current = masked_text()
+    for match in re.finditer(r"\[[^\]]*\d[^\]]*\]", current):
+        if _strip_superseded_bracketed_numeric_text(match) != match.group(0):
+            mask_spans.append(match.span())
+    add_matches(
+        (
+            _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN,
+            _STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN,
+            _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN,
+            _STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN,
+            _STRUCTURAL_SOURCE_REVISION_PATTERN,
+            _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN,
+            _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
+            _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN,
+            _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN,
+            _STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN,
+            _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
+        )
+    )
+
+    current = masked_text()
+    boundaries = _NumericContextBoundaries.from_spans((*mask_spans, *structural_spans))
+    for match in _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN.finditer(current):
+        if not _danish_grouped_scalar_has_context(
+            current,
+            match.span(),
+            boundaries=boundaries,
+        ):
+            mask_spans.append(match.span())
+
+    add_matches(
+        (
+            _STRUCTURAL_SOURCE_SECTION_PATTERN,
+            GROUNDING_DATE_PATTERN,
+            GROUNDING_MONTH_PERIOD_PATTERN,
+            _DOTTED_DATE_PATTERN,
+            _MONTH_NAME_DATE_PATTERN,
+            _SLASH_DATE_PATTERN,
+            _MONTH_NAME_DAY_PATTERN,
+            _MONTH_DAY_OF_MONTH_PATTERN,
+            _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN,
+            _TABLE_KEY_ASSIGNMENT_PATTERN,
+        )
+    )
+    current = masked_text()
+    for match in _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.finditer(current):
+        value_start, value_end = match.span(1)
+        mask_spans.extend(
+            (
+                (match.start(), value_start),
+                (value_end, match.end()),
+            )
+        )
+    add_matches(_SOURCE_REFERENCE_PATTERNS)
+    snapped_spans = _snap_mask_spans_to_numeric_envelopes(
+        text,
+        mask_spans,
+        profile="da-DK",
+    )
+    return _apply_equal_length_numeric_mask(text, snapped_spans)
+
+
+@dataclass
+class _TrackedText:
+    """A text under edit, with each character's offset in the text it came from.
+
+    Every cleaning edit goes through :meth:`sub`, which carries offsets across
+    the edit instead of reconstructing them afterwards: a replacement of the
+    same width keeps its offsets in place, a replacement that merely appends
+    to or prepends to the matched text keeps the matched characters' offsets
+    and gives the inserted ones none, and anything else maps to none. Provenance
+    is then a fact about how the text was edited, not a guess about how two
+    strings might line up.
+    """
+
+    text: str
+    offsets: list[int | None]
+
+    @classmethod
+    def identity(cls, text: str) -> "_TrackedText":
+        return cls(text, list(range(len(text))))
+
+    def sub(
+        self,
+        pattern: "re.Pattern[str]",
+        repl: "str | Callable[[re.Match[str]], str]",
+        count: int = 0,
+    ) -> "_TrackedText":
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for index, match in enumerate(pattern.finditer(self.text)):
+            if count and index >= count:
+                break
+            start, end = match.span()
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            replacement = repl(match) if callable(repl) else match.expand(repl)
+            matched = match.group(0)
+            pieces.append(replacement)
+            # A replacement character keeps the matched character's offset
+            # only where it is that character, in that position: a blank, an
+            # inserted space or a rewritten word has no source of its own.
+            for position, character in enumerate(replacement):
+                if position < len(matched) and character == matched[position]:
+                    offsets.append(self.offsets[start + position])
+                else:
+                    offsets.append(None)
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def rewrite(self, pattern: "re.Pattern[str]", repl: str) -> "_TrackedText":
+        """Replace each match with text of the same width, offsets kept in place.
+
+        For a character standing in for another (a hyphen typed for a maqaf)
+        the replacement keeps the matched character's offset, since it is
+        that character the source set there.
+        """
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for match in pattern.finditer(self.text):
+            start, end = match.span()
+            replacement = match.expand(repl)
+            if len(replacement) != end - start:
+                raise ValueError("Rewrite changed the width of the text")
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            pieces.append(replacement)
+            offsets.extend(self.offsets[start:end])
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def rewrite_mapped(
+        self,
+        pattern: "re.Pattern[str]",
+        repl: "Callable[[re.Match[str]], Sequence[tuple[str, int | None]]]",
+    ) -> "_TrackedText":
+        """Replace each match with characters that carry their own offsets.
+
+        ``repl`` returns the replacement as (character, offset in this text)
+        pairs of the matched width, for an edit that moves a character
+        rather than rewriting it in place: the character keeps its source.
+        """
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for match in pattern.finditer(self.text):
+            start, end = match.span()
+            replacement = list(repl(match))
+            if len(replacement) != end - start:
+                raise ValueError("Rewrite changed the width of the text")
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            pieces.append("".join(character for character, _ in replacement))
+            offsets.extend(
+                None if position is None else self.offsets[position]
+                for _, position in replacement
+            )
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def blank(self, start: int, end: int) -> "_TrackedText":
+        """Replace a span with spaces of the same width, offsets kept in place."""
+        return _TrackedText(
+            self.text[:start] + " " * (end - start) + self.text[end:],
+            list(self.offsets),
+        )
+
+    def lines(self) -> list["_TrackedText"]:
+        """Split into lines, each keeping its own terminator and offsets."""
+        result: list[_TrackedText] = []
+        position = 0
+        for line in self.text.splitlines(keepends=True):
+            result.append(
+                _TrackedText(line, list(self.offsets[position : position + len(line)]))
+            )
+            position += len(line)
+        return result
+
+    @staticmethod
+    def concat(parts: "Sequence[_TrackedText]") -> "_TrackedText":
+        text = "".join(part.text for part in parts)
+        offsets: list[int | None] = []
+        for part in parts:
+            offsets.extend(part.offsets)
+        return _TrackedText(text, offsets)
+
+
+# A stack of one-letter prefixes in the order the grammar allows: the
+# conjunction, then the relative ש or כש, then a preposition (מ may carry
+# the article), or the article alone -- "ו", "כש", "וכש", "מה", "וכשב",
+# "כשה" -- and not the two- and three-letter words that the same letters
+# spell ("של", "שב", "כשל"), which no writer binds with a maqaf.
+_HEBREW_PREFIX_STACK_FRAGMENT = (
+    "(?!(?:\u05e9\u05dc|\u05e9\u05d1|\u05d5\u05e9\u05d1|\u05d5\u05e9\u05dc|\u05db\u05e9\u05dc)[\u05be-])"
+    "(?=[\u0590-\u05ff])"
+    "(\u05d5?(?:\u05db\u05e9|\u05e9)?(?:[\u05d1\u05db\u05dc]|\u05de\u05d4?|\u05d4)?)"
+)
+_HEBREW_PREFIX_MAQAF_BEFORE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_PREFIX_STACK_FRAGMENT + "\u05be(?=[\u0590-\u05ff])"
+)
+# A maqaf before the stack ("ו־כ-שלושה") is no letter: a chained prefix's
+# hyphen is a maqaf as a first prefix's is.
+_HEBREW_PREFIX_HYPHEN_PATTERN = re.compile(
+    "(?<![\u0590-\u05bd\u05bf-\u05ff])"
+    + _HEBREW_PREFIX_STACK_FRAGMENT
+    + "-(?=[\u0590-\u05ff\\d\u00bc-\u00be\u2150-\u215e])"
+)
+# A Hebrew word -- a prefix stack or a word of a compound -- its maqaf, then
+# wrap space -- spaces or one line wrap, never a blank line -- before the
+# word or the number it binds ("ו־ שלושה", "ו־\nשלושה", "ל־ 1⁄2", "מ־ 301,201",
+# "שלושה־ רבעים"): a typesetting artifact the readers must not see as a
+# boundary, since "עשרים ו־ שלושה" is twenty-three, not twenty and three. A
+# paragraph gap after the maqaf stays a boundary. The pattern is the proof
+# validator's, so evidence matching binds exactly what the readers bind.
+_HEBREW_MAQAF_WRAP_SPACE_PATTERN = HEBREW_MAQAF_WRAP_SPACE_PATTERN
+
+
+def _hebrew_close_maqaf_wrap_space(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move the wrap space after a maqaf ahead of the word, or the chain: "ו־ שלושה" becomes " ו־שלושה", "מאה־ ו־ כ־ שלושה" "   מאה־ו־כ־שלושה"."""
+    cluster_start, maqaf_start = match.start(1), match.start(2)
+    cluster = [
+        (character, cluster_start + index)
+        for index, character in enumerate(match.group(1))
+        if not character.isspace()
+    ]
+    spaces = len(match.group(3)) + len(match.group(1)) - len(cluster)
+    return [(" ", None)] * spaces + cluster + [(match.group(2), maqaf_start)]
+
+
+_CARRIAGE_RETURN_PATTERN = re.compile("\r\n?")
+
+
+def _normalize_line_end(match: "re.Match[str]") -> str:
+    """A CRLF becomes a space and a newline, keeping its width; a bare CR the newline it is."""
+    return " \n" if match.group(0) == "\r\n" else "\n"
+
+
+def _bind_hebrew_source_text_tracked(tracked: _TrackedText) -> _TrackedText:
+    """Read line ends and the wrap space after a maqaf as the cleaner reads them.
+
+    The readers that run on the raw text -- the direct-percentage and money
+    matchers, the structural reference passes -- see a bare carriage return
+    as the line end it is and a prefix's maqaf bound to the token after it
+    across wrap space, as every reader of the cleaned text does, so no
+    spelling of the space after a maqaf changes what a text states, and a
+    hyphen typed for that maqaf is the maqaf first. Each character keeps
+    its offset.
+    """
+    tracked = tracked.sub(_CARRIAGE_RETURN_PATTERN, _normalize_line_end)
+    # A hyphen typed for a prefix's maqaf becomes the maqaf before the close,
+    # in the cleaner's order, so a chain closes the same under either.
+    tracked = tracked.rewrite(_HEBREW_PREFIX_HYPHEN_PATTERN, "\\1\u05be")
+    return tracked.rewrite_mapped(
+        _HEBREW_MAQAF_WRAP_SPACE_PATTERN, _hebrew_close_maqaf_wrap_space
+    )
+
+
+def _bind_hebrew_source_text(text: str) -> str:
+    return _bind_hebrew_source_text_tracked(_TrackedText.identity(text)).text
+
+
+def _hebrew_attach_prefix_cluster(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a prefix cluster across its maqaf: "ו־עד" becomes " ועד"."""
+    start = match.start(1)
+    return [(" ", None)] + [
+        (character, start + index) for index, character in enumerate(match.group(1))
+    ]
+
+
+# A sign, then formatting marks, then a number ("−\u200f.5"); and a number
+# or a fraction glyph, then formatting marks, then a percent sign ("½\u200f%").
+_HEBREW_SIGN_MARKS_BEFORE_NUMBER_PATTERN = re.compile(
+    "(?P<sign>[-\u2212])(?P<marks>[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+)"
+    "(?=\\d|\\.\\d)"
+)
+_HEBREW_MARKS_BEFORE_PERCENT_SIGN_PATTERN = re.compile(
+    "(?<=[\\d\u00bc-\u00be\u2150-\u215e])"
+    "(?P<marks>[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+)(?P<unit>%)"
+)
+
+
+def _hebrew_move_sign_across_marks(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a sign across the marks after it: "−\u200f.5" becomes " −.5"."""
+    return [(" ", None)] * len(match.group("marks")) + [
+        (match.group("sign"), match.start("sign"))
+    ]
+
+
+def _hebrew_move_percent_across_marks(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a percent sign across the marks before it: "½\u200f%" becomes "½% "."""
+    return [(match.group("unit"), match.start("unit"))] + [(" ", None)] * len(
+        match.group("marks")
+    )
+
+
+def _clean_source_text_for_numeric_extraction(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> str:
+    """Strip structural source scaffolding before numeric extraction."""
+    return _clean_source_text_for_numeric_extraction_tracked(text, profile=profile).text
+
+
+def _clean_source_text_for_numeric_extraction_tracked(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> _TrackedText:
+    """Strip structural source scaffolding, carrying each character's source offset.
+
+    Edits that remove text blank it in place; the few that insert (a space
+    after a currency glyph glued to its amount) mark only the inserted
+    character as having no source. Line terminators are kept, so a CRLF
+    or a trailing newline moves nothing.
+    """
+    if profile == "da-DK":
+        masked = _danish_equal_length_numeric_mask(text).text
+        return _TrackedText(masked, list(range(len(masked))))
+    tracked = _TrackedText.identity(text)
+    # A carriage return before a newline becomes a space of its own, so a CRLF
+    # line ends in "\n" and keeps its width; one that ends a line by itself
+    # (a classic Mac or a mixed-terminator source) becomes the newline it is,
+    # so the line-level cleaners see the same lines as the author. The
+    # escaped literals a JSON-embedded source carries ("\\r\\n", "\\t") become
+    # their character right-aligned in their slot.
+    tracked = tracked.sub(_CARRIAGE_RETURN_PATTERN, _normalize_line_end)
+    tracked = tracked.sub(
+        re.compile(r"\\r\\n|\\n|\\r"), lambda m: " " * (len(m.group(0)) - 1) + "\n"
+    )
+    tracked = tracked.sub(re.compile(r"\\t"), " \t")
+    # Detach the Ghana cedi symbol (and other cent/currency glyphs) glued to a
+    # following amount so grouped-thousands parsing sees a clean boundary:
+    # "GH¢5,880" -> "GH¢ 5,880". Without the space the digit run starts right
+    # after ¢, the grouped-thousands matcher's currency lookbehind never fires,
+    # and "5,880" is misread as the trailing "880". The lookbehind fires only
+    # when the glyph precedes a digit, so cent-suffixed values ("50¢") are left
+    # untouched. Covers the cent sign, cedi sign, fullwidth cent sign, and
+    # naira sign.
+    # A bidirectional formatting mark before a digit ("₪\u200f500", a
+    # right-to-left mark a Hebrew source sets before a number) carries no
+    # content and hides the digit run from the boundary the matchers need:
+    # it becomes the space it stands for, one character for one.
+    # A mark inside a numeric token carries no content and no boundary. A
+    # mark between a sign and its number ("−\u200f.5%", "−\u200f.5 אחוזים")
+    # and one between a number or a fraction glyph and its percent sign
+    # ("−.5\u200f%", "½\u200f%") would split the token if it became a
+    # space, so the sign or the percent sign moves across the mark first,
+    # each keeping its own offset, and the mark's slot becomes the space
+    # outside the token. A mark after a last digit before a space
+    # ("3\u200f אחוזים") and a mark before a digit become the space they
+    # stand for below, so two digit runs never merge.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_SIGN_MARKS_BEFORE_NUMBER_PATTERN, _hebrew_move_sign_across_marks
+    )
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_MARKS_BEFORE_PERCENT_SIGN_PATTERN, _hebrew_move_percent_across_marks
+    )
+    # A leading decimal ("\u200f.5", "₪.5") is a number as a digit run is.
+    tracked = tracked.sub(
+        re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c](?=\\d|\\.\\d)"),
+        " ",
+    )
+    # A mark after a number's last digit or fraction glyph, before the space
+    # that follows it ("3\u200f אחוזים"), becomes that space too, so the
+    # noun after it is the number's.
+    tracked = tracked.sub(
+        re.compile(
+            "(?<=[\\d\u00bc-\u00be\u2150-\u215e])"
+            "[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+(?=\\s|$)"
+        ),
+        _blank_match,
+    )
+    # The shekel sign glued to its amount ("₪500") is detached the same way.
+    tracked = tracked.sub(re.compile(r"([¢₵￠₦₪])(?=\d|\.\d)"), r"\1 ")
+    # Nigerian gazette prints denominate naira with an ASCII "N" glued to the
+    # amount ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). Detach
+    # it the same way, but only when the N is a standalone prefix (not part
+    # of a longer token) and the amount is comma-grouped, so identifiers like
+    # "N95" or gazette references like "N26" stay untouched.
+    tracked = tracked.sub(re.compile(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})"), "N ")
+    # Zambian prints denominate kwacha with an ASCII "K" (or lowercase "k")
+    # glued to the amount ("K452", "K2.34/ltr", "k0.25/ltr" in the Customs
+    # and Excise amendment schedules). Detach it the same way; the alnum
+    # lookbehind keeps mid-token letters ("4K", "HK5") untouched, and
+    # over-detaching a rare non-currency "K2" only adds a harmless
+    # candidate value to numeric extraction.
+    tracked = tracked.sub(
+        re.compile(r"(?<![A-Za-z0-9])[Kk](?=\d)"), lambda m: m.group(0) + " "
+    )
+    # OCR'd schedule tables render band ranges with the hyphen glued to
+    # the upper bound ("0 -2,000 0%" in the Ethiopia Proclamation
+    # 1395/2025 scan), so the bound parses as a negative amount. A
+    # hyphen preceded by digit-plus-space and followed by a digit is a
+    # range separator, not a minus - detach it. True negative amounts
+    # ("a loss of -2,000") lose the sign only when directly preceded by
+    # a spaced digit, which statutory prose does not produce.
+    tracked = tracked.sub(re.compile(r"(?<=\d )-(?=\d)"), "- ")
+    # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
+    # glued to the amount ("200,000/=" and "200,000=" in the Local
+    # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
+    # Strip the glued suffix so grouped-thousands parsing sees a clean
+    # boundary; a spaced "=" (a real equation, "x = 5") is left untouched.
+    tracked = tracked.sub(re.compile(r"(?<=\d)/?=(?=\s|$)"), _blank_match)
+    # A hyphen after a prefix stack at a word start ("ו-מאתיים", "ה-תקציב",
+    # "מ-הכנסה", "ל-3", "וה-שני", "וכש-המתינה") is the maqaf an
+    # editor's keyboard lacks: the source prints the prefix bound to its word
+    # either way, and every reader below was taught the maqaf. The hyphen
+    # becomes the maqaf in place, one character for one, keeping its offset,
+    # before the maqaf before a digit is detached below, so the two spellings
+    # are one text to every pattern. A hyphen between two words of two or
+    # more letters is a range or a compound and is left as it is.
+    tracked = tracked.rewrite(_HEBREW_PREFIX_HYPHEN_PATTERN, "\\1\u05be")
+    # The space a source sets after a prefix's maqaf ("ו־ שלושה", "ל־ 1⁄2")
+    # moves ahead of the prefix, each character keeping its offset, so the
+    # spaced and the bound spellings are one text to every reader below.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_MAQAF_WRAP_SPACE_PATTERN, _hebrew_close_maqaf_wrap_space
+    )
+    # A maqaf after a prefix stack before a Hebrew letter ("ו־עד",
+    # "ו־המתינה", "ה־שיעורים", "וכש־המתינה") binds the prefix to the word the
+    # way attachment does: the source means "ועד" whichever way it set the
+    # prefix. The cluster moves up to the word and the maqaf's slot becomes
+    # the space before it, one character for one, each letter keeping its
+    # own offset, so the attached, maqaf and hyphen spellings are one text
+    # to every reader. Only a prefix stack moves: a word the same letters
+    # spell ("כל־", "של־") stays where it is.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_PREFIX_MAQAF_BEFORE_WORD_PATTERN, _hebrew_attach_prefix_cluster
+    )
+    # Hebrew prose attaches the one-letter prefix preposition to a following
+    # numeral with a maqaf, the Hebrew hyphen (U+05BE): mem-maqaf-84,120
+    # ("from 84,120") in Income Tax Ordinance section 121, bet-maqaf-2.24
+    # ("times 2.24") in National Insurance Law section 68(b). The maqaf is in
+    # no digit-boundary character class, so the grouped-thousands matcher's
+    # lookbehind never fires: the first is misread as the trailing "120" and
+    # the second is dropped outright. Detach it the way the currency glyphs
+    # above are detached; an ASCII hyphen in the same position already parses
+    # correctly. The lookahead fires only before a digit, a fraction glyph or
+    # a decimal point that digits follow ("ב־.5"), so a maqaf between two
+    # Hebrew words is left untouched.
+    tracked = tracked.sub(
+        re.compile("\u05be(?=[\\d\u00bc-\u00be\u2150-\u215e]|\\.\\d)"), " "
+    )
+    cleaned_lines: list[_TrackedText] = []
+    preserve_split_schedule_value = False
+    for tracked_line in tracked.lines():
+        ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
+        content = _TrackedText(
+            tracked_line.text[: len(tracked_line.text) - len(ending)],
+            tracked_line.offsets[: len(tracked_line.text) - len(ending)],
+        )
+        terminator = _TrackedText(ending, tracked_line.offsets[len(content.text) :])
+        line = content.text
+        stripped = line.strip()
+        structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
+            structural_stripped
+        ):
+            cleaned_lines.append(_TrackedText.concat([content, terminator]))
+            preserve_split_schedule_value = False
+            continue
+        preserve_split_schedule_value = False
+        if _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(structural_stripped):
+            cleaned_lines.append(_TrackedText.concat([content, terminator]))
+            preserve_split_schedule_value = True
+            continue
+        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+        if _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+        if _TABLE_HEADING_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+        if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+        if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
+            structural_stripped
+        ):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
+            continue
+
+        normalized = content.blank(
+            0, len(line) - len(line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS))
+        )
+        normalized = normalized.sub(
+            _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN, _blank_match, count=1
+        )
+        value_row_match = _VALUE_BEARING_TABLE_ROW_PATTERN.match(normalized.text)
+        schedule_row_match = (
+            _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_PIPE_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_ARROW_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(normalized.text)
+        )
+        if value_row_match and not schedule_row_match:
+            start, end = value_row_match.span(1)
+            normalized = normalized.blank(0, start).blank(end, len(normalized.text))
+        normalized = normalized.sub(
+            _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
+        )
+        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
+
+    tracked = _TrackedText.concat(cleaned_lines)
+    tracked = tracked.sub(_SOURCE_URL_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        re.compile(r"\[[^\]]*\d[^\]]*\]"),
         _strip_superseded_bracketed_numeric_text,
-        cleaned,
     )
-    cleaned = _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_REVISION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_FORM_LINE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
-    cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
-    cleaned = _DOTTED_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _SLASH_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN.sub(" ", cleaned)
-    cleaned = _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.sub(
-        lambda match: f"above {match.group(1)} use the capped household rate",
-        cleaned,
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_CODE_CITATION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN, _blank_match
     )
-    cleaned = _TABLE_KEY_ASSIGNMENT_PATTERN.sub(" ", cleaned)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(GROUNDING_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(GROUNDING_MONTH_PERIOD_PATTERN, _blank_match)
+    tracked = tracked.sub(_DOTTED_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_NAME_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_SLASH_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_NAME_DAY_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
+        _restate_schedule_size_cap_in_place,
+    )
+    tracked = tracked.sub(_TABLE_KEY_ASSIGNMENT_PATTERN, _blank_match)
     for pattern in _SOURCE_REFERENCE_PATTERNS:
-        cleaned = pattern.sub(" ", cleaned)
-    return cleaned
+        tracked = tracked.sub(pattern, _blank_match)
+    return tracked
+
+
+def _restate_schedule_size_cap_in_place(match: re.Match[str]) -> str:
+    """Rewrite a size-cap restatement in its own width, the size digit in place."""
+    matched = match.group(0)
+    digit_start = match.start(1) - match.start()
+    digit_end = match.end(1) - match.start()
+    tail = " use the capped household rate"
+    return (
+        matched[:digit_start]
+        + matched[digit_start:digit_end]
+        + tail[: len(matched) - digit_end].ljust(len(matched) - digit_end)
+    )
+
+
+def _blank_match(match: re.Match[str]) -> str:
+    """Replace a match with spaces of its own width, so offsets stay put."""
+    return " " * len(match.group(0))
 
 
 def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
@@ -3744,14 +13034,14 @@ def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
         return bracketed
     if re.search(r"[+\-−*/]", inner) or re.search(r"[A-Za-z_]", inner):
         return bracketed
-    return " "
+    return " " * len(bracketed)
 
 
-def _extract_collapsed_schedule_row_occurrences(
+def _iter_collapsed_schedule_row_occurrences(
     text: str,
-) -> tuple[list[float], str]:
-    """Extract schedule row values once per contiguous value block and remove row lines."""
-    occurrences: list[float] = []
+) -> tuple[list[tuple[tuple[int, int], float]], str]:
+    """Return schedule row values with input spans and remove their row lines."""
+    occurrences: list[tuple[tuple[int, int], float]] = []
     retained_lines: list[str] = []
     current_heading: str | None = None
     last_value_by_block: dict[str, float] = {}
@@ -3760,8 +13050,11 @@ def _extract_collapsed_schedule_row_occurrences(
     current_ungrouped_block: str | None = None
     pending_split_block_key: str | None = None
 
-    for line in text.splitlines():
+    line_offset = 0
+    for line_with_ending in text.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
         stripped = line.strip()
+        stripped_offset = line_offset + len(line) - len(line.lstrip())
         if pending_split_block_key is not None:
             split_value_match = _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(stripped)
             if split_value_match:
@@ -3771,17 +13064,29 @@ def _extract_collapsed_schedule_row_occurrences(
                         last_value_by_block.get(pending_split_block_key) != value
                         and value not in seen_values
                     ):
-                        occurrences.append(value)
+                        span = split_value_match.span(1)
+                        occurrences.append(
+                            (
+                                (
+                                    stripped_offset + span[0],
+                                    stripped_offset + span[1],
+                                ),
+                                value,
+                            )
+                        )
                         last_value_by_block[pending_split_block_key] = value
                         seen_values.add(value)
                 pending_split_block_key = None
+                retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
+                line_offset += len(line_with_ending)
                 continue
             pending_split_block_key = None
 
         if _SCHEDULE_BLOCK_HEADING_PATTERN.fullmatch(stripped):
             current_heading = stripped
             current_ungrouped_block = None
-            retained_lines.append(line)
+            retained_lines.append(line_with_ending)
+            line_offset += len(line_with_ending)
             continue
 
         split_key_match = _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(stripped)
@@ -3789,7 +13094,16 @@ def _extract_collapsed_schedule_row_occurrences(
             with contextlib.suppress(ValueError):
                 key_value = float(split_key_match.group(1).replace(",", ""))
                 if key_value not in seen_values:
-                    occurrences.append(key_value)
+                    span = split_key_match.span(1)
+                    occurrences.append(
+                        (
+                            (
+                                stripped_offset + span[0],
+                                stripped_offset + span[1],
+                            ),
+                            key_value,
+                        )
+                    )
                     seen_values.add(key_value)
             if current_heading is not None:
                 pending_split_block_key = current_heading
@@ -3798,6 +13112,8 @@ def _extract_collapsed_schedule_row_occurrences(
                     ungrouped_block += 1
                     current_ungrouped_block = f"__ungrouped_{ungrouped_block}"
                 pending_split_block_key = current_ungrouped_block
+            retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
+            line_offset += len(line_with_ending)
             continue
 
         row_match = (
@@ -3820,34 +13136,60 @@ def _extract_collapsed_schedule_row_occurrences(
                     last_value_by_block.get(block_key) != value
                     and value not in seen_values
                 ):
-                    occurrences.append(value)
+                    span = row_match.span(1)
+                    occurrences.append(
+                        (
+                            (
+                                stripped_offset + span[0],
+                                stripped_offset + span[1],
+                            ),
+                            value,
+                        )
+                    )
                     last_value_by_block[block_key] = value
                     seen_values.add(value)
+            retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
+            line_offset += len(line_with_ending)
             continue
 
         if stripped:
             current_heading = None
             current_ungrouped_block = None
-        retained_lines.append(line)
+        retained_lines.append(line_with_ending)
+        line_offset += len(line_with_ending)
 
-    return occurrences, "\n".join(retained_lines)
+    return occurrences, "".join(retained_lines)
 
 
-def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
-    """Extract values from official tables that alternate row key and value lines."""
-    occurrences: list[float] = []
+def _extract_collapsed_schedule_row_occurrences(
+    text: str,
+) -> tuple[list[float], str]:
+    """Extract schedule row values once per contiguous value block and remove row lines."""
+    occurrences, retained = _iter_collapsed_schedule_row_occurrences(text)
+    return [value for _, value in occurrences], retained
+
+
+def _iter_two_line_table_value_occurrences(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return values and exact input spans from alternating official table rows."""
+    occurrences: list[tuple[tuple[int, int], float]] = []
     table_context_active = False
     pending_table_key = False
+    line_offset = 0
 
-    for line in text.splitlines():
+    for line_with_ending in text.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
         stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS).strip()
         if not stripped:
             table_context_active = False
             pending_table_key = False
+            line_offset += len(line_with_ending)
             continue
         if _SOURCE_SUBDIVISION_LINE_PATTERN.match(stripped):
             table_context_active = False
             pending_table_key = False
+            line_offset += len(line_with_ending)
             continue
         if _TWO_LINE_TABLE_CONTEXT_PATTERN.search(stripped):
             table_context_active = True
@@ -3856,32 +13198,58 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
             value_match = _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(stripped)
             if value_match:
                 with contextlib.suppress(ValueError):
-                    occurrences.append(float(value_match.group(1).replace(",", "")))
+                    raw = value_match.group(1)
+                    relative_start = line.rfind(raw)
+                    if relative_start >= 0:
+                        occurrences.append(
+                            (
+                                (
+                                    line_offset + relative_start,
+                                    line_offset + relative_start + len(raw),
+                                ),
+                                float(raw.replace(",", "")),
+                            )
+                        )
                 pending_table_key = False
+                line_offset += len(line_with_ending)
                 continue
             pending_table_key = False
 
         if table_context_active and _TWO_LINE_TABLE_ROW_KEY_PATTERN.fullmatch(stripped):
             pending_table_key = True
+            line_offset += len(line_with_ending)
             continue
 
         pending_table_key = False
+        line_offset += len(line_with_ending)
 
     return occurrences
 
 
-def extract_numeric_occurrences_from_text(text: str) -> list[float]:
+def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
+    """Extract values from official tables that alternate row key and value lines."""
+    return [value for _, value in _iter_two_line_table_value_occurrences(text)]
+
+
+def _extract_legacy_inventory_values(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
-    raw_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    cleaned = _clean_source_text_for_numeric_extraction(text)
+    cleaned = _clean_source_text_for_numeric_extraction(raw_text)
     collapsed_schedule_occurrences, cleaned = (
         _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
-    spans: list[tuple[int, int]] = []
+    occurrences.extend(value for _, value in implied_cents_matches)
+    spans: list[tuple[int, int]] = _SpanList()
     cleaned_money_values: list[float] = []
     for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
         occurrences.append(value)
@@ -3912,6 +13280,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences.extend(_extract_year_duration_month_values(raw_text))
     occurrences.extend(_extract_dotted_date_year_values(raw_text))
     occurrences.extend(_extract_centime_unit_values(raw_text))
+    occurrences.extend(_extract_form_arithmetic_operand_values(raw_text))
+    occurrences.extend(_extract_contextual_ascii_fraction_values(raw_text))
+    occurrences.extend(_extract_small_month_range_values(raw_text))
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
         if _span_overlaps(span, spans):
@@ -3920,7 +13291,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
         spans.append(span)
 
     for span, value in _iter_standalone_fraction_word_matches(cleaned):
-        if _span_overlaps(span, spans):
+        if _span_overlaps(span, spans) or _hebrew_fraction_word_is_percent_tail(
+            cleaned, span
+        ):
             continue
         occurrences.append(value)
         spans.append(span)
@@ -4058,6 +13431,3415 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     return normalized
 
 
+@dataclass(frozen=True)
+class _NumericTokenization:
+    """Typed emission streams used by both public extraction adapters."""
+
+    grounding: tuple[NumericOccurrence, ...]
+    inventory: tuple[NumericOccurrence, ...]
+
+
+def _numeric_occurrence_has_local_rate_context(
+    text: str,
+    span: tuple[int, int],
+    *,
+    profile: str = "legacy",
+) -> bool:
+    """Return whether adjacent or same-column evidence marks this as a rate."""
+    _, end = span
+    return bool(
+        _local_rate_context_after_number(text, end, profile=profile)
+        or _numeric_occurrence_has_rate_table_header(text, span, profile=profile)
+    )
+
+
+def _numeric_occurrence_has_rate_table_header(
+    text: str,
+    span: tuple[int, int],
+    *,
+    profile: str = "legacy",
+) -> bool:
+    """Recognize a percentage header for the occurrence's pipe-table column."""
+    if profile == "da-DK":
+        return False
+
+    start, _ = span
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    if "|" not in line:
+        return False
+
+    relative_start = start - line_start
+    column = line[:relative_start].count("|")
+    if line.lstrip().startswith("|"):
+        column -= 1
+    if column < 0:
+        return False
+
+    previous_lines = text[:line_start].splitlines()
+    for previous_line in reversed(previous_lines):
+        if "|" not in previous_line:
+            break
+        cells = previous_line.strip().strip("|").split("|")
+        if column < len(cells) and _table_rate_header_matches(
+            cells[column],
+            profile=profile,
+        ):
+            return True
+    return False
+
+
+_DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS = frozenset("\u200d\u200c\u2060\u00ad\ufeff")
+_STANDALONE_MARKER_WRAPPER_CHARS = frozenset("()[]\"\u00bb\u00ab'")
+_STANDALONE_MARKER_TERMINAL_CHARS = frozenset(",;:")
+_STANDALONE_MARKER_BOUNDARY_CHARS = (
+    _STANDALONE_MARKER_WRAPPER_CHARS | _STANDALONE_MARKER_TERMINAL_CHARS
+)
+_MARKER_GAP_BEFORE_NUMBER_CHARS = frozenset(")]\"\u00bb\u00ab',;:")
+_MARKER_GAP_AFTER_NUMBER_CHARS = frozenset("([\"\u00bb\u00ab',;:")
+
+
+def _previous_non_joiner_character(text: str, index: int) -> int:
+    """Return the preceding non-joiner index, or ``-1`` at the start."""
+    index -= 1
+    while index >= 0 and text[index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS:
+        index -= 1
+    return index
+
+
+def _next_non_joiner_character(text: str, index: int) -> int:
+    """Return the following non-joiner index, or ``len(text)`` at the end."""
+    while index < len(text) and text[index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS:
+        index += 1
+    return index
+
+
+def _marker_boundary_character_is_whitespace(character: str) -> bool:
+    """Treat separator-class format characters as standalone boundaries."""
+    return bool(
+        character.isspace()
+        or (
+            unicodedata.category(character) == "Cf"
+            and character not in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        )
+    )
+
+
+def _sentence_period_is_allowlisted(text: str, index: int, *, direction: int) -> bool:
+    """Accept a right-hand period only when it terminates a sentence."""
+    if direction <= 0 or text[index] != ".":
+        return False
+    following = _next_non_joiner_character(text, index + 1)
+    return following >= len(text) or _marker_boundary_character_is_whitespace(
+        text[following]
+    )
+
+
+def _marker_delimiter_run_is_detached(
+    text: str,
+    index: int,
+    *,
+    direction: int,
+) -> bool:
+    """Accept an allowlisted delimiter run only when detached outwardly."""
+    outward = index
+    while True:
+        outward = (
+            _previous_non_joiner_character(text, outward)
+            if direction < 0
+            else _next_non_joiner_character(text, outward + 1)
+        )
+        if (
+            outward < 0
+            or outward >= len(text)
+            or text[outward] not in _STANDALONE_MARKER_BOUNDARY_CHARS
+        ):
+            break
+    if outward < 0 or outward >= len(text):
+        return True
+    character = text[outward]
+    return _marker_boundary_character_is_whitespace(
+        character
+    ) or _sentence_period_is_allowlisted(text, outward, direction=direction)
+
+
+def _marker_neighbor_is_allowlisted(
+    text: str,
+    index: int,
+    *,
+    direction: int,
+) -> bool:
+    """Classify one real marker neighbor against the closed allowlist."""
+    if index < 0 or index >= len(text):
+        return True
+    character = text[index]
+    if _marker_boundary_character_is_whitespace(character):
+        return True
+    if character in _STANDALONE_MARKER_BOUNDARY_CHARS:
+        return _marker_delimiter_run_is_detached(text, index, direction=direction)
+    return _sentence_period_is_allowlisted(text, index, direction=direction)
+
+
+def _marker_span_has_standalone_boundaries(
+    text: str,
+    span: tuple[int, int],
+) -> bool:
+    """Require both joiner-skipping source neighbors to be allowlisted."""
+    before = _previous_non_joiner_character(text, span[0])
+    after = _next_non_joiner_character(text, span[1])
+    return _marker_neighbor_is_allowlisted(text, before, direction=-1) and (
+        _marker_neighbor_is_allowlisted(text, after, direction=1)
+    )
+
+
+def _raw_numeric_context_before_span(
+    text: str,
+    start: int,
+    *,
+    retained_limit: int,
+    boundaries: _NumericContextBoundaries | None,
+) -> tuple[int, int]:
+    lower_bound = boundaries.lower_bound(start) if boundaries is not None else 0
+    cursor = start
+    retained = 0
+    while cursor > lower_bound and retained < retained_limit:
+        cursor -= 1
+        retained += unicodedata.category(text[cursor]) != "Cf"
+    return cursor, start
+
+
+def _raw_numeric_context_after_span(
+    text: str,
+    end: int,
+    *,
+    retained_limit: int,
+    boundaries: _NumericContextBoundaries | None,
+) -> tuple[int, int]:
+    upper_bound = (
+        boundaries.upper_bound(end, len(text)) if boundaries is not None else len(text)
+    )
+    cursor = end
+    retained = 0
+    while cursor < upper_bound and retained < retained_limit:
+        retained += unicodedata.category(text[cursor]) != "Cf"
+        cursor += 1
+    return end, cursor
+
+
+def _marker_spans_in_source_window(
+    text: str,
+    window: tuple[int, int],
+    patterns: Sequence[re.Pattern[str]],
+) -> Iterator[tuple[int, int]]:
+    """Match markers through numeric joiners while preserving other boundaries."""
+    window_start, window_end = window
+    scan_text, source_offsets = _numeric_joiner_filtered_view(
+        text[window_start:window_end]
+    )
+    if not scan_text:
+        return
+    for pattern in patterns:
+        for match in pattern.finditer(scan_text):
+            if match.start() == match.end():
+                continue
+            yield (
+                window_start + source_offsets[match.start()],
+                window_start + source_offsets[match.end() - 1] + 1,
+            )
+
+
+def _marker_gap_is_allowlisted(
+    text: str,
+    span: tuple[int, int],
+    *,
+    allowed_punctuation: frozenset[str],
+) -> bool:
+    """Allow only whitespace, Cf, and directional wrappers in a marker gap."""
+    return all(
+        character.isspace()
+        or unicodedata.category(character) == "Cf"
+        or character in allowed_punctuation
+        for character in text[slice(*span)]
+    )
+
+
+def _number_has_adjacent_standalone_marker(
+    text: str,
+    span: tuple[int, int],
+    *,
+    direction: str,
+    patterns: Sequence[re.Pattern[str]],
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Find a source-exact marker adjacent to a number without crossing a wall."""
+    if direction == "before":
+        window = _raw_numeric_context_before_span(
+            text,
+            span[0],
+            retained_limit=80,
+            boundaries=boundaries,
+        )
+        allowed_gap = _MARKER_GAP_BEFORE_NUMBER_CHARS
+    elif direction == "after":
+        window = _raw_numeric_context_after_span(
+            text,
+            span[1],
+            retained_limit=80,
+            boundaries=boundaries,
+        )
+        allowed_gap = _MARKER_GAP_AFTER_NUMBER_CHARS
+    else:
+        raise ValueError(f"Unsupported marker direction: {direction}")
+
+    for marker_span in _marker_spans_in_source_window(text, window, patterns):
+        if not _marker_span_has_standalone_boundaries(text, marker_span):
+            continue
+        gap = (
+            (marker_span[1], span[0])
+            if direction == "before"
+            else (span[1], marker_span[0])
+        )
+        if _marker_gap_is_allowlisted(
+            text,
+            gap,
+            allowed_punctuation=allowed_gap,
+        ):
+            return True
+    return False
+
+
+def _local_rate_context_after_number(
+    text: str,
+    end: int,
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a profile-specific marker follows a numeric span."""
+    if profile == "da-DK":
+        return _number_has_adjacent_standalone_marker(
+            text,
+            (end, end),
+            direction="after",
+            patterns=(_GENERIC_RATE_MARKER_PATTERN, _DANISH_RATE_MARKER_PATTERN),
+            boundaries=boundaries,
+        )
+    return bool(_LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(text, end))
+
+
+def _table_rate_header_matches(text: str, *, profile: str) -> bool:
+    """Return whether a table header contains a profile-specific rate marker."""
+    if profile == "da-DK":
+        return False
+    return bool(_TABLE_RATE_HEADER_PATTERN.search(text))
+
+
+def _currency_marker_before_number(
+    text: str,
+    start: int,
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a profile-specific currency marker precedes a number."""
+    if profile == "da-DK":
+        return _number_has_adjacent_standalone_marker(
+            text,
+            (start, start),
+            direction="before",
+            patterns=(
+                _GENERIC_CURRENCY_MARKER_PATTERN,
+                _DANISH_CURRENCY_MARKER_PATTERN,
+            ),
+            boundaries=boundaries,
+        )
+    before = text[max(0, start - 80) : start]
+    return bool(_CURRENCY_MARKER_BEFORE_NUMBER_PATTERN.search(before))
+
+
+def _currency_marker_after_number(
+    text: str,
+    end: int,
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a profile-specific currency marker follows a number."""
+    if profile == "da-DK":
+        return _number_has_adjacent_standalone_marker(
+            text,
+            (end, end),
+            direction="after",
+            patterns=(
+                _GENERIC_CURRENCY_MARKER_PATTERN,
+                _DANISH_CURRENCY_MARKER_PATTERN,
+            ),
+            boundaries=boundaries,
+        )
+    after = text[end : min(len(text), end + 80)]
+    return bool(_CURRENCY_MARKER_AFTER_NUMBER_PATTERN.match(after))
+
+
+def _danish_grouped_scalar_has_context(
+    text: str,
+    span: tuple[int, int],
+    *,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    """Return whether a Danish multi-dot token is substantive scalar evidence."""
+    start, end = span
+    return bool(
+        _currency_marker_before_number(
+            text,
+            start,
+            profile="da-DK",
+            boundaries=boundaries,
+        )
+        or _currency_marker_after_number(
+            text,
+            end,
+            profile="da-DK",
+            boundaries=boundaries,
+        )
+        or _local_rate_context_after_number(
+            text,
+            end,
+            profile="da-DK",
+            boundaries=boundaries,
+        )
+    )
+
+
+def _pipe_table_rate_cell_spans(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> tuple[tuple[int, int], ...]:
+    """Index cells whose pipe-table column has an explicit percentage header."""
+    rate_cells: list[tuple[int, int]] = []
+    rate_columns: set[int] = set()
+    line_offset = 0
+    for line_with_ending in text.splitlines(keepends=True):
+        line = line_with_ending.rstrip("\r\n")
+        if "|" not in line:
+            rate_columns.clear()
+            line_offset += len(line_with_ending)
+            continue
+
+        boundaries = [
+            -1,
+            *(match.start() for match in re.finditer(r"\|", line)),
+            len(line),
+        ]
+        cells = [
+            (boundaries[index] + 1, boundaries[index + 1])
+            for index in range(len(boundaries) - 1)
+        ]
+        if line.lstrip().startswith("|") and cells:
+            cells = cells[1:]
+        if line.rstrip().endswith("|") and cells:
+            cells = cells[:-1]
+
+        for column, (start, end) in enumerate(cells):
+            if _table_rate_header_matches(line[start:end], profile=profile):
+                rate_columns.add(column)
+        for column in rate_columns:
+            if column >= len(cells):
+                continue
+            start, end = cells[column]
+            rate_cells.append((line_offset + start, line_offset + end))
+        line_offset += len(line_with_ending)
+    return tuple(rate_cells)
+
+
+def _source_span_for_parsed_numeric_span(
+    source_text: str,
+    parsed_text: str,
+    span: tuple[int, int],
+) -> tuple[int, int]:
+    """Map a parsed-buffer span back to an exact source substring when possible."""
+    if parsed_text is source_text:
+        return span
+    raw = parsed_text[span[0] : span[1]]
+    if not raw:
+        return 0, len(source_text)
+    starts = [match.start() for match in re.finditer(re.escape(raw), source_text)]
+    if not starts:
+        return 0, len(source_text)
+    expected = (
+        round(span[0] * len(source_text) / len(parsed_text)) if parsed_text else 0
+    )
+    start = min(starts, key=lambda candidate: abs(candidate - expected))
+    return start, start + len(raw)
+
+
+def _numeric_occurrence_from_parsed_span(
+    source_text: str,
+    parsed_text: str,
+    span: tuple[int, int],
+    value: float,
+    *,
+    source_value: float | None = None,
+    force_rate_context: bool = False,
+) -> NumericOccurrence:
+    source_span = _source_span_for_parsed_numeric_span(source_text, parsed_text, span)
+    start, end = source_span
+    return NumericOccurrence(
+        value=value,
+        start=start,
+        end=end,
+        raw=source_text[start:end],
+        has_rate_context=force_rate_context
+        or _numeric_occurrence_has_local_rate_context(source_text, source_span),
+        source_value=value if source_value is None else source_value,
+    )
+
+
+def _fallback_numeric_occurrence(text: str, value: float) -> NumericOccurrence:
+    """Anchor derived semantic candidates to their complete source evidence item."""
+    return NumericOccurrence(
+        value=value,
+        start=0,
+        end=len(text),
+        raw=text,
+        has_rate_context=False,
+        source_value=value,
+    )
+
+
+def _legacy_surface_numeric_occurrences(text: str) -> list[NumericOccurrence]:
+    """Return exact-span surface candidates used to type legacy numeric values."""
+    raw_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
+    )
+    cleaned = _clean_source_text_for_numeric_extraction(raw_text)
+    _, cleaned = _extract_collapsed_schedule_row_occurrences(cleaned)
+    occurrences: list[NumericOccurrence] = []
+
+    for span, value in _iter_direct_percentage_rate_matches(raw_text):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(
+                text,
+                raw_text,
+                span,
+                value,
+                source_value=value * 100,
+                force_rate_context=True,
+            )
+        )
+
+    for span, value in _iter_raw_european_money_value_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_normalized_special_numeric_matches(cleaned):
+        raw = cleaned[span[0] : span[1]]
+        has_rate_context = bool(
+            re.search(
+                r"(?:%|\bp\.?[ \t]*c\.?\b|\bpercent\b|"
+                r"\bper[ \t-]+cent(?:um)?\b|\bProzent\b|"
+                r"\bvom[ \t]+Hundert\b)",
+                raw,
+                re.IGNORECASE,
+            )
+        )
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(
+                text,
+                cleaned,
+                span,
+                value,
+                source_value=value * 100 if has_rate_context else value,
+                force_rate_context=has_rate_context,
+            )
+        )
+    for span, value in _iter_standalone_fraction_word_matches(cleaned):
+        if _hebrew_fraction_word_is_percent_tail(cleaned, span):
+            continue
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_word_quantity_fraction_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_ordinal_word_number_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_cardinal_word_number_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_french_cardinal_phrase_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value in _iter_dutch_cardinal_phrase_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+    for span, value, raw_value in _iter_digit_scale_number_matches(cleaned):
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
+        )
+        occurrences.append(
+            _numeric_occurrence_from_parsed_span(text, cleaned, span, raw_value)
+        )
+
+    for pattern, normalize in (
+        (
+            SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN,
+            _normalize_european_decimal_number,
+        ),
+        (EUROPEAN_DECIMAL_NUMBER_PATTERN, _normalize_european_decimal_number),
+        (
+            EUROPEAN_LEADING_ZERO_DECIMAL_NUMBER_PATTERN,
+            _normalize_european_decimal_number,
+        ),
+        (EUROPEAN_THOUSANDS_NUMBER_PATTERN, _normalize_grouped_thousands_number),
+        (
+            EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN,
+            _normalize_grouped_thousands_number,
+        ),
+    ):
+        for match in pattern.finditer(cleaned):
+            span = match.span(1)
+            with contextlib.suppress(ValueError):
+                value = float(normalize(match.group(1)))
+                occurrences.append(
+                    _numeric_occurrence_from_parsed_span(
+                        text,
+                        cleaned,
+                        span,
+                        value,
+                    )
+                )
+                if pattern is EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN and re.fullmatch(
+                    r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)
+                ):
+                    occurrences.append(
+                        _numeric_occurrence_from_parsed_span(
+                            text,
+                            cleaned,
+                            span,
+                            float(match.group(1)),
+                        )
+                    )
+
+    for match in SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        with contextlib.suppress(ValueError):
+            value = float(match.group(1).replace(",", ""))
+            occurrences.append(
+                _numeric_occurrence_from_parsed_span(
+                    text,
+                    cleaned,
+                    span,
+                    value,
+                )
+            )
+    for match in _ORDINAL_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            occurrences.append(
+                _numeric_occurrence_from_parsed_span(
+                    text,
+                    cleaned,
+                    match.span(1),
+                    float(match.group(1)),
+                )
+            )
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        for match in re.finditer(re.escape(glyph), cleaned):
+            occurrences.append(
+                _numeric_occurrence_from_parsed_span(
+                    text,
+                    cleaned,
+                    match.span(),
+                    value,
+                )
+            )
+    return occurrences
+
+
+@dataclass(frozen=True)
+class _NumericTextView:
+    """A parsed text buffer with character provenance in the source item."""
+
+    source: str
+    text: str
+    source_offsets: tuple[int | None, ...]
+
+    @classmethod
+    def identity(cls, source: str) -> "_NumericTextView":
+        return cls(source, source, tuple(range(len(source))))
+
+    @classmethod
+    def equal_length_masked(cls, source: str, parsed: str) -> "_NumericTextView":
+        """Use identity provenance for an equal-length space-substitution mask."""
+        if len(source) != len(parsed):
+            raise ValueError("Equal-length numeric mask changed the source length")
+        if any(
+            source_character != parsed_character and parsed_character != " "
+            for source_character, parsed_character in zip(source, parsed, strict=True)
+        ):
+            raise ValueError(
+                "Numeric mask changed a source character without blanking it"
+            )
+        return cls(source, parsed, tuple(range(len(source))))
+
+    @classmethod
+    def aligned(cls, source: str, parsed: str) -> "_NumericTextView":
+        if parsed == source:
+            return cls.identity(source)
+        offsets: list[int | None] = [None] * len(parsed)
+        matcher = SequenceMatcher(a=source, b=parsed)
+        for (
+            operation,
+            source_start,
+            _,
+            parsed_start,
+            parsed_end,
+        ) in matcher.get_opcodes():
+            if operation != "equal":
+                continue
+            for index in range(parsed_start, parsed_end):
+                offsets[index] = source_start + index - parsed_start
+        return cls(source, parsed, tuple(offsets))
+
+    @classmethod
+    def tracked(cls, source: str, edited: "_TrackedText") -> "_NumericTextView":
+        """A view whose provenance was carried through the edits that made it."""
+        return cls(source, edited.text, tuple(edited.offsets))
+
+    def source_span(
+        self,
+        span: tuple[int, int],
+        *,
+        require_exact: bool = False,
+    ) -> tuple[int, int]:
+        """Map a parsed span to the exact source interval that supplied it."""
+        start, end = span
+        raw = self.text[start:end]
+        if require_exact:
+            if len(self.source) != len(self.text) or self.source[start:end] != raw:
+                raise ValueError(f"Numeric token changed under source mask: {raw!r}")
+            return span
+        mapped = [
+            offset for offset in self.source_offsets[start:end] if offset is not None
+        ]
+        if mapped:
+            mapped_span = (min(mapped), max(mapped) + 1)
+            return mapped_span
+
+        candidates = [
+            match.span() for match in re.finditer(re.escape(raw), self.source)
+        ]
+        if not candidates:
+            raise ValueError(f"Numeric token has no source span: {raw!r}")
+
+        left_anchor = next(
+            (
+                offset
+                for offset in reversed(self.source_offsets[:start])
+                if offset is not None
+            ),
+            None,
+        )
+        right_anchor = next(
+            (offset for offset in self.source_offsets[end:] if offset is not None),
+            None,
+        )
+        bounded = [
+            candidate
+            for candidate in candidates
+            if (left_anchor is None or candidate[0] > left_anchor)
+            and (right_anchor is None or candidate[1] <= right_anchor)
+        ]
+        if len(bounded) == 1:
+            return bounded[0]
+        if bounded:
+            candidates = bounded
+        expected = left_anchor + 1 if left_anchor is not None else 0
+        return min(candidates, key=lambda candidate: abs(candidate[0] - expected))
+
+
+@dataclass
+class _LegacyNumericCollector:
+    """Collect exact typed emissions for both legacy public projections."""
+
+    source: str
+    profile: str = "legacy"
+    masked_context_spans: tuple[tuple[int, int], ...] = ()
+    grounding: list[NumericOccurrence] = field(default_factory=list)
+    inventory: list[NumericOccurrence] = field(default_factory=list)
+    rate_table_cell_spans: tuple[tuple[int, int], ...] = field(init=False)
+    rate_table_cell_span_starts: tuple[int, ...] = field(init=False)
+    rate_table_cell_prefix_max_ends: tuple[int, ...] = field(init=False)
+    shared_rate_spans: tuple[tuple[int, int], ...] = field(init=False)
+    temporal_component_spans: tuple[tuple[int, int], ...] = field(init=False)
+    structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
+    structural_component_span_starts: tuple[int, ...] = field(init=False)
+    structural_component_prefix_max_ends: tuple[int, ...] = field(init=False)
+    context_text: str = field(init=False)
+    context_boundaries: _NumericContextBoundaries = field(init=False)
+    money_spans: tuple[tuple[int, int], ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        # Context is classified on the text with its line ends and the wrap
+        # space after a prefix's maqaf as the cleaner reads them -- the same
+        # width, so every span is a span in the source -- so a schedule
+        # ordinal after "ה־ " is the reference it is after "ה־", and a rate
+        # or currency marker across a spaced maqaf is seen. The raw slice of
+        # an occurrence stays the source's own.
+        self.context_text = (
+            self.source
+            if self.profile == "da-DK"
+            else _bind_hebrew_source_text(self.source)
+        )
+        self.rate_table_cell_spans = (
+            ()
+            if self.profile == "da-DK"
+            else _pipe_table_rate_cell_spans(
+                self.context_text,
+                profile=self.profile,
+            )
+        )
+        (
+            self.rate_table_cell_span_starts,
+            self.rate_table_cell_prefix_max_ends,
+        ) = _span_containment_index(self.rate_table_cell_spans)
+        self.temporal_component_spans = _temporal_numeric_component_spans(
+            self.context_text
+        )
+        self.structural_component_spans = _structural_numeric_component_spans(
+            self.context_text,
+            profile=self.profile,
+        )
+        (
+            self.structural_component_span_starts,
+            self.structural_component_prefix_max_ends,
+        ) = _span_containment_index(self.structural_component_spans)
+        self.context_boundaries = _NumericContextBoundaries.from_spans(
+            (*self.masked_context_spans, *self.structural_component_spans)
+            if self.profile == "da-DK"
+            else ()
+        )
+        money_spans = {
+            span
+            for span, _value in _iter_raw_european_money_value_matches(
+                self.context_text
+            )
+            if self.profile != "da-DK"
+            or _currency_marker_before_number(
+                self.context_text,
+                span[0],
+                profile=self.profile,
+                boundaries=self.context_boundaries,
+            )
+            or _currency_marker_after_number(
+                self.context_text,
+                span[1],
+                profile=self.profile,
+                boundaries=self.context_boundaries,
+            )
+        }
+        shared_rate_spans: set[tuple[int, int]] = set()
+        for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(self.context_text):
+            endpoint_spans = (match.span("start"), match.span("end"))
+            has_money_context = (
+                any(
+                    endpoint_start >= money_start and endpoint_end <= money_end
+                    for endpoint_start, endpoint_end in endpoint_spans
+                    for money_start, money_end in money_spans
+                )
+                or bool(
+                    _currency_marker_before_number(
+                        self.context_text,
+                        match.start(),
+                        profile=self.profile,
+                        boundaries=self.context_boundaries,
+                    )
+                )
+                or bool(
+                    _currency_marker_after_number(
+                        self.context_text,
+                        match.end(),
+                        profile=self.profile,
+                        boundaries=self.context_boundaries,
+                    )
+                )
+            )
+            if has_money_context:
+                money_spans.update(endpoint_spans)
+            if _local_rate_context_after_number(
+                self.context_text,
+                match.end(),
+                profile=self.profile,
+                boundaries=self.context_boundaries,
+            ):
+                shared_rate_spans.update(endpoint_spans)
+        self.money_spans = tuple(sorted(money_spans))
+        self.shared_rate_spans = tuple(sorted(shared_rate_spans))
+
+    def occurrence(
+        self,
+        view: _NumericTextView,
+        span: tuple[int, int],
+        value: float,
+        *,
+        source_value: float | None = None,
+        force_rate_context: bool = False,
+        requires_rate_context: bool = False,
+        is_word_number: bool = False,
+        alternative_values: tuple[float, ...] = (),
+    ) -> NumericOccurrence:
+        source_span = view.source_span(
+            span,
+            require_exact=self.profile == "da-DK",
+        )
+        start, end = source_span
+        has_table_rate_context = self.profile != "da-DK" and (
+            _span_is_contained_in_index(
+                source_span,
+                self.rate_table_cell_span_starts,
+                self.rate_table_cell_prefix_max_ends,
+            )
+        )
+        has_rate_context = (
+            force_rate_context
+            or _local_rate_context_after_number(
+                self.context_text,
+                end,
+                profile=self.profile,
+                boundaries=self.context_boundaries,
+            )
+            or has_table_rate_context
+            or any(
+                start >= rate_start and end <= rate_end
+                for rate_start, rate_end in self.shared_rate_spans
+            )
+        )
+        has_money_context = (
+            any(
+                start >= money_start and end <= money_end
+                for money_start, money_end in self.money_spans
+            )
+            or bool(
+                _currency_marker_before_number(
+                    self.context_text,
+                    start,
+                    profile=self.profile,
+                    boundaries=self.context_boundaries,
+                )
+            )
+            or bool(
+                _currency_marker_after_number(
+                    self.context_text,
+                    end,
+                    profile=self.profile,
+                    boundaries=self.context_boundaries,
+                )
+            )
+        )
+        has_temporal_context = (
+            not has_rate_context
+            and not has_money_context
+            and any(
+                start >= temporal_start and end <= temporal_end
+                for temporal_start, temporal_end in self.temporal_component_spans
+            )
+        )
+        has_structural_context = (
+            not has_rate_context
+            and not has_money_context
+            and _span_is_contained_in_index(
+                source_span,
+                self.structural_component_span_starts,
+                self.structural_component_prefix_max_ends,
+            )
+        )
+        return NumericOccurrence(
+            value=value,
+            start=start,
+            end=end,
+            raw=self.source[start:end],
+            has_rate_context=has_rate_context,
+            has_temporal_context=has_temporal_context,
+            has_structural_context=has_structural_context,
+            source_value=value if source_value is None else source_value,
+            requires_rate_context=requires_rate_context,
+            is_word_number=is_word_number,
+            alternative_values=alternative_values,
+        )
+
+    def add_grounding(
+        self,
+        view: _NumericTextView,
+        span: tuple[int, int],
+        value: float,
+        **kwargs: Any,
+    ) -> None:
+        self.grounding.append(self.occurrence(view, span, value, **kwargs))
+
+    def add_inventory(
+        self,
+        view: _NumericTextView,
+        span: tuple[int, int],
+        value: float,
+        **kwargs: Any,
+    ) -> None:
+        self.inventory.append(self.occurrence(view, span, value, **kwargs))
+
+
+_NUMERIC_EXTRACTION_PROFILES = frozenset({"legacy", "en-US", "en-GB", "de-DE", "da-DK"})
+_DECIMAL_COMMA_NUMERIC_PROFILES = frozenset({"de-DE", "da-DK"})
+_LOCALE_NUMERIC_GROUPING_SPACES = " \u00a0\u202f"
+# An ASCII space commonly separates adjacent Danish table values (for example,
+# a year followed by an amount), so only nonbreaking spaces can group digits.
+_DANISH_NUMERIC_GROUPING_SPACES = "\u00a0\u202f"
+_LOCALE_UNARY_SIGNS = "+-\u2013\u2212"
+_LOCALE_UNARY_PREFIXES = frozenset(
+    "([{=:;,+*/|<>!%^&~?"
+    "\u2022"  # bullet
+    "\u00b7"  # middle dot
+    "\u00d7"  # multiplication sign
+    "\u00f7"  # division sign
+    "\u2219"  # bullet operator
+    "\u2260"  # not equal
+    "\u2264"  # less than or equal
+    "\u2265"  # greater than or equal
+)
+_DANISH_ORDINAL_LIST_ITEM_OPENERS = _LOCALE_UNARY_PREFIXES - frozenset(
+    ".,Ee" + _LOCALE_UNARY_SIGNS
+)
+_DANISH_ORDINAL_RANGE_ITEM_PATTERN = r"\d+\.[-\u2013\u2014]\s*\d+\."
+_DANISH_ORDINAL_RANGE_SCAN_PATTERN = re.compile(
+    rf"(?<!\d)(?=(?P<range_item>{_DANISH_ORDINAL_RANGE_ITEM_PATTERN}))"
+)
+_DANISH_ORDINAL_LIST_ITEM_PATTERN = rf"(?:{_DANISH_ORDINAL_RANGE_ITEM_PATTERN}|\d+\.)"
+_DANISH_ORDINAL_LIST_SEPARATOR_PATTERN = re.compile(
+    rf"(?=(?P<boundary>^|[\s{re.escape(''.join(sorted(_DANISH_ORDINAL_LIST_ITEM_OPENERS)))}])"
+    rf"(?P<item_before>{_DANISH_ORDINAL_LIST_ITEM_PATTERN})"
+    r"(?P<comma>,)\s+"
+    rf"(?P<item_after>{_DANISH_ORDINAL_LIST_ITEM_PATTERN})(?=$|\s|,\s))"
+)
+_GERMAN_FRACTION_DENOMINATOR_VALUES = {
+    "Einhundertzwanzigstel": 120.0,
+    "Dreihundertsechzigstel": 360.0,
+    "Vierhundertfünfzigstel": 450.0,
+    "Vierundzwanzigstel": 24.0,
+    "Hundertzwanzigstel": 120.0,
+    "Fünfundsiebzigstel": 75.0,
+    "Dreihundertstel": 300.0,
+    "Sechshundertstel": 600.0,
+    "Zehntausendstel": 10_000.0,
+    "Vierzehntel": 14.0,
+    "Fünfzehntel": 15.0,
+    "Neunzehntel": 19.0,
+    "Dreizehntel": 13.0,
+    "Tausendstel": 1_000.0,
+    "Hundertstel": 100.0,
+    "Dreißigstel": 30.0,
+    "Fünfzigstel": 50.0,
+    "Zwanzigstel": 20.0,
+    "Zwölftel": 12.0,
+    "Siebtel": 7.0,
+    "Sechstel": 6.0,
+    "Fünftel": 5.0,
+    "Viertel": 4.0,
+    "Drittel": 3.0,
+    "Zehntel": 10.0,
+    "Achtel": 8.0,
+    "Hälfte": 2.0,
+}
+_GERMAN_FRACTION_DENOMINATOR_VALUES_CASEFOLD = {
+    word.casefold(): value
+    for word, value in _GERMAN_FRACTION_DENOMINATOR_VALUES.items()
+}
+_GERMAN_FRACTION_WORD_PATTERN = re.compile(
+    r"(?<!\w)(?P<fraction>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(
+            _GERMAN_FRACTION_DENOMINATOR_VALUES,
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")(?:n|s)?(?!\w)",
+    re.IGNORECASE,
+)
+_GERMAN_QUANTITATIVE_CARDINAL_VALUES = {
+    "null": 0.0,
+    "zwei": 2.0,
+    "drei": 3.0,
+    "vier": 4.0,
+    "fünf": 5.0,
+    "sechs": 6.0,
+    "sieben": 7.0,
+    "acht": 8.0,
+    "neun": 9.0,
+    "zehn": 10.0,
+    "elf": 11.0,
+    "zwölf": 12.0,
+    "dreißig": 30.0,
+    "dreihundertsechzig": 360.0,
+}
+_GERMAN_QUANTITATIVE_CARDINAL_VALUES_CASEFOLD = {
+    word.casefold(): value
+    for word, value in _GERMAN_QUANTITATIVE_CARDINAL_VALUES.items()
+}
+_GERMAN_QUANTITATIVE_CARDINAL_BODY = "|".join(
+    re.escape(word)
+    for word in sorted(_GERMAN_QUANTITATIVE_CARDINAL_VALUES, key=len, reverse=True)
+)
+_GERMAN_FRACTION_NUMERATOR_CARDINAL_BODY = "|".join(
+    re.escape(word)
+    for word in sorted(
+        (
+            word
+            for word, value in _GERMAN_QUANTITATIVE_CARDINAL_VALUES.items()
+            if value != 1
+        ),
+        key=len,
+        reverse=True,
+    )
+)
+_GERMAN_QUANTITATIVE_UNIT_BODY = (
+    r"(?:[A-Za-zÄÖÜäöüß]+)?"
+    r"(?:stunde|stunden|tag|tage|tagen|woche|wochen|monat|monate|monaten|"
+    r"jahr|jahre|jahren|teil|teile|teilen|kind|kinder|kindern|person|"
+    r"personen|partner|partnern|monatswert|monatswerte|monatswerten|"
+    r"haushaltsmitglied|haushaltsmitglieder|haushaltsmitgliedern|euro|prozent)"
+)
+_GERMAN_CARDINAL_BEFORE_UNIT_PATTERN = re.compile(
+    rf"(?<!\w)(?P<cardinal>{_GERMAN_QUANTITATIVE_CARDINAL_BODY})(?!\w)"
+    rf"(?=[ \t]+{_GERMAN_QUANTITATIVE_UNIT_BODY}\b)",
+    re.IGNORECASE,
+)
+_GERMAN_CARDINAL_BEFORE_MODIFIED_UNIT_PATTERN = re.compile(
+    rf"(?<!\w)(?P<cardinal>{_GERMAN_QUANTITATIVE_CARDINAL_BODY})(?!\w)"
+    rf"(?=[ \t]+zu[ \t]+berücksichtigende[ \t]+"
+    rf"{_GERMAN_QUANTITATIVE_UNIT_BODY}\b)",
+    re.IGNORECASE,
+)
+_GERMAN_CARDINAL_BEFORE_FRACTION_PATTERN = re.compile(
+    rf"(?<!\w)(?P<cardinal>{_GERMAN_FRACTION_NUMERATOR_CARDINAL_BODY})(?!\w)"
+    r"(?=[ \t]+(?:"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(
+            _GERMAN_FRACTION_DENOMINATOR_VALUES,
+            key=len,
+            reverse=True,
+        )
+    )
+    + r")(?:n|s)?(?!\w))",
+    re.IGNORECASE,
+)
+_GERMAN_PRORATION_CARDINAL_PATTERN = re.compile(
+    rf"\b(?:Woche|Monat|Jahr)\s+zu[ \t]+"
+    rf"(?P<cardinal>{_GERMAN_QUANTITATIVE_CARDINAL_BODY})(?!\w)",
+    re.IGNORECASE,
+)
+_GERMAN_DIVISOR_CARDINAL_PATTERN = re.compile(
+    rf"\bdurch[ \t]+(?P<cardinal>{_GERMAN_QUANTITATIVE_CARDINAL_BODY})"
+    r"(?!\w)[ \t]+geteilt\b",
+    re.IGNORECASE,
+)
+_GERMAN_MULTIPLIER_VALUES = {
+    "ein": 1.0,
+    "zwei": 2.0,
+    "drei": 3.0,
+    "vier": 4.0,
+    "fünf": 5.0,
+    "sechs": 6.0,
+    "sieben": 7.0,
+    "acht": 8.0,
+    "neun": 9.0,
+    "zehn": 10.0,
+    "elf": 11.0,
+    "zwölf": 12.0,
+}
+_GERMAN_MULTIPLIER_VALUES_CASEFOLD = {
+    word.casefold(): value for word, value in _GERMAN_MULTIPLIER_VALUES.items()
+}
+_GERMAN_WORD_MULTIPLIER_PATTERN = re.compile(
+    r"(?<!\w)(?P<multiplier>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_GERMAN_MULTIPLIER_VALUES, key=len, reverse=True)
+    )
+    + r")(?:-)?fache(?:n|r|s|m)?(?!\w)",
+    re.IGNORECASE,
+)
+_GERMAN_DOUBLE_MULTIPLIER_PATTERN = re.compile(
+    r"(?<!\w)doppelt(?:e|en|er|es|em)?(?!\w)",
+    re.IGNORECASE,
+)
+_GERMAN_ORDINAL_PART_VALUES = {
+    "erste": 1.0,
+    "zweite": 2.0,
+    "dritte": 3.0,
+    "vierte": 4.0,
+    "fünfte": 5.0,
+    "sechste": 6.0,
+    "siebte": 7.0,
+    "achte": 8.0,
+    "neunte": 9.0,
+    "zehnte": 10.0,
+    "elfte": 11.0,
+    "zwölfte": 12.0,
+}
+_GERMAN_ORDINAL_PART_VALUES_CASEFOLD = {
+    word.casefold(): value for word, value in _GERMAN_ORDINAL_PART_VALUES.items()
+}
+_GERMAN_ORDINAL_PART_PATTERN = re.compile(
+    r"\b(?:der|die|das|den|dem|des|ein(?:e[nsrm]?)?)\s+"
+    r"(?P<ordinal>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_GERMAN_ORDINAL_PART_VALUES, key=len, reverse=True)
+    )
+    + r")(?:n|r|s|m)?\s+Teil(?:s|e|en)?\b",
+    re.IGNORECASE,
+)
+
+
+def _numeric_profile_for_citation_path(citation_path: str | None) -> str:
+    """Select a locale only from a canonical evidence citation path."""
+    if not isinstance(citation_path, str) or not citation_path:
+        return "legacy"
+    try:
+        canonical = require_canonical_corpus_citation_path(citation_path)
+    except (InvalidCorpusCitationError, TypeError, ValueError):
+        return "legacy"
+    if canonical.startswith("de/"):
+        return "de-DE"
+    if canonical.startswith("dk/"):
+        return "da-DK"
+    return "legacy"
+
+
+def _locale_sign_is_unary(
+    text: str,
+    sign_index: int,
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+) -> bool:
+    lower_bound = boundaries.lower_bound(sign_index) if boundaries is not None else 0
+    if boundaries is not None:
+        wall_index = bisect_right(boundaries.starts, sign_index) - 1
+        if wall_index >= 0 and boundaries.spans[wall_index][1] >= sign_index:
+            return False
+    prefix_index = sign_index - 1
+    if profile == "da-DK" and text[sign_index] in "-\u2013\u2212":
+        while (
+            prefix_index >= lower_bound
+            and text[prefix_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        ):
+            prefix_index -= 1
+    else:
+        while prefix_index >= lower_bound and (
+            text[prefix_index] in _LOCALE_NUMERIC_GROUPING_SPACES
+            or (
+                profile == "da-DK"
+                and text[prefix_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+            )
+        ):
+            prefix_index -= 1
+    if prefix_index < lower_bound:
+        return lower_bound == 0
+    prefix = text[prefix_index]
+    return (
+        prefix.isspace()
+        or prefix in _LOCALE_UNARY_PREFIXES
+        or prefix in _LOCALE_UNARY_SIGNS
+    )
+
+
+def _locale_glued_sentence_marker_end(
+    text: str,
+    dot_index: int,
+    *,
+    profile: str,
+) -> int | None:
+    """Return the end of a juris ``.3Die``-style marker prefix, if present."""
+    if dot_index >= len(text) or text[dot_index] != ".":
+        return None
+
+    marker_end = dot_index + 1
+    digit_count = 0
+    while digit_count < 2:
+        if profile == "da-DK":
+            marker_end = _next_numeric_joiner_end(text, marker_end)
+        if marker_end >= len(text) or not text[marker_end].isdecimal():
+            break
+        marker_end += 1
+        digit_count += 1
+    if profile == "da-DK":
+        marker_end = _next_numeric_joiner_end(text, marker_end)
+
+    if (
+        digit_count > 0
+        and marker_end < len(text)
+        and unicodedata.category(text[marker_end]) == "Lu"
+    ):
+        return marker_end
+    return None
+
+
+def _locale_numeric_envelope_grammar_accepts(
+    character: str,
+    *,
+    profile: str,
+    grouping_characters: str,
+) -> bool:
+    """Define the complete character grammar shared by scan and continuation."""
+    return bool(
+        character.isdigit()
+        or character in ".,Ee"
+        or character in grouping_characters
+        or character in _LOCALE_UNARY_SIGNS
+        or (
+            profile == "da-DK" and character in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        )
+    )
+
+
+def _next_numeric_joiner_end(text: str, index: int) -> int:
+    """Return the first index after a contiguous Danish numeric-joiner run."""
+    while index < len(text) and text[index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS:
+        index += 1
+    return index
+
+
+def _numeric_grammar_run_end(
+    text: str,
+    index: int,
+    *,
+    run_characters: str,
+    profile: str,
+) -> tuple[int, int]:
+    """Consume one grammar-character run with interspersed Danish joiners."""
+    character_count = 0
+    while True:
+        while index < len(text) and text[index] in run_characters:
+            index += 1
+            character_count += 1
+        if profile != "da-DK":
+            return index, character_count
+        joiner_end = _next_numeric_joiner_end(text, index)
+        if joiner_end >= len(text) or text[joiner_end] not in run_characters:
+            return joiner_end, character_count
+        index = joiner_end
+
+
+def _danish_ordinal_list_match_has_admissible_left_boundary(
+    scan_text: str,
+    match: re.Match[str],
+) -> bool:
+    """Reject a grouping-space boundary that continues an earlier digit run."""
+    boundary_start, boundary_end = match.span("boundary")
+    if (
+        boundary_start == boundary_end
+        or scan_text[boundary_start] not in _DANISH_NUMERIC_GROUPING_SPACES
+    ):
+        return True
+    previous = boundary_start - 1
+    while previous >= 0 and scan_text[previous] in _DANISH_NUMERIC_GROUPING_SPACES:
+        previous -= 1
+    return previous < 0 or not scan_text[previous].isdigit()
+
+
+def _danish_ordinal_list_match_starts_inside_range(
+    match: re.Match[str],
+    source_offsets: Sequence[int],
+    range_internal_starts: Sequence[int],
+    range_internal_prefix_max_ends: Sequence[int],
+) -> bool:
+    """Reject list items that restart strictly inside a range candidate."""
+    return any(
+        _span_is_contained_in_index(
+            (
+                source_offsets[match.start(group_name)],
+                source_offsets[match.start(group_name)] + 1,
+            ),
+            range_internal_starts,
+            range_internal_prefix_max_ends,
+        )
+        for group_name in ("item_before", "item_after")
+    )
+
+
+def _danish_ordinal_range_internal_index_from_view(
+    scan_text: str,
+    source_offsets: Sequence[int],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Index strict range interiors from a joiner-filtered source view."""
+    return _span_containment_index(
+        tuple(
+            (
+                source_offsets[match.start("range_item")] + 1,
+                source_offsets[match.end("range_item") - 1] + 1,
+            )
+            for match in _DANISH_ORDINAL_RANGE_SCAN_PATTERN.finditer(scan_text)
+        )
+    )
+
+
+def _danish_ordinal_range_internal_index(
+    text: str,
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Index strict range interiors in source coordinates."""
+    return _danish_ordinal_range_internal_index_from_view(
+        *_numeric_joiner_filtered_view(text)
+    )
+
+
+def _danish_ordinal_list_separator_indices(
+    text: str,
+    *,
+    range_internal_index: tuple[Sequence[int], Sequence[int]] | None = None,
+) -> frozenset[int]:
+    """Locate separators bounded by two admissible ordinal-list items."""
+    scan_text, source_offsets = _numeric_joiner_filtered_view(text)
+    if range_internal_index is None:
+        range_internal_index = _danish_ordinal_range_internal_index_from_view(
+            scan_text,
+            source_offsets,
+        )
+    range_internal_starts, range_internal_prefix_max_ends = range_internal_index
+    return frozenset(
+        source_offsets[match.end("item_before") - 1]
+        for match in _DANISH_ORDINAL_LIST_SEPARATOR_PATTERN.finditer(scan_text)
+        if _danish_ordinal_list_match_has_admissible_left_boundary(scan_text, match)
+        and not _danish_ordinal_list_match_starts_inside_range(
+            match,
+            source_offsets,
+            range_internal_starts,
+            range_internal_prefix_max_ends,
+        )
+    )
+
+
+def _danish_repeated_leading_sign_run_start(
+    text: str,
+    sign_index: int,
+) -> int | None:
+    """Return the first sign in a joiner-transparent repeated run."""
+    start = sign_index
+    sign_count = 1
+    while True:
+        previous = _previous_non_joiner_character(text, start)
+        if previous < 0 or text[previous] not in _LOCALE_UNARY_SIGNS:
+            break
+        start = previous
+        sign_count += 1
+    return start if sign_count >= 2 else None
+
+
+@dataclass(frozen=True)
+class _LocaleNumericGrammarState:
+    """State shared by direct and joiner-mediated envelope continuation."""
+
+    exponent_seen: bool = False
+    exponent_digits_seen: bool = False
+
+
+def _advance_locale_numeric_grammar(
+    text: str,
+    index: int,
+    *,
+    profile: str,
+    grouping_characters: str,
+    state: _LocaleNumericGrammarState,
+    ordinal_list_separator_indices: frozenset[int] = frozenset(),
+) -> tuple[int, _LocaleNumericGrammarState, bool] | None:
+    """Advance one transition in the locale numeric-envelope grammar."""
+    if index >= len(text):
+        return None
+    character = text[index]
+    if not _locale_numeric_envelope_grammar_accepts(
+        character,
+        profile=profile,
+        grouping_characters=grouping_characters,
+    ):
+        return None
+    if character.isdigit():
+        return (
+            index + 1,
+            _LocaleNumericGrammarState(
+                exponent_seen=state.exponent_seen,
+                exponent_digits_seen=(
+                    state.exponent_digits_seen or state.exponent_seen
+                ),
+            ),
+            False,
+        )
+    if profile == "da-DK" and character in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS:
+        return None
+    if (
+        profile in _DECIMAL_COMMA_NUMERIC_PROFILES
+        and character == "."
+        and _locale_glued_sentence_marker_end(text, index, profile=profile) is not None
+    ):
+        return None
+    if character in ".,":
+        if profile == "da-DK" and index in ordinal_list_separator_indices:
+            return None
+        digit_index, separator_count = _numeric_grammar_run_end(
+            text,
+            index,
+            run_characters=".,",
+            profile=profile,
+        )
+        if digit_index < len(text) and text[digit_index].isdigit():
+            return digit_index, state, False
+        if profile == "da-DK" and separator_count >= 2:
+            return digit_index, state, True
+        return None
+    if character in grouping_characters:
+        digit_index, separator_count = _numeric_grammar_run_end(
+            text,
+            index,
+            run_characters=grouping_characters,
+            profile=profile,
+        )
+        if digit_index < len(text) and text[digit_index].isdigit():
+            return digit_index, state, False
+        if profile == "da-DK" and separator_count >= 2:
+            return digit_index, state, True
+        return None
+    if character in "Ee" and not state.exponent_seen:
+        return index + 1, _LocaleNumericGrammarState(exponent_seen=True), False
+    if (
+        character in _LOCALE_UNARY_SIGNS
+        and state.exponent_seen
+        and not state.exponent_digits_seen
+    ):
+        # Reserve malformed sign runs atomically; the strict parser rejects them.
+        return index + 1, state, False
+    return None
+
+
+def _advance_numeric_grammar_through_joiners(
+    text: str,
+    index: int,
+    *,
+    profile: str,
+    grouping_characters: str,
+    state: _LocaleNumericGrammarState,
+    ordinal_list_separator_indices: frozenset[int],
+) -> tuple[int, _LocaleNumericGrammarState, bool] | None:
+    """Skip joiners, then preserve the direct grammar's next transition."""
+    index = _next_numeric_joiner_end(text, index)
+    return _advance_locale_numeric_grammar(
+        text,
+        index,
+        profile=profile,
+        grouping_characters=grouping_characters,
+        state=state,
+        ordinal_list_separator_indices=ordinal_list_separator_indices,
+    )
+
+
+def _iter_locale_numeric_envelopes(
+    text: str,
+    *,
+    profile: str,
+    boundaries: _NumericContextBoundaries | None = None,
+    danish_ordinal_range_internal_index: tuple[Sequence[int], Sequence[int]]
+    | None = None,
+) -> Iterator[tuple[int, int]]:
+    """Reserve each complete numeric-looking span before locale validation."""
+    grouping_spaces = (
+        _DANISH_NUMERIC_GROUPING_SPACES
+        if profile == "da-DK"
+        else _LOCALE_NUMERIC_GROUPING_SPACES
+    )
+    ordinal_list_separator_indices = (
+        _danish_ordinal_list_separator_indices(
+            text,
+            range_internal_index=danish_ordinal_range_internal_index,
+        )
+        if profile == "da-DK"
+        else frozenset()
+    )
+    occupied_until = 0
+    for digit_match in re.finditer(r"\d", text):
+        digit_start = digit_match.start()
+        if digit_start < occupied_until:
+            continue
+        marker_dot = digit_start - 1
+        if profile == "da-DK":
+            while (
+                marker_dot >= 0
+                and text[marker_dot] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+            ):
+                marker_dot -= 1
+        if (
+            profile in _DECIMAL_COMMA_NUMERIC_PROFILES
+            and marker_dot >= 0
+            and text[marker_dot] == "."
+        ):
+            marker_end = _locale_glued_sentence_marker_end(
+                text,
+                marker_dot,
+                profile=profile,
+            )
+            if marker_end is not None:
+                occupied_until = marker_end
+                continue
+
+        start = digit_start
+        prefix_cursor = digit_start
+        while True:
+            punctuation_index = prefix_cursor - 1
+            if profile == "da-DK":
+                while (
+                    punctuation_index >= 0
+                    and text[punctuation_index]
+                    in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+                ):
+                    punctuation_index -= 1
+            if punctuation_index < 0 or text[punctuation_index] not in ".,":
+                break
+            start = punctuation_index
+            prefix_cursor = punctuation_index
+
+        sign_search_cursor = start
+        while True:
+            grouping_index = sign_search_cursor - 1
+            if profile == "da-DK":
+                while (
+                    grouping_index >= 0
+                    and text[grouping_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+                ):
+                    grouping_index -= 1
+            if grouping_index < 0 or text[grouping_index] not in grouping_spaces:
+                break
+            sign_search_cursor = grouping_index
+
+        sign_index = sign_search_cursor - 1
+        if profile == "da-DK":
+            while (
+                sign_index >= 0
+                and text[sign_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+            ):
+                sign_index -= 1
+        sign_is_candidate = (
+            sign_index >= 0
+            and text[sign_index] in _LOCALE_UNARY_SIGNS
+            and (
+                profile != "da-DK"
+                or text[sign_index] == "+"
+                or _next_numeric_joiner_end(text, sign_index + 1) == digit_start
+            )
+        )
+        repeated_sign_start = (
+            _danish_repeated_leading_sign_run_start(text, sign_index)
+            if profile == "da-DK" and sign_is_candidate
+            else None
+        )
+        if repeated_sign_start is not None:
+            start = repeated_sign_start
+        elif sign_is_candidate and _locale_sign_is_unary(
+            text,
+            sign_index,
+            profile=profile,
+            boundaries=boundaries,
+        ):
+            start = sign_index
+
+        index = digit_start
+        grammar_state = _LocaleNumericGrammarState()
+        reserved_until = 0
+        while index < len(text):
+            char = text[index]
+            if profile == "da-DK" and char in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS:
+                advanced = _advance_numeric_grammar_through_joiners(
+                    text,
+                    index,
+                    profile=profile,
+                    grouping_characters=grouping_spaces,
+                    state=grammar_state,
+                    ordinal_list_separator_indices=ordinal_list_separator_indices,
+                )
+            else:
+                marker_end = (
+                    _locale_glued_sentence_marker_end(text, index, profile=profile)
+                    if profile in _DECIMAL_COMMA_NUMERIC_PROFILES and char == "."
+                    else None
+                )
+                if marker_end is not None:
+                    reserved_until = marker_end
+                    break
+                advanced = _advance_locale_numeric_grammar(
+                    text,
+                    index,
+                    profile=profile,
+                    grouping_characters=grouping_spaces,
+                    state=grammar_state,
+                    ordinal_list_separator_indices=ordinal_list_separator_indices,
+                )
+            if advanced is None:
+                break
+            index, grammar_state, terminal_invalid = advanced
+            if terminal_invalid:
+                break
+
+        occupied_until = max(index, reserved_until)
+        yield start, index
+
+
+def _valid_grouped_integer(
+    raw: str,
+    *,
+    allowed_separators: str,
+) -> tuple[bool, str]:
+    separators = {char for char in raw if char in allowed_separators}
+    if not separators:
+        return raw.isdigit(), raw
+    if len(separators) != 1:
+        return False, ""
+    separator = next(iter(separators))
+    groups = raw.split(separator)
+    if (
+        not groups
+        or not groups[0].isdigit()
+        or not 1 <= len(groups[0]) <= 3
+        or (len(groups[0]) > 1 and groups[0].startswith("0"))
+        or any(len(group) != 3 or not group.isdigit() for group in groups[1:])
+    ):
+        return False, ""
+    return True, "".join(groups)
+
+
+def _parse_locale_numeric_envelope(raw: str, profile: str) -> float | None:
+    if profile == "da-DK":
+        raw = "".join(
+            character
+            for character in raw
+            if character not in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        )
+        if raw and (
+            raw[0] in _DANISH_NUMERIC_GROUPING_SPACES
+            or raw[-1] in _DANISH_NUMERIC_GROUPING_SPACES
+        ):
+            return None
+    stripped = raw.strip(_LOCALE_NUMERIC_GROUPING_SPACES)
+    sign = 1.0
+    if stripped and stripped[0] in _LOCALE_UNARY_SIGNS:
+        if stripped[0] in "-\u2013\u2212":
+            sign = -1.0
+        stripped = stripped[1:].lstrip(_LOCALE_NUMERIC_GROUPING_SPACES)
+    if not stripped:
+        return None
+
+    scientific = re.fullmatch(
+        r"(?P<mantissa>.+?)(?P<exponent>[Ee][+\-\u2013\u2212]?\d+)?",
+        stripped,
+    )
+    if scientific is None:
+        return None
+    mantissa = scientific.group("mantissa")
+    exponent = (
+        (scientific.group("exponent") or "")
+        .replace("\u2013", "-")
+        .replace("\u2212", "-")
+    )
+
+    if profile in _DECIMAL_COMMA_NUMERIC_PROFILES:
+        if mantissa.count(",") > 1:
+            return None
+        integer, comma, fraction = mantissa.partition(",")
+        if comma and (not fraction or not fraction.isdigit()):
+            return None
+        valid, normalized_integer = _valid_grouped_integer(
+            integer,
+            allowed_separators=(
+                "." + _DANISH_NUMERIC_GROUPING_SPACES
+                if profile == "da-DK"
+                else "." + _LOCALE_NUMERIC_GROUPING_SPACES
+            ),
+        )
+        if not valid:
+            return None
+        normalized = normalized_integer + (f".{fraction}" if comma else "") + exponent
+    else:
+        if mantissa.count(".") > 1:
+            return None
+        integer, dot, fraction = mantissa.partition(".")
+        if dot and (not fraction or not fraction.isdigit()):
+            return None
+        valid, normalized_integer = _valid_grouped_integer(
+            integer,
+            allowed_separators=",",
+        )
+        if not valid:
+            return None
+        normalized = normalized_integer + (f".{fraction}" if dot else "") + exponent
+
+    with contextlib.suppress(ValueError, OverflowError):
+        value = sign * float(normalized)
+        if math.isfinite(value):
+            return value
+    return None
+
+
+def _locale_numeric_envelope_has_token_boundaries(
+    text: str,
+    span: tuple[int, int],
+    *,
+    profile: str = "legacy",
+    source_text: str | None = None,
+) -> bool:
+    boundary_text = text if source_text is None else source_text
+    before_index = span[0] - 1
+    after_index = span[1]
+    if profile == "da-DK":
+        while (
+            before_index >= 0
+            and boundary_text[before_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        ):
+            before_index -= 1
+        while (
+            after_index < len(boundary_text)
+            and boundary_text[after_index] in _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS
+        ):
+            after_index += 1
+    before = boundary_text[before_index] if before_index >= 0 else ""
+    after = boundary_text[after_index] if after_index < len(boundary_text) else ""
+    return not (
+        (before and (before.isalnum() or before == "_"))
+        or (after and (after.isalnum() or after == "_"))
+    )
+
+
+def _temporal_numeric_component_spans(
+    text: str,
+) -> tuple[tuple[int, int], ...]:
+    """Classify exact numeric tokens that form source-stated dates or periods."""
+    spans: set[tuple[int, int]] = set()
+    for match in _DOTTED_DATE_PATTERN.finditer(text):
+        spans.update(match.span(group_name) for group_name in ("day", "month", "year"))
+    for pattern in (
+        _GERMAN_DAY_MONTH_YEAR_PATTERN,
+        _ENGLISH_MONTH_DAY_YEAR_PATTERN,
+        _ENGLISH_DAY_MONTH_YEAR_PATTERN,
+    ):
+        for match in pattern.finditer(text):
+            spans.add(match.span("day"))
+            spans.add(match.span("year"))
+    for pattern in (
+        _GERMAN_MONTH_YEAR_PATTERN,
+        _ENGLISH_MONTH_YEAR_PATTERN,
+        _TEMPORAL_PREPOSITION_YEAR_PATTERN,
+    ):
+        spans.update(match.span("year") for match in pattern.finditer(text))
+    for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(text):
+        spans.add(match.span("start"))
+        spans.add(match.span("end"))
+    for match in _TEMPORAL_YEAR_CUE_PATTERN.finditer(text):
+        years_start = match.start("years")
+        spans.update(
+            (
+                years_start + year_match.start(),
+                years_start + year_match.end(),
+            )
+            for year_match in _TEMPORAL_YEAR_TOKEN_PATTERN.finditer(
+                match.group("years")
+            )
+        )
+    return tuple(sorted(spans))
+
+
+_HEBREW_FRACTION_IN_REFERENCE_AFTER_PATTERN = re.compile(
+    "\\s+(?:ל[\u05be-]?|(?:של|מן|מתוך)\\s+(?:ה[\u05be-]?)?|מ[\u05be-]?(?:ה[\u05be-]?)?)"
+    + _HEBREW_STATUTE_NAME_WORDS
+    + "(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_fraction_is_an_ordinal_in_a_reference(
+    text: str, span: tuple[int, int]
+) -> bool:
+    """Whether a fraction-shaped word the reader took is a schedule's ordinal.
+
+    The reader takes "חמישית" as a fraction on its own evidence; "התוספת
+    החמישית לחוק" and "תוספת חמישית של הפקודה" name a schedule whatever the
+    word's shape, and stay labels.
+    """
+    return _HEBREW_FRACTION_IN_REFERENCE_AFTER_PATTERN.match(text, span[1]) is not None
+
+
+def _structural_numeric_component_spans(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> tuple[tuple[int, int], ...]:
+    """Classify source spans whose numbers are only legal structural labels."""
+    patterns = [
+        _GERMAN_STRUCTURAL_LABEL_PATTERN,
+        _GERMAN_STRUCTURAL_REFERENCE_PATTERN,
+        _ENGLISH_STRUCTURAL_REFERENCE_PATTERN,
+        _ENGLISH_STRUCTURAL_DIGIT_LABEL_PATTERN,
+        _HEBREW_STRUCTURAL_REFERENCE_PATTERN,
+        _HEBREW_WEEKDAY_PATTERN,
+        _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
+        _STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_PATTERN,
+        _STRUCTURAL_LINE_MARKER_PATTERN,
+        _STRUCTURAL_GLUED_SENTENCE_MARKER_PATTERN,
+    ]
+    if profile == "da-DK":
+        danish_spans = _format_ignorable_pattern_source_spans(
+            text,
+            (
+                _DANISH_STRUCTURAL_REFERENCE_PATTERN,
+                _DANISH_STRUCTURAL_SENTENCE_PATTERN,
+            ),
+        )
+    spans = {match.span() for pattern in patterns for match in pattern.finditer(text)}
+    spans.update(_hebrew_structural_word_reference_spans(text))
+    # A spelled reference the fraction reader reads as a fraction, in its
+    # own clause context ("תוספת חמישית מהתקבולים תשולם", "הקצבה כוללת
+    # חמישית מן התקבולים"), is an amount and no label: the structural span
+    # yields to the reading actually made, not to a guess at one.
+    fraction_spans = [
+        span
+        for span, _value in _iter_hebrew_fraction_word_matches(text)
+        if not _hebrew_fraction_is_an_ordinal_in_a_reference(text, span)
+    ]
+    if fraction_spans:
+        spans = {
+            span
+            for span in spans
+            if not any(_span_overlaps(span, [fraction]) for fraction in fraction_spans)
+        }
+    if profile == "da-DK":
+        spans.update(danish_spans)
+    spans.update(
+        match.span("ordinal")
+        for match in _STRUCTURAL_INLINE_NJ_LEGAL_ORDINAL_PATTERN.finditer(text)
+    )
+    return tuple(sorted(spans))
+
+
+def _has_malformed_profiled_numeric_envelope(
+    text: str,
+    *,
+    profile: str,
+) -> bool:
+    """Return whether strict-profile text contains an unparseable full span."""
+    if profile == "legacy":
+        return False
+    if profile not in _NUMERIC_EXTRACTION_PROFILES:
+        raise ValueError(f"Unsupported numeric profile: {profile}")
+    if profile == "da-DK":
+        ordinal_range_internal_index = _danish_ordinal_range_internal_index(text)
+        numeric_mask = _danish_equal_length_numeric_mask(text)
+        cleaned = numeric_mask.text
+        boundaries = _NumericContextBoundaries.from_spans(
+            (
+                *numeric_mask.spans,
+                *_structural_numeric_component_spans(text, profile=profile),
+            )
+        )
+    else:
+        cleaned = _clean_source_text_for_numeric_extraction(text, profile=profile)
+        boundaries = None
+        ordinal_range_internal_index = None
+    return any(
+        _locale_numeric_envelope_has_token_boundaries(
+            cleaned,
+            span,
+            profile=profile,
+            source_text=text if profile == "da-DK" else None,
+        )
+        and _parse_locale_numeric_envelope(cleaned[span[0] : span[1]], profile) is None
+        for span in _iter_locale_numeric_envelopes(
+            cleaned,
+            profile=profile,
+            boundaries=boundaries,
+            danish_ordinal_range_internal_index=ordinal_range_internal_index,
+        )
+    )
+
+
+def _german_word_number_occurrences(
+    cleaned: str,
+    *,
+    view: _NumericTextView,
+    collector: _LegacyNumericCollector,
+) -> tuple[list[NumericOccurrence], list[NumericOccurrence]]:
+    """Extract German word-number grounding candidates."""
+
+    grounding: list[NumericOccurrence] = []
+    inventory: list[NumericOccurrence] = []
+
+    def add_unambiguous(span: tuple[int, int], value: float) -> None:
+        occurrence = collector.occurrence(
+            view,
+            span,
+            value,
+            is_word_number=True,
+        )
+        grounding.append(occurrence)
+
+    def add_fraction_alternatives(
+        span: tuple[int, int],
+        denominator: float,
+        *,
+        fraction_is_primary: bool = False,
+        include_in_inventory: bool = True,
+    ) -> None:
+        reciprocal = 1.0 / denominator
+        denominator_occurrence = collector.occurrence(
+            view,
+            span,
+            denominator,
+            is_word_number=True,
+            alternative_values=(reciprocal,),
+        )
+        reciprocal_occurrence = collector.occurrence(
+            view,
+            span,
+            reciprocal,
+            is_word_number=True,
+            alternative_values=(denominator,),
+        )
+        alternatives = (
+            (reciprocal_occurrence, denominator_occurrence)
+            if fraction_is_primary
+            else (denominator_occurrence, reciprocal_occurrence)
+        )
+        grounding.extend(alternatives)
+        # Keep one lexical candidate for the shared inventory projection.
+        # `_scalar_recall_numeric_inventory` removes word-number candidates:
+        # their numeric readings ground formula literals but do not independently
+        # require named scalar definitions.
+        if include_in_inventory:
+            inventory.append(alternatives[0])
+
+    for match in _GERMAN_FRACTION_WORD_PATTERN.finditer(cleaned):
+        normalized_fraction = match.group("fraction").casefold()
+        denominator = _GERMAN_FRACTION_DENOMINATOR_VALUES_CASEFOLD.get(
+            normalized_fraction
+        )
+        if denominator is not None:
+            add_fraction_alternatives(
+                match.span(),
+                denominator,
+                fraction_is_primary=normalized_fraction == "hälfte".casefold(),
+                include_in_inventory=normalized_fraction != "hälfte".casefold(),
+            )
+
+    seen_cardinal_spans: set[tuple[int, int]] = set()
+    for pattern in (
+        _GERMAN_CARDINAL_BEFORE_UNIT_PATTERN,
+        _GERMAN_CARDINAL_BEFORE_MODIFIED_UNIT_PATTERN,
+        _GERMAN_CARDINAL_BEFORE_FRACTION_PATTERN,
+        _GERMAN_PRORATION_CARDINAL_PATTERN,
+        _GERMAN_DIVISOR_CARDINAL_PATTERN,
+    ):
+        for match in pattern.finditer(cleaned):
+            span = match.span("cardinal")
+            if span in seen_cardinal_spans:
+                continue
+            value = _GERMAN_QUANTITATIVE_CARDINAL_VALUES_CASEFOLD.get(
+                match.group("cardinal").casefold()
+            )
+            if value is None:
+                continue
+            add_unambiguous(span, value)
+            seen_cardinal_spans.add(span)
+
+    for match in _GERMAN_WORD_MULTIPLIER_PATTERN.finditer(cleaned):
+        value = _GERMAN_MULTIPLIER_VALUES_CASEFOLD.get(
+            match.group("multiplier").casefold()
+        )
+        if value is not None:
+            add_unambiguous(match.span(), value)
+    for match in _GERMAN_DOUBLE_MULTIPLIER_PATTERN.finditer(cleaned):
+        add_unambiguous(match.span(), 2.0)
+
+    for match in _GERMAN_ORDINAL_PART_PATTERN.finditer(cleaned):
+        denominator = _GERMAN_ORDINAL_PART_VALUES_CASEFOLD.get(
+            match.group("ordinal").casefold()
+        )
+        if denominator is not None:
+            add_fraction_alternatives(
+                match.span("ordinal"),
+                denominator,
+                fraction_is_primary=True,
+                include_in_inventory=False,
+            )
+
+    return grounding, inventory
+
+
+def _english_word_number_occurrences(
+    cleaned: str,
+    *,
+    view: _NumericTextView,
+    collector: _LegacyNumericCollector,
+) -> list[NumericOccurrence]:
+    """Extract unambiguous compound English cardinal grounding candidates."""
+
+    occurrences: list[NumericOccurrence] = []
+    for span, value in _iter_cardinal_word_number_matches(
+        cleaned,
+        compound_only=True,
+        # The explicit English profile rejects malformed phrases as a whole;
+        # do not turn their individual tokens into new grounding evidence.
+        split_adjacent_labels=False,
+    ):
+        strict_value = _parse_strict_cardinal_number_words(cleaned[slice(*span)])
+        if strict_value is None or not math.isclose(strict_value, value):
+            continue
+        occurrences.append(
+            collector.occurrence(
+                view,
+                span,
+                strict_value,
+                is_word_number=True,
+            )
+        )
+    return occurrences
+
+
+def _scalar_recall_numeric_inventory(
+    occurrences: Iterable[NumericOccurrence],
+) -> tuple[NumericOccurrence, ...]:
+    """Project typed grounding evidence into scalar-recall obligations."""
+    return tuple(
+        occurrence
+        for occurrence in occurrences
+        if not occurrence.is_word_number
+        and not occurrence.has_temporal_context
+        and not occurrence.has_structural_context
+    )
+
+
+def _is_same_evidence_scaled_inventory_duplicate(
+    occurrence: NumericOccurrence,
+    occurrences: Sequence[NumericOccurrence],
+) -> bool:
+    """Collapse scaled/unscaled readings only when one source span supplied both."""
+    if math.isclose(
+        occurrence.value,
+        0,
+        rel_tol=0,
+        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+    ):
+        return True
+    if occurrence.value > 1:
+        return False
+    scaled_value = round(occurrence.value * 100, 9)
+    return any(
+        candidate is not occurrence
+        and candidate.span == occurrence.span
+        and _occurrence_value_matches(candidate.value, scaled_value)
+        for candidate in occurrences
+    )
+
+
+def _complete_typed_year_occurrences(
+    collector: _LegacyNumericCollector,
+    occurrences: Iterable[NumericOccurrence],
+) -> tuple[NumericOccurrence, ...]:
+    """Normalize and recover typed year tokens removed by structural cleaning."""
+    typed_year_spans = {
+        span
+        for span in collector.temporal_component_spans
+        if _locale_numeric_envelope_has_token_boundaries(
+            collector.source,
+            span,
+            profile=collector.profile,
+        )
+        if not (
+            span[1] + 1 < len(collector.source)
+            and collector.source[span[1]] in ".,"
+            and collector.source[span[1] + 1].isdigit()
+        )
+        if _TEMPORAL_YEAR_TOKEN_PATTERN.fullmatch(collector.source[span[0] : span[1]])
+    }
+    normalized = [
+        occurrence
+        for occurrence in occurrences
+        if not any(
+            occurrence.span != year_span
+            and occurrence.start < year_span[0]
+            and occurrence.end == year_span[1]
+            and collector.source[occurrence.start : year_span[0]] == "-"
+            for year_span in typed_year_spans
+        )
+    ]
+    existing_spans = {occurrence.span for occurrence in normalized}
+    source_view = _NumericTextView.identity(collector.source)
+    for span in sorted(typed_year_spans):
+        if span in existing_spans:
+            continue
+        raw = collector.source[span[0] : span[1]]
+        occurrence = collector.occurrence(source_view, span, float(raw))
+        insertion_index = next(
+            (
+                index
+                for index, existing in enumerate(normalized)
+                if existing.start > occurrence.start
+            ),
+            len(normalized),
+        )
+        normalized.insert(insertion_index, occurrence)
+        existing_spans.add(span)
+    typed_indices = [
+        index
+        for index, occurrence in enumerate(normalized)
+        if occurrence.span in typed_year_spans
+    ]
+    typed_occurrences = sorted(
+        (normalized[index] for index in typed_indices),
+        key=lambda occurrence: occurrence.span,
+    )
+    for index, occurrence in zip(typed_indices, typed_occurrences, strict=True):
+        normalized[index] = occurrence
+    return tuple(normalized)
+
+
+def _tokenize_profiled_numeric_occurrences(
+    text: str,
+    *,
+    profile: str,
+) -> _NumericTokenization:
+    """Tokenize strict locale-aware numeric envelopes without suffix fallback."""
+    if profile == "da-DK":
+        ordinal_range_internal_index = _danish_ordinal_range_internal_index(text)
+        numeric_mask = _danish_equal_length_numeric_mask(text)
+        cleaned = numeric_mask.text
+        view = _NumericTextView.equal_length_masked(text, cleaned)
+        masked_context_spans = numeric_mask.spans
+        numeric_boundaries = None
+    else:
+        cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(
+            text, profile=profile
+        )
+        cleaned = cleaned_tracked.text
+        view = _NumericTextView.tracked(text, cleaned_tracked)
+        masked_context_spans = ()
+        numeric_boundaries = None
+        ordinal_range_internal_index = None
+    collector = _LegacyNumericCollector(
+        text,
+        profile=profile,
+        masked_context_spans=masked_context_spans,
+    )
+    if profile == "da-DK":
+        numeric_boundaries = collector.context_boundaries
+    grounding_occurrences: list[NumericOccurrence] = []
+    inventory_occurrences: list[NumericOccurrence] = []
+
+    for span in _iter_locale_numeric_envelopes(
+        cleaned,
+        profile=profile,
+        boundaries=numeric_boundaries,
+        danish_ordinal_range_internal_index=ordinal_range_internal_index,
+    ):
+        if not _locale_numeric_envelope_has_token_boundaries(
+            cleaned,
+            span,
+            profile=profile,
+            source_text=text if profile == "da-DK" else None,
+        ):
+            continue
+        value = _parse_locale_numeric_envelope(cleaned[span[0] : span[1]], profile)
+        if value is None:
+            continue
+        occurrence = collector.occurrence(view, span, value)
+        grounding_occurrences.append(occurrence)
+        inventory_occurrences.append(occurrence)
+
+    if profile == "de-DE":
+        word_grounding, word_inventory = _german_word_number_occurrences(
+            cleaned,
+            view=view,
+            collector=collector,
+        )
+        grounding_occurrences.extend(word_grounding)
+        inventory_occurrences.extend(word_inventory)
+    elif profile in {"en-US", "en-GB"}:
+        grounding_occurrences.extend(
+            _english_word_number_occurrences(
+                cleaned,
+                view=view,
+                collector=collector,
+            )
+        )
+
+    grounding_occurrences = list(
+        _complete_typed_year_occurrences(collector, grounding_occurrences)
+    )
+    inventory_occurrences = list(
+        _complete_typed_year_occurrences(collector, inventory_occurrences)
+    )
+    grounding_occurrences.sort(
+        key=lambda occurrence: (occurrence.start, occurrence.end)
+    )
+    inventory_occurrences.sort(
+        key=lambda occurrence: (occurrence.start, occurrence.end)
+    )
+    return _NumericTokenization(
+        grounding=tuple(grounding_occurrences),
+        inventory=_scalar_recall_numeric_inventory(inventory_occurrences),
+    )
+
+
+def _occurrence_value_matches(left: float, right: float) -> bool:
+    return math.isclose(
+        left,
+        right,
+        rel_tol=0,
+        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+    )
+
+
+# Complete-source-unit analysis re-tokenizes the same branch texts once per
+# formula rule they are matched against; on one module ~95% of calls repeat
+# an already-seen text. The result is a tuple of frozen occurrences, so it
+# is safe to share.
+@functools.lru_cache(maxsize=4096)
+def _tokenize_numeric_occurrences_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> _NumericTokenization:
+    """Tokenize once into typed grounding and source-inventory emission streams."""
+    if profile not in _NUMERIC_EXTRACTION_PROFILES:
+        raise ValueError(f"Unsupported numeric profile: {profile}")
+    if profile != "legacy":
+        return _tokenize_profiled_numeric_occurrences(text, profile=profile)
+
+    collector = _LegacyNumericCollector(text)
+    source_view = _NumericTextView.identity(text)
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_tracked = _bind_hebrew_source_text_tracked(
+        _TrackedText.identity(text).sub(
+            _FORM_IMPLIED_CENTS_PATTERN,
+            lambda match: " " * len(match.group(0)),
+        )
+    )
+    raw_text = raw_tracked.text
+    raw_view = _NumericTextView.tracked(text, raw_tracked)
+    two_line_table_matches = _iter_two_line_table_value_occurrences(text)
+    # raw_text is text with implied-cents runs blanked in place and its line
+    # ends and maqaf wrap space read as the cleaner reads them, each
+    # character carrying its offset into text; offsets carried through the
+    # cleaning of raw_text are offsets into raw_text, composed here.
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_tracked = _TrackedText(
+        cleaned_tracked.text,
+        [
+            None if offset is None else raw_tracked.offsets[offset]
+            for offset in cleaned_tracked.offsets
+        ],
+    )
+    cleaned_before_schedule = cleaned_tracked.text
+    cleaned_before_schedule_view = _NumericTextView.tracked(text, cleaned_tracked)
+    schedule_matches, cleaned = _iter_collapsed_schedule_row_occurrences(
+        cleaned_before_schedule
+    )
+    # Collapsing schedule rows blanks their lines in place, so the offsets
+    # carried this far still hold.
+    cleaned_view = _NumericTextView(text, cleaned, tuple(cleaned_tracked.offsets))
+
+    def add_both(
+        view: _NumericTextView,
+        span: tuple[int, int],
+        value: float,
+        **kwargs: Any,
+    ) -> None:
+        collector.add_grounding(view, span, value, **kwargs)
+        collector.add_inventory(view, span, value, **kwargs)
+
+    def unique_matches(
+        matches: Iterable[tuple[tuple[int, int], float]],
+    ) -> list[tuple[tuple[int, int], float]]:
+        first_span_by_value: dict[float, tuple[int, int]] = {}
+        values: set[float] = set()
+        for span, value in matches:
+            values.add(value)
+            first_span_by_value.setdefault(value, span)
+        return [(first_span_by_value[value], value) for value in values]
+
+    for span, value in two_line_table_matches:
+        add_both(source_view, span, value)
+    for span, value in schedule_matches:
+        add_both(cleaned_before_schedule_view, span, value)
+    for span, value in implied_cents_matches:
+        add_both(source_view, span, value)
+    for span, value in _iter_inline_form_implied_cents_matches(text):
+        collector.add_grounding(source_view, span, value)
+
+    grounding_spans: list[tuple[int, int]] = _SpanList()
+    inventory_spans: list[tuple[int, int]] = _SpanList()
+
+    range_matches = _iter_belgian_numeric_range_endpoint_matches(cleaned)
+    for span, value in range_matches:
+        add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for match in re.finditer(
+        r"\b(?:age|aged)\s+(\d{1,3})(?=\b)",
+        raw_text,
+        re.IGNORECASE,
+    ):
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(
+                raw_view,
+                match.span(1),
+                float(match.group(1)),
+            )
+
+    raw_money_matches = _iter_raw_european_money_value_matches(raw_text)
+    for span, value in raw_money_matches:
+        collector.add_grounding(raw_view, span, value)
+
+    cleaned_money_values: list[float] = []
+    for span, value in _iter_raw_european_money_value_matches(cleaned):
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+        if _span_overlaps(span, inventory_spans):
+            continue
+        collector.add_inventory(cleaned_view, span, value)
+        cleaned_money_values.append(value)
+        inventory_spans.append(span)
+    for span, value in raw_money_matches:
+        if any(
+            math.isclose(
+                value,
+                cleaned_value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            )
+            for cleaned_value in cleaned_money_values
+        ):
+            continue
+        collector.add_inventory(raw_view, span, value)
+
+    # A fraction that a percent sign follows ("16 1⁄2%", "1⁄4%") is one rate,
+    # read by the fraction pass below; the plain percentage matcher would
+    # otherwise take its denominator ("2%") as a second one.
+    fraction_raw_spans = [
+        match.span() for match in _FRACTION_SLASH_PATTERN.finditer(raw_text)
+    ]
+    direct_percentage_rate_matches = [
+        (span, value)
+        for span, value in _iter_direct_percentage_rate_matches(raw_text)
+        if not _span_overlaps(span, fraction_raw_spans)
+    ]
+    for span, value in direct_percentage_rate_matches:
+        collector.add_grounding(
+            raw_view,
+            span,
+            value,
+            source_value=value * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+    for span, value in unique_matches(direct_percentage_rate_matches):
+        collector.add_inventory(
+            raw_view,
+            span,
+            value,
+            source_value=value * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+
+    week_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _WEEK_DURATION_PATTERN.finditer(raw_text):
+        value = _parse_belgian_numeric_phrase(match.group("number"))
+        if value is not None:
+            week_matches.append((match.span(), value * 7))
+    for match in _ORDINAL_WEEK_DURATION_PATTERN.finditer(raw_text):
+        normalized = re.sub(r"\s+", " ", match.group("number").strip().lower())
+        value = _FRENCH_ORDINAL_PHRASE_VALUES.get(normalized)
+        if value is not None:
+            week_matches.append((match.span(), value * 7))
+    for span, value in unique_matches(week_matches):
+        add_both(raw_view, span, value)
+
+    year_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _YEAR_DURATION_PATTERN.finditer(raw_text):
+        value = _parse_belgian_numeric_phrase(match.group("number"))
+        if value is not None:
+            year_matches.append((match.span(), value * 12))
+    for span, value in unique_matches(year_matches):
+        add_both(raw_view, span, value)
+
+    centime_match = _CENTIME_UNIT_PATTERN.search(raw_text)
+    if centime_match:
+        add_both(raw_view, centime_match.span(), 100.0)
+    annual_match = _ANNUAL_CONTEXT_PATTERN.search(raw_text)
+    if annual_match:
+        collector.add_grounding(raw_view, annual_match.span(), 12.0)
+
+    form_fraction_spans: list[tuple[int, int]] = _SpanList()
+    for match in (
+        *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(raw_text),
+        *_STANDALONE_FORM_FRACTION_PATTERN.finditer(raw_text),
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group("denominator"))
+            add_both(
+                raw_view,
+                match.span(),
+                float(match.group("numerator")) / denominator,
+            )
+            form_fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(raw_text):
+        if _span_overlaps(match.span(), form_fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            source_value = float(match.group("number").replace(",", ""))
+            is_rate = bool(match.group("percent"))
+            value = source_value / 100 if is_rate else source_value
+            add_both(
+                raw_view,
+                match.span(),
+                value,
+                source_value=source_value,
+                force_rate_context=is_rate,
+                requires_rate_context=is_rate,
+            )
+
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(raw_text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group("whole") or "0").replace(",", ""))
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            add_both(
+                raw_view,
+                match.span(),
+                whole + numerator / denominator,
+            )
+
+    # A fraction-slash run is read as written. A mixed number reaches this
+    # pass as the whole number, a space and the fraction ("2 1⁄2", the form
+    # the corpus keeps for OpenLaw's superscript-over-subscript typesetting);
+    # a digit run glued to the slash ("21⁄2") is twenty-one halves and nothing
+    # here guesses otherwise -- the boundary is the corpus adapter's to keep.
+    # The pass reads the cleaned buffer so the run's span sits in the same
+    # coordinates as the general digit passes below, which then leave the
+    # numerator, the denominator and the whole number alone: the fraction is
+    # one value the source states, atomic for recall, and an encoding that
+    # states a quarter of a credit point as 0.25 has recalled it in full. The
+    # printed numerator and denominator stay available to grounding, because
+    # an encoding may also state them as the explicit pair the statute prints.
+    # A fraction-slash run is read by the fraction pass below, percent word
+    # and all; the digit matcher must not read its denominator ("1⁄ 2 אחוזים")
+    # as a second rate.
+    fraction_cleaned_spans = [
+        match.span() for match in _FRACTION_SLASH_PATTERN.finditer(cleaned)
+    ]
+    for span, rate in _iter_hebrew_percent_phrase_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, rate in _iter_hebrew_percent_range_lower_matches(
+        cleaned, _structural_numeric_component_spans(cleaned)
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_shared_scale_range_matches(
+        cleaned, _structural_numeric_component_spans(cleaned)
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value,
+                source_value=value * 100,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_printed_scale_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value,
+                source_value=value * 100,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_printed_mixed_number_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value / 100,
+                source_value=value,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for match in _HEBREW_DIGIT_PERCENT_PATTERN.finditer(cleaned):
+        if _span_overlaps(match.span("number"), fraction_cleaned_spans):
+            continue
+        if _span_overlaps(match.span(), inventory_spans):
+            continue
+        # A number that is the denominator of an ASCII fraction ("1/ 4 אחוזים")
+        # is read with its numerator by the branch below, never on its own.
+        if _search_before(
+            _ASCII_SLASH_BEFORE_NUMBER_PATTERN, cleaned, match.start("number")
+        ):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            value = float(match.group("number").replace(",", ""))
+            if match.group("denominator"):
+                value = value / float(match.group("denominator"))
+                if match.group("whole"):
+                    value += float(match.group("whole").replace(",", ""))
+            # A fractional tail after the marker is the rate's, unless a
+            # unit of its own follows ("3% וחצי" is 3.5 percent; "3 אחוזים
+            # וחצי שקל" is three percent, and half a shekel).
+            span = match.span()
+            tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(cleaned, match.end())
+            if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(
+                cleaned, tail.end()
+            ):
+                if tail.group("tail"):
+                    value += _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+                else:
+                    value += (
+                        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+                        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+                    )
+                span = (match.start(), tail.end())
+            if match.group("sign"):
+                value = -value
+            add_both(
+                cleaned_view,
+                span,
+                value / 100,
+                source_value=value,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+
+    hebrew_text = re.search("[\u0590-\u05ff]", cleaned) is not None
+    hebrew_ascii_mixed = (
+        list(_HEBREW_ASCII_MIXED_FRACTION_PATTERN.finditer(cleaned))
+        if hebrew_text
+        else []
+    )
+    # A printed figure a counted fraction word follows is that word's count
+    # ("3½ עשיריות", "3 1/2 עשיריות", "3 1⁄2 עשיריות"): the fraction reader
+    # reads them together, and no pass before it reads the figure or its
+    # pieces on its own.
+    counted_figure_spans: list[tuple[int, int]] = []
+    if hebrew_text:
+        for pattern in (
+            _HEBREW_GLYPH_NUMBER_PATTERN,
+            _HEBREW_ASCII_MIXED_FRACTION_PATTERN,
+            _FRACTION_SLASH_PATTERN,
+        ):
+            for match in pattern.finditer(cleaned):
+                if _HEBREW_COUNTED_FRACTION_AFTER_PATTERN.match(cleaned, match.end()):
+                    counted_figure_spans.append(match.span())
+    if hebrew_text:
+        for match in _HEBREW_GLYPH_NUMBER_PATTERN.finditer(cleaned):
+            if _span_overlaps(match.span(), inventory_spans) or _span_overlaps(
+                match.span(), grounding_spans
+            ):
+                continue
+            if _span_overlaps(match.span(), counted_figure_spans):
+                continue
+            value = unicodedata.numeric(match.group("glyph")) + float(
+                (match.group("whole") or "0").replace(",", "")
+            )
+            if match.group("sign"):
+                value = -value
+            span = match.span()
+            marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(
+                cleaned, match.end()
+            ) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+            if marker is not None:
+                # "2½%" is the rate 0.025, the way "2.5%" is, and "2½% וחצי"
+                # 0.03: the tail after the marker is the rate's too, unless a
+                # unit of its own follows. The printed figure grounds as well.
+                end = marker.end()
+                tail = _hebrew_percent_tail_after(cleaned, end)
+                if tail is not None:
+                    tail_value, end = tail
+                    value += -tail_value if match.group("sign") else tail_value
+                span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+            else:
+                add_both(cleaned_view, span, value)
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+    for match in (*hebrew_ascii_mixed, *_FRACTION_SLASH_PATTERN.finditer(cleaned)):
+        if _span_overlaps(match.span(), counted_figure_spans):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group("whole") or "0").replace(",", ""))
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            value = whole + numerator / denominator
+            if match.group("sign"):
+                value = -value
+            if _span_overlaps(match.span(), inventory_spans):
+                # A percentage phrase read the fraction with its spelled tail
+                # ("1/2 אחוז וחצי" is 0.01); the printed figures still ground.
+                collector.add_grounding(cleaned_view, match.span(), value)
+                collector.add_grounding(
+                    cleaned_view, match.span("numerator"), numerator
+                )
+                collector.add_grounding(
+                    cleaned_view, match.span("denominator"), denominator
+                )
+                grounding_spans.append(match.span())
+                continue
+            if (
+                _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end())
+                or _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(cleaned, match.end())
+                or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+            ):
+                # "16 1⁄2%" and "10 1⁄4 percent" are the rates 0.165 and
+                # 0.1025: one value to recall, the way "16.5%" is, and "2 1⁄2%
+                # וחצי" 0.03, the tail after the marker being the rate's. The
+                # printed figure grounds as well, for an encoding that states
+                # the percentage and divides itself.
+                span = match.span()
+                marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(
+                    cleaned, match.end()
+                ) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+                if marker is not None:
+                    tail = _hebrew_percent_tail_after(cleaned, marker.end())
+                    if tail is not None:
+                        tail_value, end = tail
+                        value += -tail_value if match.group("sign") else tail_value
+                        span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                grounding_spans.append(span)
+                inventory_spans.append(span)
+            else:
+                add_both(cleaned_view, match.span(), value)
+            collector.add_grounding(cleaned_view, match.span("numerator"), numerator)
+            collector.add_grounding(
+                cleaned_view, match.span("denominator"), denominator
+            )
+            grounding_spans.append(match.span())
+            inventory_spans.append(match.span())
+
+    month_range_matches: list[tuple[tuple[int, int], float]] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(raw_text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        preceding_context = raw_text[max(0, match.start() - 500) : match.start()]
+        row_context = raw_text[match.start() : match.end() + 80]
+        if (
+            0 <= start <= end <= 24
+            and re.search(
+                r"\bmonthly\s+proration\s+table\b",
+                preceding_context,
+                re.IGNORECASE,
+            )
+            and re.search(r"\bline\s+[A-E]\b", row_context, re.IGNORECASE)
+        ):
+            month_range_matches.extend(
+                (match.span(), float(value)) for value in range(start, end + 1)
+            )
+    for span, value in month_range_matches:
+        add_both(raw_view, span, value)
+
+    vehicle_matches: list[tuple[tuple[int, int], float]] = []
+    lowered_raw_text = raw_text.lower()
+    for match in _VEHICLE_TAX_FISCAL_POWER_TABLE_CELL_PATTERN.finditer(raw_text):
+        context = lowered_raw_text[max(0, match.start() - 2000) : match.start()]
+        if not re.search(
+            r"\b(?:chevaux\s+fiscaux|fiscale\s+paardenkracht|aantal\s+pk|cv)\b",
+            context,
+        ):
+            continue
+        with contextlib.suppress(ValueError):
+            vehicle_matches.append((match.span("cv"), float(match.group("cv"))))
+    for span, value in unique_matches(vehicle_matches):
+        collector.add_grounding(raw_view, span, value)
+
+    for match in GLUED_UNIT_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(
+                cleaned_view,
+                match.span(),
+                float(match.group("number").replace(",", "")),
+            )
+            grounding_spans.append(match.span())
+
+    for match in CENTS_VALUE_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span()
+        if _span_overlaps(span, grounding_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            collector.add_grounding(cleaned_view, span, value)
+            collector.add_grounding(cleaned_view, span, value / 100)
+            grounding_spans.append(span)
+
+    special_matches = list(_iter_normalized_special_numeric_matches(cleaned))
+    rate_marker_pattern = re.compile(
+        r"(?:%|\bp\.?[ \t]*c\.?\b|\bpercent\b|"
+        r"\bper[ \t-]+cent(?:um)?\b|\bProzent\b|"
+        r"\bvom[ \t]+Hundert\b)",
+        re.IGNORECASE,
+    )
+    for span, value in special_matches:
+        if _span_overlaps(span, counted_figure_spans):
+            continue
+        raw = cleaned[span[0] : span[1]]
+        is_rate = bool(rate_marker_pattern.search(raw))
+        kwargs = {
+            "source_value": value * 100 if is_rate else value,
+            "force_rate_context": is_rate,
+            "requires_rate_context": is_rate,
+        }
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value, **kwargs)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value, **kwargs)
+            inventory_spans.append(span)
+
+    for match in re.finditer(
+        r"(-?[\d,]+)\s+(\d+)\s*/\s*(\d+)"
+        r"(?:\s+|-)(?:percent|per\s*cent(?:um)?)",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        for group_index in (1, 2, 3):
+            with contextlib.suppress(ValueError):
+                collector.add_grounding(
+                    cleaned_view,
+                    match.span(group_index),
+                    float(match.group(group_index).replace(",", "")),
+                )
+
+    percentage_number = (
+        r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
+        r"(?:,\d{1,4})?"
+    )
+    range_separator = (
+        "(?:and|to|through|thru|et|\\u00e0|a|tot|bis|en|[-\\u2010-\\u2015])"
+    )
+    for match in re.finditer(
+        rf"\b({percentage_number})\s+{range_separator}\s+({percentage_number})"
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        for group_index in (1, 2):
+            raw = _normalize_european_decimal_number(match.group(group_index))
+            with contextlib.suppress(ValueError):
+                source_value = float(raw)
+                collector.add_grounding(
+                    cleaned_view,
+                    match.span(group_index),
+                    source_value / 100,
+                    source_value=source_value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+
+    # A comma after a digit is a group separator, not a boundary: "234,567"
+    # is no number of its own inside "1,234,567%".
+    for match in re.finditer(
+        r"(?:^|(?<=[\s(\[+\-−*/\"'`“”‘’])|(?<=(?<!\d),))"
+        r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
+        r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
+        cleaned,
+        re.IGNORECASE,
+    ):
+        raw = _normalize_european_decimal_number(match.group(1))
+        with contextlib.suppress(ValueError):
+            source_value = float(raw)
+            collector.add_grounding(
+                cleaned_view,
+                match.span(1),
+                source_value / 100,
+                source_value=source_value,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+            collector.add_grounding(
+                cleaned_view,
+                match.span(1),
+                source_value,
+                force_rate_context=True,
+            )
+
+    percentage_context_number_matches = list(
+        SOURCE_TEXT_NUMBER_PATTERN.finditer(cleaned)
+    )
+    for match in percentage_context_number_matches:
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            source_value = float(raw)
+            if source_value <= 1:
+                continue
+            source_span = cleaned_view.source_span(match.span(1))
+            if (
+                any(
+                    money_start <= source_span[0] and source_span[1] <= money_end
+                    for money_start, money_end in collector.money_spans
+                )
+                or _currency_marker_before_number(
+                    cleaned,
+                    match.start(1),
+                    profile=profile,
+                    boundaries=collector.context_boundaries,
+                )
+                or _currency_marker_after_number(
+                    cleaned,
+                    match.end(1),
+                    profile=profile,
+                    boundaries=collector.context_boundaries,
+                )
+            ):
+                continue
+            context = cleaned[max(0, match.start() - 500) : match.end() + 80].lower()
+            if not re.search(r"\bpercent(?:age|ages)?\b", context):
+                continue
+            collector.add_grounding(
+                cleaned_view,
+                match.span(1),
+                source_value / 100,
+                source_value=source_value,
+                requires_rate_context=True,
+            )
+            if source_value >= 100 and re.search(
+                r"\b(?:percent\s+of\s+(?:the\s+)?poverty\s+line|"
+                r"percent\s+of\s+(?:the\s+)?federal\s+poverty\s+"
+                r"(?:line|level)|fpl|income\s+tier)\b",
+                context,
+            ):
+                collector.add_grounding(
+                    cleaned_view,
+                    match.span(1),
+                    source_value,
+                )
+
+    word_quantity_matches = list(_iter_word_quantity_fraction_matches(cleaned))
+    for span, value in word_quantity_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    standalone_fraction_matches = list(_iter_standalone_fraction_word_matches(cleaned))
+    for span, value in standalone_fraction_matches:
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+
+    # A number a Hebrew statute writes as a word is as much a value the source
+    # states as a digit is, so it joins the recall inventory as well as the
+    # grounding set: an encoding that omits the "three" of "three children or
+    # more" is as incomplete as one that omits a printed 3. Teens arrive as one
+    # span ahead of their halves, and the overlap test keeps them atomic here
+    # as it does for grounding.
+    # An ordinal-shaped fraction word the text leaves ambiguous ("מרפאה
+    # חמישית שנה לאחר") is recorded with both readings: either grounds, and
+    # the recall obligation is met by either.
+    for span, primary, alternative in _iter_hebrew_ambiguous_ordinal_fraction_matches(
+        cleaned
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        collector.add_grounding(
+            cleaned_view, span, primary, alternative_values=(alternative,)
+        )
+        collector.add_grounding(
+            cleaned_view, span, alternative, alternative_values=(primary,)
+        )
+        collector.add_inventory(
+            cleaned_view, span, primary, alternative_values=(alternative,)
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    hebrew_word_matches = _iter_hebrew_number_word_matches(cleaned)
+    for span, value in hebrew_word_matches:
+        # "twenty-three percent" is the rate 0.23, grounded and recalled the
+        # way "23%" is: the percent word joins the span and the number word's
+        # own value is not a second obligation. The noun may also precede its
+        # count ("אחוז אחד"). An ordinal under the article before the noun
+        # ("הילד השני אחוז וחצי") is the noun phrase the rate is paid for, not
+        # its count, and stays the ordinal it is.
+        raw_word = cleaned[span[0] : span[1]]
+        bare_word = _strip_hebrew_number_prefix(raw_word, _HEBREW_ORDINAL_WORDS)
+        definite_ordinal = bare_word is not None and _hebrew_definite_ordinal(
+            raw_word, bare_word
+        )
+        percent = (
+            None
+            if definite_ordinal
+            else (
+                _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, span[1])
+                # The marker serves a spelled number as it serves a printed
+                # one: "שלושה וחצי%" is 0.035. Across wrap space only: a
+                # blank line or a paragraph separator before the sign leaves
+                # "דרגה חמישית" a fifth grade.
+                or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(cleaned, span[1])
+            )
+        )
+        # "−שלושה%", "−חצי%", "−שלושה מיליון שקלים": the sign before a
+        # spelled number signs it, tail included, as it signs a printed one.
+        negative = _hebrew_unary_sign_at(cleaned, span[0] - 1)
+        noun_before = None
+        if (
+            percent is None
+            and not definite_ordinal
+            and not raw_word.startswith("\u05d5")
+        ):
+            # "אחוז אחד" is one percent; "שלושה אחוזים וחמישה שקלים" is three
+            # percent and five shekels: a vav-bound count is a new quantity,
+            # and a noun a phrase already read owns no further count.
+            noun_before = _search_before(
+                _HEBREW_PERCENT_NOUN_BEFORE_PATTERN, cleaned, span[0]
+            )
+            if noun_before is not None and _span_overlaps(
+                noun_before.span(), inventory_spans
+            ):
+                noun_before = None
+        if percent is not None or noun_before is not None:
+            if percent is not None:
+                # The fractional tail after the marker is the rate's too,
+                # unless a unit of its own follows: "שלושת אלפים% וחצי" is
+                # 3,000.5 percent, "אחוזים וחצי שקל" 30 and half a shekel.
+                unit = _hebrew_percent_unit_after(cleaned, span[1])
+                if unit is not None:
+                    span = (span[0], unit[0])
+                    value += unit[1]
+                else:
+                    span = (span[0], percent.end())
+                if negative:
+                    value = -value
+                    span = (span[0] - 1, span[1])
+            else:
+                span = (noun_before.start(), span[1])
+            if not _span_overlaps(span, grounding_spans):
+                collector.add_grounding(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                grounding_spans.append(span)
+            if not _span_overlaps(span, inventory_spans):
+                collector.add_inventory(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                inventory_spans.append(span)
+            continue
+        if negative:
+            value = -value
+            span = (span[0] - 1, span[1])
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+
+    ordinal_word_matches = _iter_ordinal_word_number_matches(cleaned)
+    for span, value in ordinal_word_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    compound_cardinal_matches = _iter_cardinal_word_number_matches(
+        cleaned,
+        compound_only=True,
+    )
+    for span, value in compound_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    digit_scale_matches = _iter_digit_scale_number_matches(cleaned)
+    for span, value, raw_value in digit_scale_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        collector.add_grounding(cleaned_view, span, raw_value)
+        grounding_spans.append(span)
+
+    french_cardinal_matches = _iter_french_cardinal_phrase_matches(cleaned)
+    for span, value in french_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    dutch_cardinal_matches = _iter_dutch_cardinal_phrase_matches(cleaned)
+    for span, value in dutch_cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    cardinal_matches = _iter_cardinal_word_number_matches(cleaned)
+    for span, value in cardinal_matches:
+        if _span_overlaps(span, grounding_spans):
+            continue
+        collector.add_grounding(cleaned_view, span, value)
+        grounding_spans.append(span)
+
+    for pattern, normalize, include_grounding, include_inventory in (
+        (
+            SPACED_EUROPEAN_DECIMAL_MONEY_PATTERN,
+            _normalize_european_decimal_number,
+            True,
+            True,
+        ),
+        (
+            EUROPEAN_DECIMAL_NUMBER_PATTERN,
+            _normalize_european_decimal_number,
+            True,
+            True,
+        ),
+        (
+            EUROPEAN_LEADING_ZERO_DECIMAL_NUMBER_PATTERN,
+            _normalize_european_decimal_number,
+            True,
+            False,
+        ),
+    ):
+        for match in pattern.finditer(cleaned):
+            span = match.span(1)
+            with contextlib.suppress(ValueError):
+                value = float(normalize(match.group(1)))
+                if include_grounding:
+                    collector.add_grounding(cleaned_view, span, value)
+                    grounding_spans.append(span)
+                if include_inventory and not _span_overlaps(span, inventory_spans):
+                    collector.add_inventory(cleaned_view, span, value)
+                    inventory_spans.append(span)
+
+    for match in EUROPEAN_THOUSANDS_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        with contextlib.suppress(ValueError):
+            value = float(_normalize_grouped_thousands_number(match.group(1)))
+            if not _span_overlaps(span, grounding_spans):
+                collector.add_grounding(cleaned_view, span, value)
+                grounding_spans.append(span)
+            if not _span_overlaps(span, inventory_spans):
+                collector.add_inventory(cleaned_view, span, value)
+                inventory_spans.append(span)
+
+    for span, value, _ in digit_scale_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+
+    for match in EUROPEAN_DOT_THOUSANDS_NUMBER_PATTERN.finditer(cleaned):
+        span = match.span(1)
+        if _span_overlaps(span, grounding_spans):
+            continue
+        if _number_span_is_immediately_followed_by_percent_marker(cleaned, span):
+            grounding_spans.append(span)
+            continue
+        with contextlib.suppress(ValueError):
+            collector.add_grounding(
+                cleaned_view,
+                span,
+                float(_normalize_grouped_thousands_number(match.group(1))),
+            )
+            grounding_spans.append(span)
+        if re.fullmatch(r"-?[1-9]\d{0,2}\.\d{3}", match.group(1)):
+            with contextlib.suppress(ValueError):
+                collector.add_grounding(
+                    cleaned_view,
+                    span,
+                    float(match.group(1)),
+                )
+
+    for match in percentage_context_number_matches:
+        span = match.span(1)
+        raw = match.group(1).replace(",", "")
+        with contextlib.suppress(ValueError):
+            value = float(raw)
+            if not _span_overlaps(span, grounding_spans):
+                if not _number_span_is_immediately_followed_by_percent_marker(
+                    cleaned,
+                    span,
+                ) and not _has_captured_percentage_rate(
+                    direct_percentage_rate_matches,
+                    value,
+                    span=span,
+                ):
+                    collector.add_grounding(cleaned_view, span, value)
+            if _span_overlaps(span, inventory_spans):
+                continue
+            if _number_span_is_immediately_followed_by_percent_marker(cleaned, span):
+                continue
+            if _has_captured_percentage_rate(
+                direct_percentage_rate_matches,
+                value,
+                span=span,
+            ):
+                continue
+            grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            if (
+                grouped_value is not None
+                and not math.isclose(
+                    grouped_value,
+                    value,
+                    rel_tol=0,
+                    abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+                )
+                and any(
+                    math.isclose(
+                        grouped_value,
+                        occurrence.value,
+                        rel_tol=0,
+                        abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+                    )
+                    for occurrence in collector.inventory
+                )
+            ):
+                continue
+            collector.add_inventory(cleaned_view, span, value)
+
+    for match in _ORDINAL_NUMBER_PATTERN.finditer(cleaned):
+        with contextlib.suppress(ValueError):
+            value = float(match.group(1))
+            collector.add_grounding(cleaned_view, match.span(1), value)
+            if _ordinal_is_calendar_day_reference(cleaned, match.end(), value):
+                continue
+            collector.add_inventory(cleaned_view, match.span(1), value)
+
+    for span, value in ordinal_word_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+
+    for glyph, value in _UNICODE_FRACTION_VALUES.items():
+        for match in re.finditer(re.escape(glyph), cleaned):
+            collector.add_grounding(cleaned_view, match.span(), value)
+            if _span_overlaps(match.span(), inventory_spans):
+                # A list member read with its shared unit ("½, 10 ו־30
+                # אחוזים") is the rate the Hebrew pass recorded; the glyph
+                # still grounds as the fraction it prints.
+                continue
+            collector.add_inventory(cleaned_view, match.span(), value)
+            inventory_spans.append(match.span())
+
+    for span, value in compound_cardinal_matches:
+        if _span_overlaps(span, inventory_spans):
+            continue
+        if value not in GROUNDING_ALLOWED_VALUES:
+            collector.add_inventory(cleaned_view, span, value)
+        inventory_spans.append(span)
+
+    for matches in (
+        french_cardinal_matches,
+        dutch_cardinal_matches,
+        cardinal_matches,
+    ):
+        for span, value in matches:
+            if _span_overlaps(span, inventory_spans):
+                continue
+            if value not in GROUNDING_ALLOWED_VALUES:
+                collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+
+    text_lower = cleaned.lower()
+    for match in _CARDINAL_WORD_PATTERN.finditer(text_lower):
+        if _span_overlaps(match.span(1), grounding_spans):
+            continue
+        collector.add_grounding(
+            cleaned_view,
+            match.span(1),
+            _CARDINAL_WORD_VALUES[match.group(1)],
+        )
+        grounding_spans.append(match.span(1))
+
+    collector.grounding = list(
+        _complete_typed_year_occurrences(collector, collector.grounding)
+    )
+    collector.inventory = list(
+        _complete_typed_year_occurrences(collector, collector.inventory)
+    )
+    inventory_occurrences = tuple(collector.inventory)
+    normalized_inventory = _scalar_recall_numeric_inventory(
+        occurrence
+        for occurrence in inventory_occurrences
+        if not _is_same_evidence_scaled_inventory_duplicate(
+            occurrence,
+            inventory_occurrences,
+        )
+    )
+    return _NumericTokenization(
+        grounding=tuple(collector.grounding),
+        inventory=normalized_inventory,
+    )
+
+
+def extract_typed_numeric_occurrences_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> list[NumericOccurrence]:
+    """Extract typed numeric grounding candidates with exact source metadata."""
+    return list(
+        _tokenize_numeric_occurrences_from_text(text, profile=profile).grounding
+    )
+
+
+def extract_typed_numeric_inventory_occurrences_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> list[NumericOccurrence]:
+    """Extract the ordered typed source-recall occurrence stream."""
+    return list(
+        _tokenize_numeric_occurrences_from_text(text, profile=profile).inventory
+    )
+
+
+def extract_numbers_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> set[float]:
+    """Extract numeric values from embedded statute text."""
+    return {
+        occurrence.value
+        for occurrence in _tokenize_numeric_occurrences_from_text(
+            text,
+            profile=profile,
+        ).grounding
+    }
+
+
+def extract_numeric_occurrences_from_text(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> list[float]:
+    """Extract substantive numeric occurrences from source text, preserving repeats."""
+    return [
+        occurrence.value
+        for occurrence in _tokenize_numeric_occurrences_from_text(
+            text,
+            profile=profile,
+        ).inventory
+    ]
+
+
 def extract_named_scalar_occurrences(content: str) -> list[NamedScalarOccurrence]:
     """Extract direct named scalar definitions from a RuleSpec file."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -4167,9 +16949,279 @@ def _decimal_place_scale_values_from_source(source: str) -> set[float]:
     return values
 
 
+def _module_numeric_citation_path(payload: Mapping[str, Any]) -> str | None:
+    """Return the exact, unnormalized module citation identity when present."""
+    citation_path: str | None = None
+    module = payload.get("module")
+    source_verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if isinstance(source_verification, dict):
+        raw_citation_path = source_verification.get("corpus_citation_path")
+        if isinstance(raw_citation_path, str):
+            citation_path = raw_citation_path
+    return citation_path
+
+
+def _module_numeric_evidence_item(
+    payload: Mapping[str, Any],
+    module_source: str,
+    *,
+    citation_path: str | None = None,
+) -> _NumericEvidenceItem | None:
+    """Attach the module source to its exact persisted citation identity."""
+    if not module_source:
+        return None
+    if citation_path is None:
+        citation_path = _module_numeric_citation_path(payload)
+    return _NumericEvidenceItem(citation_path, module_source)
+
+
+def _numeric_evidence_index(
+    evidence_items: Sequence[_NumericEvidenceItem],
+    *,
+    suppress_ambiguous_half_up_terms: bool = False,
+    cache: dict[
+        tuple[str, str],
+        tuple[tuple[NumericOccurrence, ...], frozenset[float]],
+    ]
+    | None = None,
+) -> tuple[tuple[NumericOccurrence, ...], set[float]]:
+    """Parse each evidence item under its own profile, then union the indexes."""
+    occurrences: list[NumericOccurrence] = []
+    decimal_place_scale_values: set[float] = set()
+    for item in evidence_items:
+        source = (
+            _strip_ambiguous_half_up_terms(item.text)
+            if suppress_ambiguous_half_up_terms
+            else item.text
+        )
+        if not source:
+            continue
+        profile = _numeric_profile_for_citation_path(item.citation_path)
+        cache_key = (profile, source)
+        source_index = cache.get(cache_key) if cache is not None else None
+        if source_index is None:
+            source_index = (
+                _tokenize_numeric_occurrences_from_text(
+                    source,
+                    profile=profile,
+                ).grounding,
+                frozenset(_decimal_place_scale_values_from_source(source)),
+            )
+            if cache is not None:
+                cache[cache_key] = source_index
+        occurrences.extend(source_index[0])
+        decimal_place_scale_values.update(source_index[1])
+    return tuple(occurrences), decimal_place_scale_values
+
+
+def _numeric_value_grounded_in_source(
+    value: float,
+    source_occurrences: Sequence[NumericOccurrence],
+    decimal_place_scale_values: set[float],
+) -> bool:
+    if numeric_value_is_grounded(value, source_occurrences):
+        return True
+    return any(
+        math.isclose(
+            value,
+            decimal_place_scale_value,
+            rel_tol=0,
+            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        )
+        for decimal_place_scale_value in decimal_place_scale_values
+    )
+
+
+def _attached_amendment_citations_for_numeric_value(
+    value: float,
+    amendment_source_texts: Mapping[str, str] | None,
+) -> tuple[str, ...]:
+    """Return exact attached citations containing ``value`` as typed evidence."""
+    if not amendment_source_texts:
+        return ()
+    matches: list[str] = []
+    for raw_citation_path, source_text in sorted(amendment_source_texts.items()):
+        if not isinstance(raw_citation_path, str) or not isinstance(source_text, str):
+            continue
+        with contextlib.suppress(InvalidCorpusCitationError):
+            citation_path = require_canonical_corpus_citation_path(raw_citation_path)
+            if _source_text_contains_numeric_value_equivalent(
+                source_text,
+                value,
+                profile=_numeric_profile_for_citation_path(citation_path),
+            ):
+                matches.append(citation_path)
+    return tuple(matches)
+
+
+def _attached_amendment_ungrounded_literal_hint(
+    value: float,
+    amendment_source_texts: Mapping[str, str] | None,
+) -> str:
+    """Point retries to attached evidence while leaving the value ungrounded."""
+    citations = _attached_amendment_citations_for_numeric_value(
+        value,
+        amendment_source_texts,
+    )
+    if not citations:
+        return ""
+    citation_display = ", ".join(f"`{citation}`" for citation in citations)
+    return (
+        " Attached-amendment grounding hint: this value appears in attached "
+        f"corpus document {citation_display}, but the attachment alone does not "
+        "ground it. Add a source proof atom to the owning scalar/formula with "
+        "the exact owning literal `path` (for a scalar parameter, for example, "
+        "`path: versions[0].formula`), an appropriate `kind`, and nested "
+        f"`source: {{corpus_citation_path: {citations[0]}, excerpt: <exact "
+        "verbatim source span>}`."
+    )
+
+
+def _ungrounded_from_values(
+    grounding_values: Sequence[tuple[int, str, float]],
+    source: str,
+    *,
+    source_occurrences: Sequence[NumericOccurrence] | None = None,
+    decimal_place_scale_values: set[float] | None = None,
+) -> list[str]:
+    """Report values not grounded in ``source`` (which must be pre-stripped)."""
+    if source_occurrences is None:
+        source_occurrences = _tokenize_numeric_occurrences_from_text(source).grounding
+    if decimal_place_scale_values is None:
+        decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
+    issues: list[str] = []
+    for _, raw, value in grounding_values:
+        if _numeric_value_grounded_in_source(
+            value, source_occurrences, decimal_place_scale_values
+        ):
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(source, value)
+        issues.append(
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+            f"{ambiguous_hint}"
+        )
+    return issues
+
+
+def evaluate_numeric_grounding_values(
+    content: str,
+    source_text: str,
+    *,
+    authoritative_source_text: str | None = None,
+    source_citation_path: str | None = None,
+) -> list[tuple[int, str, float, bool]]:
+    """Return a grounding decision for every generated numeric literal.
+
+    ``source_text`` may include excerpt-verified proof evidence used for ordinary
+    literal matching. Semantic rounding support is intentionally restricted to
+    ``authoritative_source_text`` when supplied, so inline excerpts cannot grant
+    the half-up helper exemption. A single annotated source is parsed under the
+    profile selected by its exact canonical citation; unannotated text remains
+    legacy.
+    """
+    grounding_values = extract_grounding_values(content)
+    if not grounding_values:
+        return []
+
+    source_profile = _numeric_profile_for_citation_path(source_citation_path)
+    authoritative_source = (
+        source_text
+        if authoritative_source_text is None
+        else authoritative_source_text.strip()
+    )
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        if isinstance(payload, dict) and source_citation_path is None:
+            source_profile = _numeric_profile_for_citation_path(
+                _module_numeric_citation_path(payload)
+            )
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            decisions: list[tuple[int, str, float, bool]] = []
+            source_indexes: dict[
+                tuple[str, str],
+                tuple[tuple[NumericOccurrence, ...], set[float]],
+            ] = {}
+            for rule in rules:
+                anchored_values = _rule_grounding_values_by_path(
+                    rule, selector_table_keys=selector_table_keys
+                )
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, raw, value in anchored_values:
+                    direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    )
+                    if direct_half_up_helper and (
+                        _is_source_backed_half_up_rounding_helper(
+                            rule_name, value, authoritative_source
+                        )
+                    ):
+                        decisions.append((1, raw, value, True))
+                        continue
+                    grounding_source = (
+                        _strip_ambiguous_half_up_terms(source_text)
+                        if _is_half_up_rounding_helper_scalar(rule_name, value)
+                        else source_text
+                    )
+                    source_index_key = (source_profile, grounding_source)
+                    source_index = source_indexes.get(source_index_key)
+                    if source_index is None:
+                        source_index = (
+                            _tokenize_numeric_occurrences_from_text(
+                                grounding_source,
+                                profile=source_profile,
+                            ).grounding,
+                            _decimal_place_scale_values_from_source(grounding_source),
+                        )
+                        source_indexes[source_index_key] = source_index
+                    decisions.append(
+                        (
+                            1,
+                            raw,
+                            value,
+                            _numeric_value_grounded_in_source(
+                                value, source_index[0], source_index[1]
+                            ),
+                        )
+                    )
+            if len(decisions) == len(grounding_values):
+                return decisions
+
+    source_occurrences = _tokenize_numeric_occurrences_from_text(
+        source_text,
+        profile=source_profile,
+    ).grounding
+    decimal_place_scale_values = _decimal_place_scale_values_from_source(source_text)
+    return [
+        (
+            line,
+            raw,
+            value,
+            _numeric_value_grounded_in_source(
+                value, source_occurrences, decimal_place_scale_values
+            ),
+        )
+        for line, raw, value in grounding_values
+    ]
+
+
 def find_ungrounded_numeric_issues(
     content: str,
     source_text: str | None = None,
+    *,
+    authoritative_source_text: str | None = None,
+    source_citation_path: str | None = None,
+    require_complete_source_unit: bool = False,
+    amendment_source_texts: Mapping[str, str] | None = None,
 ) -> list[str]:
     """Return issues for generated numeric literals absent from source text."""
     grounding_values = extract_grounding_values(content)
@@ -4183,32 +17235,312 @@ def find_ungrounded_numeric_issues(
     if not source:
         return [
             "Numeric source required: RuleSpec defines policy numeric literals "
-            "but does not provide `source_verification.corpus_citation_path` "
-            "or `source_verification.corpus_citation_paths` text. "
+            "but does not provide `source_verification.corpus_citation_path` text. "
             "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
-    source_numbers = extract_numbers_from_text(source)
-    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
     issues: list[str] = []
-    for _, raw, value in grounding_values:
-        if numeric_value_is_grounded(value, source_numbers):
-            continue
-        if any(
-            math.isclose(
-                value,
-                decimal_place_scale_value,
-                rel_tol=0,
-                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
-            )
-            for decimal_place_scale_value in decimal_place_scale_values
-        ):
+    for _line, raw, value, grounded in evaluate_numeric_grounding_values(
+        content,
+        source,
+        authoritative_source_text=authoritative_source_text,
+        source_citation_path=source_citation_path,
+    ):
+        if grounded:
             continue
         display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        hint = _stated_conversion_ungrounded_literal_hint(
+            content,
+            source,
+            value,
+            source_citation_path=source_citation_path,
+            require_complete_source_unit=require_complete_source_unit,
+        )
+        amendment_hint = _attached_amendment_ungrounded_literal_hint(
+            value,
+            amendment_source_texts,
+        )
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(source, value)
         issues.append(
             "Ungrounded generated numeric literal: "
             f"{display} does not appear as a substantive numeric value in the source text."
+            f"{hint}{amendment_hint}{ambiguous_hint}"
         )
+    return issues
+
+
+def _stated_conversion_ungrounded_literal_hint(
+    content: str,
+    source_text: str,
+    value: float,
+    *,
+    source_citation_path: str | None,
+    require_complete_source_unit: bool,
+) -> str:
+    """Return targeted retry guidance for a complete-mode calendar conversion."""
+
+    if (
+        not require_complete_source_unit
+        or value not in _STATED_CONVERSION_CALENDAR_CONSTANTS
+        or not source_states_stated_conversion_result(source_text)
+    ):
+        return ""
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    citation_path = _module_numeric_citation_path(payload)
+    if not isinstance(citation_path, str) or not citation_path.strip():
+        return ""
+    if (
+        source_citation_path is not None
+        and citation_path.strip() != source_citation_path.strip()
+    ):
+        return ""
+    return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"
+
+
+def evaluate_numeric_grounding_values_scoped(
+    content: str,
+    *,
+    module_source_text: str | None,
+    module_citation_path: str | None = None,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+    authoritative_source_text: str | None = None,
+    require_body_bound_proof_evidence: bool = True,
+) -> list[tuple[int, str, float, bool]]:
+    """Evaluate anchored literals against separately profiled evidence items."""
+    grounding_values = extract_grounding_values(content)
+    if not grounding_values:
+        return []
+
+    module_source = (module_source_text or "").strip()
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        payload = None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("format") != "rulespec/v1"
+        or not isinstance(payload.get("rules"), list)
+    ):
+        return evaluate_numeric_grounding_values(
+            content,
+            module_source,
+            authoritative_source_text=authoritative_source_text,
+            source_citation_path=module_citation_path,
+        )
+
+    module_evidence = _module_numeric_evidence_item(
+        payload,
+        module_source,
+        citation_path=module_citation_path,
+    )
+    evidence_items_by_rule = [
+        _rule_atom_numeric_evidence_items_by_path(
+            rule,
+            proof_source_texts,
+            require_body_bound_evidence=require_body_bound_proof_evidence,
+        )
+        for rule in payload["rules"]
+    ]
+    selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+    evidence_index_cache: dict[
+        tuple[str, str],
+        tuple[tuple[NumericOccurrence, ...], frozenset[float]],
+    ] = {}
+    decisions: list[tuple[int, str, float, bool]] = []
+    for rule, evidence_items_by_path in zip(
+        payload["rules"],
+        evidence_items_by_rule,
+        strict=True,
+    ):
+        anchored_values = _rule_grounding_values_by_path(
+            rule,
+            selector_table_keys=selector_table_keys,
+        )
+        if not anchored_values:
+            continue
+        verified_source_pairs_by_path = _rule_verified_source_excerpt_pairs_by_path(
+            rule,
+            proof_source_texts,
+        )
+        rule_name = (
+            str(rule.get("name") or "").strip() if isinstance(rule, dict) else ""
+        )
+        for anchor_path, raw, value in anchored_values:
+            direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                rule,
+                anchor_path,
+                value,
+            )
+            module_supports_rounding = bool(module_source) and (
+                _is_source_backed_half_up_rounding_helper(
+                    rule_name,
+                    value,
+                    module_source,
+                )
+            )
+            source_evidence = verified_source_pairs_by_path.get(anchor_path, ())
+            atom_supports_rounding = any(
+                (
+                    excerpt is None
+                    or _is_source_backed_half_up_rounding_helper(
+                        rule_name,
+                        value,
+                        excerpt,
+                    )
+                )
+                and _is_source_backed_half_up_rounding_helper(
+                    rule_name,
+                    value,
+                    resolved_source,
+                )
+                for excerpt, resolved_source in source_evidence
+            )
+            if direct_half_up_helper and (
+                module_supports_rounding or atom_supports_rounding
+            ):
+                decisions.append((1, raw, value, True))
+                continue
+
+            evidence_items = (
+                [module_evidence] if module_evidence is not None else []
+            ) + list(evidence_items_by_path.get(anchor_path, ()))
+            source_occurrences, decimal_place_scale_values = _numeric_evidence_index(
+                evidence_items,
+                suppress_ambiguous_half_up_terms=(
+                    _is_half_up_rounding_helper_scalar(rule_name, value)
+                ),
+                cache=evidence_index_cache,
+            )
+            decisions.append(
+                (
+                    1,
+                    raw,
+                    value,
+                    _numeric_value_grounded_in_source(
+                        value,
+                        source_occurrences,
+                        decimal_place_scale_values,
+                    ),
+                )
+            )
+
+    if len(decisions) == len(grounding_values):
+        return decisions
+    return evaluate_numeric_grounding_values(
+        content,
+        module_source,
+        authoritative_source_text=authoritative_source_text,
+        source_citation_path=module_citation_path,
+    )
+
+
+def find_ungrounded_numeric_issues_scoped(
+    content: str,
+    *,
+    module_source_text: str | None,
+    module_citation_path: str | None = None,
+    proof_source_texts: Mapping[str, str | None] | None = None,
+    require_body_bound_proof_evidence: bool = True,
+    require_complete_source_unit: bool = False,
+    amendment_source_texts: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Ground each rule's literals against the provisions that rule actually cites.
+
+    A benefit/tax module legitimately draws its numbers from several provisions
+    of one Act — a rate clause, a threshold clause, period conversions. Each such
+    value is cited by the owning rule's proof atom (independently excerpt-verified
+    against that provision). Grounding a rule's literals against its own cited
+    provisions plus the module source is therefore both correct and no weaker than
+    single-source grounding: a fabricated number still fails unless it appears in a
+    provision that rule genuinely cites. Falls back to whole-module single-source
+    grounding when the content cannot be parsed per rule.
+    """
+    module_source = (module_source_text or "").strip()
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, ValueError):
+        payload = None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("format") != "rulespec/v1"
+        or not isinstance(payload.get("rules"), list)
+    ):
+        return find_ungrounded_numeric_issues(
+            content,
+            source_text=module_source_text,
+            source_citation_path=module_citation_path,
+            require_complete_source_unit=require_complete_source_unit,
+            amendment_source_texts=amendment_source_texts,
+        )
+
+    if not extract_grounding_values(content):
+        return []
+    module_evidence = _module_numeric_evidence_item(
+        payload,
+        module_source,
+        citation_path=module_citation_path,
+    )
+    evidence_items_by_rule = [
+        _rule_atom_numeric_evidence_items_by_path(
+            rule,
+            proof_source_texts,
+            require_body_bound_evidence=require_body_bound_proof_evidence,
+        )
+        for rule in payload["rules"]
+    ]
+    any_evidence = module_evidence is not None or any(
+        any(items for items in evidence_by_path.values())
+        for evidence_by_path in evidence_items_by_rule
+    )
+    if not any_evidence:
+        return [
+            "Numeric source required: RuleSpec defines policy numeric literals "
+            "but does not provide `source_verification.corpus_citation_path` text. "
+            "`module.summary` is not accepted as source text for numeric grounding."
+        ]
+
+    seen: set[str] = set()
+    issues: list[str] = []
+    # Bind each literal to only the proof atom at its exact RuleSpec path plus
+    # the designated module source. The evaluator parses each source fragment
+    # under its own citation-selected profile before unioning typed indexes.
+    for _line, raw, value, grounded in evaluate_numeric_grounding_values_scoped(
+        content,
+        module_source_text=module_source,
+        module_citation_path=module_citation_path,
+        proof_source_texts=proof_source_texts,
+        require_body_bound_proof_evidence=require_body_bound_proof_evidence,
+    ):
+        if grounded:
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        stated_conversion_hint = _stated_conversion_ungrounded_literal_hint(
+            content,
+            module_source,
+            value,
+            source_citation_path=module_citation_path,
+            require_complete_source_unit=require_complete_source_unit,
+        )
+        amendment_hint = _attached_amendment_ungrounded_literal_hint(
+            value,
+            amendment_source_texts,
+        )
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(
+            module_source, value
+        )
+        issue = (
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+            f"{stated_conversion_hint}{amendment_hint}{ambiguous_hint}"
+        )
+        if issue not in seen:
+            seen.add(issue)
+            issues.append(issue)
     return issues
 
 
@@ -4259,54 +17591,12 @@ def find_deprecated_source_url_issues(content: str) -> list[str]:
         "Legacy source URL metadata not allowed: "
         + ", ".join(locations[:5])
         + ("; ..." if len(locations) > 5 else "")
-        + ". Use `module.source_verification.corpus_citation_path` or "
-        "`module.source_verification.corpus_citation_paths`."
+        + ". Use `module.source_verification.corpus_citation_path`."
     ]
 
 
-_SOURCE_CLAIM_ALLOWED_KINDS = frozenset(
-    {
-        "defines",
-        "sets",
-        "implements",
-        "amends",
-        "supersedes",
-        "restates",
-        "delegates",
-        "applies_to",
-        "requires",
-        "creates_exception",
-    }
-)
-_SOURCE_CLAIM_EXECUTABLE_KEYS = frozenset(
-    {
-        "formula",
-        "formulas",
-        "input",
-        "inputs",
-        "output",
-        "outputs",
-        "case",
-        "cases",
-        "test",
-        "tests",
-        "test_cases",
-        "runtime",
-        "trace",
-        "traces",
-        "result",
-        "results",
-        "eligibility",
-        "benefit_amount",
-        "decision",
-    }
-)
-_SOURCE_CLAIM_ABSOLUTE_TARGET_ID = re.compile(r"^[a-z][a-z0-9_.-]*:[^\s]+$")
-_SOURCE_CLAIM_FRIENDLY_CONCEPT_ID = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$")
-
-
 def find_source_claim_reference_issues(content: str) -> list[str]:
-    """Validate optional RuleSpec refs to accepted corpus-backed source claims."""
+    """Reject mutable source-claim references in favor of direct provisions."""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -4314,290 +17604,42 @@ def find_source_claim_reference_issues(content: str) -> list[str]:
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
 
+    issues: list[str] = []
     module = payload.get("module")
-    if not isinstance(module, dict) or "source_claims" not in module:
-        return []
-
-    raw_refs = module.get("source_claims")
-    if not isinstance(raw_refs, list) or not raw_refs:
-        return [
-            "Source claims malformed: `module.source_claims` must be a non-empty "
-            "list of accepted claim IDs."
-        ]
-
-    source_verification = _source_verification_block(payload)
-    citation_paths: tuple[str, ...] = ()
-    if source_verification is not None:
-        citation_paths, _ = _source_verification_source_fields(source_verification)
-
-    issues: list[str] = []
-    if not citation_paths:
+    if isinstance(module, dict) and "source_claims" in module:
         issues.append(
-            "Source claims require direct source verification: "
-            "`module.source_claims` may only supplement, not replace, "
-            "`module.source_verification.corpus_citation_path` or "
-            "`module.source_verification.corpus_citation_paths`."
+            "Source claims are not supported: `module.source_claims` references "
+            "mutable, release-agnostic claim artifacts. Cite immutable, "
+            "release-bound corpus provisions with "
+            "`module.source_verification.corpus_citation_path`, and use direct "
+            "proof atom `source` evidence."
         )
 
-    claim_ids = _extract_source_claim_ids(raw_refs)
-    if not claim_ids:
-        issues.append(
-            "Source claims malformed: `module.source_claims` must contain claim "
-            "IDs as strings or `{id: ...}` mappings."
-        )
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
         return issues
-
-    for claim_id in claim_ids:
-        claim = _fetch_local_source_claim_record(claim_id)
-        if claim is None:
-            issues.append(
-                "Source claim missing: "
-                f"`{claim_id}` was not found in local corpus claim artifacts."
-            )
+    for rule_index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
             continue
-        issues.extend(
-            _validate_source_claim_record(
-                claim_id=claim_id,
-                claim=claim,
-                rulespec_citation_paths=citation_paths,
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        if not isinstance(proof, dict):
+            proof = rule.get("proof")
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        rule_name = str(rule.get("name") or f"rules[{rule_index}]").strip()
+        for atom_index, atom in enumerate(atoms):
+            if not isinstance(atom, dict) or "claim" not in atom:
+                continue
+            issues.append(
+                "Proof claim references are not supported: "
+                f"rule `{rule_name}` proof atom {atom_index} declares `claim`. "
+                "Cite the immutable, release-bound corpus provision directly "
+                "with proof atom `source` evidence."
             )
-        )
 
     return issues
-
-
-def _extract_source_claim_ids(raw_refs: list[Any]) -> list[str]:
-    claim_ids: list[str] = []
-    for raw_ref in raw_refs:
-        claim_id = ""
-        if isinstance(raw_ref, str):
-            claim_id = raw_ref.strip()
-        elif isinstance(raw_ref, dict):
-            claim_id = str(raw_ref.get("id") or "").strip()
-        if claim_id:
-            claim_ids.append(claim_id)
-    return claim_ids
-
-
-def _validate_source_claim_record(
-    *,
-    claim_id: str,
-    claim: dict[str, Any],
-    rulespec_citation_paths: tuple[str, ...],
-) -> list[str]:
-    issues: list[str] = []
-
-    actual_id = str(claim.get("id") or "").strip()
-    if actual_id != claim_id:
-        issues.append(
-            "Source claim ID mismatch: "
-            f"`{claim_id}` resolved to a claim with id `{actual_id or '<missing>'}`."
-        )
-
-    status = str(claim.get("status") or "").strip()
-    if status != "accepted":
-        issues.append(
-            "Source claim not accepted: "
-            f"`{claim_id}` has status `{status or '<missing>'}`; RuleSpec may only "
-            "reference accepted source claims."
-        )
-
-    kind = str(claim.get("kind") or "").strip()
-    if kind not in _SOURCE_CLAIM_ALLOWED_KINDS:
-        allowed = ", ".join(sorted(_SOURCE_CLAIM_ALLOWED_KINDS))
-        issues.append(
-            "Source claim kind invalid: "
-            f"`{claim_id}` has kind `{kind or '<missing>'}`; allowed kinds are "
-            f"{allowed}."
-        )
-
-    executable_paths = _source_claim_executable_field_paths(claim)
-    if executable_paths:
-        issues.append(
-            "Source claim is executable: "
-            f"`{claim_id}` contains execution fields "
-            + ", ".join(f"`{path}`" for path in executable_paths[:5])
-            + ("; ..." if len(executable_paths) > 5 else "")
-            + ". Claims may assert source meaning but must not contain formulas, "
-            "case inputs, outputs, tests, runtime traces, decisions, or benefit amounts."
-        )
-
-    issues.extend(_validate_source_claim_subject(claim_id=claim_id, claim=claim))
-
-    evidence = claim.get("evidence")
-    if not isinstance(evidence, list) or not evidence:
-        issues.append(
-            "Source claim evidence missing: "
-            f"`{claim_id}` must cite at least one corpus evidence span."
-        )
-        return issues
-
-    for index, evidence_item in enumerate(evidence):
-        if not isinstance(evidence_item, dict):
-            issues.append(
-                "Source claim evidence malformed: "
-                f"`{claim_id}.evidence[{index}]` must be a mapping."
-            )
-            continue
-        evidence_path = str(evidence_item.get("corpus_citation_path") or "").strip()
-        if not evidence_path:
-            issues.append(
-                "Source claim evidence missing corpus path: "
-                f"`{claim_id}.evidence[{index}]` must declare "
-                "`corpus_citation_path`."
-            )
-            continue
-        if rulespec_citation_paths and evidence_path not in rulespec_citation_paths:
-            issues.append(
-                "Source claim evidence outside RuleSpec source: "
-                f"`{claim_id}` cites `{evidence_path}`, but the RuleSpec verifies "
-                "against "
-                + _format_source_verification_paths(rulespec_citation_paths)
-                + ". Add the corpus path to `module.source_verification` or split "
-                "the claim reference."
-            )
-        quote = str(evidence_item.get("quote") or "").strip()
-        if quote:
-            source_text = _fetch_corpus_source_text(evidence_path)
-            if source_text is not None and quote not in source_text:
-                issues.append(
-                    "Source claim quote not found: "
-                    f"`{claim_id}.evidence[{index}].quote` does not appear in "
-                    f"`{evidence_path}`."
-                )
-
-    return issues
-
-
-def _validate_source_claim_subject(
-    *,
-    claim_id: str,
-    claim: dict[str, Any],
-) -> list[str]:
-    subject = claim.get("subject")
-    if not isinstance(subject, dict):
-        return [
-            "Source claim subject missing: "
-            f"`{claim_id}` must declare `subject` with an absolute legal or "
-            "RuleSpec target."
-        ]
-
-    subject_id = str(subject.get("id") or "").strip()
-    subject_type = str(subject.get("type") or "").strip()
-    issues: list[str] = []
-    if not _SOURCE_CLAIM_ABSOLUTE_TARGET_ID.match(subject_id):
-        issues.append(
-            "Source claim subject target invalid: "
-            f"`{claim_id}.subject.id` is `{subject_id or '<missing>'}`; use an "
-            "absolute legal, corpus, or RuleSpec target such as "
-            "`us:statutes/7/2014/e`."
-        )
-    if subject_type == "concept" or _SOURCE_CLAIM_FRIENDLY_CONCEPT_ID.match(subject_id):
-        issues.append(
-            "Source claim subject placeholder not allowed: "
-            f"`{claim_id}` uses `{subject_id or '<missing>'}`; friendly concept "
-            "IDs are not valid claim subjects."
-        )
-    return issues
-
-
-def _source_claim_executable_field_paths(value: Any, prefix: str = "") -> list[str]:
-    paths: list[str] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            key_text = str(key)
-            path = f"{prefix}.{key_text}" if prefix else key_text
-            if key_text in _SOURCE_CLAIM_EXECUTABLE_KEYS:
-                paths.append(path)
-            paths.extend(_source_claim_executable_field_paths(child, path))
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            paths.extend(
-                _source_claim_executable_field_paths(child, f"{prefix}[{index}]")
-            )
-    return paths
-
-
-@functools.lru_cache(maxsize=512)
-def _fetch_local_source_claim_record(claim_id: str) -> dict[str, Any] | None:
-    normalized_id = claim_id.strip()
-    if not normalized_id:
-        return None
-
-    for claims_root in _local_corpus_claims_roots():
-        for claim_file in sorted(claims_root.rglob("*.jsonl")):
-            claim = _read_local_source_claim_file(claim_file, normalized_id)
-            if claim is not None:
-                return claim
-    return None
-
-
-def _read_local_source_claim_file(
-    claim_file: Path,
-    claim_id: str,
-) -> dict[str, Any] | None:
-    try:
-        lines = claim_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict) or record.get("id") != claim_id:
-            continue
-        return record
-    return None
-
-
-def _local_corpus_claims_roots() -> tuple[Path, ...]:
-    roots: list[Path] = []
-    for env_name in (
-        "AXIOM_CORPUS_CLAIMS_ROOT",
-        "AXIOM_CORPUS_ARTIFACT_ROOT",
-        "AXIOM_CORPUS_REPO",
-    ):
-        raw_root = os.environ.get(env_name)
-        if raw_root:
-            roots.append(Path(raw_root).expanduser())
-
-    with contextlib.suppress(OSError):
-        cwd = Path.cwd().resolve()
-        for base in (cwd, *cwd.parents):
-            roots.extend(
-                (
-                    base,
-                    base / "axiom-corpus",
-                    base / "TheAxiomFoundation" / "axiom-corpus",
-                    base.parent / "axiom-corpus",
-                    base / "_axiom" / "axiom-corpus",
-                )
-            )
-
-    with contextlib.suppress(RuntimeError, OSError):
-        roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
-
-    claims_roots: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        for candidate in (
-            root,
-            root / "claims",
-            root / "data" / "corpus",
-            root / "data" / "corpus" / "claims",
-        ):
-            claims_root = (
-                candidate if candidate.name == "claims" else candidate / "claims"
-            )
-            with contextlib.suppress(OSError):
-                resolved = claims_root.resolve()
-                if resolved.is_dir() and resolved not in seen:
-                    seen.add(resolved)
-                    claims_roots.append(resolved)
-    return tuple(claims_roots)
 
 
 _INTERVAL_TABLE_SELECTOR_BOUND_KIND = "selector_inline_interval_bound"
@@ -5539,11 +18581,7 @@ def _source_table_bound_values_proof_source(
             source = atom.get("source")
             if not isinstance(source, dict):
                 continue
-            if not (
-                source.get("corpus_citation_path")
-                or source.get("corpus_citation_paths")
-                or source.get("excerpt")
-            ):
+            if not (source.get("corpus_citation_path") or source.get("excerpt")):
                 continue
             return copy.deepcopy(source)
     return None
@@ -5722,7 +18760,12 @@ def repair_source_table_open_ended_bound_sentinels(
         if source_text is not None
         else (extract_numeric_grounding_source_text(content) or "").strip()
     )
-    source_numbers = extract_numbers_from_text(source) if source else set()
+    profile = _numeric_profile_for_citation_path(_module_numeric_citation_path(payload))
+    source_occurrences = (
+        extract_typed_numeric_occurrences_from_text(source, profile=profile)
+        if source
+        else []
+    )
     changed_rules: set[str] = set()
 
     for rule in rules:
@@ -5751,7 +18794,10 @@ def repair_source_table_open_ended_bound_sentinels(
             if numeric is None:
                 continue
             _raw, value = numeric
-            if not _is_generated_open_ended_bound_sentinel(value, source_numbers):
+            if not _is_generated_open_ended_bound_sentinel(
+                value,
+                source_occurrences,
+            ):
                 continue
             del values[max_key]
             changed_rules.add(rule_name or "<unknown>")
@@ -6837,11 +19883,11 @@ def _max_structural_integer_table_key(values: dict[Any, Any]) -> Any | None:
 
 def _is_generated_open_ended_bound_sentinel(
     value: float,
-    source_numbers: set[float],
+    source_occurrences: Sequence[NumericOccurrence],
 ) -> bool:
     if abs(value) < 1_000_000:
         return False
-    if source_numbers and numeric_value_is_grounded(value, source_numbers):
+    if source_occurrences and numeric_value_is_grounded(value, source_occurrences):
         return False
     return True
 
@@ -7090,11 +20136,432 @@ def find_versioned_derived_formula_issues(content: str) -> list[str]:
     return []
 
 
+def find_local_dependency_temporal_coverage_issues(content: str) -> list[str]:
+    """Flag formula versions not covered by their direct local dependencies.
+
+    This intentionally considers only direct, same-file rule references. It does
+    not infer coverage through imports or through arbitrary formula expressions.
+    """
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return []
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    coverage_by_rule: dict[str, tuple[tuple[date, date | None], ...]] = {}
+    for name, rule in rules.items():
+        intervals = [
+            (effective_from, effective_to)
+            for _index, _version, effective_from, effective_to in (
+                _rule_effective_intervals(rule)
+            )
+        ]
+        if intervals:
+            coverage_by_rule[name] = tuple(sorted(intervals))
+
+    issues: list[str] = []
+    for name, rule in rules.items():
+        if str(rule.get("kind") or "").strip().lower() not in {
+            "derived",
+            "derived_relation",
+        }:
+            continue
+        for index, version, effective_from, effective_to in _rule_effective_intervals(
+            rule
+        ):
+            formula = version.get("formula")
+            if not isinstance(formula, str):
+                continue
+            for dependency in sorted(
+                _formula_local_identifiers(formula) & coverage_by_rule.keys()
+            ):
+                if _interval_is_covered(
+                    effective_from,
+                    effective_to,
+                    coverage_by_rule[dependency],
+                ):
+                    continue
+                consumer_end = (
+                    effective_to.isoformat()
+                    if effective_to is not None
+                    else "unbounded"
+                )
+                issues.append(
+                    "[temporal-dependency-coverage] Derived rule "
+                    f"`{name}` version {index + 1} covers "
+                    f"{effective_from.isoformat()} through {consumer_end} but "
+                    f"directly references local rule `{dependency}`, whose "
+                    "version intervals "
+                    f"({_format_effective_intervals(coverage_by_rule[dependency])}) "
+                    "do not cover that entire period. Align "
+                    "the derived interval, extend the dependency with "
+                    "authoritative coverage, or add a later derived version."
+                )
+    return issues
+
+
+def _rule_effective_intervals(
+    rule: Mapping[str, object],
+) -> tuple[tuple[int, dict[str, Any], date, date | None], ...]:
+    """Return explicit or next-version-bounded inclusive rule intervals."""
+
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ()
+    dated: list[tuple[int, dict[str, Any], date]] = []
+    for index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        try:
+            effective_from = date.fromisoformat(str(version["effective_from"]).strip())
+        except (KeyError, TypeError, ValueError):
+            continue
+        dated.append((index, version, effective_from))
+    dated.sort(key=lambda item: (item[2], item[0]))
+
+    intervals: list[tuple[int, dict[str, Any], date, date | None]] = []
+    for position, (index, version, effective_from) in enumerate(dated):
+        raw_effective_to = version.get("effective_to")
+        if raw_effective_to not in (None, ""):
+            try:
+                effective_to = date.fromisoformat(str(raw_effective_to).strip())
+            except (TypeError, ValueError):
+                continue
+        elif position + 1 < len(dated):
+            next_effective_from = dated[position + 1][2]
+            if next_effective_from <= effective_from:
+                continue
+            effective_to = date.fromordinal(next_effective_from.toordinal() - 1)
+        else:
+            effective_to = None
+        if effective_to is not None and effective_to < effective_from:
+            continue
+        intervals.append((index, version, effective_from, effective_to))
+    return tuple(intervals)
+
+
+def _format_effective_intervals(
+    intervals: Sequence[tuple[date, date | None]],
+) -> str:
+    return ", ".join(
+        f"{effective_from.isoformat()} through "
+        f"{effective_to.isoformat() if effective_to is not None else 'unbounded'}"
+        for effective_from, effective_to in intervals
+    )
+
+
+def _interval_is_covered(
+    required_from: date,
+    required_to: date | None,
+    available: Sequence[tuple[date, date | None]],
+) -> bool:
+    """Return whether inclusive version intervals cover one required interval."""
+
+    cursor = required_from
+    for available_from, available_to in available:
+        if available_to is not None and available_to < cursor:
+            continue
+        if available_from > cursor:
+            return False
+        if available_to is None:
+            return True
+        if required_to is not None and available_to >= required_to:
+            return True
+        if available_to == date.max:
+            return required_to is not None and available_to >= required_to
+        cursor = date.fromordinal(available_to.toordinal() + 1)
+    return False
+
+
+def _contract_sequence(value: object) -> tuple[str, ...]:
+    if isinstance(value, list):
+        return tuple(str(item).strip() for item in value if str(item).strip())
+    if value is None:
+        return ()
+    text = str(value).strip()
+    return (text,) if text else ()
+
+
+def _existing_target_surface_contract(
+    rule: Mapping[str, object],
+) -> ExistingTargetSurfaceContract | None:
+    name = str(rule.get("name") or "").strip()
+    kind = str(rule.get("kind") or "").strip().lower()
+    dtype = str(rule.get("dtype") or "").strip()
+    versions = rule.get("versions")
+    if (
+        not name
+        or kind not in {"parameter", "derived", "derived_relation", "data_relation"}
+        or not dtype
+        or not isinstance(versions, list)
+        or not versions
+    ):
+        return None
+    metadata = rule.get("metadata")
+    return ExistingTargetSurfaceContract(
+        name=name,
+        kind=kind,
+        entity=str(rule.get("entity") or "").strip(),
+        dtype=dtype,
+        period=str(rule.get("period") or "").strip(),
+        unit=str(rule.get("unit") or "").strip(),
+        indexed_by=_contract_sequence(rule.get("indexed_by")),
+        private=(isinstance(metadata, Mapping) and metadata.get("private") is True),
+    )
+
+
+def _existing_target_input_contract(
+    item: Mapping[str, object],
+) -> ExistingTargetInputContract | None:
+    name = str(item.get("name") or "").strip()
+    dtype = str(item.get("dtype") or "").strip()
+    if not name or not dtype:
+        return None
+    return ExistingTargetInputContract(
+        name=name,
+        entity=str(item.get("entity") or "").strip(),
+        dtype=dtype,
+        period=str(item.get("period") or "").strip(),
+        unit=str(item.get("unit") or "").strip(),
+    )
+
+
+_REPLACEMENT_LEGAL_SOURCE_NAME_MARKERS = frozenset(
+    {
+        "article",
+        "chapter",
+        "code",
+        "cfr",
+        "krs",
+        "regulation",
+        "section",
+        "statute",
+        "title",
+        "usc",
+    }
+)
+_REPLACEMENT_LEGAL_SOURCE_FRAGMENT = re.compile(r"[0-9]+[a-z]*", re.IGNORECASE)
+
+
+def _replacement_target_name_identity(target: str) -> str:
+    """Return a narrow year/source identity repeated by legacy target names."""
+
+    target_path = target.partition(":")[2] or target
+    basename = Path(target_path).name
+    tokens = tuple(token for token in basename.lower().split("_") if token)
+    if len(tokens) < 3 or re.fullmatch(r"(?:19|20)\d{2}", tokens[0]) is None:
+        return ""
+    if tokens[1] not in _REPLACEMENT_LEGAL_SOURCE_NAME_MARKERS:
+        return ""
+    identity = list(tokens[:2])
+    for token in tokens[2:]:
+        if _REPLACEMENT_LEGAL_SOURCE_FRAGMENT.fullmatch(token) is None:
+            break
+        identity.append(token)
+    if len(identity) < 3:
+        return ""
+    return "_".join(identity)
+
+
+def _rule_name_contains_token_sequence(name: str, sequence: str) -> bool:
+    """Return whether one snake-case name contains an exact token sequence."""
+
+    name_tokens = tuple(token for token in name.lower().split("_") if token)
+    sequence_tokens = tuple(token for token in sequence.split("_") if token)
+    if not sequence_tokens or len(sequence_tokens) > len(name_tokens):
+        return False
+    width = len(sequence_tokens)
+    return any(
+        name_tokens[index : index + width] == sequence_tokens
+        for index in range(len(name_tokens) - width + 1)
+    )
+
+
+def build_existing_target_oracle_contract(
+    content: str,
+    *,
+    target: str,
+    policyengine_registry: object,
+    invalid_input_names: Iterable[str] = (),
+) -> ExistingTargetOracleContract | None:
+    """Build the replacement contract for valid exact registry-owned exports."""
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return None
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return None
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    exact_mappings = getattr(policyengine_registry, "mappings_by_legal_id", {})
+    if not isinstance(exact_mappings, dict):
+        return None
+    surface_names = sorted(
+        name for name in rules if f"{target}#{name}" in exact_mappings
+    )
+    surfaces = tuple(
+        surface
+        for name in surface_names
+        if (surface := _existing_target_surface_contract(rules[name])) is not None
+    )
+    if not surfaces:
+        return None
+
+    explicit_inputs: dict[str, ExistingTargetInputContract] = {}
+    raw_inputs = payload.get("inputs")
+    if isinstance(raw_inputs, list):
+        for item in raw_inputs:
+            if not isinstance(item, dict):
+                continue
+            contract = _existing_target_input_contract(item)
+            if contract is not None:
+                explicit_inputs[contract.name] = contract
+
+    reachable_rules = {surface.name for surface in surfaces}
+    reachable_identifiers: set[str] = set()
+    pending = list(reachable_rules)
+    while pending:
+        rule_name = pending.pop()
+        rule = rules.get(rule_name)
+        if not isinstance(rule, dict):
+            continue
+        reachable_identifiers.update(_contract_sequence(rule.get("indexed_by")))
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        for version in versions:
+            formula = version.get("formula") if isinstance(version, dict) else None
+            if not isinstance(formula, str):
+                continue
+            identifiers = _formula_local_identifiers(formula)
+            reachable_identifiers.update(identifiers)
+            for dependency in identifiers & rules.keys() - reachable_rules:
+                reachable_rules.add(dependency)
+                pending.append(dependency)
+
+    invalid = set(invalid_input_names)
+    inputs = tuple(
+        explicit_inputs[name]
+        for name in sorted(reachable_identifiers & explicit_inputs.keys() - invalid)
+    )
+    return ExistingTargetOracleContract(
+        target,
+        surfaces,
+        inputs,
+        _replacement_target_name_identity(target),
+    )
+
+
+def find_existing_target_oracle_contract_issues(
+    content: str,
+    contract: ExistingTargetOracleContract | None,
+) -> list[str]:
+    """Require a replacement to retain registry-owned names and input schemas."""
+
+    if contract is None:
+        return []
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+        return []
+    raw_rules = payload.get("rules")
+    raw_inputs = payload.get("inputs")
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in (raw_rules if isinstance(raw_rules, list) else [])
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    inputs = {
+        str(item.get("name") or "").strip(): item
+        for item in (raw_inputs if isinstance(raw_inputs, list) else [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    issues: list[str] = []
+    for expected in contract.surfaces:
+        actual_rule = rules.get(expected.name)
+        actual = (
+            _existing_target_surface_contract(actual_rule)
+            if isinstance(actual_rule, dict)
+            else None
+        )
+        if actual == expected:
+            continue
+        issues.append(
+            "[existing-target-oracle-contract] Replacement must retain valid "
+            f"exact-oracle-mapped surface `{contract.target}#{expected.name}` "
+            "with its existing kind/entity/dtype/period/unit/index and "
+            "metadata.private/public contract. Repair its implementation under "
+            "that stable surface."
+        )
+    for expected in contract.inputs:
+        actual_item = inputs.get(expected.name)
+        actual = (
+            _existing_target_input_contract(actual_item)
+            if isinstance(actual_item, dict)
+            else None
+        )
+        if actual == expected:
+            continue
+        issues.append(
+            "[existing-target-oracle-contract] Replacement must retain valid "
+            f"explicit input `{contract.target}#input.{expected.name}` with its "
+            "existing entity/dtype/period/unit contract because an exact-oracle-"
+            "mapped surface depends on it. Invalid legacy inputs are not covered."
+        )
+    mapped_names = {surface.name for surface in contract.surfaces}
+    if contract.replacement_name_identity:
+        for name, rule in sorted(rules.items()):
+            if name in mapped_names:
+                continue
+            kind = str(rule.get("kind") or "").strip().lower()
+            if kind not in {
+                "parameter",
+                "derived",
+                "derived_relation",
+                "data_relation",
+            }:
+                continue
+            if not _rule_name_contains_token_sequence(
+                name,
+                contract.replacement_name_identity,
+            ):
+                continue
+            issues.append(
+                "[existing-target-naming-contract] New replacement helper "
+                f"`{name}` repeats target-path year/legal-source identity "
+                f"`{contract.replacement_name_identity}`. The file path already "
+                "supplies that identity; use a concise semantic helper name. "
+                "Only exact-oracle-mapped legacy surface names listed by the "
+                "replacement contract may retain this prefix."
+            )
+    return issues
+
+
 def find_upstream_placement_issues(
     content: str,
     *,
     rules_file: Path | None = None,
     source_metadata: dict[str, object] | None = None,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> list[str]:
     """Flag rules encoded downstream of their canonical legal authority."""
     try:
@@ -7106,9 +20573,6 @@ def find_upstream_placement_issues(
     rules = payload.get("rules")
     if not isinstance(rules, list):
         return []
-
-    if source_metadata is None and rules_file is not None:
-        source_metadata = _load_nearby_eval_source_metadata(rules_file)
 
     issues: list[str] = []
     issues.extend(_find_rule_metadata_schema_issues(rules))
@@ -7123,6 +20587,7 @@ def find_upstream_placement_issues(
         _find_duplicate_upstream_executable_issues(
             rules=rules,
             rules_file=rules_file,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
     )
     return issues
@@ -7282,7 +20747,7 @@ def _normalize_relation_target(value: Any) -> str | None:
     if not normalized:
         return None
     base, separator, symbol = normalized.partition("#")
-    if base.endswith((".yaml", ".yml")):
+    if base.endswith(RULESPEC_FILE_SUFFIX):
         base = str(Path(base).with_suffix(""))
         base = str(Path(base).with_suffix(""))
     return f"{base}{separator}{symbol}" if separator else base
@@ -7361,6 +20826,7 @@ def _find_duplicate_upstream_executable_issues(
     *,
     rules: list[Any],
     rules_file: Path | None,
+    rulespec_dependency_roots: Iterable[Path] | None,
 ) -> list[str]:
     """Reject copied executable rules when an upstream RuleSpec target exists."""
     if rules_file is None:
@@ -7372,7 +20838,10 @@ def _find_duplicate_upstream_executable_issues(
 
     prefix = _rulespec_repo_prefix(repo_root)
     current_file = Path(rules_file).resolve()
-    candidate_roots = _candidate_upstream_rulespec_roots(repo_root)
+    candidate_roots = _candidate_upstream_rulespec_roots(
+        repo_root,
+        rulespec_dependency_roots=rulespec_dependency_roots,
+    )
     index = _rulespec_executable_index_for_roots(
         tuple(str(root.resolve()) for root in candidate_roots)
     )
@@ -7420,50 +20889,37 @@ def _rulespec_target_is_descendant_of(target: str, ancestor: str) -> bool:
     """Return whether a RuleSpec target is a more-specific path under ancestor."""
     target_base = _canonical_rulespec_target_identity_base(target)
     ancestor_base = _canonical_rulespec_target_identity_base(ancestor)
-    return target_base.startswith(f"{ancestor_base}/")
+    return (
+        target_base is not None
+        and ancestor_base is not None
+        and target_base.startswith(f"{ancestor_base}/")
+    )
 
 
 def _rulespec_targets_are_equivalent(left: str, right: str) -> bool:
-    return _canonical_rulespec_target_identity_base(
-        left
-    ) == _canonical_rulespec_target_identity_base(right) and _target_symbol(
-        left
-    ) == _target_symbol(right)
+    left_base = _canonical_rulespec_target_identity_base(left)
+    right_base = _canonical_rulespec_target_identity_base(right)
+    return (
+        left_base is not None
+        and right_base is not None
+        and left_base == right_base
+        and _target_symbol(left) == _target_symbol(right)
+    )
 
 
-def _canonical_rulespec_target_identity_base(target: str) -> str:
-    """Normalize country-monorepo and per-jurisdiction target prefixes.
+def _canonical_rulespec_target_identity_base(target: str) -> str | None:
+    """Return one canonical ``jurisdiction:path`` target for comparison."""
 
-    CI validates files in a country monorepo checkout while also loading a
-    second dependency checkout named like ``rulespec-us``. The same physical
-    country file can therefore be represented as either
-    ``us-co:regulations/...`` or ``us:rulespec-us/us-co/regulations/...``.
-    These are the same RuleSpec target for placement purposes.
-    """
-    base = _rulespec_target_base(target)
-    prefix, separator, relative = base.partition(":")
-    if not separator:
-        return base
-    relative = relative.strip("/")
-    parts = tuple(part for part in relative.split("/") if part)
-    if parts and parts[0] == f"rulespec-{prefix}":
-        remainder = parts[1:]
-        if remainder and remainder[0].startswith(f"{prefix}-"):
-            return "/".join(remainder)
-        return "/".join((prefix, *remainder))
-    return "/".join((prefix, *parts))
-
-
-def _rulespec_target_base(target: str) -> str:
-    return target.split("#", 1)[0].strip().strip("/").strip("\"'")
+    target_ref = _parse_rulespec_target(target)
+    if target_ref is None:
+        return None
+    relative = target_ref.relative_path.with_suffix("").as_posix()
+    return f"{target_ref.prefix}:{relative}"
 
 
 def _rulespec_repo_root(rules_file: Path) -> Path | None:
-    """Return the jurisdiction content root holding ``rules_file``.
+    """Return the canonical jurisdiction content root holding ``rules_file``."""
 
-    The enclosing ``rulespec-*`` checkout root in the legacy layout, or the
-    first-level jurisdiction directory inside a country monorepo checkout.
-    """
     return find_policy_repo_root(Path(rules_file))
 
 
@@ -7471,8 +20927,12 @@ def _rulespec_repo_prefix(repo_root: Path) -> str:
     return jurisdiction_prefix(repo_root)
 
 
-def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
-    """Return repos that can contain canonical targets for this repo."""
+def _candidate_upstream_rulespec_roots(
+    repo_root: Path,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return upstream roots from the active and explicit dependency checkouts."""
     roots: list[Path] = []
 
     def add(candidate: Path) -> None:
@@ -7480,18 +20940,21 @@ def _candidate_upstream_rulespec_roots(repo_root: Path) -> tuple[Path, ...]:
             roots.append(candidate)
 
     add(repo_root)
-    workspaces = [repo_root.parent, repo_root / "_axiom", repo_root.parent / "_axiom"]
-    if repo_root.parent.name.startswith("rulespec-"):
-        # A monorepo jurisdiction directory: ancestor jurisdictions live next
-        # to it inside the same checkout, and sibling checkouts live next to
-        # the monorepo itself.
-        workspaces.extend([repo_root.parent.parent, repo_root.parent.parent / "_axiom"])
+    checkout_roots: list[Path] = []
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    if canonical_rulespec_root_identity(repo_root) is not None:
+        checkout_roots.append(repo_root.parent)
+        dependency_roots = _rulespec_dependencies_for_active_root(
+            repo_root,
+            dependency_roots,
+        )
+    checkout_roots.extend(dependency_roots)
     prefix_parts = _rulespec_repo_prefix(repo_root).split("-")
     for length in range(len(prefix_parts) - 1, 0, -1):
         ancestor_prefix = "-".join(prefix_parts[:length])
-        for workspace in workspaces:
+        for checkout_root in checkout_roots:
             for candidate in candidate_jurisdiction_content_dirs(
-                workspace, ancestor_prefix
+                checkout_root, ancestor_prefix
             ):
                 add(candidate)
 
@@ -7516,47 +20979,48 @@ def _rulespec_executable_index_for_roots(
         if not root.exists():
             continue
         prefix = _rulespec_repo_prefix(root)
-        # When the root is a (partially migrated) country monorepo checkout,
-        # sibling jurisdiction directories carry their own prefixes and must
-        # not be indexed under this root's prefix.
-        sibling_jurisdiction_dirs = jurisdiction_subdir_names(root)
-        for rules_file in sorted(root.rglob("*.yaml")):
-            if rules_file.name.endswith(".test.yaml"):
+        for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+            source_root = validate_rulespec_context_directory(
+                root / source_root_name,
+                root,
+            )
+            if source_root is None:
                 continue
-            relative_parts = rules_file.relative_to(root).parts
-            if "_axiom" in relative_parts:
-                continue
-            if relative_parts and relative_parts[0] in sibling_jurisdiction_dirs:
-                continue
-            try:
-                payload = yaml.safe_load(rules_file.read_text())
-            except (OSError, yaml.YAMLError, ValueError):
-                continue
-            if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-                continue
-            rules = payload.get("rules")
-            if not isinstance(rules, list):
-                continue
-            for rule in rules:
-                if not _is_executable_rulespec_rule(rule):
+            for rules_file in sorted(source_root.rglob("*.yaml")):
+                if rules_file.name.endswith(".test.yaml"):
                     continue
-                signature = _rulespec_executable_signature(rule)
-                if signature is None:
+                try:
+                    payload = yaml.safe_load(rules_file.read_text())
+                except (OSError, yaml.YAMLError, ValueError):
                     continue
-                symbol = _rulespec_rule_name(rule)
-                records.append(
-                    _IndexedExecutableRule(
-                        target=_canonical_rulespec_target(
-                            prefix=prefix,
-                            repo_root=root,
-                            rules_file=rules_file,
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = payload.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                for rule in rules:
+                    if not _is_executable_rulespec_rule(rule):
+                        continue
+                    signature = _rulespec_executable_signature(rule)
+                    if signature is None:
+                        continue
+                    symbol = _rulespec_rule_name(rule)
+                    records.append(
+                        _IndexedExecutableRule(
+                            target=_canonical_rulespec_target(
+                                prefix=prefix,
+                                repo_root=root,
+                                rules_file=rules_file,
+                                symbol=symbol,
+                            ),
                             symbol=symbol,
-                        ),
-                        symbol=symbol,
-                        signature=signature,
-                        source_file=str(rules_file.resolve()),
+                            signature=signature,
+                            source_file=str(rules_file.resolve()),
+                        )
                     )
-                )
     return tuple(records)
 
 
@@ -7577,10 +21041,8 @@ def _has_module_source_locator(payload: dict[str, Any]) -> bool:
     source_verification = module.get("source_verification")
     if not isinstance(source_verification, dict):
         return False
-    if source_verification.get("corpus_citation_path"):
-        return True
-    citation_paths = source_verification.get("corpus_citation_paths")
-    return isinstance(citation_paths, list) and any(citation_paths)
+    citation_path = source_verification.get("corpus_citation_path")
+    return isinstance(citation_path, str) and bool(citation_path.strip())
 
 
 def find_rule_source_metadata_issues(content: str) -> list[str]:
@@ -7603,8 +21065,7 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     if not _has_module_source_locator(payload):
         issues.append(
             "Rule source locator required: module.source_verification must include "
-            "`corpus_citation_path` or `corpus_citation_paths` when executable "
-            "rules are present."
+            "exactly one `corpus_citation_path` when executable rules are present."
         )
 
     for rule in executable_rules:
@@ -7619,254 +21080,6 @@ def find_rule_source_metadata_issues(content: str) -> list[str]:
     return issues
 
 
-_PRIMARY_SOURCE_AUTHORITY_SEGMENTS = {
-    "act",
-    "acts",
-    "code",
-    "cfr",
-    "legislation",
-    "public-law",
-    "public-laws",
-    "regulation",
-    "regulations",
-    "statute",
-    "statutes",
-    "usc",
-}
-_LOWER_SOURCE_AUTHORITY_SEGMENTS = {
-    "form",
-    "forms",
-    "guidance",
-    "guide",
-    "guides",
-    "manual",
-    "manuals",
-    "plan",
-    "plans",
-    "policy",
-    "policies",
-    "state-plan",
-    "state-plans",
-    "state_plan",
-    "state_plans",
-    "table",
-    "tables",
-}
-_UPSTREAM_SOURCE_CHECK_STATUSES = {
-    "checked_higher_authority",
-    "delegated_parameter_source",
-    "no_higher_authority_found",
-    "official_parameter_source",
-}
-
-
-def find_upstream_source_authority_issues(content: str) -> list[str]:
-    """Require an upstream-authority audit before encoding lower sources.
-
-    Statutes and regulations can be encoded directly because they are
-    potentially maximally upstream for a computable rule. Implementation
-    sources such as manuals, guidance, state plans, forms, and CMS tables are
-    sometimes the right source, but only after checking higher authority first.
-    """
-    try:
-        payload = yaml.safe_load(content)
-    except (yaml.YAMLError, ValueError):
-        return []
-    if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-        return []
-    rules = payload.get("rules")
-    if not isinstance(rules, list) or not any(
-        _is_executable_rulespec_rule(rule) for rule in rules
-    ):
-        return []
-
-    source_verification = _source_verification_block(payload)
-    if source_verification is None:
-        return []
-    citation_paths, _source_label = _source_verification_source_fields(
-        source_verification
-    )
-    lower_authority_paths = tuple(
-        path for path in citation_paths if _source_path_requires_upstream_check(path)
-    )
-    if not lower_authority_paths:
-        return []
-
-    check = source_verification.get("upstream_source_check")
-    formatted_sources = _format_source_verification_paths(lower_authority_paths)
-    if not isinstance(check, dict):
-        return [
-            "Upstream source check required: "
-            f"{formatted_sources} is below statute/regulation authority. "
-            "Check statute/regulation sources first, then record "
-            "`module.source_verification.upstream_source_check` with "
-            "`status`, `checked_paths`, and `rationale`, or encode the "
-            "higher source instead."
-        ]
-
-    issues: list[str] = []
-    status = str(check.get("status") or "").strip()
-    if status not in _UPSTREAM_SOURCE_CHECK_STATUSES:
-        issues.append(
-            "Upstream source check status invalid: "
-            "`module.source_verification.upstream_source_check.status` must be "
-            "one of "
-            + ", ".join(
-                f"`{value}`" for value in sorted(_UPSTREAM_SOURCE_CHECK_STATUSES)
-            )
-            + "."
-        )
-
-    checked_paths = _source_check_paths(check.get("checked_paths"))
-    if not checked_paths:
-        issues.append(
-            "Upstream source check paths required: "
-            "`module.source_verification.upstream_source_check.checked_paths` "
-            "must list statute/regulation corpus paths or RuleSpec targets "
-            "that were checked before using the lower-authority source."
-        )
-    elif not any(
-        _source_reference_is_potentially_primary(path) for path in checked_paths
-    ):
-        issues.append(
-            "Upstream source check must include higher authority: "
-            "`module.source_verification.upstream_source_check.checked_paths` "
-            "must include at least one statute/regulation corpus path or "
-            "RuleSpec target."
-        )
-
-    rationale = str(check.get("rationale") or "").strip()
-    if len(rationale) < 20:
-        issues.append(
-            "Upstream source check rationale required: "
-            "`module.source_verification.upstream_source_check.rationale` must "
-            "explain why the lower-authority source is still the correct source "
-            "for this encoding."
-        )
-
-    return issues
-
-
-def _upstream_source_check_baseline_roots(
-    policy_repo_path: Path | None,
-) -> tuple[Path, ...]:
-    if policy_repo_path is None:
-        return ()
-    root = Path(policy_repo_path).resolve(strict=False)
-    roots = [root]
-    parent = root.parent
-    if (
-        not root.name.startswith("rulespec-")
-        and parent.name.startswith("rulespec-")
-        and is_jurisdiction_content_root(root)
-    ):
-        roots.append(parent)
-
-    deduped: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in roots:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        deduped.append(candidate)
-    return tuple(deduped)
-
-
-def _load_upstream_source_check_baseline(baseline_root: Path | None) -> set[str]:
-    if baseline_root is None:
-        return set()
-    baseline_path = Path(baseline_root) / _UPSTREAM_SOURCE_CHECK_BASELINE_PATH
-    try:
-        text = baseline_path.read_text()
-    except OSError:
-        return set()
-    entries: set[str] = set()
-    for raw_line in text.splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line:
-            continue
-        entries.add(Path(line).as_posix().lstrip("./"))
-    return entries
-
-
-def _rules_file_baseline_key(
-    rules_file: Path,
-    policy_repo_path: Path | None,
-) -> str | None:
-    if policy_repo_path is None:
-        return None
-    try:
-        return (
-            Path(rules_file)
-            .resolve(strict=False)
-            .relative_to(Path(policy_repo_path).resolve(strict=False))
-            .as_posix()
-        )
-    except (OSError, ValueError):
-        return None
-
-
-def _upstream_source_issue_is_missing_check_only(issue: str) -> bool:
-    return issue.startswith("Upstream source check required: ")
-
-
-def upstream_source_authority_issues_for_rules_file(
-    content: str,
-    *,
-    rules_file: Path,
-    policy_repo_path: Path | None,
-) -> list[str]:
-    """Apply the strict upstream-source check, honoring explicit legacy baselines."""
-    issues = find_upstream_source_authority_issues(content)
-    if not issues or not all(
-        _upstream_source_issue_is_missing_check_only(issue) for issue in issues
-    ):
-        return issues
-
-    for baseline_root in _upstream_source_check_baseline_roots(policy_repo_path):
-        key = _rules_file_baseline_key(rules_file, baseline_root)
-        if key is None:
-            continue
-        if key in _load_upstream_source_check_baseline(baseline_root):
-            return []
-    return issues
-
-
-def _source_check_paths(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        text = value.strip()
-        return (text,) if text else ()
-    if not isinstance(value, list):
-        return ()
-    paths: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            continue
-        text = item.strip()
-        if text:
-            paths.append(text)
-    return tuple(dict.fromkeys(paths))
-
-
-def _source_path_requires_upstream_check(path: str) -> bool:
-    segments = _source_reference_segments(path)
-    if segments & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS:
-        return False
-    return bool(segments & _LOWER_SOURCE_AUTHORITY_SEGMENTS)
-
-
-def _source_reference_is_potentially_primary(reference: str) -> bool:
-    return bool(
-        _source_reference_segments(reference) & _PRIMARY_SOURCE_AUTHORITY_SEGMENTS
-    )
-
-
-def _source_reference_segments(reference: str) -> set[str]:
-    head = reference.split("#", 1)[0].strip().lower()
-    head = head.replace(":", "/")
-    return {segment for segment in re.split(r"[/\s]+", head) if segment}
-
-
 def _rulespec_rule_name(rule: dict[str, Any]) -> str:
     return str(rule.get("name") or "<unknown>").strip() or "<unknown>"
 
@@ -7879,10 +21092,13 @@ def _canonical_rulespec_target(
     symbol: str,
 ) -> str:
     relative = rules_file.resolve().relative_to(repo_root.resolve())
-    if relative.suffix in {".yaml", ".yml"}:
+    if relative.suffix == RULESPEC_FILE_SUFFIX:
         relative = relative.with_suffix("")
-    if relative.parts and relative.parts[0] == prefix:
-        relative = Path(*relative.parts[1:])
+    if not relative.parts or relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
+        raise ValueError(
+            "RuleSpec target must be beneath a canonical content root "
+            f"in the canonical jurisdiction root: {rules_file}"
+        )
     return f"{prefix}:{relative.as_posix()}#{symbol}"
 
 
@@ -7897,8 +21113,7 @@ def _canonical_rulespec_file_target(
         Path(policy_repo_path)
     ):
         repo_root = Path(policy_repo_path)
-        # Inside a country monorepo checkout the jurisdiction directory is
-        # the target anchor; prefer it when it sits under the explicit root.
+        # The direct jurisdiction directory is the canonical target anchor.
         walked_root = _rulespec_repo_root(rules_file)
         if walked_root is not None:
             try:
@@ -8117,7 +21332,7 @@ def find_synthetic_source_authorized_input_issues(content: str) -> list[str]:
 
 def _rule_versions_are_constant_false(versions: list[Any]) -> bool:
     formulas = [
-        str(version.get("formula") or "").strip().lower()
+        str(version.get("formula") or "").strip()
         for version in versions
         if isinstance(version, dict) and isinstance(version.get("formula"), str)
     ]
@@ -8127,47 +21342,296 @@ def _rule_versions_are_constant_false(versions: list[Any]) -> bool:
 
 
 def _formula_is_syntactically_unsatisfiable_false(formula: str) -> bool:
-    normalized = re.sub(r"\s+", " ", formula.strip().lower())
-    normalized = _strip_balanced_outer_parentheses(normalized)
-    if normalized == "false":
-        return True
-    conjuncts = _split_top_level_boolean_operator(normalized, "and")
-    return len(conjuncts) > 1 and any(
-        _formula_is_syntactically_unsatisfiable_false(conjunct)
-        for conjunct in conjuncts
-    )
+    if not _rulespec_expression_nesting_within_limit(formula):
+        return False
+
+    pending = [formula]
+    while pending:
+        exact = _strip_balanced_outer_parentheses(pending.pop().strip())
+        if exact in {"false", "False"}:
+            return True
+        literal_comparison = _literal_comparison_truth_value(exact)
+        if literal_comparison is not None:
+            if not literal_comparison:
+                return True
+            continue
+        if len(_split_top_level_boolean_operator(exact, "or")) > 1:
+            continue
+        conjuncts = _split_top_level_boolean_operator(exact, "and")
+        if len(conjuncts) > 1:
+            pending.extend(conjuncts)
+    return False
+
+
+def _literal_comparison_truth_value(expression: str) -> bool | None:
+    """Evaluate one comparison using RuleSpec literal and operator semantics."""
+
+    split = _split_rulespec_literal_comparison(expression)
+    if split is None:
+        return None
+    left_text, operator, right_text = split
+    left = _rulespec_literal_value(left_text)
+    right = _rulespec_literal_value(right_text)
+    if left is None or right is None:
+        return None
+    left_kind, left_value = left
+    right_kind, right_value = right
+
+    if left_kind in {"integer", "decimal"} and right_kind in {
+        "integer",
+        "decimal",
+    }:
+        left_value = Decimal(left_value)
+        right_value = Decimal(right_value)
+    elif left_kind == right_kind and left_kind in {"boolean", "text"}:
+        if operator not in {"==", "!="}:
+            return None
+    else:
+        return None
+
+    if operator == "==":
+        return left_value == right_value
+    if operator == "!=":
+        return left_value != right_value
+    if operator == "<":
+        return left_value < right_value
+    if operator == "<=":
+        return left_value <= right_value
+    if operator == ">":
+        return left_value > right_value
+    if operator == ">=":
+        return left_value >= right_value
+    return None
+
+
+def _split_rulespec_literal_comparison(
+    expression: str,
+) -> tuple[str, str, str] | None:
+    """Split exactly one top-level RuleSpec comparison outside quoted text."""
+
+    operators: list[tuple[int, str]] = []
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(expression):
+        char = expression[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            index += 1
+            continue
+        if char == "(":
+            depth += 1
+            index += 1
+            continue
+        if char == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+            index += 1
+            continue
+        if depth == 0:
+            operator = next(
+                (
+                    candidate
+                    for candidate in ("<=", ">=", "==", "!=", "<", ">")
+                    if expression.startswith(candidate, index)
+                ),
+                None,
+            )
+            if operator is not None:
+                operators.append((index, operator))
+                index += len(operator)
+                continue
+        index += 1
+    if quote is not None or depth != 0 or len(operators) != 1:
+        return None
+    operator_index, operator = operators[0]
+    left = expression[:operator_index].strip()
+    right = expression[operator_index + len(operator) :].strip()
+    if not left or not right:
+        return None
+    return left, operator, right
+
+
+def _rulespec_literal_value(
+    expression: str,
+) -> tuple[str, bool | int | Decimal | str] | None:
+    """Parse the literal subset accepted by the RuleSpec formula lexer."""
+
+    literal = _strip_balanced_outer_parentheses(expression.strip())
+    if literal in {"true", "True"}:
+        return "boolean", True
+    if literal in {"false", "False"}:
+        return "boolean", False
+
+    if re.fullmatch(r"-?[0-9][0-9_]*", literal):
+        exact = literal.replace("_", "")
+        magnitude = exact.removeprefix("-").lstrip("0") or "0"
+        if len(magnitude) > 19:
+            return None
+        unsigned_value = int(magnitude)
+        if unsigned_value > 2**63 - 1:
+            return None
+        value = -unsigned_value if exact.startswith("-") else unsigned_value
+        return "integer", value
+
+    if re.fullmatch(r"-?[0-9][0-9_]*\.[0-9][0-9_]*", literal):
+        exact = literal.replace("_", "")
+        unsigned = exact.removeprefix("-")
+        whole, fractional = unsigned.split(".", 1)
+        coefficient_text = f"{whole}{fractional}".lstrip("0") or "0"
+        if len(fractional) > 28 or len(coefficient_text) > 29:
+            return None
+        coefficient = int(coefficient_text)
+        if coefficient > 2**96 - 1:
+            return None
+        try:
+            return "decimal", Decimal(exact)
+        except InvalidOperation:
+            return None
+
+    if len(literal) < 2 or literal[0] not in {'"', "'"}:
+        return None
+    quote = literal[0]
+    if literal[-1] != quote:
+        return None
+    value: list[str] = []
+    index = 1
+    while index < len(literal) - 1:
+        char = literal[index]
+        if char == quote:
+            return None
+        if char != "\\":
+            value.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(literal) - 1:
+            return None
+        escaped = literal[index + 1]
+        value.append(
+            {
+                "\\": "\\",
+                '"': '"',
+                "'": "'",
+                "n": "\n",
+                "r": "\r",
+                "t": "\t",
+            }.get(escaped, escaped)
+        )
+        index += 2
+    return "text", "".join(value)
 
 
 def _strip_balanced_outer_parentheses(expression: str) -> str:
     stripped = expression.strip()
-    while stripped.startswith("(") and stripped.endswith(")"):
-        depth = 0
-        encloses_all = True
-        for index, char in enumerate(stripped):
-            if char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-                if depth == 0 and index != len(stripped) - 1:
-                    encloses_all = False
-                    break
+    if not stripped.startswith("(") or not stripped.endswith(")"):
+        return stripped
+
+    matching_parentheses: dict[int, int] = {}
+    opening_parentheses: list[int] = []
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(stripped):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "(":
+            opening_parentheses.append(index)
+            continue
+        if char != ")":
+            continue
+        if not opening_parentheses:
+            return stripped
+        matching_parentheses[opening_parentheses.pop()] = index
+    if quote is not None or opening_parentheses:
+        return stripped
+
+    start = 0
+    end = len(stripped) - 1
+    while start < end and matching_parentheses.get(start) == end:
+        start += 1
+        end -= 1
+        while start <= end and stripped[start].isspace():
+            start += 1
+        while end >= start and stripped[end].isspace():
+            end -= 1
+    return stripped[start : end + 1]
+
+
+def _rulespec_expression_nesting_within_limit(
+    expression: str,
+    *,
+    max_depth: int = 256,
+) -> bool:
+    """Bound heuristic-only parsing and reject malformed delimiters safely."""
+
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for char in expression:
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            continue
+        if char == "(":
+            depth += 1
+            if depth > max_depth:
+                return False
+        elif char == ")":
+            depth -= 1
             if depth < 0:
-                encloses_all = False
-                break
-        if not encloses_all or depth != 0:
-            break
-        stripped = stripped[1:-1].strip()
-    return stripped
+                return False
+    return quote is None and depth == 0
 
 
 def _split_top_level_boolean_operator(expression: str, operator: str) -> list[str]:
     parts: list[str] = []
     depth = 0
+    quote: str | None = None
+    escaped = False
     start = 0
     index = 0
     pattern = re.compile(rf"\b{re.escape(operator)}\b")
     while index < len(expression):
         char = expression[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            index += 1
+            continue
         if char == "(":
             depth += 1
             index += 1
@@ -8280,6 +21744,10 @@ def find_source_verification_issues(
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         return []
 
+    plural_issues = find_plural_corpus_citation_path_issues(payload)
+    if plural_issues:
+        return plural_issues
+
     source_verification = _source_verification_block(payload)
     if source_verification is None:
         return []
@@ -8289,10 +21757,7 @@ def find_source_verification_issues(
     )
     expected_values = source_verification.get("values")
     if not citation_paths:
-        return [
-            "Source verification source required: missing `corpus_citation_path`, "
-            "or `corpus_citation_paths`."
-        ]
+        return ["Source verification source required: missing `corpus_citation_path`."]
     if not isinstance(expected_values, dict) or not expected_values:
         if expected_values is not None:
             return [
@@ -8949,32 +22414,57 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"\b(?:no|any|each|every|all|a|an|the|that|such|certain)\s+"
     r"(?:(?:resident|nonresident|qualifying|qualified|eligible)\s+)?"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?members?|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat|"
     r"allowed\s+(?:a\s+)?credit)",
     flags=re.IGNORECASE,
 )
+_INDIVIDUAL_TAX_CREDIT_AMOUNT_SOURCE_PATTERN = re.compile(
+    r"\bcredit\s+against\s+the\s+tax\s+imposed\b"
+    r"[\s\S]{0,240}?\b(?:resident\s+)?individuals?\b"
+    r"[\s\S]{0,240}?\bin\s+an?\s+amount\s+equal\s+to\b"
+    r"[\s\S]{0,300}?\bfederal\s+earned\s+income\s+tax\s+credit\s+"
+    r"(?P<eligibility_phrase>for\s+which\s+the\s+individual\s+is\s+eligible)\b",
+    flags=re.IGNORECASE,
+)
+_INDIVIDUAL_TAX_CREDIT_RESIDUAL_PERSON_SCOPE_PATTERN = re.compile(
+    r"\b(?:individuals?|persons?)\b[\s\S]{0,180}\b"
+    r"(?:eligible|ineligible|disqualif|excluded?|participat|"
+    r"allowed\s+(?:a\s+)?credit)\b",
+    flags=re.IGNORECASE,
+)
+_HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
+    r"\bhead(?:\s+|\s*[-‐‑‒–—―−]\s*)of"
+    r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
+    flags=re.IGNORECASE,
+)
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+members?\b)"
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:household\b(?!\s+member\b)|snap\s+unit|food\s+assistance\s+unit|"
-    r"assistance\s+unit|tax\s+unit|filing\s+unit|family\b(?!\s+member\b)|"
-    r"spm\s+unit)\b"
+    r"(?:"
+    + _HOUSEHOLD_UNIT_SOURCE_TOKEN
+    + r"|\bsnap\s+unit|\bfood\s+assistance\s+unit|"
+    r"\bassistance\s+unit|\btax\s+unit|\bfiling\s+unit|"
+    r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
     r"benefit|allotment)\b",
     flags=re.IGNORECASE,
 )
 _UNIT_SOURCE_ENTITY_PATTERNS = (
-    ("household", re.compile(r"\bhousehold\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    (
+        "household",
+        re.compile(_HOUSEHOLD_UNIT_SOURCE_TOKEN, flags=re.IGNORECASE),
+    ),
     (
         "snapunit",
         re.compile(r"\b(?:snap|food\s+assistance)\s+unit\b", flags=re.IGNORECASE),
     ),
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
-    ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    ("family", re.compile(r"\bfamily\b(?!\s+members?\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
 _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
@@ -9088,7 +22578,7 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
+    r"\bhousehold\b(?!\s+members?\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
@@ -9193,14 +22683,22 @@ def find_empty_rules_module_issues(content: str) -> list[str]:
     ]
 
 
+def _mask_household_filing_statuses(text: str) -> str:
+    """Hide filing-status phrases without changing classification distances."""
+    return _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)), text
+    )
+
+
 def _classify_source_scope(text: str) -> str | None:
     """Return a clear source scope, or None when the text is mixed/vague."""
-    person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(text) is not None
+    classification_text = _mask_household_filing_statuses(text)
+    person_scoped = _PERSON_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
     unit_scoped = (
-        _UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
-        or _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text) is not None
+        _UNIT_SCOPE_SOURCE_PATTERN.search(classification_text) is not None
+        or _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text) is not None
     )
-    if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(text):
+    if _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN.search(classification_text):
         return None
     if person_scoped == unit_scoped:
         return None
@@ -9209,12 +22707,13 @@ def _classify_source_scope(text: str) -> str | None:
 
 def _classify_source_unit_entity(text: str) -> str | None:
     """Return a clear unit entity from source text, or None when generic/mixed."""
-    if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(text):
+    classification_text = _mask_household_filing_statuses(text)
+    if _TAXPAYER_TAX_UNIT_SOURCE_PATTERN.search(classification_text):
         return "taxunit"
     matches = {
         entity
         for entity, pattern in _UNIT_SOURCE_ENTITY_PATTERNS
-        if pattern.search(text)
+        if pattern.search(classification_text)
     }
     if len(matches) != 1:
         return None
@@ -9333,6 +22832,48 @@ def _person_rule_can_use_unit_scoped_chip_income_source(
     return bool(_CHIP_PERSON_ELIGIBILITY_CONTEXT_PATTERN.search(eligibility_context))
 
 
+def _taxunit_money_rule_can_use_individual_tax_credit_amount_source(
+    rule: dict[str, Any],
+) -> bool:
+    """Allow a filed tax-credit amount whose statute calls the filer individual.
+
+    State income-tax statutes commonly grant a credit against tax "for
+    individuals" and describe the federal credit for which "the individual is
+    eligible." That wording establishes the taxpayer class and amount base; it
+    does not turn the resulting monetary credit against tax into a person-level
+    eligibility judgment.
+    """
+    if str(rule.get("entity") or "").strip().lower() != "taxunit":
+        return False
+    if str(rule.get("dtype") or "").strip().lower() != "money":
+        return False
+    name = str(rule.get("name") or "").strip()
+    if not _FINAL_AMOUNT_NAME_PATTERN.search(name):
+        return False
+    saw_tax_credit_amount_source = False
+    for excerpt in _rule_proof_source_excerpts(rule):
+        matches = list(_INDIVIDUAL_TAX_CREDIT_AMOUNT_SOURCE_PATTERN.finditer(excerpt))
+        if matches:
+            saw_tax_credit_amount_source = True
+            remaining_characters = list(excerpt)
+            for match in matches:
+                phrase_start, phrase_end = match.span("eligibility_phrase")
+                remaining_characters[phrase_start:phrase_end] = " " * (
+                    phrase_end - phrase_start
+                )
+            remaining_text = "".join(remaining_characters)
+        else:
+            remaining_text = excerpt
+        classification_text = _mask_household_filing_statuses(remaining_text)
+        if _PERSON_SCOPE_SOURCE_PATTERN.search(
+            classification_text
+        ) or _INDIVIDUAL_TAX_CREDIT_RESIDUAL_PERSON_SCOPE_PATTERN.search(
+            classification_text
+        ):
+            return False
+    return saw_tax_credit_amount_source
+
+
 def _medicaid_magi_rule_has_income_only_formula(rule: dict[str, Any]) -> bool:
     versions = rule.get("versions")
     if not isinstance(versions, list):
@@ -9403,13 +22944,6 @@ def _rule_proof_source_contexts(rule: dict[str, Any]) -> list[tuple[str, str]]:
             value = source.get(key)
             if isinstance(value, str) and value.strip():
                 contexts.append((key, value.strip()))
-        many_paths = source.get("corpus_citation_paths")
-        if isinstance(many_paths, list):
-            for value in many_paths:
-                if isinstance(value, str) and value.strip():
-                    contexts.append(("corpus_citation_paths", value.strip()))
-        elif isinstance(many_paths, str) and many_paths.strip():
-            contexts.append(("corpus_citation_paths", many_paths.strip()))
     return contexts
 
 
@@ -9482,6 +23016,8 @@ def find_source_scope_consistency_issues(content: str) -> list[str]:
             source_scope == _SOURCE_SCOPE_PERSON
             and normalized_entity in _UNIT_SCOPED_ENTITY_NAMES
         ):
+            if _taxunit_money_rule_can_use_individual_tax_credit_amount_source(rule):
+                continue
             issues.append(
                 "Source scope mismatch: "
                 f"`{name}` is declared on `{entity}`, but the embedded source "
@@ -9759,7 +23295,21 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         entity = str(rule.get("entity") or "").strip()
         if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        proof_source_excerpts = _rule_proof_source_excerpts(rule)
+        source_scope_record = (
+            _rule_source_scope(rule, source_text) if proof_source_excerpts else None
+        )
+        if source_scope_record is not None:
+            source_scope, source_unit_entity = source_scope_record
+            if source_scope == _SOURCE_SCOPE_UNIT and (
+                source_unit_entity is None
+                or _unit_entities_are_equivalent(
+                    entity.lower(),
+                    source_unit_entity,
+                )
+            ):
+                continue
+        scoped_source_text = " ".join(proof_source_excerpts)
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
         if (
@@ -10418,9 +23968,6 @@ def _module_source_is_us_tax_code(payload: dict[str, Any]) -> bool:
     single = sv.get("corpus_citation_path")
     if isinstance(single, str):
         paths.append(single)
-    plural = sv.get("corpus_citation_paths")
-    if isinstance(plural, list):
-        paths.extend(p for p in plural if isinstance(p, str))
     if not paths:
         return True
     return any(_is_us_tax_code_path(path) for path in paths)
@@ -10489,15 +24036,23 @@ def find_deferred_output_issues(content: str) -> list[str]:
     payload = _rulespec_payload(content)
     if payload is None:
         return []
+    issues: list[str] = []
+    if "deferred_outputs" in payload:
+        issues.append(
+            "`deferred_outputs` is misplaced at the document root; move it to "
+            "`module.deferred_outputs`."
+        )
     module = payload.get("module")
     if not isinstance(module, dict) or "deferred_outputs" not in module:
-        return []
+        return issues
 
     deferred_outputs = module.get("deferred_outputs")
     if not isinstance(deferred_outputs, list):
-        return ["`module.deferred_outputs` must be a list of deferred output records."]
+        issues.append(
+            "`module.deferred_outputs` must be a list of deferred output records."
+        )
+        return issues
 
-    issues: list[str] = []
     for index, record in enumerate(deferred_outputs):
         label = f"module.deferred_outputs[{index}]"
         if not isinstance(record, dict):
@@ -10587,7 +24142,7 @@ def find_source_subparagraph_coverage_issues(
     citation_paths, source_label = _source_verification_source_fields(
         source_verification
     )
-    if len(citation_paths) != 1:
+    if not citation_paths:
         return []
 
     citation_path = citation_paths[0]
@@ -10627,7 +24182,9 @@ def find_source_subparagraph_coverage_issues(
         _source_relation_covered_subparagraphs(payload, citation_path)
     )
     covered_children.update(
-        _deferred_output_covered_subparagraphs(payload, citation_path)
+        _deferred_output_covered_subparagraphs(
+            payload, citation_path, rules_file=rules_file
+        )
     )
 
     issues: list[str] = []
@@ -10816,17 +24373,34 @@ def _source_relation_subparagraph_paths(
 def _deferred_output_covered_subparagraphs(
     payload: dict[str, Any],
     citation_path: str,
+    *,
+    rules_file: Path | None = None,
 ) -> set[tuple[str, ...]]:
     return {
         _top_level_subparagraph_path(path)
-        for path in _deferred_output_subparagraph_paths(payload, citation_path)
+        for path in _deferred_output_subparagraph_paths(
+            payload, citation_path, rules_file=rules_file
+        )
         if path
     }
+
+
+def _module_self_scope_parts(rules_file: Path | None) -> tuple[str, ...]:
+    """The module's own repo-relative stem parts, from its filesystem root."""
+    if rules_file is None:
+        return ()
+    file_parts = rules_file.with_suffix("").parts
+    for index in range(len(file_parts) - 1, -1, -1):
+        if file_parts[index] in RULESPEC_ATOMIC_MODULE_ROOTS:
+            return tuple(file_parts[index:])
+    return ()
 
 
 def _deferred_output_subparagraph_paths(
     payload: dict[str, Any],
     citation_path: str,
+    *,
+    rules_file: Path | None = None,
 ) -> set[tuple[str, ...]]:
     module = payload.get("module")
     if not isinstance(module, dict):
@@ -10836,7 +24410,13 @@ def _deferred_output_subparagraph_paths(
         return set()
 
     base_parts = _rulespec_base_parts_for_corpus_path(citation_path)
-    if not base_parts:
+    # A module whose rulespec path does not mirror its corpus document (a
+    # council policy module sourced from a scheme manual, say) cannot name a
+    # corpus-mirror deferral target under an atomic root — `manuals/...` is
+    # not a module root. Such a module defers a sub-paragraph by naming its
+    # own future output: <its own stem path>/<sub-paragraph>#symbol.
+    self_parts = _module_self_scope_parts(rules_file)
+    if not base_parts and not self_parts:
         return set()
 
     paths: set[tuple[str, ...]] = set()
@@ -10849,11 +24429,18 @@ def _deferred_output_subparagraph_paths(
             continue
         target_parts = _rulespec_relative_path_parts(target_ref.relative_path)
         if (
-            len(target_parts) <= len(base_parts)
-            or target_parts[: len(base_parts)] != base_parts
+            base_parts
+            and len(target_parts) > len(base_parts)
+            and target_parts[: len(base_parts)] == base_parts
         ):
+            paths.add(tuple(part.lower() for part in target_parts[len(base_parts) :]))
             continue
-        paths.add(tuple(part.lower() for part in target_parts[len(base_parts) :]))
+        if (
+            self_parts
+            and len(target_parts) > len(self_parts)
+            and target_parts[: len(self_parts)] == self_parts
+        ):
+            paths.add(tuple(part.lower() for part in target_parts[len(self_parts) :]))
     return paths
 
 
@@ -11033,7 +24620,10 @@ _RULESPEC_DOCUMENT_CLASS_DIRS = {
 
 
 def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
-    parts = citation_path.strip("/").split("/")
+    parts = [
+        normalize_rulespec_path_segment(part)
+        for part in citation_path.strip("/").split("/")
+    ]
     if (
         len(parts) >= 4
         and parts[1] == "statute"
@@ -11057,13 +24647,28 @@ def _rulespec_base_parts_for_corpus_path(citation_path: str) -> tuple[str, ...]:
         "regulation": "regulations",
         **_RULESPEC_DOCUMENT_CLASS_DIRS,
     }
-    if len(parts) >= 3 and len(parts[0]) == 2 and parts[1] in generic_class_dirs:
-        # Unitary jurisdictions (gh, ug, ng, be, uk, ...) mirror the corpus
-        # class directly under the country code; the rulespec layout uses the
-        # pluralized class dir. Without this branch the sub-paragraph
-        # coverage gate fires for these jurisdictions but deferred_outputs
-        # entries can never satisfy it (the base resolves empty), making the
-        # gate unsatisfiable outside the US.
+    if (
+        len(parts) >= 3
+        and (
+            (len(parts[0]) == 2 and parts[0].isalpha())
+            or (
+                len(parts[0]) > 3
+                and parts[0][2] == "-"
+                and parts[0][:2].isalpha()
+                and not parts[0].startswith("us-")
+            )
+        )
+        and parts[1] in generic_class_dirs
+    ):
+        # Unitary jurisdictions (gh, ug, ng, be, uk, ...) and their
+        # local-authority sub-jurisdictions (uk-kingston-upon-thames, ...)
+        # mirror the corpus class directly under the jurisdiction prefix; the
+        # rulespec layout uses the pluralized class dir. Without this branch
+        # the sub-paragraph coverage gate fires for these jurisdictions but
+        # deferred_outputs entries can never satisfy it (the base resolves
+        # empty), making the gate unsatisfiable outside the US. The us-*
+        # prefixes are excluded only because the dedicated branches above
+        # already map them.
         return (generic_class_dirs[parts[1]], *parts[2:])
     return ()
 
@@ -11072,10 +24677,8 @@ def _rulespec_relative_path_parts(path: Path) -> tuple[str, ...]:
     parts = list(path.parts)
     if parts:
         last = parts[-1]
-        for suffix in (".yaml", ".yml"):
-            if last.endswith(suffix):
-                parts[-1] = last[: -len(suffix)]
-                break
+        if last.endswith(RULESPEC_FILE_SUFFIX):
+            parts[-1] = last[: -len(RULESPEC_FILE_SUFFIX)]
     return tuple(parts)
 
 
@@ -11899,100 +25502,6 @@ def find_current_year_final_amount_table_issues(
     return issues
 
 
-def repair_current_year_final_amount_tables(
-    content: str,
-    *,
-    rules_file: Path,
-    policy_repo_path: Path | None = None,
-) -> tuple[str, list[str]]:
-    """Mechanically select supported imported final amount tables."""
-    payload = _rulespec_payload(content)
-    if payload is None:
-        return content, []
-
-    rule_names = _rulespec_rule_names(payload)
-    imported_exports = _imported_rulespec_exports(
-        payload,
-        rules_file=rules_file,
-        policy_repo_path=policy_repo_path,
-    )
-
-    repaired = content
-    repaired_rules: list[str] = []
-    for name, kind, formula, _source, _rule in _rulespec_rule_formula_rule_records(
-        payload
-    ):
-        if kind != "derived":
-            continue
-        phased_in_repair = _current_year_phased_in_cap_repair(
-            name=name,
-            formula=formula,
-            rule_names=rule_names,
-        )
-        if phased_in_repair is not None:
-            repaired = _replace_formula_text_once(repaired, formula, phased_in_repair)
-            repaired_rules.append(name)
-            continue
-        if not imported_exports:
-            continue
-        if not _CURRENT_YEAR_FINAL_AMOUNT_RULE_PATTERN.search(name):
-            continue
-        if not _CURRENT_YEAR_FINAL_AMOUNT_RECOMPUTE_PATTERN.search(formula):
-            continue
-        final_export = _matching_final_amount_export(name, imported_exports)
-        if final_export is None:
-            continue
-        index_rule = _final_amount_index_rule_name(name, rule_names)
-        if index_rule is None:
-            continue
-        keys = _parameter_table_keys(final_export.file, final_export.name)
-        if not keys:
-            continue
-        replacement = _final_amount_table_match_formula(
-            table_name=final_export.name,
-            index_rule=index_rule,
-            keys=keys,
-        )
-        repaired = _replace_formula_text_once(repaired, formula, replacement)
-        import_hash = f"sha256:{_file_sha256(final_export.file)}"
-        repaired = _insert_rule_proof_import_atom(
-            repaired,
-            rule_name=name,
-            target=final_export.target,
-            output=final_export.name,
-            import_hash=import_hash,
-        )
-        repaired_rules.append(name)
-
-    return repaired, repaired_rules
-
-
-def _current_year_phased_in_cap_repair(
-    *,
-    name: str,
-    formula: str,
-    rule_names: set[str],
-) -> str | None:
-    if not name.endswith("_phased_in"):
-        return None
-    prefix = name.removesuffix("_phased_in")
-    maximum_name = f"{prefix}_maximum"
-    if maximum_name not in rule_names:
-        return None
-    stripped = formula.strip()
-    if stripped.startswith("if earned_income >= eitc_earned_income_amount:"):
-        return None
-    if "phase_in_rate" not in stripped or "earned_income_amount" not in stripped:
-        return None
-    raw_formula = re.sub(
-        rf"^min\s*\(\s*{re.escape(maximum_name)}\s*,\s*(?P<body>.*)\)\s*$",
-        r"\g<body>",
-        stripped,
-        count=1,
-    )
-    return f"if earned_income >= eitc_earned_income_amount: {maximum_name} else: {raw_formula}"
-
-
 def _rulespec_rule_names(payload: dict[str, Any]) -> set[str]:
     rules = payload.get("rules")
     if not isinstance(rules, list):
@@ -12018,10 +25527,12 @@ def _imported_rulespec_exports(
     for raw_import in imports:
         if not isinstance(raw_import, str):
             continue
-        target = raw_import.split("#", 1)[0].strip().strip("/")
-        target_ref = _parse_rulespec_target(target)
+        target_ref = _parse_rulespec_target(raw_import)
         if target_ref is None:
             continue
+        target_base = (
+            f"{target_ref.prefix}:{target_ref.relative_path.with_suffix('').as_posix()}"
+        )
         target_file = _resolve_rulespec_target_file(
             target_ref,
             policy_repo_path or _rulespec_repo_root(Path(rules_file).resolve()),
@@ -12036,7 +25547,7 @@ def _imported_rulespec_exports(
                 rule_name,
                 _ImportedRulespecExport(
                     name=rule_name,
-                    target=f"{target}#{rule_name}",
+                    target=f"{target_base}#{rule_name}",
                     file=target_file,
                 ),
             )
@@ -12064,106 +25575,6 @@ def _final_amount_export_candidates(rule_name: str) -> tuple[str, ...]:
         if prefix:
             candidates.append(f"{prefix}_maximum_credit_amounts")
     return tuple(dict.fromkeys(candidates))
-
-
-def _final_amount_index_rule_name(
-    rule_name: str,
-    rule_names: set[str],
-) -> str | None:
-    prefixes = [rule_name]
-    if rule_name.endswith("_maximum"):
-        prefixes.append(rule_name.removesuffix("_maximum"))
-    for prefix in prefixes:
-        for candidate in (
-            f"{prefix}_capped_child_count",
-            f"{prefix}_child_count",
-            f"{prefix}_capped_count",
-        ):
-            if candidate in rule_names:
-                return candidate
-    return None
-
-
-def _parameter_table_keys(target_file: Path, rule_name: str) -> list[str]:
-    payload = _rulespec_payload_from_file(target_file)
-    if payload is None:
-        return []
-    rules = payload.get("rules")
-    if not isinstance(rules, list):
-        return []
-    for rule in rules:
-        if not isinstance(rule, dict):
-            continue
-        if str(rule.get("name") or "").strip() != rule_name:
-            continue
-        versions = rule.get("versions")
-        if not isinstance(versions, list) or not versions:
-            return []
-        first_version = versions[0]
-        if not isinstance(first_version, dict):
-            return []
-        values = first_version.get("values")
-        if not isinstance(values, dict):
-            return []
-        return [str(key) for key in values]
-    return []
-
-
-def _final_amount_table_match_formula(
-    *,
-    table_name: str,
-    index_rule: str,
-    keys: list[str],
-) -> str:
-    sorted_keys = sorted(keys, key=lambda key: int(key) if key.isdigit() else key)
-    lines = [f"match {index_rule}:"]
-    lines.extend(f"    {key} => {table_name}[{key}]" for key in sorted_keys)
-    return "\n".join(lines)
-
-
-def _insert_rule_proof_import_atom(
-    content: str,
-    *,
-    rule_name: str,
-    target: str,
-    output: str,
-    import_hash: str,
-) -> str:
-    if f"target: {target}" in content:
-        return content
-
-    lines = content.splitlines(keepends=True)
-    rule_starts = [
-        index for index, line in enumerate(lines) if re.match(r"^  - name:\s*", line)
-    ]
-    for rule_start, next_rule_start in zip(
-        rule_starts,
-        rule_starts[1:] + [len(lines)],
-        strict=False,
-    ):
-        name_match = re.match(r"^  - name:\s*(.+?)\s*$", lines[rule_start])
-        if name_match is None or name_match.group(1).strip() != rule_name:
-            continue
-        atom_index = next(
-            (
-                index
-                for index in range(rule_start, next_rule_start)
-                if re.match(r"^        atoms:\s*$", lines[index])
-            ),
-            None,
-        )
-        if atom_index is None:
-            return content
-        inserted = [
-            "          - path: versions[0].formula\n",
-            "            kind: import\n",
-            "            import:\n",
-            f"              target: {target}\n",
-            f"              output: {output}\n",
-            f"              hash: {import_hash}\n",
-        ]
-        return "".join(lines[: atom_index + 1] + inserted + lines[atom_index + 1 :])
-    return content
 
 
 def _replace_formula_text_once(content: str, old: str, new: str) -> str:
@@ -12894,17 +26305,18 @@ def _rulespec_file_matches_target_ref(
     rules_file: Path,
     target_ref: "_RuleSpecTargetRef",
 ) -> bool:
-    """Return whether a file path carries the canonical target path suffix.
+    """Return whether a file has the exact canonical target identity."""
 
-    Generated candidates are often validated outside a `rulespec-*` checkout,
-    for example under `/tmp/.../statutes/26/63/f.yaml`. A proof import pointing
-    to `us:statutes/26/63/f#symbol` is still a same-file import in that context.
-    """
-    path_parts = Path(rules_file).resolve().parts
-    target_parts = target_ref.relative_path.parts
-    if len(path_parts) < len(target_parts):
+    content_root = find_policy_repo_root(rules_file)
+    if content_root is None:
         return False
-    return path_parts[-len(target_parts) :] == target_parts
+    if canonical_rulespec_repo_name(content_root) != target_ref.repo_name:
+        return False
+    try:
+        relative = Path(rules_file).resolve().relative_to(content_root.resolve())
+    except ValueError:
+        return False
+    return relative == target_ref.relative_path
 
 
 def _rulespec_data_relation_names(payload: dict[str, Any]) -> set[str]:
@@ -14725,6 +28137,40 @@ _PURPOSE_AMOUNT_TOKENS = {
     "wage",
     "wages",
 }
+_PURPOSE_BRANCH_QUALIFIER_GROUPS = (frozenset({"lower", "middle", "upper"}),)
+_PURPOSE_ORDINAL_VALUES = {
+    name: index
+    for index, name in enumerate(
+        (
+            "first",
+            "second",
+            "third",
+            "fourth",
+            "fifth",
+            "sixth",
+            "seventh",
+            "eighth",
+            "ninth",
+            "tenth",
+            "eleventh",
+            "twelfth",
+            "thirteenth",
+            "fourteenth",
+            "fifteenth",
+            "sixteenth",
+            "seventeenth",
+            "eighteenth",
+            "nineteenth",
+            "twentieth",
+        ),
+        start=1,
+    )
+}
+_DEFERRED_OUTPUT_YEAR_PATTERN = re.compile(
+    r"(?:^|_)(?:for|from|beginning|effective)(?:_in|_with|_calendar|_taxable|_year)*_"
+    r"(?P<year>(?:19|20)\d{2})(?:_|$)",
+    flags=re.IGNORECASE,
+)
 
 
 def find_current_purpose_placeholder_issues(content: str) -> list[str]:
@@ -14749,19 +28195,38 @@ def find_current_purpose_placeholder_issues(content: str) -> list[str]:
     return issues
 
 
-def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
+def find_deferred_purpose_specific_limitation_issues(
+    content: str,
+    *,
+    rules_file: Path | None = None,
+    policy_repo_path: Path | None = None,
+) -> list[str]:
     """Reject generic executable outputs when purpose-specific limitations defer."""
     payload = _rulespec_payload(content)
     if payload is None:
         return []
 
-    deferred_prefix_tokens: list[tuple[str, set[str]]] = []
+    deferred_prefix_tokens: list[tuple[str, set[str], date | None]] = []
     module = payload.get("module")
     deferred_outputs = (
         module.get("deferred_outputs") if isinstance(module, dict) else None
     )
     if not isinstance(deferred_outputs, list):
         return []
+    rules_by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in payload.get("rules", [])
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    current_module_target = None
+    if rules_file is not None:
+        canonical_target = _canonical_rulespec_file_target(
+            policy_repo_path=policy_repo_path,
+            rules_file=rules_file,
+            symbol="__module__",
+        )
+        if canonical_target is not None:
+            current_module_target = canonical_target.rsplit("#", 1)[0]
     for record in deferred_outputs:
         if not isinstance(record, dict):
             continue
@@ -14781,7 +28246,19 @@ def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
         tokens = _purpose_surface_tokens(prefix)
         if len(tokens) < 2:
             continue
-        deferred_prefix_tokens.append((symbol, tokens))
+        deferred_prefix_tokens.append(
+            (
+                symbol,
+                tokens,
+                _deferred_output_effective_start(
+                    symbol,
+                    reason=reason,
+                    source_values=record.get("source_values"),
+                    rules_by_name=rules_by_name,
+                    current_module_target=current_module_target,
+                ),
+            )
+        )
     if not deferred_prefix_tokens:
         return []
 
@@ -14799,7 +28276,14 @@ def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
         rule_tokens = _purpose_surface_tokens(name)
         if not rule_tokens or not rule_tokens.intersection(_PURPOSE_AMOUNT_TOKENS):
             continue
-        for deferred_symbol, deferred_tokens in deferred_prefix_tokens:
+        for deferred_symbol, deferred_tokens, deferred_start in deferred_prefix_tokens:
+            if not _purpose_branch_core_matches(
+                name,
+                _purpose_specific_prefix(deferred_symbol),
+            ):
+                continue
+            if _rule_ends_before_deferred_period(rule, deferred_start=deferred_start):
+                continue
             overlap = rule_tokens & deferred_tokens
             if len(overlap) < 3:
                 continue
@@ -14815,6 +28299,216 @@ def find_deferred_purpose_specific_limitation_issues(content: str) -> list[str]:
             )
             break
     return issues
+
+
+def _purpose_branch_core_matches(
+    rule_name: str,
+    deferred_name: str,
+) -> bool:
+    """Keep mutually exclusive named branches from colliding on generic tokens."""
+
+    rule_sequence = _purpose_surface_token_sequence(rule_name)
+    deferred_sequence = _purpose_surface_token_sequence(deferred_name)
+    rule_tokens = set(rule_sequence)
+    deferred_tokens = set(deferred_sequence)
+    for qualifier_group in _PURPOSE_BRANCH_QUALIFIER_GROUPS:
+        rule_qualifiers = rule_tokens & qualifier_group
+        deferred_qualifiers = deferred_tokens & qualifier_group
+        if (
+            rule_qualifiers
+            and deferred_qualifiers
+            and rule_qualifiers.isdisjoint(deferred_qualifiers)
+        ):
+            return False
+    rule_ordinals = _purpose_branch_ordinal_values(rule_sequence)
+    deferred_ordinals = _purpose_branch_ordinal_values(deferred_sequence)
+    if (
+        rule_ordinals
+        and deferred_ordinals
+        and rule_ordinals.isdisjoint(deferred_ordinals)
+    ):
+        return False
+    return True
+
+
+def _purpose_branch_ordinal_values(tokens: Sequence[str]) -> set[int]:
+    tens = {
+        "twenty": 20,
+        "thirty": 30,
+        "forty": 40,
+        "fifty": 50,
+        "sixty": 60,
+        "seventy": 70,
+        "eighty": 80,
+        "ninety": 90,
+    }
+    values: set[int] = set()
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if (
+            token in tens
+            and index + 1 < len(tokens)
+            and tokens[index + 1] in _PURPOSE_ORDINAL_VALUES
+            and _PURPOSE_ORDINAL_VALUES[tokens[index + 1]] < 10
+        ):
+            values.add(tens[token] + _PURPOSE_ORDINAL_VALUES[tokens[index + 1]])
+            index += 2
+            continue
+        if token in _PURPOSE_ORDINAL_VALUES:
+            values.add(_PURPOSE_ORDINAL_VALUES[token])
+        elif match := re.fullmatch(r"(?P<number>\d+)(?:st|nd|rd|th)?", token):
+            values.add(int(match.group("number")))
+        index += 1
+    return values
+
+
+def _deferred_output_effective_start(
+    symbol: str,
+    *,
+    reason: str,
+    source_values: object,
+    rules_by_name: dict[str, dict[str, Any]],
+    current_module_target: str | None,
+) -> date | None:
+    match = _DEFERRED_OUTPUT_YEAR_PATTERN.search(_normalize_identifier(symbol))
+    if match is None:
+        return None
+    year = match.group("year")
+    if not re.search(
+        rf"\b(?:calendar|taxable|fiscal)?\s*year\s+{year}\b|"
+        rf"\b{year}\s+(?:and\s+later|and\s+thereafter|or\s+later)\b",
+        reason,
+        flags=re.IGNORECASE,
+    ):
+        return None
+    if not isinstance(source_values, list):
+        return None
+    typed_temporal_value = False
+    for item in source_values:
+        item_text = str(item or "").strip()
+        if not _deferred_temporal_reference_is_current_module(
+            item_text,
+            current_module_target=current_module_target,
+        ):
+            continue
+        source_symbol = item_text.rsplit("#", 1)[-1] if "#" in item_text else ""
+        if not _deferred_temporal_parameter_matches_branch(
+            source_symbol,
+            deferred_symbol=symbol,
+        ):
+            continue
+        source_rule = rules_by_name.get(source_symbol)
+        if not isinstance(source_rule, dict) or source_rule.get("kind") != "parameter":
+            continue
+        versions = source_rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        if any(
+            isinstance(version, dict)
+            and str(version.get("effective_from") or "").strip() == f"{year}-01-01"
+            for version in versions
+        ):
+            typed_temporal_value = True
+            break
+    if not typed_temporal_value:
+        return None
+    return date(int(year), 1, 1)
+
+
+def _deferred_temporal_reference_is_current_module(
+    reference: str,
+    *,
+    current_module_target: str | None,
+) -> bool:
+    """Require an exact absolute target to the file currently under validation."""
+
+    if current_module_target is None or "#" not in reference:
+        return False
+    reference_path, source_symbol = reference.rsplit("#", 1)
+    if not reference_path or not source_symbol:
+        return False
+    return reference_path == current_module_target
+
+
+def _deferred_temporal_parameter_matches_branch(
+    source_symbol: str,
+    *,
+    deferred_symbol: str,
+) -> bool:
+    """Bind temporal evidence to the deferred branch, not generic tax words."""
+
+    deferred_tokens = _purpose_surface_tokens(_purpose_specific_prefix(deferred_symbol))
+    source_tokens = _purpose_surface_tokens(source_symbol)
+    deferred_prefix = _purpose_specific_prefix(deferred_symbol)
+    if not _purpose_branch_core_matches(source_symbol, deferred_prefix):
+        return False
+    for qualifier_group in _PURPOSE_BRANCH_QUALIFIER_GROUPS:
+        deferred_qualifiers = deferred_tokens & qualifier_group
+        if deferred_qualifiers and not deferred_qualifiers.issubset(source_tokens):
+            return False
+    deferred_ordinals = {
+        value
+        for value in _purpose_branch_ordinal_values(
+            _purpose_surface_token_sequence(deferred_prefix)
+        )
+        if value < 1900
+    }
+    if deferred_ordinals and not deferred_ordinals.intersection(
+        {
+            value
+            for value in _purpose_branch_ordinal_values(
+                _purpose_surface_token_sequence(source_symbol)
+            )
+            if value < 1900
+        }
+    ):
+        return False
+    generic_tokens = (
+        _PURPOSE_AMOUNT_TOKENS
+        | _PURPOSE_TOKEN_STOPWORDS
+        | {
+            "calendar",
+            "computed",
+            "gross",
+            "household",
+            "individual",
+            "later",
+            "net",
+            "person",
+            "persons",
+            "taxpayer",
+            "total",
+            "year",
+        }
+    )
+    discriminators = {
+        token
+        for token in deferred_tokens - generic_tokens
+        if not re.fullmatch(r"(?:19|20)\d{2}", token)
+    }
+    return len(discriminators & source_tokens) >= 2
+
+
+def _rule_ends_before_deferred_period(
+    rule: dict[str, Any], *, deferred_start: date | None
+) -> bool:
+    """Return true only when every executable version ends before a deferral."""
+
+    if deferred_start is None:
+        return False
+    versions = rule.get("versions")
+    if not isinstance(versions, list) or not versions:
+        return False
+    effective_ends: list[date] = []
+    for version in versions:
+        if not isinstance(version, dict) or not version.get("effective_to"):
+            return False
+        try:
+            effective_ends.append(date.fromisoformat(str(version["effective_to"])))
+        except ValueError:
+            return False
+    return bool(effective_ends) and max(effective_ends) < deferred_start
 
 
 def find_imported_deferred_branch_composition_issues(
@@ -14935,12 +28629,16 @@ def _purpose_specific_prefix(symbol: str) -> str:
 
 
 def _purpose_surface_tokens(name: str) -> set[str]:
-    tokens = {
+    return set(_purpose_surface_token_sequence(name))
+
+
+def _purpose_surface_token_sequence(name: str) -> tuple[str, ...]:
+    tokens = (
         _normalize_purpose_token(token)
         for token in _normalize_identifier(name).split("_")
         if token and token not in _PURPOSE_TOKEN_STOPWORDS
-    }
-    return {token for token in tokens if token}
+    )
+    return tuple(token for token in tokens if token)
 
 
 def _normalize_purpose_token(token: str) -> str:
@@ -16259,7 +29957,10 @@ def find_rule_name_path_suffix_issues(
             if not name:
                 continue
             normalized = name.lower()
-            for suffix in suffixes:
+            for suffix in sorted(
+                suffixes,
+                key=lambda value: (-len(value.split("_")), -len(value), value),
+            ):
                 if normalized.endswith(f"_{suffix}"):
                     issues.append(
                         "Rule name includes citation suffix: "
@@ -16952,7 +30653,7 @@ def find_proof_import_reference_issues(content: str) -> list[str]:
 
 
 def find_import_shape_issues(content: str) -> list[str]:
-    """Reject non-string top-level RuleSpec imports."""
+    """Reject non-string or non-atomic top-level RuleSpec imports."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
         payload = yaml.safe_load(content)
         if not isinstance(payload, dict):
@@ -16977,6 +30678,16 @@ def find_import_shape_issues(content: str) -> list[str]:
                         f"`imports[{index}]` uses `{raw_item}`. Imports must use "
                         "absolute RuleSpec targets like "
                         "`us:statutes/26/45A/a#base_year_1993_indian_employment_costs`."
+                    )
+                elif import_base and _parse_rulespec_target(import_item) is None:
+                    issues.append(
+                        "Import target invalid: "
+                        f"`imports[{index}]` uses `{raw_item}`. Atomic RuleSpec "
+                        "imports must use a jurisdiction-prefixed target beneath "
+                        "one of "
+                        f"{sorted(RULESPEC_ATOMIC_MODULE_ROOTS)}; "
+                        f"`{RULESPEC_COMPOSITION_SPEC_ROOT}/` contains separate "
+                        "axiom-compose ProgramSpecs and cannot be imported."
                     )
                 continue
             issues.append(
@@ -17174,11 +30885,13 @@ def _normalize_rulespec_import_path_static(import_path: str) -> str:
     return normalized.strip("/")
 
 
-_RULESPEC_IMPORT_SOURCE_ROOTS = {"policies", "regulations", "statutes"}
+_RULESPEC_IMPORT_SOURCE_ROOTS = RULESPEC_ATOMIC_MODULE_ROOTS
 
 
 def _rulespec_import_path_aliases_static(import_path: str) -> set[str]:
     normalized = _normalize_rulespec_import_path_static(import_path)
+    if normalized.partition("/")[0] == RULESPEC_COMPOSITION_SPEC_ROOT:
+        return set()
     aliases = {normalized} if normalized else set()
     head, separator, tail = normalized.partition("/")
     if separator and head in _RULESPEC_IMPORT_SOURCE_ROOTS:
@@ -17261,30 +30974,64 @@ def _resolve_rulespec_import_file_static(
     *,
     rules_file: Path,
     policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
-    """Resolve a normalized import path to a local RuleSpec file."""
+    """Resolve an import to a validated file in a recognized RuleSpec root."""
+
+    def validated_existing(candidate: Path) -> Path | None:
+        # ``Path.exists`` follows symlinks, so check ``is_symlink`` as well to
+        # fail closed for broken links rather than silently treating them as a
+        # missing import.  The shared validator also walks parent components
+        # without resolving them first, rejecting directory indirection and
+        # traversal outside the active or a recognized cross-repo root.
+        if not candidate.exists() and not candidate.is_symlink():
+            return None
+        return validate_rulespec_context_file(candidate, policy_repo_path)
+
     normalized = _normalize_rulespec_import_path_static(import_path)
     if not normalized:
         return None
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if candidate.exists():
-        return candidate
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return None
 
     repo_prefix = _rulespec_import_prefix_static(import_path)
     if repo_prefix:
-        candidate = (
-            policy_repo_path.parent / f"rulespec-{repo_prefix}" / f"{normalized}.yaml"
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return None
+        # A declared jurisdiction prefix is authoritative. Route it only
+        # through the canonical active checkout or explicit dependency roots;
+        # a same-relative-path flat fixture must not shadow the target.
+        resolved = _resolve_rulespec_target_file(
+            target_ref,
+            policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
-        if candidate.exists():
-            return candidate
+        if resolved is not None:
+            return resolved
+        return None
+
+    candidate = policy_repo_path / f"{normalized}.yaml"
+    if resolved := validated_existing(candidate):
+        return resolved
 
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
         candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if candidate.exists():
-            return candidate
+        if resolved := validated_existing(candidate):
+            return resolved
     return None
 
 
@@ -17611,6 +31358,7 @@ def find_test_input_assignment_issues(
     imported_symbols = _rulespec_import_fragment_names(payload.get("imports"))
     symbol_inputs: dict[str, set[str]] = {}
     symbol_dependencies: dict[str, set[str]] = {}
+    symbol_versions: dict[str, tuple[_SymbolInputDependencyVersion, ...] | None] = {}
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -17628,17 +31376,45 @@ def find_test_input_assignment_issues(
         if not isinstance(versions, list):
             continue
         formula_identifiers: set[str] = set()
+        dependency_versions: list[_SymbolInputDependencyVersion] = []
+        version_metadata_valid = True
         for version in versions:
             if not isinstance(version, dict):
+                version_metadata_valid = False
                 continue
             formula = version.get("formula")
             if not isinstance(formula, str):
+                version_metadata_valid = False
                 continue
-            formula_identifiers.update(_formula_local_identifiers(formula))
+            identifiers = _formula_local_identifiers(formula)
+            formula_identifiers.update(identifiers)
+            try:
+                effective_from = date.fromisoformat(str(version["effective_from"]))
+                effective_to = (
+                    date.fromisoformat(str(version["effective_to"]))
+                    if version.get("effective_to") is not None
+                    else None
+                )
+            except (KeyError, TypeError, ValueError):
+                version_metadata_valid = False
+                continue
+            dependency_versions.append(
+                _SymbolInputDependencyVersion(
+                    effective_from=effective_from,
+                    effective_to=effective_to,
+                    inputs=frozenset(identifiers - defined_symbols - imported_symbols),
+                    dependencies=frozenset(identifiers & defined_symbols),
+                )
+            )
         symbol_inputs[rule_name] = (
             formula_identifiers - defined_symbols - imported_symbols
         )
         symbol_dependencies[rule_name] = formula_identifiers & defined_symbols
+        symbol_versions[rule_name] = (
+            tuple(dependency_versions)
+            if version_metadata_valid and dependency_versions
+            else None
+        )
 
     if not symbol_inputs:
         return []
@@ -17662,6 +31438,8 @@ def find_test_input_assignment_issues(
             test_case.get("output"),
             symbol_inputs=symbol_inputs,
             symbol_dependencies=symbol_dependencies,
+            symbol_versions=symbol_versions,
+            period_bounds=_test_case_period_bounds(test_case.get("period")),
         )
         local_inputs = required_inputs & globally_local_inputs
         if not local_inputs:
@@ -17702,6 +31480,29 @@ def _defined_rulespec_symbols(rules: list[Any]) -> set[str]:
     }
 
 
+@dataclass(frozen=True)
+class _SymbolInputDependencyVersion:
+    effective_from: date
+    effective_to: date | None
+    inputs: frozenset[str]
+    dependencies: frozenset[str]
+
+
+def _test_case_period_bounds(period: Any) -> tuple[date, date] | None:
+    """Return unambiguous test bounds, otherwise request union fallback."""
+
+    if not isinstance(period, dict) or not {"period_kind", "start", "end"}.issubset(
+        period
+    ):
+        return None
+    try:
+        start = date.fromisoformat(str(period["start"]))
+        end = date.fromisoformat(str(period["end"]))
+    except (TypeError, ValueError):
+        return None
+    return (start, end) if start <= end else None
+
+
 def _indexed_by_input_names(value: Any) -> set[str]:
     if isinstance(value, str):
         return {value.strip()} if value.strip() else set()
@@ -17715,6 +31516,8 @@ def _required_inputs_for_test_outputs(
     *,
     symbol_inputs: dict[str, set[str]],
     symbol_dependencies: dict[str, set[str]],
+    symbol_versions: dict[str, tuple[_SymbolInputDependencyVersion, ...] | None],
+    period_bounds: tuple[date, date] | None,
 ) -> set[str]:
     if not isinstance(outputs, dict):
         return set().union(*symbol_inputs.values()) if symbol_inputs else set()
@@ -17728,6 +31531,8 @@ def _required_inputs_for_test_outputs(
                     fragment,
                     symbol_inputs=symbol_inputs,
                     symbol_dependencies=symbol_dependencies,
+                    symbol_versions=symbol_versions,
+                    period_bounds=period_bounds,
                     seen=set(),
                 )
             )
@@ -17739,18 +31544,62 @@ def _required_inputs_for_symbol(
     *,
     symbol_inputs: dict[str, set[str]],
     symbol_dependencies: dict[str, set[str]],
+    symbol_versions: dict[str, tuple[_SymbolInputDependencyVersion, ...] | None],
+    period_bounds: tuple[date, date] | None,
     seen: set[str],
 ) -> set[str]:
     if symbol in seen:
         return set()
     seen.add(symbol)
-    required = set(symbol_inputs.get(symbol, set()))
-    for dependency in symbol_dependencies.get(symbol, set()):
+    inputs = symbol_inputs.get(symbol, set())
+    dependencies = symbol_dependencies.get(symbol, set())
+    versions = symbol_versions.get(symbol)
+    if period_bounds is not None and versions:
+        period_start, period_end = period_bounds
+        transition_dates = {period_start, period_end}
+        for version in versions:
+            if period_start <= version.effective_from <= period_end:
+                transition_dates.add(version.effective_from)
+            if (
+                version.effective_to is not None
+                and period_start <= version.effective_to <= period_end
+            ):
+                transition_dates.add(version.effective_to)
+                if version.effective_to < period_end:
+                    transition_dates.add(version.effective_to + date.resolution)
+        selected_versions: list[_SymbolInputDependencyVersion] = []
+        for boundary in sorted(transition_dates):
+            live_versions = [
+                version
+                for version in versions
+                if version.effective_from <= boundary
+                and (version.effective_to is None or boundary <= version.effective_to)
+            ]
+            if not live_versions:
+                selected_versions = []
+                break
+            latest_from = max(version.effective_from for version in live_versions)
+            latest_versions = [
+                version
+                for version in live_versions
+                if version.effective_from == latest_from
+            ]
+            if len(latest_versions) != 1:
+                selected_versions = []
+                break
+            selected_versions.append(latest_versions[0])
+        if selected_versions and len(set(selected_versions)) == 1:
+            inputs = set(selected_versions[0].inputs)
+            dependencies = set(selected_versions[0].dependencies)
+    required = set(inputs)
+    for dependency in dependencies:
         required.update(
             _required_inputs_for_symbol(
                 dependency,
                 symbol_inputs=symbol_inputs,
                 symbol_dependencies=symbol_dependencies,
+                symbol_versions=symbol_versions,
+                period_bounds=period_bounds,
                 seen=seen,
             )
         )
@@ -18756,9 +32605,6 @@ def _source_verification_block(payload: dict[str, Any]) -> dict[str, Any] | None
     module = payload.get("module")
     if isinstance(module, dict) and isinstance(module.get("source_verification"), dict):
         return module["source_verification"]
-    source_verification = payload.get("source_verification")
-    if isinstance(source_verification, dict):
-        return source_verification
     return None
 
 
@@ -18771,14 +32617,6 @@ def _source_verification_source_fields(
     ).strip()
     if raw_citation_path:
         citation_paths.append(raw_citation_path)
-    raw_citation_paths = source_verification.get("corpus_citation_paths")
-    if isinstance(raw_citation_paths, list):
-        for raw_path in raw_citation_paths:
-            if not isinstance(raw_path, str):
-                continue
-            citation_path = raw_path.strip()
-            if citation_path:
-                citation_paths.append(citation_path)
     citation_path_tuple = tuple(dict.fromkeys(citation_paths))
     return citation_path_tuple, ", ".join(citation_path_tuple)
 
@@ -18898,11 +32736,19 @@ def _find_source_text_value_issues(
     expected_value: Any,
 ) -> list[str]:
     """Check expected values are present in the ingested source page text."""
+    numeric_profile = _numeric_profile_for_citation_path(source_label)
     normalized_text = _normalize_source_verification_text(source_text)
     if isinstance(expected_value, dict):
         issues: list[str] = []
+        profiled_numeric_cells: list[tuple[str, Any]] = []
         for raw_key, expected_cell in expected_value.items():
             cell_key = str(raw_key)
+            if (
+                numeric_profile != "legacy"
+                and _numeric_rule_value(expected_cell) is not None
+            ):
+                profiled_numeric_cells.append((cell_key, expected_cell))
+                continue
             if not _source_text_contains_indexed_value(
                 normalized_text,
                 index=cell_key,
@@ -18913,17 +32759,50 @@ def _find_source_text_value_issues(
                     f"`{source_label}` does not contain `{value_name}[{cell_key}]` = "
                     f"{_format_verification_value(expected_cell)}."
                 )
-        if issues and _source_text_contains_table_value_multiset(
-            normalized_text,
-            expected_value.values(),
+        if (
+            numeric_profile == "legacy"
+            and issues
+            and _source_text_contains_table_value_multiset(
+                normalized_text,
+                expected_value.values(),
+            )
         ):
             return []
+        if profiled_numeric_cells and not (
+            _source_text_contains_profiled_table_value_multiset(
+                source_text,
+                (cell for _, cell in profiled_numeric_cells),
+                profile=numeric_profile,
+            )
+        ):
+            issues.extend(
+                "Source verification value missing: "
+                f"`{source_label}` does not contain `{value_name}[{cell_key}]` = "
+                f"{_format_verification_value(expected_cell)}."
+                for cell_key, expected_cell in profiled_numeric_cells
+            )
         return issues
 
-    if _source_text_contains_scalar_value(
-        normalized_text,
-        expected_value,
-    ) or _source_text_contains_numeric_value_equivalent(source_text, expected_value):
+    expected_is_numeric = _numeric_rule_value(expected_value) is not None
+    if numeric_profile != "legacy" and expected_is_numeric:
+        value_is_present = _source_text_contains_numeric_value_equivalent(
+            source_text,
+            expected_value,
+            profile=numeric_profile,
+        )
+    else:
+        value_is_present = _source_text_contains_scalar_value(
+            normalized_text,
+            expected_value,
+        ) or (
+            expected_is_numeric
+            and _source_text_contains_numeric_value_equivalent(
+                source_text,
+                expected_value,
+                profile=numeric_profile,
+            )
+        )
+    if value_is_present:
         return []
     return [
         "Source verification value missing: "
@@ -18932,795 +32811,53 @@ def _find_source_text_value_issues(
     ]
 
 
-@functools.lru_cache(maxsize=512)
 def _fetch_corpus_source_text(citation_path: str) -> str | None:
-    """Fetch a corpus.provisions body by citation path.
+    """Fetch a body from the one authoritative named local corpus release."""
 
-    Local corpus artifacts are preferred so encoder and CI runs verify against
-    normalized source text without re-reading original PDFs or HTML pages.
-    Supabase is the network fallback for environments without local artifacts.
-    """
-    local_text = _fetch_local_corpus_source_text(citation_path)
-    if local_text is not None:
-        return local_text
-    for requested_path, candidate_path in _candidate_corpus_source_lookup_paths(
-        citation_path
-    ):
-        source_text = _fetch_supabase_corpus_source_text(candidate_path)
-        if source_text is not None:
-            return _slice_parent_corpus_text_for_requested_path(
-                source_text,
-                requested_path=requested_path,
-                resolved_path=candidate_path,
-            )
-    return None
+    return _fetch_local_corpus_source_text(citation_path)
 
 
-@functools.lru_cache(maxsize=512)
-def _fetch_local_corpus_source_text(citation_path: str) -> str | None:
+def _fetch_corpus_proof_evidence_text(citation_path: str) -> str | None:
+    """Fetch all proof-bearing text from the authoritative corpus provision."""
+
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
     normalized_path = citation_path.strip().strip("/")
     if not normalized_path:
         return None
-
-    for provisions_root in _local_corpus_provisions_roots():
-        for requested_path, candidate_path in _candidate_corpus_source_lookup_paths(
-            normalized_path
-        ):
-            exact_records: list[dict[str, Any]] = []
-            for provision_file in _candidate_local_corpus_provision_files(
-                provisions_root,
-                candidate_path,
-            ):
-                exact_records.extend(
-                    _read_local_corpus_provision_records(
-                        provision_file,
-                        candidate_path,
-                    )
-                )
-            source_text = _select_local_corpus_record_body(exact_records)
-            if source_text is not None:
-                return _slice_parent_corpus_text_for_requested_path(
-                    source_text,
-                    requested_path=requested_path,
-                    resolved_path=candidate_path,
-                )
-
-            if candidate_path != requested_path:
-                continue
-            for provision_file in _candidate_local_corpus_provision_files(
-                provisions_root,
-                candidate_path,
-            ):
-                source_text = _read_local_corpus_descendant_text(
-                    provision_file,
-                    candidate_path,
-                )
-                if source_text is not None:
-                    return source_text
-    return None
+    if release is None:
+        raise CorpusResolutionError(
+            "Corpus source resolution requires a bound LocalCorpusRelease"
+        )
+    try:
+        return resolve_local_corpus_source(
+            normalized_path,
+            release,
+        ).proof_evidence_text
+    except CorpusSourceNotFoundError:
+        return None
+    except UnsafeCorpusPathError as exc:
+        raise UnsafeRulespecContextPath(str(exc)) from exc
 
 
-def _candidate_corpus_source_paths(citation_path: str) -> tuple[str, ...]:
+def _fetch_local_corpus_source_text(
+    citation_path: str,
+) -> str | None:
+    """Fetch local text without ambient checkout or unversioned fallbacks."""
+
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
     normalized_path = citation_path.strip().strip("/")
     if not normalized_path:
-        return ()
-
-    candidates = [normalized_path]
-    candidates.extend(_uk_legislation_gov_source_path_aliases(normalized_path))
-    return tuple(dict.fromkeys(candidates))
-
-
-def _candidate_corpus_source_lookup_paths(
-    citation_path: str,
-) -> tuple[tuple[str, str], ...]:
-    """Return requested and resolvable source paths for validation.
-
-    Ingesters sometimes store statute and regulation text at section granularity
-    while an encoding targets a child paragraph. Validation should ground
-    numeric literals against the same sliced parent text that the encoder used.
-    """
-    lookup_paths: list[tuple[str, str]] = []
-    for requested_path in _candidate_corpus_source_paths(citation_path):
-        lookup_paths.append((requested_path, requested_path))
-        lookup_paths.extend(
-            (requested_path, parent_path)
-            for parent_path in _parent_corpus_source_paths(requested_path)
-        )
-    return tuple(dict.fromkeys(lookup_paths))
-
-
-def _parent_corpus_source_paths(citation_path: str) -> tuple[str, ...]:
-    parts = citation_path.strip().strip("/").split("/")
-    candidates: list[str] = []
-    for end in range(len(parts) - 1, 2, -1):
-        candidate = "/".join(parts[:end])
-        if _citation_path_supports_parenthetical_slicing(candidate.split("/")):
-            candidates.append(candidate)
-    return tuple(dict.fromkeys(candidates))
-
-
-def _uk_legislation_gov_source_path_aliases(citation_path: str) -> tuple[str, ...]:
-    parts = citation_path.split("/")
-    if (
-        len(parts) >= 6
-        and parts[0] == "uk"
-        and parts[1] == "statute"
-        and parts[2] != "legislation.gov.uk"
-    ):
-        source_type, year, chapter, *section_parts = parts[2:]
-        prefix = (
-            "uk",
-            "statute",
-            "legislation.gov.uk",
-            source_type,
-            year,
-            chapter,
-            "section",
-        )
-        candidates = [
-            "/".join(
-                (
-                    *prefix,
-                    *section_parts,
-                )
-            )
-        ]
-        lower_section_parts = [part.lower() for part in section_parts]
-        if lower_section_parts != section_parts:
-            candidates.append(
-                "/".join(
-                    (
-                        *prefix,
-                        *lower_section_parts,
-                    )
-                )
-            )
-        return tuple(candidates)
-    return ()
-
-
-def _slice_parent_corpus_text_for_requested_path(
-    text: str,
-    *,
-    requested_path: str,
-    resolved_path: str,
-) -> str:
-    requested_parts = requested_path.strip("/").split("/")
-    resolved_parts = resolved_path.strip("/").split("/")
-    if (
-        len(requested_parts) <= len(resolved_parts)
-        or requested_parts[: len(resolved_parts)] != resolved_parts
-        or not _citation_path_supports_parenthetical_slicing(resolved_parts)
-    ):
-        return text
-    missing_fragments = tuple(requested_parts[len(resolved_parts) :])
-    if _corpus_citation_path_is_us_cfr(resolved_parts):
-        cfr_sliced = _target_source_scope_by_cfr_hierarchy(
-            text,
-            list(missing_fragments),
-        )
-        if cfr_sliced is not None:
-            return cfr_sliced.strip()
-    sliced = _slice_legal_text_by_parenthetical_fragments(text, missing_fragments)
-    return sliced if sliced is not None else text
-
-
-def _citation_path_supports_parenthetical_slicing(parts: list[str]) -> bool:
-    return len(parts) >= 2 and parts[1] in {"statute", "regulation"}
-
-
-def _corpus_citation_path_is_us_cfr(parts: list[str]) -> bool:
-    return (
-        len(parts) >= 5
-        and parts[0] == "us"
-        and parts[1] == "regulation"
-        and parts[2].isdigit()
-    )
-
-
-def _target_source_scope_by_cfr_hierarchy(
-    source_text: str,
-    fragments: list[str],
-) -> str | None:
-    """Slice CFR-style parenthetical hierarchy by legal marker level."""
-    if any(not _cfr_marker_kind_ordinals(fragment) for fragment in fragments):
         return None
-
-    stack: list[tuple[str, str, int]] = []
-    target = tuple(fragments)
-    target_start: int | None = None
-    target_level: int | None = None
-
-    for match in _iter_cfr_structural_markers(source_text):
-        token = match.group("token")
-        assigned = _assign_cfr_marker_level(stack, token)
-        if assigned is None:
-            continue
-        level, kind, ordinal = assigned
-        stack = stack[:level]
-        stack.append((kind, token, ordinal))
-        path = tuple(item[1] for item in stack)
-
-        if target_start is None:
-            if path == target:
-                target_start = match.start("marker")
-                target_level = level
-            continue
-
-        if target_level is not None and level <= target_level:
-            return source_text[target_start : match.start("marker")]
-
-    if target_start is not None:
-        return source_text[target_start:]
-    return None
-
-
-def _iter_cfr_structural_markers(source_text: str) -> Iterable[re.Match[str]]:
-    """Yield parenthetical markers that appear in structural positions."""
-    marker_pattern = re.compile(
-        r"(?P<marker>\((?P<token>[A-Za-z0-9]+)\))"
-        r"(?=\s+|\([A-Za-z0-9]+\))"
-    )
-    last_yielded_marker_end: int | None = None
-    for match in marker_pattern.finditer(source_text):
-        marker_start = match.start("marker")
-        line_start = source_text.rfind("\n", 0, marker_start) + 1
-        if not source_text[line_start:marker_start].strip():
-            last_yielded_marker_end = match.end("marker")
-            yield match
-            continue
-
-        if last_yielded_marker_end == marker_start:
-            last_yielded_marker_end = match.end("marker")
-            yield match
-            continue
-
-        previous = marker_start - 1
-        while previous >= 0 and source_text[previous].isspace():
-            previous -= 1
-        follows_spaced_marker = (
-            previous >= 0
-            and source_text[previous] == ")"
-            and marker_start > 0
-            and source_text[marker_start - 1].isspace()
+    if release is None:
+        raise CorpusResolutionError(
+            "Corpus source resolution requires a bound LocalCorpusRelease"
         )
-        if previous < 0 or source_text[previous] in "\n.;:" or follows_spaced_marker:
-            last_yielded_marker_end = match.end("marker")
-            yield match
-
-
-def _assign_cfr_marker_level(
-    stack: list[tuple[str, str, int]],
-    token: str,
-) -> tuple[int, str, int] | None:
-    possible = _cfr_marker_kind_ordinals(token)
-    if not possible:
-        return None
-
-    child_level = len(stack)
-    expected_child_kind = _cfr_marker_kind_for_level(child_level)
-    if expected_child_kind == "lower_roman":
-        for level in range(len(stack) - 1, -1, -1):
-            expected_kind = _cfr_marker_kind_for_level(level)
-            for kind, ordinal in possible:
-                if (
-                    kind == expected_kind
-                    and expected_kind == "lower_alpha"
-                    and ordinal == stack[level][2] + 1
-                ):
-                    return (level, kind, ordinal)
-        for kind, ordinal in possible:
-            if kind == expected_child_kind:
-                return (child_level, kind, ordinal)
-
-    for level in range(len(stack) - 1, -1, -1):
-        expected_kind = _cfr_marker_kind_for_level(level)
-        for kind, ordinal in possible:
-            if kind == expected_kind and ordinal > stack[level][2]:
-                return (level, kind, ordinal)
-
-    for kind, ordinal in possible:
-        if kind == expected_child_kind:
-            return (child_level, kind, ordinal)
-    return None
-
-
-def _cfr_marker_kind_for_level(level: int) -> str:
-    if level == 0:
-        return "lower_alpha"
-    return ("numeric", "lower_roman", "upper_alpha")[(level - 1) % 3]
-
-
-def _cfr_marker_kind_ordinals(token: str) -> list[tuple[str, int]]:
-    kinds: list[tuple[str, int]] = []
-    if re.fullmatch(r"\d+", token):
-        kinds.append(("numeric", int(token)))
-    if re.fullmatch(r"[a-z]", token):
-        kinds.append(("lower_alpha", ord(token) - ord("a") + 1))
-    if re.fullmatch(r"[A-Z]", token):
-        kinds.append(("upper_alpha", ord(token) - ord("A") + 1))
-    if re.fullmatch(r"[ivxlcdm]+", token):
-        roman = _lower_roman_to_int(token)
-        if roman is not None:
-            kinds.append(("lower_roman", roman))
-    return kinds
-
-
-def _lower_roman_to_int(token: str) -> int | None:
-    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
-    total = 0
-    previous = 0
-    for char in reversed(token):
-        value = values.get(char)
-        if value is None:
-            return None
-        if value < previous:
-            total -= value
-        else:
-            total += value
-            previous = value
-    return total or None
-
-
-def _slice_legal_text_by_parenthetical_fragments(
-    text: str,
-    fragments: tuple[str, ...],
-) -> str | None:
-    sliced = _slice_legal_text_by_parenthetical_fragments_from(
-        text,
-        fragments,
-        depth=0,
-    )
-    return sliced.strip() if sliced is not None else None
-
-
-def _slice_legal_text_by_parenthetical_fragments_from(
-    text: str,
-    fragments: tuple[str, ...],
-    *,
-    depth: int,
-) -> str | None:
-    if not fragments:
-        return text
-
-    fragment = fragments[0]
-    simple_slice = _slice_legal_text_by_parenthetical_fragment(
-        text,
-        fragment,
-        top_level=depth == 0,
-    )
-    if simple_slice is not None:
-        simple_result = _slice_legal_text_by_parenthetical_fragments_from(
-            simple_slice,
-            fragments[1:],
-            depth=depth + 1,
-        )
-        if simple_result is not None:
-            return simple_result
-
-    if len(fragments) >= 2:
-        combined = _combined_dotted_parenthetical_fragment(fragment, fragments[1])
-        if combined is not None:
-            combined_slice = _slice_legal_text_by_parenthetical_fragment(
-                text,
-                combined,
-                top_level=depth == 0,
-            )
-            if combined_slice is not None:
-                return _slice_legal_text_by_parenthetical_fragments_from(
-                    combined_slice,
-                    fragments[2:],
-                    depth=depth + 2,
-                )
-
-    return None
-
-
-def _combined_dotted_parenthetical_fragment(
-    fragment: str, next_fragment: str
-) -> str | None:
-    if not next_fragment.isdigit():
-        return None
-    if re.fullmatch(r"(?:[A-Za-z]|\d+)(?:\.\d+)*", fragment):
-        return f"{fragment}.{next_fragment}"
-    return None
-
-
-def _slice_legal_text_by_parenthetical_fragment(
-    text: str,
-    fragment: str,
-    *,
-    top_level: bool,
-) -> str | None:
-    escaped = re.escape(fragment)
-    if top_level:
-        marker_pattern = re.compile(rf"(?:^|\n\s*)(\[?\({escaped}\)\s+)")
-    else:
-        marker_pattern = re.compile(rf"(?<![A-Za-z0-9])(\({escaped}\)\s+)")
-    marker_match = next(
-        (
-            match
-            for match in marker_pattern.finditer(text)
-            if _parenthetical_marker_context_is_structural(text, match.start(1))
-        ),
-        None,
-    )
-    if marker_match is None:
-        return None
-
-    start = marker_match.start(1)
-    body_start = marker_match.end(1)
-    sibling_pattern = _sibling_parenthetical_marker_pattern(fragment, top_level)
-    end = len(text)
-    for sibling_match in sibling_pattern.finditer(text, body_start):
-        if sibling_match.start(
-            1
-        ) > start and _parenthetical_marker_context_is_structural(
-            text,
-            sibling_match.start(1),
-        ):
-            end = sibling_match.start(1)
-            break
-    return text[start:end]
-
-
-_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL = (
-    r"(?:paragraphs?|subparagraphs?|clauses?|subclauses?|sections?|"
-    r"subsections?|chapters?|titles?|parts?|items?|sentences?|regulations?)"
-)
-_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX = re.compile(
-    rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\s+$",
-    re.IGNORECASE,
-)
-
-
-def _parenthetical_marker_context_is_structural(text: str, marker_start: int) -> bool:
-    prefix = text[max(0, marker_start - 60) : marker_start]
-    previous = prefix.rstrip()[-1:] if prefix.rstrip() else ""
-    if previous == ")" and not re.search(
-        r"(?:^|\n)\s*\([A-Za-z0-9]+(?:\.[0-9]+)*\)\s+$",
-        prefix,
-    ):
-        return False
-    if _NONSTRUCTURAL_PARENTHETICAL_REFERENCE_PREFIX.search(prefix):
-        return False
-    return not _parenthetical_marker_is_in_reference_list(prefix)
-
-
-def _parenthetical_marker_is_in_reference_list(prefix: str) -> bool:
-    segment = re.split(r"(?:[.;]\s+|\n+)", prefix)[-1]
-    if not re.search(
-        rf"\b{_NONSTRUCTURAL_PARENTHETICAL_REFERENCE_LABEL}\b",
-        segment,
-        flags=re.IGNORECASE,
-    ):
-        return False
-    if not re.search(r"\([A-Za-z0-9]+\)", segment):
-        return False
-    return re.search(r"(?:,\s*|\b(?:or|and)\s+)$", segment) is not None
-
-
-def _sibling_parenthetical_marker_pattern(
-    fragment: str,
-    top_level: bool,
-) -> re.Pattern[str]:
-    if re.fullmatch(r"\d+(?:\.\d+)*", fragment):
-        marker = _numeric_sibling_parenthetical_marker(fragment)
-    elif re.fullmatch(r"[A-Z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
-    elif re.fullmatch(r"[a-z](?:\.\d+)*", fragment):
-        marker = _alpha_sibling_parenthetical_marker(fragment, top_level=top_level)
-    elif len(fragment) == 1 and fragment.isalpha() and fragment.isupper():
-        marker = (
-            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([A-Z]\)"
-        )
-    elif len(fragment) == 1 and fragment.isalpha() and fragment.islower():
-        marker = (
-            _next_alpha_parenthetical_marker(fragment) if top_level else r"\([a-z]\)"
-        )
-    elif re.fullmatch(r"[ivxlcdm]+", fragment, re.IGNORECASE):
-        marker = r"\([ivxlcdm]+\)"
-    else:
-        marker = r"\([A-Za-z0-9]+\)"
-    if top_level:
-        return re.compile(rf"\n\s*(\[?{marker}\s+)")
-    return re.compile(rf"(?<![A-Za-z0-9])({marker}\s+)")
-
-
-def _numeric_sibling_parenthetical_marker(fragment: str) -> str:
-    stem = fragment.split(".", 1)[0]
-    same_stem = _same_stem_dotted_sibling_marker(stem, fragment)
-    following_stem = _following_numeric_parenthetical_stem_marker(stem)
-    return rf"\((?:{same_stem}|{following_stem}(?:\.[0-9]+)*)\)"
-
-
-def _following_numeric_parenthetical_stem_marker(stem: str) -> str:
-    digits = str(int(stem))
-    same_width_patterns: list[str] = []
-    for idx, digit in enumerate(digits):
-        lower = int(digit) + 1
-        if idx == 0:
-            lower = max(lower, 1)
-        if lower > 9:
-            continue
-        prefix = re.escape(digits[:idx])
-        suffix_len = len(digits) - idx - 1
-        suffix = rf"[0-9]{{{suffix_len}}}" if suffix_len else ""
-        same_width_patterns.append(rf"{prefix}[{lower}-9]{suffix}")
-    longer_width = rf"[1-9][0-9]{{{len(digits)},}}"
-    return "(?:" + "|".join([*same_width_patterns, longer_width]) + ")"
-
-
-def _alpha_sibling_parenthetical_marker(fragment: str, *, top_level: bool) -> str:
-    stem = fragment[0]
-    same_stem = _same_stem_dotted_sibling_marker(stem, fragment)
-    following_stem = (
-        _next_alpha_parenthetical_stem_marker(stem)
-        if top_level
-        else _following_alpha_parenthetical_stem_marker(stem)
-    )
-    return rf"\((?:{same_stem}|{following_stem}(?:\.[0-9]+)*)\)"
-
-
-def _next_alpha_parenthetical_stem_marker(stem: str) -> str:
-    next_codepoint = ord(stem) + 1
-    if stem.islower() and next_codepoint <= ord("z"):
-        return chr(next_codepoint)
-    if stem.isupper() and next_codepoint <= ord("Z"):
-        return chr(next_codepoint)
-    return r"\b\B"
-
-
-def _following_alpha_parenthetical_stem_marker(stem: str) -> str:
-    next_codepoint = ord(stem) + 1
-    if stem.islower() and next_codepoint <= ord("z"):
-        return f"[{chr(next_codepoint)}-z]"
-    if stem.isupper() and next_codepoint <= ord("Z"):
-        return f"[{chr(next_codepoint)}-Z]"
-    return r"\b\B"
-
-
-def _same_stem_dotted_sibling_marker(stem: str, fragment: str) -> str:
-    escaped_stem = re.escape(stem)
-    if "." not in fragment:
-        return rf"{escaped_stem}(?:\.[0-9]+)+"
-    suffix = re.escape(fragment.split(".", 1)[1])
-    return rf"{escaped_stem}\.(?!{suffix}(?:\.|\)))[0-9]+(?:\.[0-9]+)*"
-
-
-def _next_alpha_parenthetical_marker(fragment: str) -> str:
-    next_codepoint = ord(fragment) + 1
-    if fragment.islower() and next_codepoint <= ord("z"):
-        return rf"\({chr(next_codepoint)}\)"
-    if fragment.isupper() and next_codepoint <= ord("Z"):
-        return rf"\({chr(next_codepoint)}\)"
-    return r"\b\B"
-
-
-def _local_corpus_provisions_roots() -> tuple[Path, ...]:
-    roots: list[Path] = []
-    cwd: Path | None = None
-    with contextlib.suppress(OSError):
-        cwd = Path.cwd().resolve()
-        roots.append(cwd)
-
-    for env_name in (
-        "AXIOM_CORPUS_ARTIFACT_ROOT",
-        "AXIOM_CORPUS_LOCAL_ROOT",
-        "AXIOM_CORPUS_REPO",
-    ):
-        raw_root = os.environ.get(env_name)
-        if raw_root:
-            roots.append(Path(raw_root).expanduser())
-
-    if cwd is not None:
-        for base in (cwd, *cwd.parents):
-            roots.extend(
-                (
-                    base / "axiom-corpus",
-                    base / "TheAxiomFoundation" / "axiom-corpus",
-                    base.parent / "axiom-corpus",
-                )
-            )
-
-    with contextlib.suppress(RuntimeError, OSError):
-        roots.append(Path.home() / "TheAxiomFoundation" / "axiom-corpus")
-
-    provisions_roots: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        for candidate in (
-            root / "data" / "corpus" / "provisions",
-            root / "data" / "corpus",
-            root / "provisions",
-            root,
-        ):
-            provisions_root = (
-                candidate
-                if candidate.name == "provisions"
-                else candidate / "provisions"
-            )
-            with contextlib.suppress(OSError):
-                resolved = provisions_root.resolve()
-                if resolved.is_dir() and resolved not in seen:
-                    seen.add(resolved)
-                    provisions_roots.append(resolved)
-    return tuple(provisions_roots)
-
-
-def _candidate_local_corpus_provision_files(
-    provisions_root: Path,
-    citation_path: str,
-) -> tuple[Path, ...]:
-    parts = citation_path.split("/")
-    candidates: list[Path] = []
-    seen: set[Path] = set()
-
-    def add_files(base: Path) -> None:
-        for path in sorted(base.glob("*.jsonl")):
-            with contextlib.suppress(OSError):
-                resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    candidates.append(resolved)
-
-    if len(parts) >= 2:
-        add_files(provisions_root / parts[0] / parts[1])
-    if not candidates:
-        for path in sorted(provisions_root.rglob("*.jsonl")):
-            with contextlib.suppress(OSError):
-                resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    candidates.append(resolved)
-    return tuple(candidates)
-
-
-def _read_local_corpus_provision_records(
-    provision_file: Path,
-    citation_path: str,
-) -> list[dict[str, Any]]:
     try:
-        lines = provision_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return []
-    records: list[dict[str, Any]] = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict) or record.get("citation_path") != citation_path:
-            continue
-        records.append(record)
-    return records
-
-
-def _read_local_corpus_provision_file(
-    provision_file: Path,
-    citation_path: str,
-) -> str | None:
-    records = _read_local_corpus_provision_records(provision_file, citation_path)
-    return _select_local_corpus_record_body(records)
-
-
-def _select_local_corpus_record_body(records: list[dict[str, Any]]) -> str | None:
-    """Select the best body when local corpus files contain duplicate citations."""
-    body_records = [
-        record for record in records if _local_corpus_record_text(record) is not None
-    ]
-    if not body_records:
+        return resolve_local_corpus_source(normalized_path, release).body
+    except CorpusSourceNotFoundError:
         return None
-
-    def record_key(record: dict[str, Any]) -> tuple[str, int, str]:
-        source_as_of = str(record.get("source_as_of") or "")
-        source_format = str(record.get("source_format") or "")
-        official_source = 1 if source_format == "legislation.gov.uk-clml" else 0
-        version = str(record.get("version") or "")
-        return (source_as_of, official_source, version)
-
-    selected = max(body_records, key=record_key)
-    return _local_corpus_record_text(selected)
-
-
-def _local_corpus_record_text(record: dict[str, Any]) -> str | None:
-    """Return local corpus provision text across supported row schemas."""
-    for key in ("body", "text"):
-        value = record.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return None
-
-
-def _read_local_corpus_descendant_text(
-    provision_file: Path,
-    citation_path: str,
-) -> str | None:
-    """Read body-bearing child provisions for a metadata-only source document."""
-    try:
-        lines = provision_file.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return None
-
-    descendants: list[tuple[int, int, str | None, str]] = []
-    child_prefix = f"{citation_path}/"
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(record, dict):
-            continue
-        record_path = str(record.get("citation_path") or "")
-        if not record_path.startswith(child_prefix):
-            continue
-        body = _local_corpus_record_text(record)
-        if body is None:
-            continue
-        descendants.append(
-            (
-                int(record.get("level") or 0),
-                int(record.get("ordinal") or 0),
-                str(record.get("heading") or "") or None,
-                body,
-            )
-        )
-
-    if not descendants:
-        return None
-    chunks: list[str] = []
-    for _, _, heading, body in sorted(descendants):
-        if heading:
-            chunks.append(f"{heading}\n\n{body}")
-        else:
-            chunks.append(body)
-    return "\n\n".join(chunks)
-
-
-@functools.lru_cache(maxsize=512)
-def _fetch_supabase_corpus_source_text(citation_path: str) -> str | None:
-    """Fetch current corpus source text by exact citation path from Supabase."""
-    supabase_url = os.environ.get(
-        "AXIOM_SUPABASE_URL", DEFAULT_AXIOM_SUPABASE_URL
-    ).rstrip("/")
-    anon_key = (
-        os.environ.get("SUPABASE_ANON_KEY")
-        or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-        or DEFAULT_AXIOM_SUPABASE_ANON_KEY
-    )
-    params = urllib.parse.urlencode(
-        {
-            "select": "body",
-            "citation_path": f"eq.{citation_path}",
-            "limit": "1",
-        }
-    )
-    request = urllib.request.Request(
-        f"{supabase_url}/rest/v1/current_provisions?{params}",
-        headers={
-            "apikey": anon_key,
-            "Authorization": f"Bearer {anon_key}",
-            "Accept-Profile": "corpus",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            data = json.loads(response.read())
-    except (
-        TimeoutError,
-        urllib.error.HTTPError,
-        urllib.error.URLError,
-        json.JSONDecodeError,
-    ):
-        return None
-    if not isinstance(data, list) or not data:
-        return None
-    body = data[0].get("body") if isinstance(data[0], dict) else None
-    return str(body) if body is not None else None
+    except UnsafeCorpusPathError as exc:
+        raise UnsafeRulespecContextPath(str(exc)) from exc
 
 
 def _normalize_source_verification_text(text: str) -> str:
@@ -19756,11 +32893,19 @@ def _source_text_contains_scalar_value(text: str, value: Any) -> bool:
     )
 
 
-def _source_text_contains_numeric_value_equivalent(text: str, value: Any) -> bool:
+def _source_text_contains_numeric_value_equivalent(
+    text: str,
+    value: Any,
+    *,
+    profile: str = "legacy",
+) -> bool:
     numeric = _numeric_rule_value(value)
     if numeric is None:
         return False
-    return numeric_value_is_grounded(numeric[1], extract_numbers_from_text(text))
+    return numeric_value_is_grounded(
+        numeric[1],
+        extract_typed_numeric_occurrences_from_text(text, profile=profile),
+    )
 
 
 def _source_text_contains_table_value_multiset(
@@ -19781,6 +32926,57 @@ def _source_text_contains_table_value_multiset(
         )
         >= expected_count
         for value_texts_key, expected_count in expected_counts.items()
+    )
+
+
+def _source_text_contains_profiled_table_value_multiset(
+    text: str,
+    values: Iterable[Any],
+    *,
+    profile: str,
+) -> bool:
+    """Match locale-parsed table values without reusing source occurrences."""
+    expected_values: list[float] = []
+    for value in values:
+        numeric = _numeric_rule_value(value)
+        if numeric is None:
+            return False
+        expected_values.append(numeric[1])
+
+    source_occurrences = extract_typed_numeric_occurrences_from_text(
+        text,
+        profile=profile,
+    )
+    candidate_indexes = [
+        [
+            occurrence_index
+            for occurrence_index, occurrence in enumerate(source_occurrences)
+            if numeric_value_is_grounded(expected, (occurrence,))
+        ]
+        for expected in expected_values
+    ]
+    if any(not candidates for candidates in candidate_indexes):
+        return False
+
+    matched_expected_by_occurrence: dict[int, int] = {}
+
+    def assign(expected_index: int, visited: set[int]) -> bool:
+        for occurrence_index in candidate_indexes[expected_index]:
+            if occurrence_index in visited:
+                continue
+            visited.add(occurrence_index)
+            previous = matched_expected_by_occurrence.get(occurrence_index)
+            if previous is None or assign(previous, visited):
+                matched_expected_by_occurrence[occurrence_index] = expected_index
+                return True
+        return False
+
+    return all(
+        assign(expected_index, set())
+        for expected_index in sorted(
+            range(len(expected_values)),
+            key=lambda index: len(candidate_indexes[index]),
+        )
     )
 
 
@@ -19843,7 +33039,6 @@ class _DelegatedPolicySettingTarget:
     rule_name_patterns: tuple[str, ...]
 
 
-_US_STATE_RULESPEC_PATH_PART = re.compile(r"(?:rulespec-)?us-[a-z]{2}(?:-[a-z0-9]+)*")
 _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS = (
     _DelegatedPolicySettingTarget(
         label="standard utility allowance",
@@ -20084,9 +33279,14 @@ def _source_relation_sets_rules_for_local_values(
 def _is_us_state_rulespec_path(rules_file: Path | None) -> bool:
     if rules_file is None:
         return False
-    return any(
-        _US_STATE_RULESPEC_PATH_PART.fullmatch(part) is not None
-        for part in rules_file.parts
+    content_root = find_policy_repo_root(rules_file)
+    return (
+        content_root is not None
+        and re.fullmatch(
+            r"us-[a-z]{2}(?:-[a-z0-9]+)*",
+            content_root.name,
+        )
+        is not None
     )
 
 
@@ -20202,22 +33402,34 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
     """Parse `us:policies/foo#rule` into a target repo and relative file path."""
     normalized = target.strip().strip("'\"")
     match = re.match(
-        r"^(?P<prefix>[a-z][a-z0-9_-]*):(?P<path>[^#]+)(?:#(?P<symbol>[^#]+))?$",
+        r"^(?P<prefix>[a-z]{2}(?:-[a-z0-9]+)*):(?P<path>[^#]+)(?:#(?P<symbol>[^#]+))?$",
         normalized,
     )
     if match is None:
         return None
 
-    path_text = match.group("path").strip().strip("/")
-    if not path_text:
+    raw_path = match.group("path")
+    path_text = raw_path.strip()
+    if (
+        not path_text
+        or path_text != raw_path
+        or path_text.startswith("/")
+        or path_text.endswith("/")
+        or any(not part for part in path_text.split("/"))
+    ):
         return None
     relative_path = Path(path_text)
     if relative_path.is_absolute() or any(
         part in {"", ".", ".."} for part in relative_path.parts
     ):
         return None
-    if not path_text.endswith((".yaml", ".yml")):
-        relative_path = Path(f"{path_text}.yaml")
+    if (
+        not relative_path.parts
+        or relative_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return None
+    if not path_text.endswith(RULESPEC_FILE_SUFFIX):
+        relative_path = Path(f"{path_text}{RULESPEC_FILE_SUFFIX}")
 
     prefix = match.group("prefix")
     symbol = match.group("symbol")
@@ -20232,7 +33444,7 @@ def _parse_rulespec_target(target: str) -> _RuleSpecTargetRef | None:
 def _target_path_embeds_jurisdiction(target_ref: _RuleSpecTargetRef) -> bool:
     """Return whether a RuleSpec path repeats a jurisdiction after the kind."""
     parts = target_ref.relative_path.with_suffix("").parts
-    if len(parts) < 2 or parts[0] not in {"policies", "regulations", "statutes"}:
+    if len(parts) < 2 or parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
         return False
     embedded = parts[1]
     return (
@@ -20241,19 +33453,291 @@ def _target_path_embeds_jurisdiction(target_ref: _RuleSpecTargetRef) -> bool:
     )
 
 
+def _validate_explicit_rulespec_directory(
+    root: Path,
+    *,
+    label: str,
+) -> Path:
+    """Return one existing directory whose lexical path has no symlinks."""
+
+    raw = Path(os.path.abspath(Path(root).expanduser()))
+    checked = _normalize_macos_system_path_alias(raw)
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cached = cache.explicit_directories.get(raw) if cache is not None else None
+    if cached is not None:
+        if _path_identity_fingerprint(checked) == cached.path_identity:
+            return cached.resolved
+        cache.explicit_directories.pop(raw, None)
+    cursor = Path(checked.anchor)
+    relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
+    for part in relative_parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise UnsafeRulespecContextPath(f"{label} contains a symlink: {cursor}")
+    try:
+        resolved = checked.resolve(strict=True)
+    except OSError as exc:
+        raise UnsafeRulespecContextPath(f"{label} does not exist: {raw}") from exc
+    if not resolved.is_dir():
+        raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
+    if cache is not None:
+        path_identity = _path_identity_fingerprint(checked)
+        if path_identity is not None:
+            cache.explicit_directories[raw] = _CachedExplicitDirectory(
+                resolved=resolved,
+                path_identity=path_identity,
+            )
+    return resolved
+
+
+def _normalize_macos_system_path_alias(path: Path) -> Path:
+    """Normalize only Apple's fixed top-level aliases before symlink checks."""
+
+    if sys.platform != "darwin":
+        return path
+    for alias, expected_target in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+        (Path("/etc"), Path("/private/etc")),
+    ):
+        try:
+            relative = path.relative_to(alias)
+        except ValueError:
+            continue
+        try:
+            if not alias.is_symlink() or alias.resolve(strict=True) != expected_target:
+                return path
+        except OSError:
+            return path
+        return expected_target / relative
+    return path
+
+
+def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
+    """Return the direct country checkout for one explicit content root."""
+
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(os.path.abspath(Path(path).expanduser()))
+    cached = cache.active_checkouts.get(cache_key) if cache is not None else None
+    if cached is not None:
+        active = _validate_explicit_rulespec_directory(
+            path,
+            label="active RuleSpec root",
+        )
+        identity = canonical_rulespec_root_identity(active)
+        if active == cached.active and identity is not None:
+            checkout = active.parent
+            if checkout == cached.checkout:
+                _reject_rulespec_checkout_symlinks(
+                    checkout,
+                    label="active RuleSpec checkout",
+                )
+                return checkout
+        cache.active_checkouts.pop(cache_key, None)
+
+    active = _validate_explicit_rulespec_directory(
+        path,
+        label="active RuleSpec root",
+    )
+    identity = canonical_rulespec_root_identity(active)
+    if identity is None:
+        raise UnsafeRulespecContextPath(
+            "Active RuleSpec root must be an exact direct jurisdiction child of "
+            "a canonical rulespec-<country> checkout: "
+            f"{active}"
+        )
+    checkout = active.parent
+    _reject_rulespec_checkout_symlinks(
+        checkout,
+        label="active RuleSpec checkout",
+    )
+    if cache is not None:
+        cache.active_checkouts[cache_key] = _CachedActiveCheckout(
+            active=active,
+            checkout=checkout,
+        )
+    return checkout
+
+
+def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
+    """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
+
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(checkout).resolve()
+    cached = cache.symlink_audits.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in cached.directory_stamps
+        )
+        if current_stamps == cached.directory_stamps:
+            return
+        cache.symlink_audits.pop(cache_key, None)
+
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
+    for current, directory_names, file_names in os.walk(checkout, followlinks=False):
+        current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
+        for name in (*directory_names, *file_names):
+            candidate = current_path / name
+            if candidate.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    f"{label} contains a symlink: {candidate}"
+                )
+    if cache is not None:
+        stable_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in directory_stamps
+        )
+        if stable_stamps != tuple(directory_stamps):
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {checkout}"
+            )
+        cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
+            directory_stamps=stable_stamps,
+        )
+
+
+def _normalize_rulespec_dependency_roots(
+    roots: Iterable[Path],
+) -> tuple[Path, ...]:
+    """Validate exact canonical dependency checkouts supplied by the caller."""
+
+    normalized: list[Path] = []
+    seen: set[Path] = set()
+    names: dict[str, Path] = {}
+    for raw_root in roots:
+        root = _validate_explicit_rulespec_directory(
+            Path(raw_root),
+            label="RuleSpec dependency root",
+        )
+        _reject_rulespec_checkout_symlinks(
+            root,
+            label="RuleSpec dependency root",
+        )
+        jurisdiction_children = jurisdiction_subdir_names(
+            root,
+            allow_composition_specs=True,
+        )
+        if not jurisdiction_children:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency roots must be exact canonical checkout roots "
+                "named rulespec-<country> with direct jurisdiction children: "
+                f"{root}"
+            )
+        existing = names.get(root.name)
+        if existing is not None and existing != root:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency roots must not authorize two checkouts for "
+                f"the same namespace {root.name!r}: {existing}, {root}"
+            )
+        names[root.name] = root
+        if root not in seen:
+            seen.add(root)
+            normalized.append(root)
+    return tuple(normalized)
+
+
+def _rulespec_dependencies_for_active_root(
+    policy_repo_path: Path,
+    dependency_roots: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    """Remove the active checkout and reject same-namespace checkout ambiguity."""
+
+    if not dependency_roots:
+        return ()
+    active_checkout = _rulespec_checkout_root_for_active_path(policy_repo_path)
+    filtered: list[Path] = []
+    for root in dependency_roots:
+        if root == active_checkout:
+            continue
+        if root.name == active_checkout.name:
+            raise UnsafeRulespecContextPath(
+                "RuleSpec dependency root collides with the active checkout "
+                f"namespace {active_checkout.name!r}: {root}"
+            )
+        filtered.append(root)
+    return tuple(filtered)
+
+
+def _effective_rulespec_dependency_roots(
+    roots: Iterable[Path] | None,
+) -> tuple[Path, ...]:
+    if roots is None:
+        return _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS.get()
+    return _normalize_rulespec_dependency_roots(roots)
+
+
 def _resolve_rulespec_target_file(
     target_ref: _RuleSpecTargetRef,
     policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
-    """Resolve a canonical RuleSpec target file across sibling/CI checkouts."""
+    """Resolve a canonical target only through caller-authorized checkouts."""
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    policy_root_key = (
+        Path(os.path.abspath(Path(policy_repo_path).expanduser()))
+        if policy_repo_path is not None
+        else None
+    )
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = (target_ref, policy_root_key, dependency_roots)
+    cached = cache.target_files.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_identity = _path_identity_fingerprint(cached.target_file)
+        current_stamp = _path_mutation_stamp(cached.target_file)
+        if (
+            current_identity == cached.path_identity
+            and current_stamp == cached.file_stamp
+            and canonical_rulespec_repo_name(cached.content_root)
+            == target_ref.repo_name
+        ):
+            _reject_rulespec_checkout_symlinks(
+                cached.content_root.parent,
+                label="resolved RuleSpec checkout",
+            )
+            return cached.target_file
+        cache.target_files.pop(cache_key, None)
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
+        rulespec_dependency_roots=dependency_roots,
     ):
+        if not root.is_dir():
+            continue
+        root = _validate_explicit_rulespec_directory(
+            root,
+            label="resolved RuleSpec content root",
+        )
+        canonical_root = canonical_rulespec_repo_name(root)
+        if canonical_root != target_ref.repo_name:
+            continue
         target_file = root / target_ref.relative_path
-        if target_file.exists():
-            return target_file
+        if not target_file.exists() and not target_file.is_symlink():
+            continue
+        if target_file.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"Resolved RuleSpec target is a symlink: {target_file}"
+            )
+        resolved = validate_rulespec_context_file(target_file, root)
+        if cache is not None:
+            path_identity = _path_identity_fingerprint(resolved)
+            file_stamp = _path_mutation_stamp(resolved)
+            if path_identity is not None and file_stamp is not None:
+                cache.target_files[cache_key] = _CachedTargetFile(
+                    target_file=resolved,
+                    content_root=root,
+                    path_identity=path_identity,
+                    file_stamp=file_stamp,
+                )
+        return resolved
     return None
 
 
@@ -20261,145 +33745,48 @@ def _candidate_rulespec_repo_roots(
     repo_name: str,
     policy_repo_path: Path | None,
     prefix: str | None = None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> list[Path]:
-    """Return possible local content roots for a canonical rules repository.
-
-    Each base location yields its candidates in monorepo-first order
-    (``<base>/rulespec-<country>/<prefix>``, then ``<base>/rulespec-<prefix>``);
-    bases that are themselves the jurisdiction's checkout (by name or Git
-    origin) resolve to the jurisdiction's content root in either layout.
-    """
+    """Return content roots derived only from exact authorized checkouts."""
     candidates: list[Path] = []
     jurisdiction = prefix or repo_name.removeprefix("rulespec-")
 
-    def add(base: Path | None) -> None:
-        if base is None:
+    def add(base: Path) -> None:
+        if base.name != monorepo_checkout_name(jurisdiction):
             return
-        candidates.extend(
-            candidate_jurisdiction_content_dirs(base.expanduser(), jurisdiction)
+        candidates.extend(candidate_jurisdiction_content_dirs(base, jurisdiction))
+
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    if policy_repo_path is not None:
+        active_checkout = _rulespec_checkout_root_for_active_path(policy_repo_path)
+        add(active_checkout)
+        dependency_roots = _rulespec_dependencies_for_active_root(
+            policy_repo_path,
+            dependency_roots,
         )
-
-    if policy_repo_path is not None:
-        policy_root = Path(policy_repo_path).resolve()
-        add(policy_root)
-        add(policy_root / "_axiom")
-
-    env_roots = os.environ.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-    for raw_root in env_roots.split(os.pathsep):
-        if raw_root.strip():
-            add(Path(raw_root.strip()))
-
-    if policy_repo_path is not None:
-        policy_root = Path(policy_repo_path).resolve()
-        add(policy_root.parent)
-        add(policy_root.parent / "_axiom")
-        if policy_root.parent.name.startswith("rulespec-"):
-            # A monorepo jurisdiction directory: sibling checkouts live next
-            # to the monorepo itself.
-            add(policy_root.parent.parent)
-            add(policy_root.parent.parent / "_axiom")
-
-    cwd = Path.cwd()
-    add(cwd)
-    add(cwd / "_axiom")
+    for dependency_root in dependency_roots:
+        add(dependency_root)
 
     unique: list[Path] = []
     seen: set[Path] = set()
     for candidate in candidates:
-        resolved = candidate.resolve() if candidate.exists() else candidate
-        if resolved in seen:
+        lexical = Path(os.path.abspath(candidate))
+        if lexical in seen:
             continue
-        seen.add(resolved)
+        seen.add(lexical)
         unique.append(candidate)
     return unique
-
-
-def _rulespec_repo_alias_parent(policy_repo_path: Path) -> Path | None:
-    """Expose a temp checkout under its canonical `rulespec-*` repo name."""
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    return _rulespec_repo_alias_parent_for_root(policy_repo_path, canonical_name)
-
-
-def _monorepo_rulespec_repo_alias(
-    policy_repo_path: Path,
-) -> tuple[Path, str] | None:
-    """Expose a country monorepo root when validating one jurisdiction subdir."""
-    policy_root = Path(policy_repo_path).resolve()
-    monorepo_root = policy_root.parent
-    if not monorepo_root.name.startswith("rulespec-"):
-        return None
-    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
-        return None
-    canonical_name = canonical_rulespec_repo_name(monorepo_root)
-    alias_parent = _rulespec_repo_alias_parent_for_root(monorepo_root, canonical_name)
-    if alias_parent is None or canonical_name is None:
-        return None
-    return alias_parent, canonical_name
-
-
-def _is_canonical_monorepo_content_root(policy_repo_path: Path) -> bool:
-    """Return true for a country content root inside its canonical checkout."""
-    policy_root = Path(policy_repo_path).resolve()
-    monorepo_root = policy_root.parent
-    if not monorepo_root.name.startswith("rulespec-"):
-        return False
-    if policy_root.name not in jurisdiction_subdir_names(monorepo_root):
-        return False
-    return canonical_rulespec_repo_name(monorepo_root) == monorepo_root.name
-
-
-def _rulespec_repo_alias_parent_for_root(
-    rulespec_root: Path,
-    canonical_name: str | None,
-) -> Path | None:
-    """Expose a checkout root under a canonical `rulespec-*` repo name."""
-    if not canonical_name or Path(rulespec_root).name == canonical_name:
-        return None
-
-    resolved_repo = Path(rulespec_root).resolve()
-    digest = hashlib.sha256(str(resolved_repo).encode()).hexdigest()[:16]
-    alias_parent = Path(tempfile.gettempdir()) / "axiom-rulespec-repo-aliases" / digest
-    alias_parent.mkdir(parents=True, exist_ok=True)
-    alias = alias_parent / canonical_name
-    if alias.exists() or alias.is_symlink():
-        with contextlib.suppress(OSError, RuntimeError):
-            if alias.resolve() == resolved_repo:
-                return alias_parent
-        if alias.is_symlink() or alias.is_file():
-            alias.unlink()
-        else:
-            shutil.rmtree(alias)
-    alias.symlink_to(resolved_repo, target_is_directory=True)
-    return alias_parent
 
 
 def _canonical_rulespec_compile_path(
     rules_file: Path,
     policy_repo_path: Path,
 ) -> Path:
-    """Return a compile path under the canonical repo alias when needed."""
-    monorepo_alias = _monorepo_rulespec_repo_alias(policy_repo_path)
-    if monorepo_alias is not None:
-        monorepo_alias_parent, monorepo_canonical_name = monorepo_alias
-        try:
-            relative = rules_file.resolve().relative_to(
-                Path(policy_repo_path).resolve().parent
-            )
-        except ValueError:
-            return rules_file
-        return monorepo_alias_parent / monorepo_canonical_name / relative
-    if _is_canonical_monorepo_content_root(policy_repo_path):
-        return rules_file
+    """Return the direct, non-symlink compile path inside the active root."""
 
-    alias_parent = _rulespec_repo_alias_parent(policy_repo_path)
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    if alias_parent is None or canonical_name is None:
-        return rules_file
-    try:
-        relative = rules_file.resolve().relative_to(policy_repo_path.resolve())
-    except ValueError:
-        return rules_file
-    return alias_parent / canonical_name / relative
+    _rulespec_checkout_root_for_active_path(policy_repo_path)
+    return validate_rulespec_context_file(rules_file, policy_repo_path)
 
 
 def _extract_source_relation_target_values(
@@ -20578,21 +33965,40 @@ def _embedded_integer_scale_selector(formula: str) -> str | None:
     return None
 
 
-def numeric_value_is_grounded(value: float, source_numbers: set[float]) -> bool:
-    """Return true when a generated number is present in extracted source numbers."""
-    for source_value in source_numbers:
-        if math.isclose(
-            value,
-            source_value,
-            rel_tol=0,
-            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+def numeric_value_is_grounded(
+    value: float,
+    source_occurrences: Iterable[NumericOccurrence],
+) -> bool:
+    """Return whether a generated value is grounded by typed source evidence.
+
+    Percentage scaling requires an occurrence whose own context supplies rate
+    evidence; an unrelated integer can never authorize the conversion.
+    """
+    for occurrence in source_occurrences:
+        source_values = (occurrence.value, *occurrence.alternative_values)
+        if any(
+            math.isclose(
+                value,
+                source_value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            )
+            for source_value in source_values
+        ) and not (
+            occurrence.requires_rate_context and not occurrence.has_rate_context
         ):
             return True
-        if 0 < abs(value) <= 1 and math.isclose(
-            value * 100,
-            source_value,
-            rel_tol=0,
-            abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+        if (
+            occurrence.has_rate_context
+            and 0 < abs(value)
+            and math.isclose(
+                value * 100,
+                occurrence.source_value
+                if occurrence.source_value is not None
+                else occurrence.value,
+                rel_tol=0,
+                abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
+            )
         ):
             return True
     return False
@@ -20611,6 +34017,47 @@ class ValidationResult:
     raw_output: Optional[str] = None
     prompt_sha256: Optional[str] = None
     details: dict[str, Any] = field(default_factory=dict)
+
+
+def _normalize_validation_staging_text(
+    text: str,
+    staging_root: Path,
+    *,
+    placeholder: str = _VALIDATION_STAGING_ROOT_PLACEHOLDER,
+) -> str:
+    """Replace one harness-owned staging prefix while preserving its suffix."""
+
+    def is_path_token_character(character: str) -> bool:
+        return (
+            character == "_"
+            or character.isalnum()
+            or unicodedata.category(character).startswith("M")
+            or character in "./\\-"
+        )
+
+    normalized = text
+    root = Path(staging_root)
+    root_variants = {str(root), root.as_posix()}
+    with contextlib.suppress(OSError):
+        resolved_root = root.resolve()
+        root_variants.update({str(resolved_root), resolved_root.as_posix()})
+    for root_text in sorted(root_variants, key=len, reverse=True):
+
+        def replace_if_path_boundary(match: re.Match[str]) -> str:
+            left = normalized[match.start() - 1] if match.start() else ""
+            right = normalized[match.end()] if match.end() < len(normalized) else ""
+            left_boundary = not left or not is_path_token_character(left)
+            right_boundary = (
+                not right or right in "/\\" or not is_path_token_character(right)
+            )
+            return placeholder if left_boundary and right_boundary else match.group()
+
+        normalized = re.sub(
+            re.escape(root_text),
+            replace_if_path_boundary,
+            normalized,
+        )
+    return normalized
 
 
 @dataclass
@@ -20661,7 +34108,6 @@ class PipelineResult:
             policyengine_match=self.results.get(
                 "policyengine", ValidationResult("", False)
             ).score,
-            taxsim_match=self.results.get("taxsim", ValidationResult("", False)).score,
             oracle_context=self.oracle_context,
         )
 
@@ -20680,109 +34126,6 @@ def _rulespec_public_item_key(item: Any) -> str:
     return str(item.get("name") or "").strip()
 
 
-def _canonical_rulespec_item_id_alias(
-    item_id: str,
-    *,
-    policy_repo_path: Path,
-) -> str | None:
-    if ":" not in item_id:
-        return None
-    raw_prefix, raw_path = item_id.split(":", 1)
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    local_prefixes = _rulespec_local_item_prefixes(policy_repo_path)
-    if raw_prefix != canonical_prefix and raw_prefix not in local_prefixes:
-        return None
-    canonical_path = _canonical_rulespec_item_path_for_policy_root(
-        raw_path,
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    alias = f"{canonical_prefix}:{canonical_path}"
-    if alias == item_id:
-        return None
-    return alias
-
-
-def _rulespec_local_item_prefixes(policy_repo_path: Path) -> set[str]:
-    """Return noncanonical prefixes the engine may stamp for this checkout."""
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    prefixes: set[str] = set()
-    current = Path(policy_repo_path).resolve()
-    for candidate in (current, *current.parents):
-        name = candidate.name
-        if name.startswith("rulespec-"):
-            prefixes.add(name.removeprefix("rulespec-"))
-            break
-    local_prefix = Path(policy_repo_path).name.removeprefix("rulespec-")
-    if local_prefix:
-        prefixes.add(local_prefix)
-    canonical_name = canonical_rulespec_repo_name(policy_repo_path)
-    if canonical_name and canonical_name.startswith("rulespec-"):
-        prefixes.add(canonical_name.removeprefix("rulespec-"))
-    prefixes.discard(canonical_prefix)
-    return {prefix for prefix in prefixes if prefix}
-
-
-def _rulespec_local_item_prefix(policy_repo_path: Path) -> str | None:
-    """Return the preferred engine-local prefix for same-repo test requests."""
-    canonical_prefix = jurisdiction_prefix(policy_repo_path)
-    current = Path(policy_repo_path).resolve()
-    for candidate in (current, *current.parents):
-        name = candidate.name
-        if name.startswith("rulespec-"):
-            prefix = name.removeprefix("rulespec-")
-            if prefix and prefix != canonical_prefix:
-                return prefix
-            break
-    return None
-
-
-def _rulespec_content_prefix_segment(
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str | None:
-    """Return a monorepo content-root path segment when engine ids include it."""
-    policy_path = Path(policy_repo_path)
-    if policy_path.name == canonical_prefix and policy_path.parent.name.startswith(
-        "rulespec-"
-    ):
-        return canonical_prefix
-    if (policy_path / canonical_prefix).is_dir():
-        return canonical_prefix
-    return None
-
-
-def _canonical_rulespec_item_path_for_policy_root(
-    item_path: str,
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str:
-    content_segment = _rulespec_content_prefix_segment(
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    if content_segment and item_path.startswith(f"{content_segment}/"):
-        return item_path.split("/", 1)[1]
-    return item_path
-
-
-def _engine_rulespec_item_path_for_policy_root(
-    item_path: str,
-    *,
-    policy_repo_path: Path,
-    canonical_prefix: str,
-) -> str:
-    content_segment = _rulespec_content_prefix_segment(
-        policy_repo_path=policy_repo_path,
-        canonical_prefix=canonical_prefix,
-    )
-    if content_segment and not item_path.startswith(f"{content_segment}/"):
-        return f"{content_segment}/{item_path}"
-    return item_path
-
-
 def _rulespec_public_item_keys(
     item: Any,
     *,
@@ -20791,13 +34134,7 @@ def _rulespec_public_item_keys(
     key = _rulespec_public_item_key(item)
     if not key:
         return set()
-    keys = {key}
-    if alias := _canonical_rulespec_item_id_alias(
-        key,
-        policy_repo_path=policy_repo_path,
-    ):
-        keys.add(alias)
-    return keys
+    return {key}
 
 
 def _rulespec_item_friendly_name_and_legal_id(item: Any) -> tuple[str, str] | None:
@@ -20824,6 +34161,8 @@ _RULESPEC_FORMULA_BUILTINS = {
     "count",
     "count_where",
     "date_add_days",
+    "date_add_months",
+    "date_add_years",
     "days_between",
     "elif",
     "else",
@@ -20843,6 +34182,20 @@ _RULESPEC_FORMULA_BUILTINS = {
     "true",
     "false",
 }
+
+
+# Axiom rules engine `PeriodKind` serde variants, as accepted by the engine test
+# runner the org validate-rulespec workflow invokes. Local `.test.yaml` period
+# coercion must accept exactly this set — no more — so `axiom-encode validate`
+# and the shared workflow agree on which fixtures are executable. Accepting a
+# kind the engine rejects (e.g. `year`) makes local validate pass fixtures the
+# workflow then fails as `unknown variant` (axiom-encode#1112, rulespec-dk#2).
+_RULESPEC_ENGINE_PERIOD_KINDS = (
+    "month",
+    "benefit_week",
+    "tax_year",
+    "custom",
+)
 
 
 @dataclass(frozen=True)
@@ -21172,29 +34525,154 @@ class ValidatorPipeline:
         self,
         policy_repo_path: Path,
         axiom_rules_path: Path,
+        *,
+        axiom_compose_path: Path | None = None,
+        local_corpus_release: LocalCorpusRelease | None,
         enable_oracles: bool = True,
         oracle_validators: tuple[str, ...] | None = None,
         max_workers: int = 4,
         encoding_db: Optional[EncodingDB] = None,
         session_id: Optional[str] = None,
-        policyengine_country: str = "auto",
+        policyengine_runtime: PolicyEngineRuntime | None = None,
         policyengine_rule_hint: str | None = None,
         require_policy_proofs: bool = False,
+        require_complete_source_unit: bool = False,
         enforce_repository_layout: bool = True,
         source_text: str | None = None,
+        source_metadata: dict[str, object] | None = None,
+        source_citation_path: str | None = None,
+        amendment_source_texts: Mapping[str, str] | None = None,
+        rulespec_dependency_roots: Iterable[Path] = (),
+        validation_staging_root: Path | None = None,
+        existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
+        axiom_rules_engine_ref: str | None = None,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self.axiom_compose_path = (
+            Path(axiom_compose_path) if axiom_compose_path is not None else None
+        )
+        self._axiom_rules_engine_pin_override = (
+            EnginePin(
+                sha=require_engine_ref_sha(
+                    axiom_rules_engine_ref,
+                    description="axiom_rules_engine_ref",
+                ),
+                source=Path("<constructor>"),
+            )
+            if axiom_rules_engine_ref is not None
+            else None
+        )
+        self._axiom_rules_engine_pin_loaded = False
+        self._axiom_rules_engine_pin: EnginePin | None = None
+        self._axiom_rules_binary_path: Path | None = None
+        self._axiom_rules_binary_stat: tuple[int, int, int, int] | None = None
+        self.validation_staging_root = (
+            Path(validation_staging_root).resolve()
+            if validation_staging_root is not None
+            else None
+        )
+        if existing_target_oracle_contract is not None and not isinstance(
+            existing_target_oracle_contract, ExistingTargetOracleContract
+        ):
+            raise TypeError(
+                "existing_target_oracle_contract must be an "
+                "ExistingTargetOracleContract"
+            )
+        self.existing_target_oracle_contract = existing_target_oracle_contract
+        self._validation_temporary_roots: list[Path] = []
         self.enable_oracles = enable_oracles
-        self.oracle_validators = oracle_validators or ("policyengine", "taxsim")
+        self.oracle_validators = (
+            ("policyengine",) if oracle_validators is None else oracle_validators
+        )
+        unsupported_oracles = sorted(set(self.oracle_validators) - {"policyengine"})
+        if unsupported_oracles:
+            raise ValueError(
+                "Unsupported oracle validator(s): " + ", ".join(unsupported_oracles)
+            )
+        if (
+            policyengine_runtime is not None
+            and type(policyengine_runtime) is not PolicyEngineRuntime
+        ):
+            raise TypeError(
+                "policyengine_runtime must be an admitted PolicyEngineRuntime"
+            )
+        if self.enable_oracles and "policyengine" in self.oracle_validators:
+            if policyengine_runtime is None:
+                raise PolicyEngineRuntimeError(
+                    "PolicyEngine oracle requires one explicit admitted runtime; "
+                    "ambient interpreters and automatic installation are forbidden"
+                )
+            policyengine_runtime.assert_matches_rulespec_root(self.policy_repo_path)
+        self.policyengine_runtime = policyengine_runtime
         self.max_workers = max_workers
         self.encoding_db = encoding_db
         self.session_id = session_id
-        self.policyengine_country = policyengine_country
         self.policyengine_rule_hint = policyengine_rule_hint
         self.require_policy_proofs = require_policy_proofs
+        if not isinstance(require_complete_source_unit, bool):
+            raise TypeError("require_complete_source_unit must be a boolean")
+        self.require_complete_source_unit = require_complete_source_unit
         self.enforce_repository_layout = enforce_repository_layout
         self.source_text = source_text
+        if source_metadata is not None and not isinstance(source_metadata, dict):
+            raise TypeError("source_metadata must be a dictionary when provided")
+        self.source_metadata = copy.deepcopy(source_metadata)
+        if local_corpus_release is not None and not isinstance(
+            local_corpus_release, LocalCorpusRelease
+        ):
+            raise TypeError(
+                "local_corpus_release must be a validated LocalCorpusRelease"
+            )
+        self.local_corpus_release = local_corpus_release
+        self.rulespec_dependency_roots = _rulespec_dependencies_for_active_root(
+            self.policy_repo_path,
+            _normalize_rulespec_dependency_roots(rulespec_dependency_roots),
+        )
+        if source_citation_path is not None and not isinstance(
+            source_citation_path, str
+        ):
+            raise TypeError("source_citation_path must be a string when provided")
+        self.source_citation_path = (
+            require_canonical_corpus_citation_path(source_citation_path)
+            if source_citation_path is not None
+            else None
+        )
+        if amendment_source_texts is None:
+            amendment_source_texts = {}
+        if not isinstance(amendment_source_texts, Mapping):
+            raise TypeError("amendment_source_texts must be a mapping when provided")
+        self.amendment_source_texts: dict[str, str] = {}
+        for raw_citation_path, raw_source_text in amendment_source_texts.items():
+            if not isinstance(raw_citation_path, str):
+                raise TypeError("amendment source citation paths must be strings")
+            if not isinstance(raw_source_text, str):
+                raise TypeError("amendment source bodies must be strings")
+            citation_path = require_canonical_corpus_citation_path(raw_citation_path)
+            self.amendment_source_texts[citation_path] = raw_source_text
+        source_attestation = (
+            self.source_metadata.get("source_attestation")
+            if isinstance(self.source_metadata, dict)
+            else None
+        )
+        if isinstance(source_attestation, dict):
+            attested_path = source_attestation.get("requested_corpus_citation_path")
+            if attested_path is not None:
+                if not isinstance(attested_path, str):
+                    raise InvalidCorpusCitationError(
+                        "Source attestation requested_corpus_citation_path must "
+                        "be a string"
+                    )
+                canonical_attested_path = require_canonical_corpus_citation_path(
+                    attested_path
+                )
+                if self.source_citation_path is None:
+                    self.source_citation_path = canonical_attested_path
+                elif self.source_citation_path != canonical_attested_path:
+                    raise CorpusResolutionError(
+                        "Trusted source_citation_path does not match the source "
+                        "attestation requested_corpus_citation_path"
+                    )
         self.policyengine_registry = load_policyengine_registry()
 
     def _log_event(
@@ -21209,6 +34687,46 @@ class ValidatorPipeline:
                 metadata=metadata,
             )
 
+    def _normalize_validation_staging_result(
+        self,
+        result: ValidationResult,
+    ) -> ValidationResult:
+        """Remove every harness-owned ephemeral root from recorded text."""
+        normalization_roots = [
+            (root, _VALIDATION_TEMP_ROOT_PLACEHOLDER)
+            for root in self._validation_temporary_roots
+        ]
+        if self.validation_staging_root is not None:
+            normalization_roots.append(
+                (
+                    self.validation_staging_root,
+                    _VALIDATION_STAGING_ROOT_PLACEHOLDER,
+                )
+            )
+        if not normalization_roots:
+            return result
+
+        def normalize(text: str) -> str:
+            for root, placeholder in normalization_roots:
+                text = _normalize_validation_staging_text(
+                    text,
+                    root,
+                    placeholder=placeholder,
+                )
+            return text
+
+        result.issues = [normalize(issue) for issue in result.issues]
+        if result.error is not None:
+            result.error = normalize(result.error)
+        if result.raw_output is not None:
+            result.raw_output = normalize(result.raw_output)
+        return result
+
+    def _register_validation_temporary_root(self, root: Path) -> None:
+        """Record an inner harness temp root for persisted-text normalization."""
+
+        self._validation_temporary_roots.append(Path(root))
+
     def _pythonpath_env(self) -> dict[str, str]:
         """Build an env that prefers the configured Axiom rules engine checkout."""
         env = dict(os.environ)
@@ -21221,69 +34739,360 @@ class ValidatorPipeline:
         return env
 
     def _source_texts_for_rulespec_content(self, content: str) -> dict[str, str] | None:
-        """Map declared RuleSpec source paths to the in-memory source text, if any."""
+        """Resolve trusted source paths through the bound named corpus release."""
         if self.source_text is None:
             return None
+        if self.source_citation_path is None:
+            # Caller-provided text is reviewer/numeric-grounding context, never
+            # legal authority. Without resolver-owned paths, proof source lookup
+            # must fall through to the bound release.
+            return {}
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            raise CorpusResolutionError(
+                "Trusted source resolution requires a bound LocalCorpusRelease"
+            )
+        return {
+            self.source_citation_path: resolve_local_corpus_source(
+                self.source_citation_path,
+                self.local_corpus_release,
+            ).body
+        }
+
+    def _proof_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+    ) -> dict[str, str | None]:
+        """Resolve direct proof sources through the authoritative corpus path."""
+
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=True,
+        )
+
+    def _numeric_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+    ) -> dict[str, str | None]:
+        """Resolve proof-cited provision bodies for numeric grounding."""
+
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=False,
+        )
+
+    def _cited_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+        proof_evidence: bool,
+    ) -> dict[str, str | None]:
+        resolved: dict[str, str | None] = dict(source_texts or {})
+        fetch_source = (
+            _fetch_corpus_proof_evidence_text
+            if proof_evidence
+            else _fetch_corpus_source_text
+        )
         try:
             payload = yaml.safe_load(content)
         except (yaml.YAMLError, ValueError):
-            return None
+            return resolved
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
-            return None
-        source_verification = _source_verification_block(payload)
-        if source_verification is None:
-            return None
-        citation_paths, source_label = _source_verification_source_fields(
-            source_verification
-        )
-        if not citation_paths:
-            return None
-        source_texts = {
-            citation_path: self.source_text for citation_path in citation_paths
-        }
-        if source_label:
-            source_texts[source_label] = self.source_text
-        return source_texts
+            return resolved
+        rules = payload.get("rules")
+        if not isinstance(rules, list):
+            return resolved
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            metadata = rule.get("metadata")
+            proof = metadata.get("proof") if isinstance(metadata, dict) else None
+            if not isinstance(proof, dict):
+                proof = rule.get("proof")
+            if not isinstance(proof, dict):
+                continue
+            atoms = proof.get("atoms")
+            if not isinstance(atoms, list):
+                continue
+            for atom in atoms:
+                if not isinstance(atom, dict):
+                    continue
+                source = atom.get("source")
+                if not isinstance(source, dict):
+                    continue
+                citation_path = str(source.get("corpus_citation_path") or "").strip()
+                if citation_path:
+                    try:
+                        resolved[citation_path] = fetch_source(citation_path)
+                    except InvalidCorpusCitationError:
+                        # Model-authored citation errors are validation findings, not
+                        # harness failures that should abort the repair loop.
+                        resolved[citation_path] = None
+        return resolved
 
-    def _rulespec_compile_env(self) -> dict[str, str]:
-        """Build an env that can resolve canonical RuleSpec repo imports."""
-        env = self._pythonpath_env()
-        roots: list[Path] = []
-        if Path(self.policy_repo_path).parent.name.startswith("rulespec-"):
-            # A monorepo jurisdiction directory: sibling checkouts live next
-            # to the monorepo checkout itself.
-            incidental_roots = [
-                self.policy_repo_path.parent,
-                self.policy_repo_path.parent.parent,
-            ]
-        else:
-            incidental_roots = [self.policy_repo_path.parent]
-        monorepo_alias = _monorepo_rulespec_repo_alias(self.policy_repo_path)
-        if monorepo_alias is not None:
-            monorepo_alias_parent, _monorepo_canonical_name = monorepo_alias
-            roots.append(monorepo_alias_parent)
-        if not _is_canonical_monorepo_content_root(self.policy_repo_path):
-            alias_parent = _rulespec_repo_alias_parent(self.policy_repo_path)
-            if alias_parent is not None:
-                roots.append(alias_parent)
-        roots.append(self.policy_repo_path)
-        existing_roots = env.get("AXIOM_RULESPEC_REPO_ROOTS", "")
-        if existing_roots:
-            roots.extend(
-                Path(root) for root in existing_roots.split(os.pathsep) if root
+    def _trusted_source_binding_issues(self, content: str) -> list[str]:
+        """Require generated metadata to retain the resolver-selected source."""
+
+        if self.source_citation_path is None:
+            return []
+        try:
+            payload = yaml.safe_load(content)
+        except (yaml.YAMLError, ValueError):
+            return []
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            return []
+        source_verification = _source_verification_block(payload)
+        declared_paths, _source_label = (
+            _source_verification_source_fields(source_verification)
+            if source_verification is not None
+            else ((), None)
+        )
+        trusted_primary = self.source_citation_path
+        if trusted_primary in declared_paths:
+            return []
+        declared = (
+            _format_source_verification_paths(declared_paths)
+            if declared_paths
+            else "no corpus citation path"
+        )
+        return [
+            "Source verification target mismatch: generated RuleSpec must include "
+            f"the trusted requested source `{trusted_primary}`, but declared "
+            f"{declared}."
+        ]
+
+    def _complete_source_unit_issues(
+        self,
+        content: str,
+        *,
+        validation_source_texts: Mapping[str, str] | None,
+        test_cases: Sequence[object] | None,
+        rules_file: Path | None = None,
+    ) -> list[str]:
+        """Apply opt-in completeness checks to the resolver-owned corpus body."""
+
+        if not self.require_complete_source_unit:
+            return []
+        source_texts = (
+            dict(validation_source_texts)
+            if validation_source_texts is not None
+            else None
+        )
+        authoritative_source_text = (
+            _source_verification_text(
+                citation_paths=(self.source_citation_path,),
+                source_label=self.source_citation_path,
+                source_texts=source_texts,
             )
-        roots.extend(incidental_roots)
-        deduped_roots: list[str] = []
-        seen: set[str] = set()
-        for root in roots:
-            raw = str(root)
-            if raw and raw not in seen:
-                seen.add(raw)
-                deduped_roots.append(raw)
-        env["AXIOM_RULESPEC_REPO_ROOTS"] = os.pathsep.join(deduped_roots)
+            if self.source_citation_path
+            else _extract_source_verification_text(
+                content,
+                source_texts=source_texts,
+            )
+        )
+        source_verification = None
+        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+            rulespec_payload = yaml.safe_load(content)
+            if isinstance(rulespec_payload, dict):
+                source_verification = _source_verification_block(rulespec_payload)
+        citation_paths, _source_label = (
+            _source_verification_source_fields(source_verification)
+            if source_verification is not None
+            else ((), "")
+        )
+        corpus_citation_path = self.source_citation_path or (
+            citation_paths[0] if citation_paths else ""
+        )
+        imported_symbol_contents = self._complete_source_unit_import_symbol_contents(
+            rules_file
+        )
+        artifact_numeric_bindings = collect_artifact_numeric_bindings(
+            content,
+            extract_named_scalars=extract_named_scalar_occurrences,
+            imported_symbol_contents=imported_symbol_contents,
+        )
+        artifact_numeric_values = tuple(
+            value for _name, value in artifact_numeric_bindings
+        )
+        numeric_profile = _numeric_profile_for_citation_path(corpus_citation_path)
+        numeric_occurrence_extractor = functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile=numeric_profile,
+        )
+        numeric_grounding_occurrence_extractor = functools.partial(
+            extract_typed_numeric_occurrences_from_text,
+            profile=numeric_profile,
+        )
+        completeness = analyze_complete_source_unit(
+            content,
+            authoritative_source_text or "",
+            corpus_citation_path=corpus_citation_path,
+            test_cases=test_cases,
+            extract_numeric_occurrences=numeric_occurrence_extractor,
+            extract_numeric_grounding_occurrences=(
+                numeric_grounding_occurrence_extractor
+            ),
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+            artifact_numeric_values=artifact_numeric_values,
+            artifact_numeric_bindings=artifact_numeric_bindings,
+            imported_symbol_contents=imported_symbol_contents,
+            resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
+                content, rules_file
+            ),
+            authenticated_same_act_aliases=(
+                _authenticated_same_act_aliases_from_metadata(self.source_metadata)
+            ),
+        )
+        return list(completeness.issues)
+
+    def _complete_source_unit_deferred_outputs(
+        self,
+        content: str,
+        rules_file: Path | None,
+    ) -> tuple[str, ...]:
+        """Authenticate exact existing outputs named by definition deferrals."""
+
+        if rules_file is None:
+            return ()
+        try:
+            payload = _safe_load_unique_keys(content)
+            module = payload.get("module", {}) if isinstance(payload, dict) else {}
+            records = (
+                module.get("deferred_outputs", []) if isinstance(module, dict) else []
+            )
+            if not isinstance(records, list):
+                return ()
+            source_root = self._validation_source_root(rules_file)
+        except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+            return ()
+        targets = {
+            target
+            for record in records
+            if isinstance(record, dict) and isinstance(record.get("blocked_by"), list)
+            for target in record["blocked_by"]
+            if isinstance(target, str)
+            and re.fullmatch(
+                r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*",
+                target,
+            )
+        }
+        resolved = []
+        for target in sorted(targets):
+            try:
+                dependency = _resolve_rulespec_import_file_static(
+                    target,
+                    rules_file=rules_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if dependency is None:
+                    continue
+                provider = _safe_load_unique_keys(dependency.read_text())
+                if (
+                    not isinstance(provider, dict)
+                    or provider.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = provider.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                symbol = target.partition("#")[2]
+                exports = [
+                    rule
+                    for rule in rules
+                    if isinstance(rule, dict) and rule.get("name") == symbol
+                ]
+                if len(exports) == 1 and exports[0].get("kind") in {
+                    "parameter",
+                    "derived",
+                    "relation",
+                    "derived_relation",
+                }:
+                    resolved.append(target)
+            except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+                continue
+        return tuple(resolved)
+
+    def _complete_source_unit_import_symbol_contents(
+        self,
+        rules_file: Path | None,
+    ) -> tuple[tuple[str, str], ...]:
+        """Bind every directly imported symbol to its exact resolved artifact."""
+
+        if rules_file is None:
+            return ()
+        try:
+            source_root = self._validation_source_root(rules_file)
+            import_items = self._extract_import_items(rules_file.read_text())
+        except (OSError, ValueError, UnsafeRulespecContextPath):
+            return ()
+        seen: set[tuple[Path, str]] = set()
+        bindings: list[tuple[str, str]] = []
+        for import_item in import_items:
+            _target, separator, imported_symbol = import_item.rpartition("#")
+            imported_symbol = imported_symbol.strip()
+            if not separator or not imported_symbol:
+                continue
+            try:
+                dependency = _resolve_rulespec_import_file_static(
+                    import_item,
+                    rules_file=rules_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if dependency is None:
+                    continue
+                binding_key = (dependency.resolve(), imported_symbol)
+                if binding_key in seen:
+                    continue
+                seen.add(binding_key)
+                bindings.append((imported_symbol, dependency.read_text()))
+            except (OSError, ValueError, UnsafeRulespecContextPath):
+                continue
+        return tuple(bindings)
+
+    def _rulespec_compile_roots(self) -> tuple[Path, ...]:
+        """Return the exact country checkouts authorized for engine compilation."""
+        active_checkout = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        return (active_checkout, *self.rulespec_dependency_roots)
+
+    def _rulespec_root_args(self) -> list[str]:
+        """Render required repeatable engine root arguments."""
+        return [
+            item
+            for root in self._rulespec_compile_roots()
+            for item in ("--rulespec-root", str(root))
+        ]
+
+    def _rulespec_engine_env(self) -> dict[str, str]:
+        """Build the credential-free environment for RuleSpec engine calls."""
+        env = _without_sensitive_environment(self._pythonpath_env())
+        env.pop("AXIOM_RULESPEC_REPO_ROOTS", None)
+        env.pop("AXIOM_RULESPEC_REPO_ROOTS_EXCLUSIVE", None)
         return env
 
     def validate(
+        self, rulespec_file: Path, skip_reviewers: bool = False
+    ) -> PipelineResult:
+        """Run validation with the caller-authorized dependency roots bound."""
+
+        with (
+            _rulespec_resolution_cache_scope(),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
+            return self._validate_with_authoritative_roots(
+                rulespec_file,
+                skip_reviewers=skip_reviewers,
+            )
+
+    def _validate_with_authoritative_roots(
         self, rulespec_file: Path, skip_reviewers: bool = False
     ) -> PipelineResult:
         """Run 4-tier validation on a RuleSpec file.
@@ -21291,12 +35100,18 @@ class ValidatorPipeline:
         Tiers run in order:
         0. Compile check - can the file compile to engine IR?
         1. CI checks (instant) - parse, lint, companion tests, structural validation
-        2. Oracles (fast, ~10s) - PolicyEngine + TAXSIM comparison data
+        2. Oracle (fast, ~10s) - explicit local PolicyEngine comparison data
         3. LLM reviewers (uses oracle context) - diagnose issues
 
         Oracle results are passed to LLM reviewers as context.
         Each tier is logged as session events with timestamps.
         """
+        if not isinstance(self.local_corpus_release, LocalCorpusRelease):
+            raise RuntimeError(
+                "ValidatorPipeline.validate requires a bound LocalCorpusRelease; "
+                "load the RuleSpec checkout's named release from its "
+                ".axiom/toolchain.toml using an explicit corpus root"
+            )
         start = time.time()
         results = {}
 
@@ -21345,13 +35160,12 @@ class ValidatorPipeline:
         oracle_context = {}
         if self.enable_oracles:
             self._log_event(
-                "validation_oracle_start", "Starting oracle validation (PE + TAXSIM)"
+                "validation_oracle_start", "Starting explicit PolicyEngine validation"
             )
             oracle_start = time.time()
 
             available_oracle_validators = {
                 "policyengine": lambda: self._run_policyengine(rulespec_file),
-                "taxsim": lambda: self._run_taxsim(rulespec_file),
             }
             oracle_validators = {
                 name: available_oracle_validators[name]
@@ -21359,7 +35173,7 @@ class ValidatorPipeline:
                 if name in available_oracle_validators
             }
 
-            with ThreadPoolExecutor(max_workers=2) as executor:
+            with ThreadPoolExecutor(max_workers=1) as executor:
                 futures = {
                     executor.submit(fn): name for name, fn in oracle_validators.items()
                 }
@@ -21477,8 +35291,8 @@ class ValidatorPipeline:
 
     def _is_rulespec_file(self, rules_file: Path) -> bool:
         """Return true for current RuleSpec files."""
-        if rules_file.suffix not in {".yaml", ".yml"} or rules_file.name.endswith(
-            ".test.yaml"
+        if rules_file.suffix != RULESPEC_FILE_SUFFIX or rules_file.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
         ):
             return False
         try:
@@ -21503,21 +35317,89 @@ class ValidatorPipeline:
         """Return the companion RuleSpec test file path."""
         return rules_file.with_name(f"{rules_file.stem}.test.yaml")
 
+    def _declared_engine_pin(self) -> EnginePin | None:
+        """Load the declared engine pin once per pipeline instance."""
+        if not self._axiom_rules_engine_pin_loaded:
+            if self._axiom_rules_engine_pin_override is not None:
+                pin = self._axiom_rules_engine_pin_override
+            else:
+                pin = load_declared_engine_pin(self.policy_repo_path)
+            self._axiom_rules_engine_pin = pin
+            self._axiom_rules_engine_pin_loaded = True
+        return self._axiom_rules_engine_pin
+
     def _axiom_rules_binary(self) -> Path:
-        """Resolve the local Axiom rules engine CLI binary."""
+        """Resolve the local Axiom rules engine CLI binary.
+
+        A declared axiom_rules_engine_ref pin binds deterministically (receipt
+        or clean pinned checkout plus build-on-demand); unpinned checkouts fall
+        back to a release-first candidate scan with an unverified-binding event.
+        The memoized binding holds only while the binary's bytes are unchanged
+        on disk (stat identity); a swapped or rebuilt binary re-resolves.
+        """
+        if self._axiom_rules_binary_path is not None:
+            if self._axiom_rules_binary_stat is not None and (
+                self._binary_stat_signature(self._axiom_rules_binary_path)
+                == self._axiom_rules_binary_stat
+            ):
+                return self._axiom_rules_binary_path
+            self._axiom_rules_binary_path = None
+            self._axiom_rules_binary_stat = None
+        pin = self._declared_engine_pin()
+        if pin is not None:
+            binary = resolve_pinned_engine_binary(self.axiom_rules_path, pin)
+        else:
+            binary = self._unverified_axiom_rules_binary()
+        self._axiom_rules_binary_path = binary
+        self._axiom_rules_binary_stat = self._binary_stat_signature(binary)
+        return binary
+
+    @staticmethod
+    def _binary_stat_signature(binary: Path) -> tuple[int, int, int, int] | None:
+        """Return a cheap on-disk identity for the bound engine binary."""
+        try:
+            stat = os.stat(binary)
+        except OSError:
+            return None
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+    def _unverified_axiom_rules_binary(self) -> Path:
+        """Resolve without a declared pin: prefer release, then debug, then bare."""
         candidates = [
-            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
             self.axiom_rules_path / "target" / "release" / "axiom-rules-engine",
+            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
             self.axiom_rules_path / "axiom-rules-engine",
         ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        if resolved := shutil.which("axiom-rules-engine"):
-            return Path(resolved)
-        raise FileNotFoundError(
-            f"axiom-rules-engine binary not found under {self.axiom_rules_path} or on PATH"
+        existing = [candidate for candidate in candidates if candidate.exists()]
+        if not existing:
+            raise FileNotFoundError(
+                "axiom-rules-engine binary not found in the explicitly declared "
+                f"checkout: {self.axiom_rules_path}"
+            )
+        binary = existing[0]
+        # _log_event is a no-op without an encoding_db session, so also warn
+        # through the module logger for plain CLI invocations.
+        logger.warning(
+            "Bound %s without a declared %s engine pin; binary provenance is "
+            "unverified (other existing candidates: %s)",
+            binary,
+            ENGINE_PIN_FIELD,
+            ", ".join(str(candidate) for candidate in existing[1:]) or "none",
         )
+        self._log_event(
+            "engine_binding_unverified",
+            f"Bound {binary} without a declared {ENGINE_PIN_FIELD} engine pin; "
+            "binary provenance is unverified",
+            {
+                "binary": str(binary),
+                "other_existing_candidates": [
+                    str(candidate) for candidate in existing[1:]
+                ],
+                "engine_checkout": str(self.axiom_rules_path),
+                "declared_engine_pin": None,
+            },
+        )
+        return binary
 
     def _compile_rulespec_to_artifact(
         self,
@@ -21530,24 +35412,195 @@ class ValidatorPipeline:
             rules_file,
             self.policy_repo_path,
         )
-        result = subprocess.run(
-            [
-                str(binary),
-                "compile",
-                "--program",
-                str(compile_file),
-                "--output",
-                str(output_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
-            env=self._rulespec_compile_env(),
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        is_composition = (
+            isinstance(module, dict) and module.get("kind") == "composition"
+        )
+        if is_composition:
+            compose_result, composed_file = self._compose_rulespec_module(
+                compile_file,
+                output_path.parent,
+            )
+            if compose_result.returncode != 0 or composed_file is None:
+                return compose_result, None
+            compile_file = composed_file
+        result = run_rulespec_compile(
+            binary=binary,
+            program=compile_file,
+            rulespec_roots=self._rulespec_compile_roots(),
+            output=output_path,
+            cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
+            env=self._rulespec_engine_env(),
+            composed=is_composition,
         )
         if result.returncode != 0:
             return result, None
         return result, json.loads(output_path.read_text())
+
+    def _compose_rulespec_module(
+        self,
+        rules_file: Path,
+        output_directory: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], Path | None]:
+        """Compose one composition module through its owning ProgramSpec."""
+
+        if self.axiom_compose_path is None:
+            message = (
+                "composition RuleSpec validation requires an explicit "
+                "axiom-compose executable"
+            )
+            return subprocess.CompletedProcess([], 1, "", message), None
+        compose_binary = self.axiom_compose_path.resolve(strict=True)
+        if not compose_binary.is_file() or not os.access(compose_binary, os.X_OK):
+            message = f"axiom-compose executable is not executable: {compose_binary}"
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        program_specs = self._owning_program_specs(rules_file)
+        if len(program_specs) != 1:
+            relative = rules_file.relative_to(self.policy_repo_path).as_posix()
+            if program_specs:
+                checkout_root = _rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                owners = ", ".join(
+                    path.relative_to(checkout_root).as_posix() for path in program_specs
+                )
+                message = (
+                    f"composition module {relative} has multiple owning "
+                    f"ProgramSpecs: {owners}"
+                )
+            else:
+                message = (
+                    f"composition module {relative} is not in any ProgramSpec scope"
+                )
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        composed_file = output_directory / "composed-program.yaml"
+        command = [str(compose_binary), str(program_specs[0]), "-o", str(composed_file)]
+        for root in self._rulespec_compile_roots():
+            command.extend(("--rulespec-root", str(root)))
+        try:
+            result = subprocess.run(
+                command,
+                cwd=self.policy_repo_path,
+                env=self._rulespec_engine_env(),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = f"axiom-compose timed out after {exc.timeout} seconds"
+            return subprocess.CompletedProcess(command, 1, "", message), None
+        except OSError as exc:
+            return subprocess.CompletedProcess(command, 1, "", str(exc)), None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            return subprocess.CompletedProcess(
+                command,
+                result.returncode,
+                result.stdout,
+                f"axiom-compose failed: {detail}",
+            ), None
+        if not composed_file.is_file() or composed_file.is_symlink():
+            message = "axiom-compose succeeded without a regular output file"
+            return subprocess.CompletedProcess(command, 1, result.stdout, message), None
+        return result, composed_file
+
+    def _owning_program_specs(self, rules_file: Path) -> tuple[Path, ...]:
+        """Return ProgramSpecs whose transitive import scope contains ``rules_file``."""
+
+        root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        module_relative = rules_file.resolve().relative_to(root)
+        module_target = (
+            f"{module_relative.parts[0]}:"
+            f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
+        )
+        owners: list[Path] = []
+        for candidate in sorted(root.rglob("*.yaml")):
+            relative = candidate.relative_to(root)
+            if "programs" not in relative.parts:
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                payload = _safe_load_unique_keys(candidate.read_text())
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            program = payload.get("program")
+            scope = payload.get("scope")
+            if not isinstance(program, str) or not isinstance(scope, dict):
+                continue
+            jurisdiction = program.strip().split("/", 1)[0]
+            country = jurisdiction.split("-", 1)[0]
+            scoped_targets: set[str] = set()
+            for scope_name, entries in scope.items():
+                if scope_name in {"exclude", "include", "jurisdictions"}:
+                    continue
+                if not isinstance(scope_name, str) or not isinstance(entries, list):
+                    continue
+                prefix = (
+                    country
+                    if scope_name == "federal"
+                    else jurisdiction
+                    if scope_name == "state"
+                    else scope_name
+                )
+                for entry in entries:
+                    if not isinstance(entry, str):
+                        continue
+                    raw_target = entry.strip()
+                    target_ref = _parse_rulespec_target(
+                        raw_target if ":" in raw_target else f"{prefix}:{raw_target}"
+                    )
+                    if target_ref is not None:
+                        scoped_targets.add(
+                            f"{target_ref.prefix}:"
+                            f"{target_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            pending = list(scoped_targets)
+            reachable: set[str] = set()
+            while pending:
+                target = pending.pop()
+                if target in reachable:
+                    continue
+                reachable.add(target)
+                target_ref = _parse_rulespec_target(target)
+                if target_ref is None:
+                    continue
+                target_file = _resolve_rulespec_target_file(
+                    target_ref,
+                    self.policy_repo_path,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if target_file is None:
+                    continue
+                try:
+                    target_payload = _safe_load_unique_keys(target_file.read_text())
+                except (OSError, ValueError, yaml.YAMLError):
+                    continue
+                imports = (
+                    target_payload.get("imports")
+                    if isinstance(target_payload, dict)
+                    else None
+                )
+                if not isinstance(imports, list):
+                    continue
+                for imported in imports:
+                    if not isinstance(imported, str):
+                        continue
+                    imported_ref = _parse_rulespec_target(imported)
+                    if imported_ref is not None:
+                        pending.append(
+                            f"{imported_ref.prefix}:"
+                            f"{imported_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            if module_target in reachable:
+                owners.append(candidate)
+        return tuple(owners)
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
@@ -21566,6 +35619,7 @@ class ValidatorPipeline:
         issues: list[str] = []
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
+                self._register_validation_temporary_root(Path(tmpdir))
                 output_path = Path(tmpdir) / "compiled.json"
                 result, payload = self._compile_rulespec_to_artifact(
                     rules_file, output_path
@@ -21602,14 +35656,15 @@ class ValidatorPipeline:
         """Tier 0: Compile check against the Axiom rules engine RuleSpec."""
         yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
         if yaml_issue:
-            return ValidationResult(
+            result = ValidationResult(
                 validator_name="compile",
                 passed=False,
                 issues=[yaml_issue],
                 error=yaml_issue,
             )
-
-        return self._run_rulespec_compile_check(rulespec_file)
+        else:
+            result = self._run_rulespec_compile_check(rulespec_file)
+        return self._normalize_validation_staging_result(result)
 
     def _coerce_rulespec_period(self, value: Any) -> dict[str, Any]:
         """Coerce compact `.test.yaml` period shorthands to engine JSON."""
@@ -21618,21 +35673,20 @@ class ValidatorPipeline:
                 key: (item.isoformat() if isinstance(item, date) else item)
                 for key, item in value.items()
             }
-            if period.get("period_kind") == "year":
-                period["period_kind"] = "tax_year"
             required = {"period_kind", "start", "end"}
             missing = sorted(required - set(period))
             if missing:
                 raise ValueError(
                     "period mapping missing required field(s): " + ", ".join(missing)
                 )
-            if period["period_kind"] not in {
-                "month",
-                "benefit_week",
-                "tax_year",
-                "custom",
-            }:
-                raise ValueError(f"unsupported period_kind: {period['period_kind']!r}")
+            period_kind = period["period_kind"]
+            if period_kind not in _RULESPEC_ENGINE_PERIOD_KINDS:
+                accepted = "|".join(_RULESPEC_ENGINE_PERIOD_KINDS)
+                hint = " (did you mean 'tax_year'?)" if period_kind == "year" else ""
+                raise ValueError(
+                    f"unsupported period_kind: {period_kind!r}; the engine test "
+                    f"runner accepts {accepted}{hint}"
+                )
             for key in ("start", "end"):
                 try:
                     date.fromisoformat(str(period[key]))
@@ -22032,13 +36086,6 @@ class ValidatorPipeline:
                 if pair is None:
                     continue
                 name, item_id = pair
-                item_id = (
-                    _canonical_rulespec_item_id_alias(
-                        item_id,
-                        policy_repo_path=self.policy_repo_path,
-                    )
-                    or item_id
-                )
                 legal_ids_by_name.setdefault(name, set()).add(item_id)
         return {name: sorted(item_ids) for name, item_ids in legal_ids_by_name.items()}
 
@@ -22112,7 +36159,12 @@ class ValidatorPipeline:
         if actual_kind in numeric and expected_kind in numeric:
             actual_decimal = self._rulespec_decimal(actual.get("value"))
             expected_decimal = self._rulespec_decimal(expected.get("value"))
-            return abs(actual_decimal - expected_decimal) <= Decimal("1e-18")
+            return rulespec_numeric_values_equal(
+                actual_decimal,
+                expected_decimal,
+                actual_kind=str(actual_kind),
+                expected_kind=str(expected_kind),
+            )
         if actual_kind == "bool" and expected_kind == "bool":
             return bool(actual.get("value")) == bool(expected.get("value"))
         if actual_kind != expected_kind:
@@ -22132,6 +36184,85 @@ class ValidatorPipeline:
         """Format a scalar value spec with its kind for failure messages."""
         return f"{value.get('kind')} {value.get('value')}"
 
+    def _complete_mode_effective_version_mismatch_hint(
+        self,
+        *,
+        expected_scalar: dict[str, Any],
+        actual_scalar: dict[str, Any],
+        period: Mapping[str, Any] | None,
+    ) -> str:
+        """Steer amendment-backed mismatches toward distinct effective versions."""
+        if (
+            not self.require_complete_source_unit
+            or not self.amendment_source_texts
+            or not self.source_text
+            or period is None
+        ):
+            return ""
+        numeric_kinds = {"integer", "decimal"}
+        if (
+            expected_scalar.get("kind") not in numeric_kinds
+            or actual_scalar.get("kind") not in numeric_kinds
+        ):
+            return ""
+        try:
+            expected_value = float(self._rulespec_decimal(expected_scalar.get("value")))
+            actual_value = float(self._rulespec_decimal(actual_scalar.get("value")))
+        except (ValueError, OverflowError):
+            return ""
+        if not math.isfinite(expected_value) or not math.isfinite(actual_value):
+            return ""
+        source_profile = _numeric_profile_for_citation_path(self.source_citation_path)
+        if _source_text_contains_numeric_value_equivalent(
+            self.source_text,
+            expected_value,
+            profile=source_profile,
+        ) or not _source_text_contains_numeric_value_equivalent(
+            self.source_text,
+            actual_value,
+            profile=source_profile,
+        ):
+            return ""
+        citations = _attached_amendment_citations_for_numeric_value(
+            expected_value,
+            self.amendment_source_texts,
+        )
+        if not citations:
+            return ""
+
+        citation_display = ", ".join(f"`{citation}`" for citation in citations)
+        period_start = str(period.get("start") or "")
+        year_match = re.match(r"(?P<year>\d{4})-", period_start)
+        version_shape = (
+            f"`{expected_value:g}` for the test period beginning {period_start} "
+            f"and `{actual_value:g}` as the later consolidated value"
+        )
+        if year_match is not None:
+            period_year = int(year_match.group("year"))
+            next_year = period_year + 1
+            matching_amendment_text = "\n".join(
+                self.amendment_source_texts[citation] for citation in citations
+            )
+            if re.search(
+                rf"(?<!\d){period_year}(?!\d)",
+                matching_amendment_text,
+            ) and re.search(
+                rf"(?<!\d){next_year}(?!\d)",
+                matching_amendment_text,
+            ):
+                version_shape = (
+                    f"`{expected_value:g}` for {period_year} from the amendment "
+                    f"and `{actual_value:g}` for the {next_year} consolidated version"
+                )
+
+        return (
+            " Complete-source effective-version hint: the expected value appears "
+            f"in attached amendment document {citation_display}, while the actual "
+            "value appears in the authoritative consolidated source. Encode dual "
+            f"effective versions—{version_shape}—and give each version a source "
+            "proof atom citing its own authoritative document."
+        )
+
     def _compare_rulespec_output(
         self,
         *,
@@ -22139,6 +36270,7 @@ class ValidatorPipeline:
         output_name: str,
         expected_value: Any,
         actual_output: Any,
+        period: Mapping[str, Any] | None = None,
     ) -> str | None:
         """Compare a single expected output; return an issue string on mismatch."""
         if isinstance(expected_value, list):
@@ -22167,6 +36299,7 @@ class ValidatorPipeline:
                     output_name=output_name,
                     expected_value=expected_item,
                     actual_output=actual_item,
+                    period=period,
                 )
                 if mismatch:
                     return f"{mismatch} (row #{row_index})"
@@ -22217,10 +36350,15 @@ class ValidatorPipeline:
                 expected_value = Decimal(expected_numeric_text)
         expected_scalar = self._rulespec_expected_scalar_value(expected_value)
         if not self._rulespec_scalar_values_equal(actual_scalar, expected_scalar):
-            return (
+            mismatch = (
                 f"Test case `{case_name}` output `{output_name}` expected "
                 f"{self._format_rulespec_scalar_value(expected_scalar)}, got "
                 f"{self._format_rulespec_actual_value(actual_output)}."
+            )
+            return mismatch + self._complete_mode_effective_version_mismatch_hint(
+                expected_scalar=expected_scalar,
+                actual_scalar=actual_scalar,
+                period=period,
             )
         return None
 
@@ -22292,7 +36430,7 @@ class ValidatorPipeline:
                     f"list but has no `tables.{query_entity}` rows."
                 ]
             expected_row_count = len(table_rows)
-            for output_name in row_ordered_outputs:
+            for output_name in sorted(row_ordered_outputs):
                 expected_value = output_values_by_runtime_key.get(output_name)
                 if (
                     isinstance(expected_value, list)
@@ -22317,31 +36455,80 @@ class ValidatorPipeline:
                 for entity_id in query_entity_ids
             ],
         }
-        result = subprocess.run(
-            [str(binary), "run-compiled", "--artifact", str(compiled_path)],
-            input=json.dumps(request),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(self.axiom_rules_path) if self.axiom_rules_path.exists() else None,
-            env=self._rulespec_compile_env(),
-        )
+        command = [str(binary), "run-compiled", "--artifact", str(compiled_path)]
+        try:
+            result = subprocess.run(
+                command,
+                input=json.dumps(request),
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=(
+                    str(self.axiom_rules_path)
+                    if self.axiom_rules_path.exists()
+                    else None
+                ),
+                env=self._rulespec_engine_env(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            return None, [
+                f"Test case `{case_name}` execution timed out after "
+                f"{exc.timeout} seconds."
+            ]
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = _normalize_validation_staging_text(
+                str(exc),
+                compiled_path.parent,
+                placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
+            )
+            return None, [f"Test case `{case_name}` execution failed: {detail}"]
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
+            detail = _normalize_validation_staging_text(
+                detail,
+                compiled_path.parent,
+                placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
+            )
             return None, [f"Test case `{case_name}` execution failed: {detail}"]
+
+        def unique_response_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(f"duplicate response key `{key}`")
+                result[key] = value
+            return result
+
         try:
-            response = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
+            response = json.loads(
+                result.stdout, object_pairs_hook=unique_response_object
+            )
+        except ValueError as exc:
             return None, [f"Test case `{case_name}` response JSON parse failed: {exc}"]
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
-        if row_ordered_outputs:
-            if len(results) != len(query_entity_ids):
+        if len(results) != len(query_entity_ids):
+            return None, [
+                f"Test case `{case_name}` returned {len(results)} row result(s), "
+                f"expected {len(query_entity_ids)}."
+            ]
+        if any(not isinstance(row, dict) for row in results):
+            return None, [f"Test case `{case_name}` returned a malformed result row."]
+        for row_index, (row, query) in enumerate(
+            zip(results, request["queries"], strict=True), 1
+        ):
+            if (
+                row.get("entity_id") != query["entity_id"]
+                or row.get("period") != query["period"]
+                or row.get("assessment_date") != query.get("assessment_date")
+            ):
                 return None, [
-                    f"Test case `{case_name}` returned {len(results)} row result(s), "
-                    f"expected {len(query_entity_ids)}."
+                    f"Test case `{case_name}` row #{row_index} returned an "
+                    "entity, period, or assessment date that does not match "
+                    "its execution query."
                 ]
+        if row_ordered_outputs:
             aggregated_outputs: dict[str, list[Any]] = {
                 output_name: [] for output_name in output_names
             }
@@ -22352,7 +36539,10 @@ class ValidatorPipeline:
                         f"Test case `{case_name}` row #{row_index} returned no "
                         "output map."
                     ]
-                row_outputs = self._rulespec_outputs_by_reference(outputs)
+                try:
+                    row_outputs = self._rulespec_outputs_by_reference(outputs)
+                except ValueError as exc:
+                    return None, [f"Test case `{case_name}` row #{row_index}: {exc}"]
                 for output_name in output_names:
                     actual_output = row_outputs.get(output_name)
                     if actual_output is None:
@@ -22365,17 +36555,27 @@ class ValidatorPipeline:
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
-        return self._rulespec_outputs_by_reference(outputs), []
+        try:
+            return self._rulespec_outputs_by_reference(outputs), []
+        except ValueError as exc:
+            return None, [f"Test case `{case_name}`: {exc}"]
 
     def _rulespec_outputs_by_reference(self, outputs: dict[str, Any]) -> dict[str, Any]:
         """Index runtime outputs by response key and durable id only."""
         outputs_by_reference: dict[str, Any] = {}
+        owners: dict[str, str] = {}
         for output_key, output in outputs.items():
-            outputs_by_reference[str(output_key)] = output
-            if not isinstance(output, dict):
-                continue
-            reference = str(output.get("id") or "").strip()
-            if reference:
+            references = {str(output_key)}
+            if isinstance(output, dict):
+                reference = str(output.get("id") or "").strip()
+                if reference:
+                    references.add(reference)
+            for reference in sorted(references):
+                if reference in owners and owners[reference] != output_key:
+                    raise ValueError(
+                        f"ambiguous runtime output reference `{reference}`"
+                    )
+                owners[reference] = output_key
                 outputs_by_reference[reference] = output
         return outputs_by_reference
 
@@ -22606,6 +36806,7 @@ class ValidatorPipeline:
                     output_name=output_key,
                     expected_value=expected_value,
                     actual_output=actual_output,
+                    period=period,
                 )
                 if mismatch:
                     issues.append(mismatch)
@@ -22616,6 +36817,7 @@ class ValidatorPipeline:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
         start = time.time()
         issues: list[str] = []
+        complete_source_unit_test_cases: list[Any] | None = None
         content = rules_file.read_text()
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
@@ -22627,6 +36829,7 @@ class ValidatorPipeline:
 
         tmpdir_cm = tempfile.TemporaryDirectory()
         tmpdir = Path(tmpdir_cm.name)
+        self._register_validation_temporary_root(tmpdir)
         try:
             compiled_path = tmpdir / "compiled.json"
             compile_result, payload = self._compile_rulespec_to_artifact(
@@ -22647,6 +36850,14 @@ class ValidatorPipeline:
             issues.append(f"Axiom rules engine compile failed: {exc}")
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
+        numeric_source_texts = self._numeric_source_texts_for_rulespec_content(
+            content,
+            source_texts=validation_source_texts,
+        )
+        proof_source_texts = self._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=validation_source_texts,
+        )
         validation_source_text = (
             self.source_text
             if self.source_text is not None
@@ -22655,31 +36866,70 @@ class ValidatorPipeline:
                 source_texts=validation_source_texts,
             )
         )
-        issues.extend(
-            find_ungrounded_numeric_issues(content, source_text=validation_source_text)
-        )
+        # Ground each rule's literals against the provisions that rule cites
+        # (module source ∪ its own proof-atom sources), not the single
+        # module-level source: a benefit/tax module legitimately draws its
+        # rate, thresholds, and conversions from several provisions of one Act.
+        # When an explicit override source is supplied without amendment
+        # context, keep single-source behavior for that caller. Attached
+        # amendments remain hint-only unless an owning proof atom cites them;
+        # when attachments exist, scoped grounding is required so a valid
+        # citation can resolve and ground that exact literal path.
+        if self.source_text is not None and not self.amendment_source_texts:
+            issues.extend(
+                find_ungrounded_numeric_issues(
+                    content,
+                    source_text=validation_source_text,
+                    source_citation_path=self.source_citation_path,
+                    require_complete_source_unit=self.require_complete_source_unit,
+                    amendment_source_texts=self.amendment_source_texts,
+                )
+            )
+        else:
+            issues.extend(
+                find_ungrounded_numeric_issues_scoped(
+                    content,
+                    module_source_text=validation_source_text,
+                    module_citation_path=self.source_citation_path,
+                    proof_source_texts=numeric_source_texts,
+                    require_complete_source_unit=self.require_complete_source_unit,
+                    amendment_source_texts=self.amendment_source_texts,
+                )
+            )
         issues.extend(find_deprecated_source_url_issues(content))
+        issues.extend(self._trusted_source_binding_issues(content))
         issues.extend(find_source_claim_reference_issues(content))
         issues.extend(find_empty_rules_module_issues(content))
-        issues.extend(
-            upstream_source_authority_issues_for_rules_file(
-                content,
-                rules_file=rules_file,
-                policy_repo_path=self.policy_repo_path,
-            )
-        )
         proof_issues = (
             validate_rulespec_proofs(
                 content,
                 require_policy_proofs=self.require_policy_proofs,
+                source_texts=proof_source_texts,
             ).issues
             if self.require_policy_proofs
-            else find_rulespec_proof_issues(content)
+            else find_rulespec_proof_issues(
+                content,
+                source_texts=proof_source_texts,
+            )
         )
         issues.extend(proof_issues)
         issues.extend(find_structured_scale_parameter_issues(content))
         issues.extend(find_versioned_derived_formula_issues(content))
-        issues.extend(find_upstream_placement_issues(content, rules_file=rules_file))
+        issues.extend(find_local_dependency_temporal_coverage_issues(content))
+        issues.extend(
+            find_existing_target_oracle_contract_issues(
+                content,
+                self.existing_target_oracle_contract,
+            )
+        )
+        issues.extend(
+            find_upstream_placement_issues(
+                content,
+                rules_file=rules_file,
+                source_metadata=self.source_metadata,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+        )
         issues.extend(
             find_source_verification_issues(
                 content, source_texts=validation_source_texts
@@ -22703,20 +36953,9 @@ class ValidatorPipeline:
         issues.extend(find_helper_only_definition_issues(content))
         issues.extend(find_deferred_output_issues(content))
         issues.extend(find_mixed_case_rule_name_token_issues(content))
-        # Read the requested-source target from the nearby eval workspace or
-        # the durable apply manifest so subparagraph-coverage scoping respects
-        # encoder intent even when the corpus served a parent-fallback source
-        # slice (issue #71).
-        requested_source = _requested_source_from_metadata(
-            _load_nearby_eval_source_metadata(rules_file)
-        )
-        if requested_source is None:
-            requested_source = _requested_source_from_metadata(
-                _load_applied_encoding_manifest_source_metadata(
-                    rules_file,
-                    self.policy_repo_path,
-                )
-            )
+        # Generation metadata is an explicit caller-owned input. Persisted
+        # RuleSpec must carry its own citation scope.
+        requested_source = _requested_source_from_metadata(self.source_metadata)
         issues.extend(
             find_out_of_scope_rule_source_issues(
                 content,
@@ -22752,7 +36991,13 @@ class ValidatorPipeline:
         issues.extend(find_partial_extent_zeroing_issues(content))
         issues.extend(find_scoped_exception_category_gate_issues(content))
         issues.extend(find_current_purpose_placeholder_issues(content))
-        issues.extend(find_deferred_purpose_specific_limitation_issues(content))
+        issues.extend(
+            find_deferred_purpose_specific_limitation_issues(
+                content,
+                rules_file=rules_file,
+                policy_repo_path=self.policy_repo_path,
+            )
+        )
         issues.extend(
             find_imported_deferred_branch_composition_issues(
                 content,
@@ -22851,6 +37096,8 @@ class ValidatorPipeline:
                     else:
                         issues.append("RuleSpec tests must be a YAML list of cases.")
                         payload = None
+                if isinstance(payload, list):
+                    complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
                     if strict_layout_checks:
@@ -22887,6 +37134,15 @@ class ValidatorPipeline:
                         )
         elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
             issues.append("No tests found.")
+
+        issues.extend(
+            self._complete_source_unit_issues(
+                content,
+                validation_source_texts=validation_source_texts,
+                test_cases=complete_source_unit_test_cases,
+                rules_file=rules_file,
+            )
+        )
 
         duration = int((time.time() - start) * 1000)
         try:
@@ -22932,15 +37188,35 @@ class ValidatorPipeline:
 
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
-        yaml_issue = self._rulespec_yaml_preflight_issue(rulespec_file)
-        if yaml_issue:
-            return ValidationResult(
-                validator_name="ci",
-                passed=False,
-                issues=[yaml_issue],
-                error=yaml_issue,
-            )
-        return self._run_rulespec_ci(rulespec_file)
+        with (
+            _authoritative_corpus_scope(self.local_corpus_release),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
+            try:
+                canonical_file = _canonical_rulespec_compile_path(
+                    rulespec_file,
+                    self.policy_repo_path,
+                )
+            except (OSError, ValueError, UnsafeRulespecContextPath) as exc:
+                issue = f"RuleSpec validation target is not canonical: {exc}"
+                result = ValidationResult(
+                    validator_name="ci",
+                    passed=False,
+                    issues=[issue],
+                    error=issue,
+                )
+            else:
+                yaml_issue = self._rulespec_yaml_preflight_issue(canonical_file)
+                if yaml_issue:
+                    result = ValidationResult(
+                        validator_name="ci",
+                        passed=False,
+                        issues=[yaml_issue],
+                        error=yaml_issue,
+                    )
+                else:
+                    result = self._run_rulespec_ci(canonical_file)
+            return self._normalize_validation_staging_result(result)
 
     def _copy_validation_import_closure(
         self,
@@ -22951,12 +37227,12 @@ class ValidatorPipeline:
     ) -> None:
         """Copy a RuleSpec file and dependencies into a temp tree."""
         source_root = self._validation_source_root(rulespec_file)
-        root_resolved = rulespec_file.resolve()
+        root_resolved = validate_rulespec_context_file(rulespec_file, source_root)
         pending = [root_resolved]
         copied: set[Path] = set()
 
         while pending:
-            current = pending.pop()
+            current = validate_rulespec_context_file(pending.pop(), source_root)
             resolved = current.resolve()
             if resolved in copied:
                 continue
@@ -22972,7 +37248,13 @@ class ValidatorPipeline:
 
             if include_root_companion_test and resolved == root_resolved:
                 companion_test = self._rulespec_test_path(current)
+                if companion_test.is_symlink():
+                    validate_rulespec_context_file(companion_test, source_root)
                 if companion_test.exists():
+                    companion_test = validate_rulespec_context_file(
+                        companion_test,
+                        source_root,
+                    )
                     companion_target = self._rulespec_test_path(target)
                     companion_target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(companion_test, companion_target)
@@ -22982,20 +37264,14 @@ class ValidatorPipeline:
                     pending.append(dependency)
 
     def _validation_source_root(self, rulespec_file: Path) -> Path:
-        """Resolve the root directory used for import lookup during CI validation."""
-        resolved_file = rulespec_file.resolve()
-        resolved_root = self.policy_repo_path.resolve()
-        with contextlib.suppress(ValueError):
-            resolved_file.relative_to(resolved_root)
-            return resolved_root
-        if resolved_file.parent.name == "source":
-            runner_root = resolved_file.parent.parent
-            if any(
-                (runner_root / sibling).exists()
-                for sibling in ("external", "legislation", "regulation", "statutes")
-            ):
-                return runner_root
-        return resolved_file.parent
+        """Return the exact caller-supplied root for static import lookup."""
+
+        source_root = _validate_explicit_rulespec_directory(
+            self.policy_repo_path,
+            label="RuleSpec validation root",
+        )
+        validate_rulespec_context_file(rulespec_file, source_root)
+        return source_root
 
     def _resolve_import_dependencies(
         self,
@@ -23004,9 +37280,21 @@ class ValidatorPipeline:
     ) -> list[Path]:
         """Resolve imported RuleSpec files for a single file."""
         dependencies: list[Path] = []
-        for import_path in self._extract_import_paths(rulespec_file.read_text()):
-            target = source_root / self._import_to_relative_rulespec_path(import_path)
-            if target.exists():
+        for import_path in self._extract_import_items(rulespec_file.read_text()):
+            target = _resolve_rulespec_import_file_static(
+                import_path,
+                rules_file=rulespec_file,
+                policy_repo_path=source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+            if target is None:
+                continue
+            # This helper materializes one content root. Cross-repository
+            # imports remain available through the configured RuleSpec roots;
+            # never substitute a same-path local shadow or try to flatten an
+            # external authority into this destination tree.
+            with contextlib.suppress(ValueError):
+                target.relative_to(source_root)
                 dependencies.append(target)
         return dependencies
 
@@ -23062,7 +37350,7 @@ class ValidatorPipeline:
     def _import_to_relative_rulespec_path(self, import_target: str) -> Path:
         """Convert an import target like 26/24/c#name into 26/24/c.yaml."""
         normalized = self._normalize_rulespec_import_path(import_target)
-        if normalized.endswith((".yaml", ".yml")):
+        if normalized.endswith(RULESPEC_FILE_SUFFIX):
             return Path(normalized)
         return Path(f"{normalized}.yaml")
 
@@ -23417,6 +37705,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -23516,6 +37805,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -23675,6 +37965,7 @@ class ValidatorPipeline:
             import_item,
             rules_file=rulespec_file,
             policy_repo_path=self.policy_repo_path,
+            rulespec_dependency_roots=self.rulespec_dependency_roots,
         )
         if import_file is None:
             return []
@@ -24039,6 +38330,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -24080,6 +38372,7 @@ class ValidatorPipeline:
                 import_item,
                 rules_file=rulespec_file,
                 policy_repo_path=self.policy_repo_path,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
             )
             if import_file is None:
                 continue
@@ -24341,9 +38634,15 @@ class ValidatorPipeline:
 
         if not rulespec_content_has_stub_status(rulespec_file.read_text()):
             return []
-        if not has_corpus_provision_for_import_target(
-            relative.with_suffix("").as_posix(), source_root
-        ):
+        try:
+            has_source = has_corpus_provision_for_import_target(
+                relative.with_suffix("").as_posix(),
+                source_root,
+                corpus_release=self.local_corpus_release,
+            )
+        except CorpusResolutionError as exc:
+            return [f"Dependency corpus check failed: {type(exc).__name__}: {exc}"]
+        if not has_source:
             return []
 
         return [
@@ -24357,15 +38656,45 @@ class ValidatorPipeline:
         source_root = self._validation_source_root(rulespec_file)
         issues: list[str] = []
 
-        for import_path in self._extract_import_paths(rulespec_file.read_text()):
-            target = source_root / self._import_to_relative_rulespec_path(import_path)
+        for import_path in self._extract_import_items(rulespec_file.read_text()):
+            try:
+                target = _resolve_rulespec_import_file_static(
+                    import_path,
+                    rules_file=rulespec_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+            except UnsafeRulespecContextPath as exc:
+                issues.append(
+                    f"Unsafe imported RuleSpec dependency `{import_path}`: {exc}"
+                )
+                continue
+            if target is None:
+                continue
             if not rulespec_file_has_stub_status(target):
                 continue
-            if not has_corpus_provision_for_import_target(import_path, source_root):
+            import_base = import_path.split("#", 1)[0].strip()
+            try:
+                has_source = has_corpus_provision_for_import_target(
+                    import_base,
+                    source_root,
+                    corpus_release=self.local_corpus_release,
+                )
+            except CorpusResolutionError as exc:
+                issues.append(
+                    "Dependency corpus check failed for "
+                    f"`{import_path}`: {type(exc).__name__}: {exc}"
+                )
                 continue
+            if not has_source:
+                continue
+            try:
+                target_label = target.relative_to(source_root).as_posix()
+            except ValueError:
+                target_label = str(target)
             issues.append(
                 "Imported stub dependency with corpus source: "
-                f"{rulespec_file.name} imports `{import_path}` but `{target.relative_to(source_root).as_posix()}` "
+                f"{rulespec_file.name} imports `{import_path}` but `{target_label}` "
                 "is still a stub while corpus.provisions has source text; encode the upstream file instead"
             )
 
@@ -24377,8 +38706,6 @@ class ValidatorPipeline:
         source_text = extract_embedded_source_text(content)
         if not source_text:
             return []
-        source_metadata = _load_nearby_eval_source_metadata(rulespec_file)
-
         issues: list[str] = []
         for block in self._extract_definition_blocks(content):
             if block["dtype"] != "Boolean":
@@ -24390,7 +38717,7 @@ class ValidatorPipeline:
             constant_boolean = bool(block["constant_boolean"])
             if not (constant_boolean or status == "deferred"):
                 continue
-            if _source_metadata_sets_target_symbol(source_metadata, block["name"]):
+            if _source_metadata_sets_target_symbol(self.source_metadata, block["name"]):
                 continue
 
             issues.append(
@@ -24469,8 +38796,13 @@ class ValidatorPipeline:
             symbol = symbol.strip()
             if not symbol:
                 continue
-            target = source_root / self._import_to_relative_rulespec_path(base)
-            if not target.exists():
+            target = _resolve_rulespec_import_file_static(
+                base,
+                rules_file=rulespec_file,
+                policy_repo_path=source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+            if target is None:
                 continue
             try:
                 payload = yaml.safe_load(target.read_text())
@@ -25030,7 +39362,7 @@ class ValidatorPipeline:
         Args:
             reviewer_type: Type of reviewer (rulespec-reviewer, formula-reviewer, etc.)
             rulespec_file: Path to the RuleSpec file to review
-            oracle_context: Results from oracle validators (PE, TAXSIM) for context
+            oracle_context: Results from the explicit PolicyEngine oracle for context
 
         Returns:
             ValidationResult with score, issues, and raw output
@@ -25178,6 +39510,25 @@ Output ONLY valid JSON:
                 )
 
             score = float(data.get("score", 5.0))
+            if not math.isfinite(score):
+                # JSON has no Infinity literal, but `1e309` parses to inf; a
+                # non-finite score is a malformed reviewer response, and
+                # downstream consumers (eval-board) refuse non-finite metric
+                # numbers. Fail closed like any other unparseable output.
+                duration = int((time.time() - start) * 1000)
+                return ValidationResult(
+                    validator_name=reviewer_type,
+                    passed=False,
+                    score=None,
+                    issues=[
+                        "reviewer_parse_failed",
+                        f"Reviewer score is not finite: {data.get('score')!r}",
+                    ],
+                    duration_ms=duration,
+                    raw_output=output,
+                    error="reviewer_parse_failed: non-finite score",
+                    prompt_sha256=prompt_sha256,
+                )
             if reviewer_type == "generalist-reviewer":
                 blocking_issues = data.get("blocking_issues", [])
                 non_blocking_issues = data.get("non_blocking_issues", [])
@@ -25240,124 +39591,38 @@ Output ONLY valid JSON:
                 prompt_sha256=prompt_sha256,
             )
 
-    def _detect_policyengine_country(
-        self, rulespec_file: Path, rulespec_content: str
-    ) -> str:
-        """Infer which PolicyEngine country package to use."""
-        if self.policyengine_country in {"us", "uk"}:
-            return self.policyengine_country
+    def _required_policyengine_runtime(self) -> PolicyEngineRuntime:
+        """Return the one admitted runtime bound to this canonical RuleSpec root."""
 
-        haystack = f"{rulespec_file}\n{rulespec_content}".lower()
-        if "legislation.gov.uk" in haystack or re.search(
-            r"\b(?:ukpga|uksi|asp|ssi|wsi|nisi|anaw|asc)(?:/|-)", haystack
-        ):
-            return "uk"
-        return "us"
-
-    def _find_pe_python(self, country: str = "us") -> Optional[str]:
-        """Find a Python interpreter with the requested PolicyEngine package installed.
-
-        Checks: 1) explicit env override, 2) known PE checkout/worktree venv paths,
-        3) current interpreter, 4) auto-install.
-        Returns the path to a working Python, or None.
-        """
-        module_name = f"policyengine_{country}"
-        package_name = f"policyengine-{country}"
-        repo_name = f"policyengine-{country}"
-        env_var_name = f"AXIOM_ENCODE_POLICYENGINE_{country.upper()}_PYTHON"
-
-        def _python_imports_policyengine(python_path: str) -> bool:
-            try:
-                result = subprocess.run(
-                    [
-                        python_path,
-                        "-c",
-                        f"from {module_name} import Simulation; print('ok')",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                return result.returncode == 0 and "ok" in result.stdout
-            except Exception:
-                return False
-
-        env_python = os.getenv(env_var_name)
-        if env_python and Path(env_python).exists():
-            if _python_imports_policyengine(env_python):
-                return env_python
-
-        pe_venv_paths = [
-            Path.home()
-            / "worktrees"
-            / f"{repo_name}-main-view"
-            / ".venv"
-            / "bin"
-            / "python",
-            Path.home() / "worktrees" / repo_name / ".venv" / "bin" / "python",
-            Path.home() / repo_name / ".venv" / "bin" / "python",
-            Path.home() / "TheAxiomFoundation" / repo_name / ".venv" / "bin" / "python",
-            Path.home() / "PolicyEngine" / repo_name / ".venv" / "bin" / "python",
-        ]
-        for pe_python in pe_venv_paths:
-            if pe_python.exists() and _python_imports_policyengine(str(pe_python)):
-                return str(pe_python)
-
-        # Try current interpreter after explicit checkout/worktree environments so
-        # local source trees win over stale globally-installed packages.
-        if _python_imports_policyengine(sys.executable):
-            return sys.executable
-
-        # Try auto-installing into current venv as last resort
-        try:
-            print("  PolicyEngine not found, attempting install...")
-            install_result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", package_name],
-                capture_output=True,
-                text=True,
-                timeout=300,
+        runtime = self.policyengine_runtime
+        if runtime is None:
+            raise PolicyEngineRuntimeError(
+                "PolicyEngine oracle requires one explicit admitted runtime"
             )
-            if install_result.returncode == 0:
-                return sys.executable
-            else:
-                print(f"  Install failed: {install_result.stderr[:200]}")
-        except Exception as e:
-            print(f"  Auto-install failed: {e}")
+        runtime.assert_matches_rulespec_root(self.policy_repo_path)
+        return runtime
 
-        return None
+    def _run_pe_subprocess(self, script: str) -> Optional[str]:
+        """Run a Python script only through the admitted isolated runtime."""
 
-    def _run_pe_subprocess(self, script: str, pe_python: str) -> Optional[str]:
-        """Run a Python script using the PE-capable interpreter.
-
-        Returns stdout on success, None on failure.
-        """
-        result = self._run_pe_subprocess_detailed(script, pe_python)
+        result = self._run_pe_subprocess_detailed(script)
         if result.returncode == 0:
             return result.stdout
         return None
 
-    def _run_pe_subprocess_detailed(
-        self, script: str, pe_python: str
-    ) -> OracleSubprocessResult:
-        """Run a Python script using the PE-capable interpreter with stderr."""
-        timeout = int(os.getenv("AXIOM_ENCODE_POLICYENGINE_TIMEOUT_SECONDS", "300"))
+    def _run_pe_subprocess_detailed(self, script: str) -> OracleSubprocessResult:
+        """Run a Python script with no ambient environment or interpreter lookup."""
+
+        runtime = self._required_policyengine_runtime()
+        timeout = 300
+        runtime.assert_unchanged()
         try:
-            idle_timeout = min(
-                timeout,
-                max(
-                    0,
-                    int(
-                        os.getenv(
-                            "AXIOM_ENCODE_POLICYENGINE_IDLE_TIMEOUT_SECONDS",
-                            "45",
-                        )
-                    ),
-                ),
-            )
             result = _run_subprocess_with_idle_timeout(
-                [pe_python, "-c", script],
+                runtime.oracle_command(script),
                 timeout=timeout,
-                idle_timeout=idle_timeout,
+                idle_timeout=45,
+                cwd=runtime.root,
+                env=policyengine_subprocess_environment(),
             )
             return OracleSubprocessResult(
                 returncode=result.returncode,
@@ -25373,6 +39638,8 @@ Output ONLY valid JSON:
             )
         except Exception as exc:
             return OracleSubprocessResult(returncode=1, stderr=str(exc))
+        finally:
+            runtime.assert_unchanged()
 
     def _is_pe_unsupported_error(self, error_text: str) -> bool:
         """Return True when PE cannot evaluate the cited period or variable."""
@@ -25393,6 +39660,24 @@ Output ONLY valid JSON:
         return "unknown error"
 
     def _run_policyengine(self, rulespec_file: Path) -> ValidationResult:
+        """Run PolicyEngine and reject any runtime mutation across the execution."""
+
+        runtime = self._required_policyengine_runtime()
+        runtime.assert_unchanged()
+        try:
+            result = self._run_policyengine_bound(rulespec_file, runtime.country)
+        finally:
+            runtime.assert_unchanged()
+        result.details = {
+            **result.details,
+            "runtime_identity": runtime.canonical_identity(),
+            "runtime_identity_sha256": runtime.identity_sha256,
+        }
+        return result
+
+    def _run_policyengine_bound(
+        self, rulespec_file: Path, country: str
+    ) -> ValidationResult:
         """Validate against PolicyEngine oracle.
 
         Uses scenario-based comparison: builds standard PE households from
@@ -25424,11 +39709,6 @@ Output ONLY valid JSON:
             rulespec_source_content = rulespec_file.read_text()
         except Exception:
             rulespec_source_content = ""
-        source_metadata = _load_nearby_eval_source_metadata(rulespec_file)
-
-        country = self._detect_policyengine_country(
-            rulespec_file, rulespec_source_content
-        )
 
         # Extract RuleSpec test cases.
         tests = self._extract_rulespec_tests(rulespec_content)
@@ -25437,28 +39717,12 @@ Output ONLY valid JSON:
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
                 validator_name="policyengine",
-                passed=True,
-                score=None,
-                issues=["No test cases with expected values found"],
-                duration_ms=duration,
-            )
-
-        # Find a PE-capable Python interpreter
-        pe_python = self._find_pe_python(country)
-        if not pe_python:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="policyengine",
                 passed=False,
                 score=None,
-                issues=[
-                    "No PolicyEngine-capable Python found (tried local, known venvs, auto-install)"
-                ],
+                issues=["PolicyEngine produced zero comparable oracle evidence"],
                 duration_ms=duration,
-                error=f"policyengine-{country} not available",
-                details={
-                    "coverage": PolicyEngineOracleCoverage(setup_errors=1).as_dict()
-                },
+                error="No test cases with expected values found",
+                details={"coverage": PolicyEngineOracleCoverage().as_dict()},
             )
 
         # Run comparison for each legal-ID keyed test output.
@@ -25553,7 +39817,7 @@ Output ONLY valid JSON:
             source_jurisdiction = None
             if country == "us":
                 source_jurisdiction = _source_metadata_jurisdiction(
-                    source_metadata
+                    self.source_metadata
                 ) or _infer_us_state_code_from_rulespec_path(
                     rulespec_file,
                     rulespec_source_content,
@@ -25613,7 +39877,7 @@ Output ONLY valid JSON:
                     country=country,
                     rule_name=pe_var,
                 )
-            output = self._run_pe_subprocess_detailed(scenario_script, pe_python)
+            output = self._run_pe_subprocess_detailed(scenario_script)
 
             if output.returncode != 0:
                 summary = self._summarize_oracle_error(output.stderr or output.stdout)
@@ -25681,10 +39945,12 @@ Output ONLY valid JSON:
                 issues.append("No PolicyEngine-comparable tests found")
             return ValidationResult(
                 validator_name="policyengine",
-                passed=True,
+                passed=False,
                 score=None,
-                issues=issues,
+                issues=issues
+                or ["PolicyEngine produced zero comparable oracle evidence"],
                 duration_ms=duration,
+                error="PolicyEngine produced zero comparable oracle evidence",
                 details={"coverage": coverage.as_dict()},
             )
 
@@ -25707,141 +39973,6 @@ Output ONLY valid JSON:
         if test_file.exists():
             return test_file.read_text()
         return ""
-
-    def _run_taxsim(self, rulespec_file: Path) -> ValidationResult:
-        """Validate against TAXSIM oracle.
-
-        Converts test cases to TAXSIM format, runs through TAXSIM API,
-        and compares relevant outputs. Returns match rate as score (0-1).
-        """
-        start = time.time()
-        issues = []
-
-        # Read companion RuleSpec test content.
-        try:
-            rulespec_content = self._read_test_content(rulespec_file)
-        except Exception as e:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=0.0,
-                issues=[f"Failed to read RuleSpec/test file: {e}"],
-                duration_ms=duration,
-                error=str(e),
-            )
-
-        # Extract RuleSpec test cases.
-        tests = self._extract_rulespec_tests(rulespec_content)
-
-        if not tests:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=True,
-                score=None,
-                issues=["No test cases found — cannot validate"],
-                duration_ms=duration,
-            )
-
-        # Try to run through TAXSIM
-        try:
-            import requests
-
-            # TAXSIM API endpoint
-            taxsim_url = "https://taxsim.nber.org/taxsim35/taxsim.cgi"
-
-            matches = 0
-            total = 0
-            unmappable = 0
-
-            for test in tests:
-                try:
-                    # Convert test to TAXSIM input format
-                    taxsim_input = self._build_taxsim_input(test.get("inputs", {}))
-
-                    if not taxsim_input:
-                        issues.append(
-                            f"TAXSIM could not map inputs for '{test.get('name', 'unknown')}'"
-                        )
-                        unmappable += 1
-                        continue
-
-                    # Submit to TAXSIM
-                    response = requests.post(
-                        taxsim_url,
-                        data=taxsim_input,
-                        timeout=30,
-                    )
-
-                    if response.status_code == 200:
-                        # Parse TAXSIM output and compare
-                        taxsim_result = self._parse_taxsim_output(response.text)
-                        expected = test.get("expect")
-
-                        if expected is not None and self._values_match(
-                            taxsim_result, expected
-                        ):
-                            matches += 1
-
-                    total += 1
-
-                except requests.RequestException as req_error:
-                    issues.append(f"TAXSIM request failed: {req_error}")
-                    total += 1
-                except Exception as test_error:
-                    issues.append(
-                        f"Test '{test.get('name', 'unknown')}' failed: {test_error}"
-                    )
-                    total += 1
-
-            if total == 0:
-                duration = int((time.time() - start) * 1000)
-                if unmappable:
-                    issues.append(
-                        "TAXSIM could not evaluate any oracle-comparable tests"
-                    )
-                return ValidationResult(
-                    validator_name="taxsim",
-                    passed=True,
-                    score=None,
-                    issues=issues or ["No TAXSIM-comparable tests found"],
-                    duration_ms=duration,
-                )
-
-            score = matches / total
-            passed = score >= 0.8
-
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=passed,
-                score=score,
-                issues=issues,
-                duration_ms=duration,
-            )
-
-        except ImportError:
-            # requests not installed
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=None,
-                issues=["requests package not installed for TAXSIM API"],
-                duration_ms=duration,
-                error="requests not available",
-            )
-        except Exception as e:
-            duration = int((time.time() - start) * 1000)
-            return ValidationResult(
-                validator_name="taxsim",
-                passed=False,
-                score=None,
-                issues=[f"TAXSIM validation error: {e}"],
-                duration_ms=duration,
-                error=str(e),
-            )
 
     def _run_microdata_benchmark(
         self,
@@ -25868,17 +39999,16 @@ Output ONLY valid JSON:
         start = time.time()
         issues = []
 
-        # Find PE-capable Python
-        pe_python = self._find_pe_python()
-        if not pe_python:
+        runtime = self._required_policyengine_runtime()
+        if runtime.country != "us":
             duration = int((time.time() - start) * 1000)
             return ValidationResult(
                 validator_name="microdata_benchmark",
                 passed=False,
                 score=0.0,
-                issues=["No PolicyEngine-capable Python found"],
+                issues=["PolicyEngine-US runtime is required for this benchmark"],
                 duration_ms=duration,
-                error="policyengine-us not available",
+                error="PolicyEngine runtime country is not us",
             )
 
         # Run PE microsimulation and collect statistics
@@ -25922,7 +40052,11 @@ result = {{
 print("BENCHMARK:" + json.dumps(result))
 """
 
-        output = self._run_pe_subprocess(script, pe_python)
+        runtime.assert_unchanged()
+        try:
+            output = self._run_pe_subprocess(script)
+        finally:
+            runtime.assert_unchanged()
 
         if output is None:
             duration = int((time.time() - start) * 1000)
@@ -26014,58 +40148,6 @@ print("BENCHMARK:" + json.dumps(result))
                 situation["people"]["person"][key] = value
 
         return situation
-
-    def _build_taxsim_input(self, inputs: dict) -> Optional[str]:
-        """Build TAXSIM input string from test inputs.
-
-        Returns None if inputs cannot be mapped to TAXSIM format.
-        """
-        # TAXSIM input mapping
-        # See: https://taxsim.nber.org/taxsim35/
-
-        # Build input line
-        values = ["0"] * 27  # TAXSIM expects 27 fields
-
-        # Set defaults
-        values[0] = "1"  # taxsimid
-        values[1] = "2024"  # year
-        values[2] = "0"  # state
-        values[3] = "1"  # marital status (single)
-
-        # Map inputs
-        mapped = False
-        for key, value in inputs.items():
-            key_lower = key.lower()
-            if "wage" in key_lower:
-                values[7] = str(value)
-                mapped = True
-            elif "self_employment" in key_lower or "semp" in key_lower:
-                values[9] = str(value)
-                mapped = True
-            elif "year" in key_lower:
-                values[1] = str(value)
-                mapped = True
-
-        if not mapped:
-            return None
-
-        return ",".join(values)
-
-    def _parse_taxsim_output(self, output: str) -> Optional[float]:
-        """Parse TAXSIM output and extract federal tax liability."""
-        try:
-            # TAXSIM returns comma-separated values
-            # Field 7 is typically federal tax liability
-            lines = output.strip().split("\n")
-            if len(lines) >= 2:
-                # Skip header line
-                data_line = lines[-1]
-                values = data_line.split(",")
-                if len(values) > 7:
-                    return float(values[7])
-        except Exception:
-            pass
-        return None
 
     def _values_match(
         self, actual: Any, expected: Any, tolerance: float = 0.01
@@ -30112,27 +44194,3 @@ annual = sim.calculate('{pe_var}', int('{year}'))
 val = float(annual[0]) / {scale}
 print(f'RESULT:{{val}}')
 """
-
-
-def validate_file(rulespec_file: str | Path) -> PipelineResult:
-    """Convenience function to validate a single file."""
-    file_path = Path(rulespec_file)
-    policy_repo_root = find_policy_repo_root(file_path)
-    if policy_repo_root is None:
-        policy_repo_root = file_path.parent
-    axiom_rules_path = policy_repo_root.parent / "axiom-rules-engine"
-    if not axiom_rules_path.exists() and policy_repo_root.parent.name.startswith(
-        "rulespec-"
-    ):
-        # A monorepo jurisdiction directory: the engine checkout sits next to
-        # the monorepo checkout, not next to the jurisdiction directory.
-        axiom_rules_path = policy_repo_root.parent.parent / "axiom-rules-engine"
-    if not axiom_rules_path.exists():
-        axiom_rules_path = Path(__file__).resolve().parents[4] / "axiom-rules-engine"
-
-    pipeline = ValidatorPipeline(
-        policy_repo_path=policy_repo_root,
-        axiom_rules_path=axiom_rules_path,
-    )
-
-    return pipeline.validate(file_path)

@@ -1,0 +1,1 @@
+Within a condition a word after a construct-state noun is its complement whatever the verb lexicon says of its spelling ("אחוזים מהכנסת תושב ישראל, תחול ההוראה" reads three rates), the noun homographs (תושב, תורה, תעלה, יוסף, תוסף) leave the lexicon, and ש before a construct subject with its definite complement ("שפקיד השומה יקבע") opens a relative clause.

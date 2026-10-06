@@ -1,0 +1,1 @@
+Preserve pending oracle-coverage obligations when an authenticated legacy path move creates a new canonical identity. Relocate only the exact legal_id fields while retaining dates, reasons, record counts and the coverage ceiling.

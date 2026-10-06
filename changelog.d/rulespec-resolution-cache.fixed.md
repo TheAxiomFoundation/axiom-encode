@@ -1,0 +1,1 @@
+Cache canonical RuleSpec checkout admission, symlink audits, Git identity probes, and target resolution for each bounded validation command so full-repository validation and waiver audits complete without repeating repository-wide work for every reference.

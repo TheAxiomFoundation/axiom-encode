@@ -8,6 +8,8 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
+__version__ = 1
+
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
   supplied source text. If the source states an individual, member, claimant,
@@ -163,8 +165,8 @@ SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Do not create a roll-up, top-level program output, or connection merely
   because downstream consumers want it, sibling/state files patched it, or the
   program conventionally has such a concept. The output must be directly
-  supported by the supplied source text, an explicit imported RuleSpec export,
-  or an accepted source claim listed in `module.source_claims`.
+  supported by the supplied release-bound corpus text or an explicit imported
+  RuleSpec export.
 - Downstream convenience booleans that collapse a legal process into one
   answer are not federal/source outputs unless the supplied source text itself
   defines that collapsed test. Keep process simplifications out of RuleSpec
@@ -196,34 +198,21 @@ Hard requirements:
   source text when the source is more than a short paragraph. Corpus-backed
   validation reads the authoritative source from `corpus.provisions`; use the
   summary only to orient reviewers to the encoded provisions.
-- If the source has an ingested corpus provision, include
-  `module.source_verification.corpus_citation_path` or
-  `module.source_verification.corpus_citation_paths`.
-- If the corpus source path is below statute/regulation authority (for example
-  a `policy`, `manual`, `guidance`, `form`, table, CMS summary, or state plan),
-  do not treat it as adequate by default. First check statute/regulation
-  authority when provided in context. If the lower source remains the correct
-  source for the encoded value or rule, include
-  `module.source_verification.upstream_source_check` with:
-  `status` (`checked_higher_authority`, `official_parameter_source`,
-  `delegated_parameter_source`, or `no_higher_authority_found`),
-  `checked_paths` listing at least one statute/regulation corpus path or
-  RuleSpec target that was checked, and `rationale` explaining why the lower
-  source is still used. If no higher-authority check is available, stop and
-  emit a typed request `upstream_source_check_required` instead of encoding.
-- When higher-authority context is supplied through copied JSONL, inventory, or
-  ingest-run files, cite the embedded corpus `citation_path` values in
-  `checked_paths` and proof atoms. Do not cite the copied `external/...`
-  workspace filename as legal authority.
-- If accepted source claims are supplied, include their IDs under
-  `module.source_claims`; do not inline claim bodies, values, formulas,
-  evidence, or review metadata in RuleSpec.
+- If the source has an ingested corpus provision, include exactly one
+  `module.source_verification.corpus_citation_path`: the resolver-attested
+  requested path. Never emit `corpus_citation_paths`. If executable logic needs
+  another legal source, import a separately attested RuleSpec or defer it.
+- Prefer the most authoritative supplied legal source for each atomic rule. If
+  another source is needed, encode it as its own corpus-bound atomic module and
+  import that module, or emit a typed deferral. Do not add source-audit metadata
+  to `module.source_verification`; its only fields are the singular
+  `corpus_citation_path` and optional `source_sha256` pin.
 - Include `module.proof_validation.required: true` and add
   `metadata.proof.atoms` to each policy-bearing rule. Each proof atom must point
-  to direct corpus source text, a claim listed in `module.source_claims`, or an
-  explicit imported RuleSpec export. If you cannot build that proof, stop and
-  emit a typed request such as `missing_claim`, `bundle_expansion_request`,
-  `corpus_defect`, `segmentation_fix`, `stale_claim`, or `conflicting_claims`.
+  to direct release-bound corpus source text or an explicit imported RuleSpec
+  export. If you cannot build that proof, stop and emit a typed request such as
+  `missing_source`, `bundle_expansion_request`, `corpus_defect`, or
+  `segmentation_fix`.
 - For source-backed proof atoms, `source.corpus_citation_path` is sufficient.
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
@@ -483,14 +472,17 @@ _COMPOSITION_AND_DEFERRAL = """- If source text is a broad application, furnishi
   aggregate only when a compatible relation and numeric amount field are present.
   If neither is available, defer the numeric output instead of using the
   Judgment import as a placeholder scalar.
-- Treat any existing copied target file as context, not as a backward
+- Treat any existing copied target file as context, not as a general backward
   compatibility contract. You may drop, rename, rebuild, or defer existing
   executable rules, tests, imports, and local factual inputs when the source
   text, schema, canonical imports, or validation guardrails require a cleaner
-  encoding.
-- Do not preserve legacy executable surfaces merely because downstream tests or
-  oracle mappings used them. Source-faithful RuleSpec with canonical legal
-  pointers is more important than compatibility with old local names.
+  encoding, except when eval context explicitly lists a narrow exact-oracle
+  replacement contract.
+- For an explicitly listed exact-oracle replacement contract, preserve each
+  valid mapped name and public shape plus its listed valid explicit input
+  contract while repairing formulas, proofs, tests, and temporal coverage.
+  Prefix/fallback mappings and invalid legacy inputs create no preservation
+  contract.
 - Never preserve, rename, or recreate a legacy local input if it conflicts with
   the current no-placeholder, no-bare-friendly-name, filing-status, temporal,
   import, or source-grounding rules. If an existing output cannot be represented
@@ -546,6 +538,10 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
 - Do not append citation or file suffixes like `_2014_a` to new local rule
   names; the file path is already the legal ID. Keep names concise and
   semantic unless a copied public interface must be preserved.
+- For a replacement target, only exact names listed by the Exact-oracle
+  replacement contract may retain the target path's year/legal-source identity.
+  New helper concepts must use concise semantic names instead of repeating that
+  identity as a prefix or suffix.
 - Rule names ending in the current path fragments, such as `_2_C`, `_b_1`,
   `_d_2_C`, or `_2014_a`, are invalid.
 - If an existing copied output name violates the no-citation/path-suffix rule,
@@ -805,7 +801,9 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   `member_of_household`. Put arity under `data_relation.arity`.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If
   a formula needs a local true/false fact, reference a descriptive bare fact
-  name in the formula and put that fact in tests as
+  name in the formula, declare that fact in the RuleSpec document-root `inputs`
+  list (a sibling of `module` and `rules`, never nested under `module`) with its
+  `entity`, `dtype`, and `period`, and put that fact in tests as
   `<jurisdiction>:<repo-path>#input.<fact>`.
 - If an upstream output is already executable, do not replace it with a local
   placeholder fact or compatibility alias.
@@ -940,10 +938,11 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 - Every local executable `kind: derived` or `kind: derived_relation` rule must
   appear at least once under an `output:` block in the companion `.test.yaml`;
   do not leave helper derived rules unasserted.
-- Do not assert raw `kind: parameter` rules directly in companion test
-  `output:` blocks. Cover parameters through derived outputs that consume them.
-  If a module only contains parameters and has no derived output to assert,
-  leave the companion test file empty.
+- In modules with executable derived outputs, do not assert raw
+  `kind: parameter` rules directly in companion test `output:` blocks; cover
+  parameters through derived outputs that consume them. If a module contains
+  only parameters, emit one source-period snapshot case that asserts every
+  local parameter output directly.
 - Never emit a concrete test case with `output: {}` or an empty `output` map.
   If no executable output can be asserted, leave the test file empty instead of
   adding placeholder cases.
@@ -1025,6 +1024,10 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 - For every encoded `except`, `unless`, `subject to`, or `notwithstanding`
   carve-out, include companion tests for the positive path and the carve-out
   path so exclusions and override conditions cannot be silently dropped.
+- When a complete source unit has many such controls, emit as many compact,
+  single-principal-output case pairs as the source requires. Keep each pair to
+  the inputs reached by that output and vary only its controlling selector;
+  do not replace required pairs with one large omnibus case.
 - When a source says a subsection, paragraph, payment, credit, benefit,
   eligibility path, or other output "shall not apply" or "does not apply",
   the exported rule that says that target applies, is allowed, is included, or
@@ -1047,6 +1050,15 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   gates joined by `and`, include one all-gates-positive case and enough negative
   cases to toggle each gate at least once. Do not leave a source-stated gate
   untested just because another negative case toggles a different gate.
+- Build those boolean-gate witnesses mechanically. First emit a minimal
+  all-gates-positive case whose `input:` contains exactly the local facts
+  reached by that one asserted principal output. Its `output:` must assert the
+  principal output plus every reached local derived dependency required for
+  corroboration, but no unrelated output. Clone the complete case once per
+  gate, changing exactly one input value and the expected principal output plus
+  any asserted reached dependency whose value also changes. Every member of the
+  pair must have identical input-key and output-key sets; put unrelated helper,
+  amount, and downstream-output demonstrations in separate cases.
 - If a formula negates multiple exception predicates, include a separate
   companion test for each predicate that sets that exception input true and
   expects the directly affected Judgment rule to be `not_holds`.
@@ -1122,6 +1134,13 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   as a signal to repair the dependency graph, not as a requirement to preserve
   old names. Keep an old output only when it remains the cleanest
   source-faithful RuleSpec surface.
+- When a copied context file already exports the operative legal condition that
+  the requested source consumes, import and use that canonical output. Do not
+  recreate it as a local factual input merely because the requested source
+  describes a person or household as entitled, eligible, qualified, allowed,
+  or subject to that condition. Keep a local fact only when the requested
+  source states a distinct operative fact that the context output does not
+  represent.
 - Do not preserve existing factual input slots referenced by copied formulas or
   companion tests when a cleaner source-faithful encoding removes them. This is
   especially important for names listed under invalid copied local inputs.
@@ -1147,8 +1166,9 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
   conditional on billed, paid, incurred, anticipated, or other cost/expense
   facts, encode a positive fact predicate for that source-stated condition.
   Do not model availability solely as `not` other categories. If the condition
-  lives in a parent paragraph needed to understand a child paragraph, include
-  the parent corpus path in `module.source_verification.corpus_citation_paths`.
+  lives in a parent paragraph needed to understand a child paragraph, it must be
+  part of the resolver-supplied canonical source unit or a separately attested
+  RuleSpec import; do not add another corpus path to this module.
 - When the cost/expense fact only matters after exclusion predicates, exported
   amount/quantity formulas consumed by dependent modules must guard the
   exclusions before referencing the branch-specific fact, so excluded cases do
@@ -1366,14 +1386,15 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults. Do not assert raw `kind: parameter` rules directly in companion
-     test `output:` blocks; assert derived outputs that consume the parameters
-     instead. If a local amount formula has a branch returning 0, include a
+     defaults. A parameter-only module may use one source-period snapshot case
+     that asserts every local parameter output directly. For other modules,
+     assert derived outputs that consume parameters instead. If a local amount
+     formula has a branch returning 0, include a
      companion case that asserts that local output is 0.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
-     outputs as test inputs; imported programs are computed. If the downstream
+     outputs as test inputs; imported derived outputs are computed. If the downstream
      rule depends on an imported output, assign all current upstream factual
      inputs and relations needed by that imported output, including false facts.
      This does not override no-input guardrails: never assign prohibited derived
@@ -1385,8 +1406,7 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
      sources first.
   3. Proof inventory: every proof atom uses only an allowed `kind`; imported
      proof atoms include `import.target`, `import.output`, and `import.hash`;
-     textual claim support is either direct corpus source support or a claim ID
-     listed under `module.source_claims`.
+     textual support uses direct release-bound corpus source text.
   4. Import inventory: every `imports:` entry is an exact copied/importable
      RuleSpec target. Top-level `imports:` entries must be scalar strings; never
      map entries like `- target:` plus `symbols:`. Do not guess sibling paths; if
@@ -1627,11 +1647,108 @@ def _assemble(*blocks: str) -> str:
 
 ENCODER_PROMPT = _assemble(*_PROMPT_BLOCKS)
 
+_COMPLETE_SOURCE_UNIT_PROTOCOL = """
+Complete-source-unit mode is enabled for this request:
+- Treat the entire authoritative source unit as the completeness inventory.
+  `module.summary` is only a concise reviewer orientation and contributes
+  nothing to completeness accounting.
+- Every explicit computation stated in the source unit must have a principal
+  `kind: derived` or `kind: derived_relation` output. Naming its constants as
+  parameters without encoding the stated formula is invalid. Do not defer an
+  explicit computation merely because its source-stated facts are not already
+  represented in the module; declare those facts as explicit local RuleSpec
+  inputs and encode the principal output.
+- When the source states both a base value and its converted result, encode both
+  values as separate grounded `kind: parameter` rules. Result wording such as
+  "converted to the month, this gives ..." states a scalar result; it does not
+  mandate deriving one parameter from the other.
+- Never introduce calendar constants `12`, `52`, `365`, `4`, or `24` as module
+  literals unless that literal appears in the authoritative source text.
+  Express a stated conversion through companion-test assertions on both
+  parameter outputs; literals used only in companion tests do not require
+  source grounding.
+- Encode every structural paragraph and list branch, including Absatz markers
+  such as `(1)` and `(2)`, `Abs. 5`, numbered items such as `1.` and `1a.`, and
+  Satz enumerations. If a branch cannot be encoded, use a precise typed
+  deferral that names the exact branch and its missing dependency or citation;
+  never omit it silently. Put the structural branch in the deferred output
+  path (for example, `de:statutes/estg/32a/6#surviving_spouse_tariff`). Include
+  `blocked_by` only for known exact RuleSpec targets with a `#rule_fragment`;
+  otherwise omit `blocked_by` and name the exact missing legal dependency or
+  citation in `reason`. For a runtime-gap deferral of a current-source branch,
+  the `reason` itself must literally cite the complete legal branch, including
+  every subsection marker represented by the output branch, and name a
+  concrete source-stated missing input or runtime capability. The output path
+  is not a source citation.
+  Never guess a blocker target.
+- Before returning YAML, inventory every top-level structural branch in the
+  authoritative source and verify that each branch has either an executable
+  rule whose `source:` cites that branch or one `module.deferred_outputs` entry
+  whose absolute output path preserves the branch label. Do not return while
+  any branch is absent. A deferral reason must identify the exact branch and a
+  concrete missing input, dependency, or runtime capability; generic omission
+  language is not coverage.
+- A child-branch `source:` citation does not cover a distinct parent chapeau.
+  When a parent chapeau states applicability, temporal scope, or a shared
+  computation, bind one consuming executable rule to that exact parent path
+  and include an exact parent-chapeau proof excerpt. Keep the child bindings as
+  well; do not substitute an older parallel chapeau or infer parent coverage
+  from encoded descendants. Do not invent a dummy output for a chapeau that
+  only scopes the child computations.
+- When an authoritative branch is exactly a bare `Repealed.` tombstone, or a
+  Louisiana `Repealed by Acts ...` tombstone whose remaining text is solely a
+  finite session-law citation and optional effective date, preserve that branch
+  path in `module.deferred_outputs[].output`. Make `reason` cite the exact
+  current legal branch and affirmatively state that it is repealed. Do not
+  fabricate an executable rule, input, runtime gap, or external blocker. Use
+  the bounded reason form `<exact branch citation> is repealed.`, optionally
+  adding the exact authenticated history either as `is repealed by <Acts
+  citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies
+  no operative rule`; never qualify, report, or retract the assertion.
+- For a Louisiana branch that computes tax at rates provided in another R.S.
+  section, use the bounded missing-export clause `no executable RuleSpec output
+  for those <source-stated modifiers> rates is supplied in the available
+  context`. Do not repeat the dependency inside that missing object or append a
+  `that`/`which` relative clause.
+- Companion tests must execute every source-stated formula branch, boundary,
+  exception, and rounding rule with assertions on the affected principal
+  output. Each branch needs distinct runtime evidence; descriptive test
+  metadata is not coverage evidence.
+- Every emitted derived `dtype: Judgment` output, other than a source-faithful
+  Judgment whose versions are all constant false, must be asserted as `holds`
+  by at least one companion case. When `not_holds` is reachable, include that
+  negative companion too; testing only the negative state is incomplete.
+- When a principal formula reaches a branch through local derived selectors or
+  intermediates, assert every reached local derived dependency's expected
+  output in that same companion case. Raw inputs alone do not corroborate a
+  derived intermediate, and a local derived rule must never be shadowed under
+  `input:`.
+- When an implementing principal rule is not unambiguously bound by a canonical
+  structural source path, add a `versions[N].formula` source proof atom using
+  the exact canonical `source.corpus_citation_path` and a short verbatim
+  `source.excerpt` identifying its computation. This is mandatory when multiple
+  computations share one structural path. A citation-only proof atom,
+  human-readable rule-level `source:`, or self-import is not an unambiguous
+  formula-clause binding.
+- A historical branch's runtime evidence must use that branch's legally
+  applicable period. If an external oracle cannot evaluate that period, keep
+  the source-faithful companion case and omit oracle inputs or expectations
+  from that case; never move or omit the branch to gain oracle compatibility.
+- When a principal derived output combines an earlier operative path with a
+  later-added alternative, keep that output executable from the earliest
+  source-stated path date. Do not move the whole output's `effective_from` to
+  the later alternative; use effective-dated parameter/helper guards in the
+  single derived formula so every historical companion case executes an
+  applicable path.
+- A genuinely scalar-only source unit may remain parameter-only.
+"""
+
 
 def get_encoder_prompt(
     citation: str,
     output_path: str,
     corpus_citation_path: str | None = None,
+    require_complete_source_unit: bool = False,
 ) -> str:
     """Return a complete RuleSpec task prompt for a source unit."""
     corpus_section = ""
@@ -1639,12 +1756,21 @@ def get_encoder_prompt(
         corpus_section = f"""
 Corpus source path: {corpus_citation_path}
 Include `{corpus_citation_path}` in `module.source_verification`.
-Use `module.source_verification.corpus_citation_path: {corpus_citation_path}`
-when the primary corpus row fully states the encoded source slice. If the
-primary row is split by a page break or otherwise continues in supplied
-adjacent source context for the same legal provision, use
-`module.source_verification.corpus_citation_paths` and include both the primary
-path and each continuation corpus path that grounds executable rules.
+Use exactly
+`module.source_verification.corpus_citation_path: {corpus_citation_path}`.
+Use that exact same `{corpus_citation_path}` value in every source-backed proof
+atom's `source.corpus_citation_path`. Do not rewrite it as a display citation
+and do not append subsection markers or other path segments. Express narrower
+support through the rule-level `source:`, the proof excerpt, and the legal
+output path while keeping the corpus machine identity unchanged.
+Never emit `corpus_citation_paths`. A provision split across storage rows must
+be composed by the corpus resolver under this one canonical path. If another
+legal source is required, import its separately attested RuleSpec or defer the
+affected executable surface.
+"""
+    if require_complete_source_unit:
+        corpus_section += f"""
+{_COMPLETE_SOURCE_UNIT_PROTOCOL.strip()}
 """
 
     return f"""{ENCODER_PROMPT}

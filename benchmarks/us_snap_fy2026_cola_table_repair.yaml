@@ -13,7 +13,6 @@ gates:
 cases:
   - kind: source
     name: snap-fy2026-cola-allotments
-    source_id: USDA SNAP FY 2026 COLA allotment table
     corpus_citation_path: us/guidance/usda/fns/snap-fy2026-cola/page-1
     allow_context:
       - ../../rulespec-us/us/statutes/7/2017/a.yaml

@@ -1,0 +1,1 @@
+Exclude recognized German sentence labels glued to section citations from numeric recall before stripping legal addresses, so structural text such as `2§ 64` does not require an invented scalar parameter. Preserve substantive quantities and non-sentence occurrences.

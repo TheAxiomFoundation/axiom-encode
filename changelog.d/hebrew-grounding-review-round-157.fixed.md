@@ -1,0 +1,1 @@
+A fraction of a plural or suffixed amount noun is the fraction ("חמישית מתשלומי העובד" is a fifth of the payments, 0.2, not a fifth grade), since every pattern built from the amount-noun stems now knows the forms a suffix gives them.

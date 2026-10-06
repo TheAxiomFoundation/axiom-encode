@@ -1,0 +1,1 @@
+A printed count with a fraction word is a range endpoint: "בין 2 עשיריות ל־3 עשיריות האחוז" runs from 0.002 to 0.003 (with a printed mixed count too, "2 וחצי עשיריות" 0.0025), as the spelled "בין שתי עשיריות לשלוש עשיריות האחוז" did.

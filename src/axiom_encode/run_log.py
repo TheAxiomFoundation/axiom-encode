@@ -137,7 +137,7 @@ PIPELINE_SPEC: tuple[PipelineStage, ...] = (
         category=StageCategory.gate,
         depends_on=("gate.ci",),
         optional=True,
-        description="Cross-engine oracle (PolicyEngine/TAXSIM) agreement.",
+        description="PolicyEngine oracle agreement.",
     ),
     PipelineStage(
         id="gate.review",

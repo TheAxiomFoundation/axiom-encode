@@ -1,0 +1,1 @@
+A printed count with a vulgar-fraction glyph or a slash fraction ("3½ עשיריות", "3 1/2 עשיריות", "3 1⁄2 עשיריות") counts the fraction word after it: the glyph, ASCII-mixed and slash-fraction passes yield the figure to the fraction reader, so "ל־3½ עשיריות מהשכר" is 0.35 and "3½ עשיריות האחוז" 0.0035.

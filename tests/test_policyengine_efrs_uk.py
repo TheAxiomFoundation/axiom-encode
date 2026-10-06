@@ -4,10 +4,9 @@ from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from types import SimpleNamespace
 
+import axiom_oracles.bridges.efrs_uk as efrs_uk
 import pytest
-
-import axiom_encode.oracles.policyengine.efrs_uk as efrs_uk
-from axiom_encode.oracles.policyengine.efrs_uk import (
+from axiom_oracles.bridges.efrs_uk import (
     BENEFIT_CAP_REGULATION_80A_BASE,
     BENEFIT_CAP_RELEVANT_AMOUNT_OUTPUTS,
     CARER_SUPPORT_PAYMENT_FINAL_BASE,
@@ -2413,7 +2412,7 @@ def test_dla_final_request_projects_final_inputs():
 
 
 def test_pip_final_projection_maps_categories_to_rate_band_leaves():
-    from axiom_encode.oracles.policyengine.efrs_uk import project_pip_final_inputs
+    from axiom_oracles.bridges.efrs_uk import project_pip_final_inputs
 
     mixed = project_pip_final_inputs(
         {"pip_dl_category": "ENHANCED", "pip_m_category": "STANDARD"}

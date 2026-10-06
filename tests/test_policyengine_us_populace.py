@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from axiom_encode.oracles.policyengine import us_populace
-from axiom_encode.oracles.policyengine.adapters import get_pe_us_var_adapter
-from axiom_encode.oracles.policyengine.registry import PolicyEngineMapping
+from axiom_oracles.bridges import us_populace
+from axiom_oracles.bridges.adapters import get_pe_us_var_adapter
+from axiom_oracles.bridges.registry import PolicyEngineMapping
 
 
 def _write(path, text):

@@ -1,0 +1,1 @@
+The verbs that pay an amount are one vocabulary wherever the reader asks about them ("נתן לעובדת חמישית השכר", "הקצה", "מנכה" pay a fifth of the wage), and receipts, redemptions, royalties, advances, deposits and refunds are amount nouns ("חמישית מן התקבולים" is a fifth of the receipts).
