@@ -4512,18 +4512,18 @@ def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     return previous_token in {":", ";", ",", "."}
 
 
-def _without_manual_typography_operators(
-    source_text: str, *, mask: str = _TYPOGRAPHY_MASK
-) -> str:
+def _without_manual_typography_operators(source_text: str) -> str:
     """Blank manual typography that only looks like arithmetic, keeping offsets."""
 
     masked = list(source_text)
     for pattern in (_SLASH_MONTH_YEAR, _WEB_ADDRESS, _FOOTNOTE_ASTERISK):
         for match in pattern.finditer(source_text):
-            masked[match.start() : match.end()] = mask * (match.end() - match.start())
+            masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
+                match.end() - match.start()
+            )
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
-            masked[match.start()] = mask
+            masked[match.start()] = _TYPOGRAPHY_MASK
     return "".join(masked)
 
 
@@ -18606,7 +18606,7 @@ def _formula_execution_matches_source_branch(
             return False
     source_topology = _explicit_source_arithmetic_topology(
         _without_manual_typography_operators(
-            authoritative_numeric_recall_text(branch.text), mask=" "
+            authoritative_numeric_recall_text(branch.text)
         )
     )
     if source_topology is not None and source_topology != _formula_arithmetic_topology(
@@ -18802,7 +18802,9 @@ def _formula_operation_kinds(text: str) -> set[str]:
     if parsed_operations:
         return parsed_operations
     # Manual typography is neither division nor multiplication here either.
-    text = _without_manual_typography_operators(text, mask=" ")
+    # The sentinel, unlike a space, cannot turn the dash of a date range
+    # (`10/2025–09/2026`) into a spaced subtraction.
+    text = _without_manual_typography_operators(text)
     operations: set[str] = set()
     lowered_text = text.lower()
     arithmetic_text = lowered_text

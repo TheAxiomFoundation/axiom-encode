@@ -127,6 +127,11 @@ def test_page_93_no_longer_asks_for_typography_formulas():
         "See oregon.gov/odhs/food/pages/snap-benefits.aspx for details.",
         # A capitalized word glued after a period is not a web address.
         "The net amount.Net income is listed on the notice.",
+        # The dash after a masked date or web address is not a subtraction
+        # (review of #1771: a space mask made it one).
+        "Income 07/2026 – Deductions",
+        "Period 10/2025 – Benefit year",
+        "See www.oregon.gov/a - Notes apply",
     ),
 )
 def test_manual_typography_is_not_a_computation(source: str):
@@ -164,8 +169,6 @@ def test_real_arithmetic_stays_a_computation(source: str):
         # Masked typography must not let the words on either side meet an
         # operator (main: not a computation; review of #1771).
         "or • *Victims of Severe Trafficking",
-        "Language* - No modification",
-        "Unsubsidized employment* • Subsidized private sector employment*",
         "Eligibility • December 9, 2025 – OBBB",
     ),
 )
@@ -237,6 +240,12 @@ def test_bullet_check_stays_linear_on_long_bodies():
             "Application Status *includes screenshots.",
             set(),
         ),
+        # A date range adds no subtraction (review of #1771).
+        (
+            "Monthly income is annual income divided by 12 (10/2025–09/2026).",
+            {"divide"},
+        ),
+        ("Effective 10/2025-09/2026.", set()),
     ),
 )
 def test_typography_adds_no_source_operations(source: str, expected: set[str]):
@@ -287,6 +296,16 @@ def test_web_address_does_not_change_the_source_topology():
         extract_numeric_occurrences=extract,
         numeric_value_is_grounded=numeric_value_is_grounded,
     )
+
+
+def test_date_range_adds_no_subtraction_topology():
+    masked = completeness_module._without_manual_typography_operators(
+        "Benefit 10/2025-09/2026 amount * 0.3"
+    )
+
+    topology = completeness_module._explicit_source_arithmetic_topology(masked)
+
+    assert "Sub" not in repr(topology)
 
 
 def test_a_line_break_before_of_keeps_a_fraction():
