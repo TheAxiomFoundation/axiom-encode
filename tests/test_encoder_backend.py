@@ -143,7 +143,7 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Do not\n  reconstruct the cited section's amount locally",
         "Only include `blocked_by` entries when you know the exact RuleSpec output",
         "us:statutes/us-ca/17000",
-        "Do not cite the copied `external/...`",
+        "direct release-bound corpus source text",
     ]
     for topic in required_topics:
         assert topic in prompt

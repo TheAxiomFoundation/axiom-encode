@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import axiom_oracles.bridges.tax_populace as ecps_tax
 import pytest
@@ -1847,15 +1848,14 @@ def test_resolve_rulespec_program_path_supports_country_monorepo_root(tmp_path):
     )
 
 
-def test_resolve_rulespec_program_path_keeps_direct_layout(tmp_path):
+def test_resolve_rulespec_program_path_rejects_flat_layout(tmp_path):
     root = tmp_path / "rulespec-us"
     program = root / "statutes" / "26" / "1" / "j.yaml"
     program.parent.mkdir(parents=True)
     program.write_text("program: {}\n")
 
-    assert (
-        resolve_rulespec_program_path(root, TAX_BEFORE_CREDITS_PROGRAM_PATH) == program
-    )
+    with pytest.raises(ValueError, match="jurisdiction root is not canonical"):
+        resolve_rulespec_program_path(root, TAX_BEFORE_CREDITS_PROGRAM_PATH)
 
 
 def test_select_tax_unit_indices_rejects_filtered_requested_case():
@@ -2097,8 +2097,11 @@ def test_contribution_and_benefit_base_comes_from_selected_axiom_result():
 
 
 def test_contribution_and_benefit_base_can_come_from_rulespec_test(tmp_path):
-    test_path = tmp_path / contribution_and_benefit_base_program_path(2024).with_suffix(
-        ".test.yaml"
+    rulespec_root = tmp_path / "rulespec-us"
+    test_path = (
+        rulespec_root
+        / "us"
+        / contribution_and_benefit_base_program_path(2024).with_suffix(".test.yaml")
     )
     test_path.parent.mkdir(parents=True)
     output = "us:policies/ssa/contribution-and-benefit-base/2024#contribution_and_benefit_base"
@@ -2117,7 +2120,7 @@ def test_contribution_and_benefit_base_can_come_from_rulespec_test(tmp_path):
 
     assert (
         contribution_and_benefit_base_from_rulespec_test(
-            tmp_path,
+            rulespec_root,
             year=2024,
             output=output,
         )
@@ -2589,4 +2592,4 @@ def test_policyengine_data_certification_override_noop_for_populace(monkeypatch)
 
     ecps_tax._install_policyengine_data_certification_override()
 
-    assert "POLICYENGINE_SKIP_COUNTRY_IMPORTS" not in ecps_tax.os.environ
+    assert "POLICYENGINE_SKIP_COUNTRY_IMPORTS" not in os.environ

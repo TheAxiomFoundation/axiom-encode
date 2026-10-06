@@ -24,7 +24,7 @@ dependencies = [
     # src/axiom_encode/oracles/policyengine/ are thin re-export shims over
     # axiom_oracles.bridges (axiom-oracles#124). Pinned to a commit because
     # axiom-oracles is not on PyPI; bump the SHA to pull bridge changes.
-    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@4356d73d61339abe92b39c7ace3a0869f401d9c5",
+    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@d4e2dc763264f423773082083e0d3d5aca3c110d",
     "cryptography>=46.0",
     "pydantic>=2.0",
     "pypdf>=6.4.0",

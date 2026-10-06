@@ -7689,7 +7689,7 @@ class TestEvalPrompt:
         )
         assert "entity:" in prompt
         assert "period:" in prompt
-        assert "Do not cite the copied `external/...`" in prompt
+        assert "direct release-bound corpus source text" in prompt
         assert "dtype:" in prompt
         assert "RuleSpec requirements:" in prompt
         assert "The RuleSpec file must begin with `format: rulespec/v1`" in prompt

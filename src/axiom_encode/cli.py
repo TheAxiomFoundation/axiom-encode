@@ -4373,7 +4373,8 @@ def _rulespec_module_paths(checkout: Path) -> list[Path]:
             yaml_like = candidate.suffix.lower() in {".yaml", ".yml"}
             if yaml_like and candidate.suffix != RULESPEC_FILE_SUFFIX:
                 raise ValueError(
-                    f"RuleSpec content must use the exact .yaml extension: {candidate}"
+                    "RuleSpec content must use the canonical .yaml extension: "
+                    f"{candidate}"
                 )
             if candidate.suffix != RULESPEC_FILE_SUFFIX:
                 continue

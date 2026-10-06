@@ -3345,99 +3345,23 @@ def test_universal_credit_child_element_request_filters_to_positive_rows():
     ]
 
 
-def test_run_axiom_parameter_outputs_reads_generated_rulespec_parameters(tmp_path):
-    program = tmp_path / "regulations" / "uksi" / "2013" / "376" / "36.yaml"
-    program.parent.mkdir(parents=True)
-    program.write_text(
-        """
-format: rulespec/v1
-rules:
-  - name: standard_allowance_single_under_25_amount
-    kind: parameter
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '0001-01-01'
-        formula: |-
-          300
-      - effective_from: '2026-04-01'
-        formula: |-
-          338.58
-""".strip()
-    )
-
-    results = efrs_uk.run_axiom_parameter_outputs(
-        program=program,
-        rulespec_root=tmp_path,
-        request={
-            "queries": [
-                {
-                    "period": {"start": "2026-04-01"},
-                    "outputs": [
-                        "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount"
-                    ],
-                }
-            ]
-        },
-    )
-
-    assert results == [
-        {
-            "outputs": {
-                "uk:regulations/uksi/2013/376/36#standard_allowance_single_under_25_amount": {
-                    "value": {"value": "338.58"}
-                }
-            }
-        }
-    ]
-
-
-def test_run_axiom_parameter_outputs_resolves_composed_program_imports(tmp_path):
+def test_run_axiom_surface_executes_scalar_parameters_through_engine(
+    monkeypatch, tmp_path
+):
     rulespec_root = tmp_path / "rulespec-uk"
-    source = rulespec_root / "regulations" / "uksi" / "2013" / "376" / "36.yaml"
-    source.parent.mkdir(parents=True)
-    source.write_text(
-        """
-format: rulespec/v1
-rules:
-  - name: carer_element_amount
-    kind: parameter
-    dtype: Money
-    period: Month
-    versions:
-      - effective_from: '0001-01-01'
-        formula: |-
-          200
-      - effective_from: '2026-04-01'
-        formula: |-
-          209.34
-""".strip()
+    program = (
+        rulespec_root / "uk" / "regulations" / "uksi" / "2013" / "376" / "36.yaml"
     )
-    composed = tmp_path / "uk-uc-composed.yaml"
-    composed.write_text(
-        """
-format: rulespec/v1
-module:
-  kind: composition
-imports:
-  - uk:regulations/uksi/2013/376/36
-""".strip()
-    )
-
-    results = efrs_uk.run_axiom_parameter_outputs(
-        program=composed,
-        rulespec_root=rulespec_root,
-        request={
-            "queries": [
-                {
-                    "period": {"start": "2026-04-01"},
-                    "outputs": ["uk:regulations/uksi/2013/376/36#carer_element_amount"],
-                }
-            ]
-        },
-    )
-
-    assert results == [
+    axiom_binary = tmp_path / "axiom-rules-engine"
+    request = {
+        "queries": [
+            {
+                "period": {"start": "2026-04-01"},
+                "outputs": ["uk:regulations/uksi/2013/376/36#carer_element_amount"],
+            }
+        ]
+    }
+    expected = [
         {
             "outputs": {
                 "uk:regulations/uksi/2013/376/36#carer_element_amount": {
@@ -3446,6 +3370,29 @@ imports:
             }
         }
     ]
+    captured = {}
+
+    def fake_run_axiom_program(**kwargs):
+        captured.update(kwargs)
+        return expected
+
+    monkeypatch.setattr(efrs_uk, "run_axiom_program", fake_run_axiom_program)
+
+    assert (
+        efrs_uk.run_axiom_surface(
+            program=program,
+            request=request,
+            rulespec_root=rulespec_root,
+            axiom_binary=axiom_binary,
+        )
+        == expected
+    )
+    assert captured == {
+        "program": program,
+        "request": request,
+        "rulespec_root": rulespec_root,
+        "axiom_binary": axiom_binary,
+    }
 
 
 def test_select_person_indices_uses_positive_weights_and_explicit_ids():
@@ -5981,11 +5928,12 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
     tmp_path,
 ):
     rulespec_root = tmp_path / "rulespec-uk"
-    program = rulespec_root / PERSONAL_ALLOWANCE_PROGRAM_PATH
+    program = rulespec_root / "uk" / PERSONAL_ALLOWANCE_PROGRAM_PATH
     program.parent.mkdir(parents=True)
     program.write_text("format: rulespec/v1\n")
     axiom_rules = tmp_path / "axiom-rules-engine"
-    axiom_rules.mkdir()
+    axiom_rules.write_text("")
+    axiom_rules.chmod(0o755)
     captured = {}
 
     monkeypatch.setattr(
@@ -6020,9 +5968,8 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
     monkeypatch.setattr(efrs_uk, "run_axiom_surface", fake_run_axiom_program)
 
     report = compare_uk_efrs(
-        workspace_root=tmp_path,
-        rulespec_root=None,
-        axiom_rules_path=None,
+        rulespec_root=rulespec_root,
+        axiom_binary=axiom_rules,
         year=2026,
         sample_size=100,
         surface="personal-allowance",
@@ -6037,12 +5984,11 @@ def test_compare_uk_efrs_runs_axiom_personal_allowance(
     assert report.mismatches == []
     assert captured["program"] == program
     assert captured["rulespec_root"] == rulespec_root.resolve()
-    assert captured["axiom_rules_path"] == axiom_rules.resolve()
+    assert captured["axiom_binary"] == axiom_rules.resolve()
     assert captured["request"]["queries"][0]["entity_id"] == "person_7"
 
 
 def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_path):
-    monkeypatch.setattr(efrs_uk, "resolve_workspace_root", lambda root: tmp_path)
     monkeypatch.setattr(
         efrs_uk,
         "compare_uk_efrs",
@@ -6070,9 +6016,8 @@ def test_main_returns_nonzero_when_requested_for_mismatches(monkeypatch, tmp_pat
     assert (
         efrs_uk.main(
             argparse.Namespace(
-                root=None,
-                rulespec_root=None,
-                axiom_rules_engine_path=None,
+                rulespec_root=tmp_path / "rulespec-uk",
+                axiom_binary=tmp_path / "axiom-rules-engine",
                 year=2026,
                 sample_size=100,
                 surface="all",
