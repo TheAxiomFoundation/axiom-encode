@@ -72,6 +72,8 @@ DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
 REVIEWED_RULESPEC_REFS = frozenset(
     {
+        # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         (
             "dk",
             "06489d04e7d4b8d424d1711d99df883c6411248a",
