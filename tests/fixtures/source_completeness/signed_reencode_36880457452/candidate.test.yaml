@@ -1,0 +1,10 @@
+- name: advance_notice_periods
+  period: 2026-05
+  input: {}
+  output:
+    ? us-ut:policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm#financial_child_care_advance_notice_days
+    : 1
+    ? us-ut:policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm#snap_advance_notice_days
+    : 10
+    ? us-ut:policies/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm#rca_advance_notice_days
+    : 10

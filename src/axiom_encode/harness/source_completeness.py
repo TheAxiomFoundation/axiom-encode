@@ -2147,6 +2147,14 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
     r"|\b(?:Schedule|Form)\s+[A-Z]{1,3}-\d+[A-Z]*\b"
 )
+# Paginated US manuals open each page with its page number and a revision
+# stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
+# 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. Neither
+# the page number nor the month/year stamp is a value.
+_US_MANUAL_PAGE_NUMBER = re.compile(
+    r"\A\s*\d{1,4}(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))"
+)
+_US_MANUAL_REVISION_STAMP = re.compile(r"\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)")
 _TITLE_SUFFIX_LEGAL_CITATION = re.compile(
     r"\b(?:sections?\s+)?(?:\d+)?[a-z]\s*"
     r"[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
@@ -12618,6 +12626,9 @@ def authoritative_numeric_recall_text(
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
         cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub("", cleaned)
+        if "/manual/" in corpus_citation_path:
+            cleaned = _US_MANUAL_PAGE_NUMBER.sub("", cleaned)
+            cleaned = _US_MANUAL_REVISION_STAMP.sub("", cleaned)
     cleaned = re.sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",

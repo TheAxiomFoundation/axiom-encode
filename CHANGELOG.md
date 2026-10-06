@@ -6,6 +6,9 @@ All notable changes to Axiom Encode will be documented here.
   `WAC` section citations, `policy NNN-N` cross-references, numbered manual
   section headings, telephone numbers, PO boxes, ZIP+4 codes and
   letter-prefixed form numbers are no longer demanded as named scalars.
+  Paginated manuals also drop the page number and `(MM/YYYY)` revision
+  stamp of their page headers (`93 (07/2026) Chapter 2:...`), which the
+  Oregon Programs Eligibility Notebook prints on every page.
 
 - Accept a federal regulation's `<title>-cfr` module root
   (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
