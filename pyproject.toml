@@ -43,7 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 api = [
-    "anthropic>=0.40.0",
+    "anthropic>=0.83.0",
 ]
 observability = [
     "opentelemetry-api>=1.28.0",

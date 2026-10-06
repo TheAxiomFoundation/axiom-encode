@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .client import JudgeClient, truncate_provision
+from .client import JudgeClient, truncate_provision, with_call_diagnostics
 from .run_log import (
     Finding,
     JudgeEvent,
@@ -153,19 +153,24 @@ def run(
         # — never let it default to PASS (the fail-open the module bans). Only
         # reachable on the prompt-guided fallback path; the json_schema enum
         # constrains the happy path.
-        return error_event(
-            JudgeStage.STATUTORY_FIDELITY,
-            f"unrecognized verdict {raw_verdict!r} from judge",
-            error_type="unrecognized_verdict",
-            model=call.model,
-            generator_model=client.generator_model,
-            tokens=call.tokens,
-            escalated=call.escalated,
-            run_id=run_id,
-            subject_ref=subject,
+        # Keep the call diagnostics: this path is reached through the
+        # prompt-guided fallback, which is exactly the shape worth tracing.
+        return with_call_diagnostics(
+            error_event(
+                JudgeStage.STATUTORY_FIDELITY,
+                f"unrecognized verdict {raw_verdict!r} from judge",
+                error_type="unrecognized_verdict",
+                model=call.model,
+                generator_model=client.generator_model,
+                tokens=call.tokens,
+                escalated=call.escalated,
+                run_id=run_id,
+                subject_ref=subject,
+            ),
+            call,
         )
     verdict = Verdict.FLAG if (raw_verdict == "flag" or findings) else Verdict.PASS
-    return JudgeEvent(
+    event = JudgeEvent(
         stage=JudgeStage.STATUTORY_FIDELITY,
         verdict=verdict,
         confidence=coerce_confidence(payload.get("confidence")),
@@ -178,6 +183,7 @@ def run(
         run_id=run_id,
         subject_ref=subject,
     )
+    return with_call_diagnostics(event, call)
 
 
 def needs_review_label(event: JudgeEvent) -> Optional[str]:
