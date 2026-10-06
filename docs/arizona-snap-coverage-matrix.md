@@ -146,15 +146,21 @@ such field; its import chain reaches the pre-existing federal FY 2026 COLA
 `deductions.yaml`, whose line 20 **does** declare `values`. Compiling that
 dependency alone produces the same error and line number. The engine reports
 the top-level target path for an imported dependency's parse failure, which
-obscured the cause. The encoder's legacy source-value validator still accepts
-`values` while the pinned engine allows only `corpus_citation_path`,
-`source_sha256`, and `upstream_source_check`. Direct compilation also rejects
+obscured the cause. The encoder's source-value validator can read legacy
+`values`, and current protected apply can remove a model-generated `values`
+field after the engine rejects it; neither changes these pre-existing imports.
+The pinned engine allows only `corpus_citation_path`, `source_sha256`, and
+`upstream_source_check`. Direct compilation also rejects
 the sibling federal `maximum-allotments.yaml` for `values` and
 `income-eligibility-standards.yaml` for removed plural `corpus_citation_paths`;
 all three are imported by `state-plan-composition.yaml`. Migrate these legacy
-federal dependencies through protected source-bound generation and align
-validation with the engine schema before retrying block 9; do not edit RuleSpec
-by hand.
+federal dependencies through protected source-bound generation before retrying
+block 9; do not edit RuleSpec by hand. For income standards, the signed corpus
+has a bodyless parent at
+`us/guidance/usda/fns/snap-fy2026-income-eligibility-standards` with page-1
+and page-2 descendants. The corpus resolver composes a bodyless parent's active
+descendants under the singular requested citation, so the protected replacement
+should target that parent rather than one page or a removed plural field.
 
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
