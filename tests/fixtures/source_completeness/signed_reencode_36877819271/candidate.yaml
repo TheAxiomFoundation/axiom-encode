@@ -1,0 +1,18 @@
+format: rulespec/v1
+module:
+  status: deferred
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-or/manual/odhs/open/page-93
+    source_sha256: 14904f6058b7e0015d38bfe9e80dd3dd1fa09739dcc33d73c7314573946bc793
+  summary: Applications may be submitted on paper or online through ONE. The date
+    of request (DOR) is the date the request for benefits is received by ODHS|OHA;
+    ODHS|OHA establishes and documents the DOR. Once a DOR is established, an Eligibility
+    Worker must process the application.
+  deferred_outputs:
+  - output: us-or:policies/odhs/open/page-93#date_of_request
+    reason: The source defines DOR as the date benefits are received and says ODHS|OHA
+      establishes and documents it, but the available RuleSpec schema does not support
+      a date-valued output.
+rules: []
