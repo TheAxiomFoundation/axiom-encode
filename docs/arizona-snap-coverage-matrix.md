@@ -137,6 +137,23 @@ the same verification condition. These results establish six aligned atomic
 amount cases under explicit assumptions, not a validated composition or
 unqualified oracle parity.
 
+An **atomic self-employment oracle discrepancy**, not a RuleSpec comparison:
+at the pinned PolicyEngine commit, a one-person Arizona unit in 2027 with
+$12,000 annual gross self-employment income and $0 entered expenses yields a
+$4,800 annual SNAP self-employment expense deduction (40%). The pinned
+[rate parameter](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/parameters/gov/usda/snap/income/deductions/self_employment/rate.yaml)
+has no later Arizona entry. DES's [FAA4 change index](https://dbmefaapolicy.azdes.gov/Archived_Policy/Financial_Eligibility_Factors.html)
+dates the new 55% deduction to 06/29/2026, and its current
+[income-eligibility policy](https://dbmefaapolicy.azdes.gov/FAA4/Income_Eligibility_Requirements.html)
+says AZTECS applies the standard 55% self-employment deduction. On that
+unchanged $12,000 gross amount, 55% would be $6,600, a $1,800 difference
+from PolicyEngine's observed output. This is source-based arithmetic, not an
+observed DES case determination: the dated state sources are not yet in the
+signed corpus release, no equivalent Arizona RuleSpec output was found, and
+the full SNAP household result has not been compared. Preserve this
+source-versus-oracle discrepancy when encoding the 06/29/2026 boundary;
+do not force the source-grounded rule to match the stale oracle rate.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). The federal 7 CFR 273.1 and 273.3–273.7, 273.10, and 273.24 modules are shared authority, not an Arizona-only gap. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
