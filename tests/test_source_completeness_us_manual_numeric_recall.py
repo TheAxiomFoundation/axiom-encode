@@ -173,6 +173,10 @@ def test_values_after_a_masked_page_header_stay_in_recall():
         ("Refer to policy 254, 10-15% applies.", {10, 0.15}),
         ("See policy 770-2, 3-4 household members.", {3, 4}),
         ("under this policy 30 days apply", {30}),
+        # A hyphenated unit is still a unit (review of #1756).
+        ("Under this policy 10-day advance notice is required.", {10}),
+        ("The policy 12-month certification period applies.", {12}),
+        ("Under this policy 10-calendar-day notice applies.", {10}),
     ),
 )
 def test_policy_and_form_references_mask_whole_identifiers_only(source, expected):
@@ -190,6 +194,25 @@ def test_policy_and_form_references_mask_whole_identifiers_only(source, expected
             "recognized employment expenses were allowed)",
             "us-il/manual/dhs/csmm/18929/block-4",
             {44},
+        ),
+        # A cents-shaped label beside a `$` amount line is a budget row,
+        # whatever the case of its label (review of #1756).
+        (
+            "$470.00 Supplemental Security Income (SSI)\n44.50 Countable "
+            "Earned Income (earned income disregard)\n10.70 AABD cash payment",
+            "us-il/manual/dhs/csmm/18929/block-4",
+            {470, 44.5, 10.7},
+        ),
+        (
+            "$313.00 Supplemental Security Income (SSI)\n\n75.38 AABD Cash Payment",
+            "us-il/manual/dhs/csmm/18929/block-4",
+            {313, 75.38},
+        ),
+        # Consecutive cents-shaped section headings stay locators.
+        (
+            "101.03 Application Process\n101.04 Retroactive Applications",
+            "us-sc/manual/scdhhs/mppm/page-1",
+            set(),
         ),
         ("1-2 Person Household", "us-xx/manual/agency/page-1", {1, 2}),
         ("3-5 Business Days", "us-xx/manual/agency/page-1", {3, 5}),
