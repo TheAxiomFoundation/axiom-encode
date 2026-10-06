@@ -115,7 +115,11 @@ jobs:
         exec >> "$report/setup-stage-9.log" 2>&1
         set -euo pipefail
         (cd axiom-encode && uv sync --frozen --python 3.14)
-        (cd axiom-rules-engine && cargo build --locked --release --bin axiom-rules-engine)
+        axiom-encode/.venv/bin/axiom-encode engine-bind \
+          --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+          --pin 89571cc2a938707fd60a5489b951135345697296 \
+          > "$report/engine-bind-setup.json"
+        cp axiom-rules-engine/target/release/axiom-rules-engine.provenance.json "$report/engine-provenance.json"
         axiom-encode/.venv/bin/python --version > "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
         rustc --version >> "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
         go version >> "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
@@ -204,6 +208,15 @@ jobs:
         git -C rulespec-ca status --porcelain > "$report/before-status.txt"
         test ! -s "$report/before-status.txt"
         git -C rulespec-ca ls-files -z | (cd rulespec-ca && xargs -0 sha256sum) > "$report/before-files.sha256"
+        /opt/axiom-verification/axiom-encode-signing-supervisor \
+          --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+          --trusted-python-runtime-root /opt/axiom-verification/python \
+          --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages \
+          --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode \
+          -- /opt/axiom-verification/axiom-encode engine-bind \
+          --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+          --pin 89571cc2a938707fd60a5489b951135345697296 --no-build \
+          > "$report/engine-bind-protected.json" 2> "$report/engine-bind-protected.stderr.log"
         result=0
         for module in ca/policies/cra/benefits-2026/federal-family-and-climate-benefits.yaml ca/policies/revenu-quebec/tp1-2025/main-return.yaml; do
           label="$(basename "$module" .yaml)"
@@ -232,7 +245,7 @@ jobs:
         } > "$report/available-tool-versions.txt"
         runtime=/opt/axiom-verification/python
         if [ -f "$runtime/runtime-attestation.json" ]; then
-          cp "$runtime/runtime-attestation.json" "$report/runtime-attestation.json"
+          cp "$runtime/runtime-attestation.json" "$report/runtime-attestation-final.json"
         fi
         if [ -x "$runtime/bin/python3.14" ]; then
           code=0
