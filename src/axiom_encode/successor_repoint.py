@@ -108,9 +108,6 @@ _CONCEPT_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _NUMERIC_LITERAL = re.compile(r"[+-]?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 _INTEGER_LITERAL = re.compile(r"0|-?[1-9][0-9]*")
 _IDENTIFIER_CHARACTER = "A-Za-z0-9_"
-# A formula symbol is a bare concept name.  ``x.name`` is a member of some other
-# namespace, so ``.`` bounds a use on the left; ``name.field`` still uses it.
-_FORMULA_LEFT_BOUNDARY = "A-Za-z0-9_."
 _DURABLE_REFERENCE_CHARACTER = r"A-Za-z0-9._:/-"
 # Every reference form (durable identity, jurisdiction-prefixed or -less path,
 # companion, manifest path, ProgramSpec scope entry) contains the legacy module's
@@ -758,7 +755,8 @@ def _probe_dates(
 def _formula_code_segments(formula: str) -> tuple[tuple[bool, str], ...]:
     """Split formula text into code and non-code (string, docstring, comment).
 
-    Mirrors the axiom-rules-engine lexer at af6e4ea (src/formula.rs:175-310):
+    Mirrors the non-code handling of the axiom-rules-engine lexer at af6e4ea
+    (src/formula.rs:175-310); identifier/path classification happens separately.
     a triple-quoted block is skipped, ``#`` outside a string runs to the end of
     the line, and a string opened by ``"`` or ``'`` ends at the same quote with
     backslash escapes.  A quote inside a comment opens nothing.
@@ -802,52 +800,71 @@ def _formula_code_segments(formula: str) -> tuple[tuple[bool, str], ...]:
     return tuple(segments)
 
 
-def _formula_symbol_pattern(name: str) -> re.Pattern[str]:
-    return re.compile(
-        rf"(?<![{_FORMULA_LEFT_BOUNDARY}]){re.escape(name)}"
-        rf"(?![{_IDENTIFIER_CHARACTER}])"
+def _formula_code_view(formula: str) -> str:
+    """Preserve code offsets while blanking strings, docstrings and comments."""
+
+    return "".join(
+        segment if code else " " * len(segment)
+        for code, segment in _formula_code_segments(formula)
+    )
+
+
+def _formula_symbol_matches(code: str, name: str) -> tuple[re.Match[str], ...]:
+    """Find bare identifiers, excluding members and slash-separated paths.
+
+    The engine lexes ``IDENT(/IDENT)+`` with no intervening whitespace as one
+    Path token (af6e4ea src/formula.rs:322-356). A slash after a number or closing
+    parenthesis, or separated from either identifier by whitespace, is division.
+    """
+
+    identifier = rf"[A-Za-z_][{_IDENTIFIER_CHARACTER}]*"
+    tokens = re.compile(
+        rf"(?<![{_IDENTIFIER_CHARACTER}]){identifier}(?:/{identifier})*"
+    )
+    return tuple(
+        match
+        for match in tokens.finditer(code)
+        if match.group() == name and not code[: match.start()].rstrip().endswith(".")
     )
 
 
 def replace_formula_symbol(text: str, old: str, new: str) -> str:
-    """Rename every bare use of ``old`` in formula code, leaving ``x.old`` alone.
+    """Rename bare uses of ``old``, preserving members, strings and comments.
 
-    Strings, docstrings and comments are not code and are never rewritten.
+    A member's preceding dot may be separated from its name by whitespace or
+    non-code text. The offset-preserving code view classifies it consistently
+    with the concept proof while edits retain the original non-code bytes.
     """
 
-    pattern = _formula_symbol_pattern(old)
-    return "".join(
-        pattern.sub(lambda _match: new, segment) if code else segment
-        for code, segment in _formula_code_segments(text)
-    )
+    code = _formula_code_view(text)
+    for match in reversed(_formula_symbol_matches(code, old)):
+        text = text[: match.start()] + new + text[match.end() :]
+    return text
 
 
 def _formula_symbol_uses(formula: str, name: str) -> tuple[int | None, ...]:
-    """Return one entry per unquoted, identifier-bounded use of ``name``.
+    """Return one entry per bare identifier use of ``name`` in formula code.
 
     Each entry is the literal integer subscript immediately applied to the use,
     or ``None`` when the use is bare or subscripted by an expression.
     """
 
-    pattern = _formula_symbol_pattern(name)
+    code = _formula_code_view(formula)
     uses: list[int | None] = []
-    for code, segment in _formula_code_segments(formula):
-        if not code:
+    for match in _formula_symbol_matches(code, name):
+        tail = code[match.end() :]
+        if not tail.startswith("["):
+            uses.append(None)
             continue
-        for match in pattern.finditer(segment):
-            tail = segment[match.end() :]
-            if not tail.startswith("["):
-                uses.append(None)
-                continue
-            closing = tail.find("]")
-            if closing < 0:
-                uses.append(None)
-                continue
-            subscript = tail[1:closing].strip()
-            if _INTEGER_LITERAL.fullmatch(subscript) is None:
-                uses.append(None)
-                continue
-            uses.append(int(subscript))
+        closing = tail.find("]")
+        if closing < 0:
+            uses.append(None)
+            continue
+        subscript = tail[1:closing].strip()
+        if _INTEGER_LITERAL.fullmatch(subscript) is None:
+            uses.append(None)
+            continue
+        uses.append(int(subscript))
     return tuple(uses)
 
 
@@ -924,18 +941,47 @@ def _module_reference_uses(
     return counts
 
 
-def _proof_import_atoms(rule: object) -> list[dict[str, object]]:
-    metadata = rule.get("metadata") if isinstance(rule, dict) else None
-    proof = metadata.get("proof") if isinstance(metadata, dict) else None
-    atoms = proof.get("atoms") if isinstance(proof, dict) else None
-    if not isinstance(atoms, list):
+def _proof_import_atom_entries(
+    rule: object,
+) -> list[tuple[tuple[object, ...], dict[str, object]]]:
+    """Enumerate both supported proof locations with their exact YAML paths."""
+
+    if not isinstance(rule, dict):
         return []
-    imports: list[dict[str, object]] = []
-    for atom in atoms:
-        imported = atom.get("import") if isinstance(atom, dict) else None
-        if isinstance(imported, dict):
-            imports.append(imported)
-    return imports
+    metadata = rule.get("metadata")
+    containers = [((), rule)]
+    if isinstance(metadata, dict):
+        containers.insert(0, (("metadata",), metadata))
+    entries: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    for prefix, container in containers:
+        proof = container.get("proof")
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for index, atom in enumerate(atoms):
+            imported = atom.get("import") if isinstance(atom, dict) else None
+            if isinstance(imported, dict):
+                entries.append((prefix + ("proof", "atoms", index, "import"), imported))
+    return entries
+
+
+def _proof_import_atoms(rule: object) -> list[dict[str, object]]:
+    return [imported for _path, imported in _proof_import_atom_entries(rule)]
+
+
+def proof_import_pins(raw: bytes, *, label: str) -> tuple[tuple[str, object], ...]:
+    """Return proof targets and their pins for the Git-only cascade planner."""
+
+    payload = _load_module(raw, label=label)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        raise SuccessorRepointError(f"{label} declares no rules list")
+    return tuple(
+        (target.strip(), imported.get("hash"))
+        for rule in rules
+        for imported in _proof_import_atoms(rule)
+        if isinstance(target := imported.get("target"), str) and "#" in target
+    )
 
 
 def prove_concept_map(
@@ -973,6 +1019,17 @@ def prove_concept_map(
     reference_uses: dict[str, int] = {old: 0 for old in renames}
     for path, raw in sorted(dependent_raws.items()):
         payload = _load_module(raw, label=f"dependent {path}")
+        formulas = _dependent_formula_versions(payload, label=f"dependent {path}")
+        if request.legacy_reference_pattern.search(
+            raw.decode("utf-8")
+        ) is None and not any(
+            _formula_symbol_uses(formula, old)
+            for formula, _start, _end in formulas
+            for old in renames
+        ):
+            # A hash-only importer has no namespace affected by this repoint.
+            # The planner/rewrite must still prove at least one exact hash refresh.
+            continue
         local_rules = _rules_by_name(payload, label=f"dependent {path}")
         collisions = sorted(set(renames.values()) & set(local_rules))
         if collisions:
@@ -1368,6 +1425,7 @@ def rewrite_repoint_file(
     successor_sha256: str,
     renames: Mapping[str, str],
     label: str,
+    proof_hash_refreshes: Mapping[str, tuple[str, str]] | None = None,
 ) -> tuple[bytes, tuple[dict[str, object], ...]]:
     """Rewrite one dependent file by exact tokens and prove the postimage.
 
@@ -1402,6 +1460,11 @@ def rewrite_repoint_file(
     authorized: set[int] = set()
     counts: dict[tuple[str, str], int] = {}
     hash_retargets = 0
+    hash_refresh_records: list[dict[str, object]] = []
+    refreshes = proof_hash_refreshes or {}
+    for before, after in refreshes.values():
+        if _SHA256.fullmatch(before) is None or _SHA256.fullmatch(after) is None:
+            raise SuccessorRepointError("proof import refresh digest is not SHA-256")
 
     def record(old: str, new: str) -> None:
         counts[(old, new)] = counts.get((old, new), 0) + 1
@@ -1528,34 +1591,49 @@ def rewrite_repoint_file(
                         "formula"
                     ] = rewritten_value
 
-            metadata = rule.get("metadata") if isinstance(rule, dict) else None
-            proof = metadata.get("proof") if isinstance(metadata, dict) else None
-            atoms = proof.get("atoms") if isinstance(proof, dict) else None
-            if not isinstance(atoms, list):
-                continue
-            for atom_index, atom in enumerate(atoms):
-                imported = atom.get("import") if isinstance(atom, dict) else None
-                if not isinstance(imported, dict):
-                    continue
-                base = (
-                    "rules",
-                    rule_index,
-                    "metadata",
-                    "proof",
-                    "atoms",
-                    atom_index,
-                    "import",
-                )
-                field = f"rules[{rule_index}].metadata.proof.atoms[{atom_index}].import"
+            for relative_base, imported in _proof_import_atom_entries(rule):
+                base = ("rules", rule_index, *relative_base)
+                field = ".".join(str(part) for part in base)
+                expected_atom = expected
+                for part in base:
+                    expected_atom = expected_atom[part]
                 target = imported.get("target")
                 mapped = reference_node(
                     base + ("target",), target, field=f"{field}.target"
                 )
                 if mapped is None:
+                    identity, separator, _fragment = target.strip().partition("#")
+                    refresh = refreshes.get(identity) if separator else None
+                    if refresh is None:
+                        continue
+                    before, after = refresh
+                    old_hash, new_hash = f"sha256:{before}", f"sha256:{after}"
+                    if imported.get("hash") != old_hash:
+                        raise SuccessorRepointError(
+                            f"{label} {field} has an already-stale proof import hash "
+                            f"for {target}: expected {old_hash}"
+                        )
+                    hash_node = value_nodes.get(base + ("hash",))
+                    if hash_node is None:
+                        raise SuccessorRepointError(
+                            f"{label} {field}.hash is not a scalar"
+                        )
+                    if old_hash == new_hash:
+                        continue
+                    replace_span(hash_node, _emit_token(hash_node, new_hash))
+                    authorized.add(id(hash_node))
+                    expected_atom["hash"] = new_hash
+                    hash_refresh_records.append(
+                        {
+                            "operation": "refresh_proof_import_hash",
+                            "path": field + ".hash",
+                            "target": target,
+                            "from": old_hash,
+                            "to": new_hash,
+                            "count": 1,
+                        }
+                    )
                     continue
-                expected_atom = expected["rules"][rule_index]["metadata"]["proof"][
-                    "atoms"
-                ][atom_index]["import"]
                 expected_atom["target"] = mapped
                 whole_module_target = "#" not in mapped
                 output = imported.get("output")
@@ -1680,6 +1758,7 @@ def rewrite_repoint_file(
         replacements.append(
             {"operation": "retarget_proof_import_hash", "count": hash_retargets}
         )
+    replacements.extend(hash_refresh_records)
     return rewritten, tuple(replacements)
 
 

@@ -39,7 +39,7 @@ from tests.successor_repoint_fixtures import (
     RETIRED_MANIFEST,
     SUCCESSOR,
     SUCCESSOR_MANIFEST,
-    TRANSITIVE,
+    TRANSITIVE_MANIFEST,
     build_repoint_fixture,
     git,
     install_repoint_signing,
@@ -117,7 +117,7 @@ def _rewrite_receipt(fixture, mutate) -> dict:
     _sign_applied_encoding_manifest(receipt, BROKER)
     raw = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
     (fixture.repo / relative).write_bytes(raw)
-    for manifest in (RETIRED_MANIFEST, DEPENDENT_MANIFEST):
+    for manifest in (RETIRED_MANIFEST, DEPENDENT_MANIFEST, TRANSITIVE_MANIFEST):
         payload = json.loads((fixture.repo / manifest).read_text())
         payload["successor_repoint"]["receipt_sha256"] = hashlib.sha256(raw).hexdigest()
         payload.pop("signature", None)
@@ -133,6 +133,7 @@ class TestProvenanceRoundTrip:
     def test_both_manifest_classes_verify_against_the_replayed_receipt(self, repointed):
         assert _verify(repointed, RETIRED_MANIFEST) == []
         assert _verify(repointed, DEPENDENT_MANIFEST) == []
+        assert _verify(repointed, TRANSITIVE_MANIFEST) == []
 
     def test_the_live_tree_is_the_receipts_exact_postimage(self, repointed):
         assert (
@@ -312,7 +313,7 @@ class TestVerifierFailsClosed:
 class TestManifestSchemaGates:
     def test_accepts_both_repoint_manifest_classes(self, repointed):
         tools = set()
-        for relative in (RETIRED_MANIFEST, DEPENDENT_MANIFEST):
+        for relative in (RETIRED_MANIFEST, DEPENDENT_MANIFEST, TRANSITIVE_MANIFEST):
             payload = json.loads((repointed.repo / relative).read_text())
             tools.add(payload["tool"])
             assert (
@@ -1074,10 +1075,8 @@ class TestLandedRepoint:
             base_ref=fixture.base,
             all_files=True,
         )
-        # The fixture's transitive dependent deliberately has no manifest.
-        assert issues == [
-            f"{TRANSITIVE} is missing a matching .axiom/encoding-manifests manifest"
-        ]
+        # The hash-pinning importer receives its own signed dependent manifest.
+        assert issues == []
 
     def test_refuses_a_non_0644_program_spec_that_lists_the_module(
         self, tmp_path, monkeypatch

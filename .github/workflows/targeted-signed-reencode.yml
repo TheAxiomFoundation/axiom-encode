@@ -779,10 +779,10 @@ jobs:
              [ -n "${QUEUE_MANIFEST_SHA256:-}" ] || \
              [ -n "${QUEUE_ITEM_GENERATION_SHA256:-}" ] || \
              [ -n "${QUEUE_DISPATCHER_RUN_ID:-}" ] || \
-             ! jq -e 'type == "array" and length == 0' \
+             ! jq -se 'length == 1 and (.[0] | type == "array" and length == 0)' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null || \
-             ! jq -e 'type == "array" and length == 0' \
+             ! jq -se 'length == 1 and (.[0] | type == "array" and length == 0)' \
                <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null; then
             echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, review-finding, repair, queue, or existing-import inputs" >&2
             exit 1

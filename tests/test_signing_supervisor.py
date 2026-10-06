@@ -2101,7 +2101,18 @@ def _apply_signer_commands(run: str) -> list[list[str]]:
     before its ``--`` separator; anything else fails the assertion here.
     """
 
-    words = shlex.split(run.replace("\\\n", " "), comments=True)
+    words: list[str] = []
+    pending = ""
+    for line in run.replace("\\\n", " ").splitlines(keepends=True):
+        pending += line
+        try:
+            logical_words = shlex.split(pending, comments=True)
+        except ValueError:
+            # Shell strings, including embedded Python, may span lines.
+            continue
+        words.extend([*logical_words, "\n"])
+        pending = ""
+    assert not pending, "unterminated shell quotation"
     commands: list[list[str]] = []
     index = 0
     while index < len(words):
@@ -2111,10 +2122,11 @@ def _apply_signer_commands(run: str) -> list[list[str]]:
         separator = words.index("--", index + 2)
         assert words[index + 2 : separator] == _APPLY_SIGNER_BINDING
         end = separator + 1
-        while end < len(words) and words[end] not in {"&&", "||", ";", "|"}:
+        while end < len(words) and words[end] not in {"&&", "||", ";", "|", "\n"}:
             end += 1
         commands.append(words[separator + 1 : end])
         index = end
+    assert len(commands) == run.count(_APPLY_SIGNER)
     return commands
 
 
@@ -3276,17 +3288,32 @@ def _targeted_step(name: str) -> dict:
 
 
 def test_apply_signer_contract_rejects_an_unbound_signing_step() -> None:
-    run = _targeted_step("Repoint legacy successor")["run"]
-    for flag in (
-        "--allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/"
-        "targeted-signed-reencode.yml@refs/heads/main \\\n",
-        "--allowed-event-name workflow_dispatch \\\n",
-        "--expected-github-repository TheAxiomFoundation/axiom-encode \\\n",
-        "--scope apply_ed25519 \\\n",
-    ):
-        assert flag in run
-        with pytest.raises(AssertionError):
-            _apply_signer_commands(run.replace(flag, ""))
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    for step in workflow["jobs"]["encode"]["steps"]:
+        if "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (step.get("env") or {}):
+            continue
+        run = step["run"]
+        commands = _apply_signer_commands(run)
+        assert len(commands) == run.count(_APPLY_SIGNER), step["name"]
+        # Remove each binding independently from every invocation. In
+        # particular the model lane's third invocation follows another shell
+        # command on a new line, so flattening newlines used to skip it.
+        for invocation in range(len(commands)):
+            prefix, *calls = run.split(_APPLY_SIGNER)
+            for flag in _APPLY_SIGNER_BINDING[::2]:
+                mutated, count = re.subn(
+                    rf"{re.escape(flag)}\s+\S+",
+                    "",
+                    calls[invocation],
+                    count=1,
+                )
+                assert count == 1, (step["name"], invocation, flag)
+                altered_calls = list(calls)
+                altered_calls[invocation] = mutated
+                with pytest.raises(AssertionError):
+                    _apply_signer_commands(_APPLY_SIGNER.join([prefix, *altered_calls]))
     # The pre-fix shape: the secret in env and the supervisor called directly.
     direct = (
         f"{_SIGNING_SUPERVISOR} \\\n"

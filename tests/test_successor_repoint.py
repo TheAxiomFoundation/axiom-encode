@@ -1345,6 +1345,77 @@ class TestWholeModuleNameResolution:
 
 
 class TestFormulaLexing:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "income/legacy_cap",
+            "legacy_cap/income",
+            "income/legacy_cap/other",
+            "legacy_cap/income/legacy_cap",
+            "person.legacy_cap/income",
+        ],
+    )
+    def test_path_tokens_are_not_uses_or_rewrites(self, path):
+        from axiom_encode.successor_repoint import (
+            _formula_symbol_uses,
+            replace_formula_symbol,
+        )
+
+        formula = f"{path} + legacy_cap"
+        assert _formula_symbol_uses(formula, "legacy_cap") == (None,)
+        assert replace_formula_symbol(formula, "legacy_cap", "successor_cap") == (
+            f"{path} + successor_cap"
+        )
+
+    @pytest.mark.parametrize(
+        "division",
+        [
+            "3/legacy_cap",
+            ")/legacy_cap",
+            ") / legacy_cap",
+            "income /legacy_cap",
+            "income/ legacy_cap",
+            "income / legacy_cap",
+            "legacy_cap/3",
+            "legacy_cap /income",
+            "legacy_cap/ income",
+            "legacy_cap / income",
+            "income/ # divisor\nlegacy_cap",
+        ],
+    )
+    def test_division_operands_are_uses_and_rewritten(self, division):
+        from axiom_encode.successor_repoint import (
+            _formula_symbol_uses,
+            replace_formula_symbol,
+        )
+
+        assert _formula_symbol_uses(division, "legacy_cap") == (None,)
+        assert replace_formula_symbol(division, "legacy_cap", "successor_cap") == (
+            division.replace("legacy_cap", "successor_cap")
+        )
+
+    @pytest.mark.parametrize(
+        "member",
+        [
+            "person.legacy_cap",
+            "person . legacy_cap",
+            "person .\n legacy_cap",
+            "person . # another object's member\n legacy_cap",
+            'person . """member comment""" legacy_cap',
+        ],
+    )
+    def test_member_access_is_not_a_use_or_rewrite(self, member):
+        from axiom_encode.successor_repoint import (
+            _formula_symbol_uses,
+            replace_formula_symbol,
+        )
+
+        formula = f"{member} + legacy_cap + legacy_cap.field"
+        assert _formula_symbol_uses(formula, "legacy_cap") == (None, None)
+        assert replace_formula_symbol(formula, "legacy_cap", "successor_cap") == (
+            f"{member} + successor_cap + successor_cap.field"
+        )
+
     def test_a_comment_apostrophe_does_not_hide_a_use(self):
         from axiom_encode.successor_repoint import _formula_symbol_uses
 
@@ -1522,3 +1593,56 @@ class TestProgramSpecNormalization:
             "us": ["policies/irs/page-15"],
         }
         assert record["before_sha256"] == hashlib.sha256(middle).hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("cap", "golden"),
+    [
+        pytest.param(
+            "12200",
+            {
+                "concept_proofs": "583ac897c3a494fb28544c6d1deef05b5d94909955b81341ebb83d02ecea3024",
+                "receipt_semantics": "6b4cc2e0503372109deb9cf05b57671a2a2dfdbe0d702de0defeed3742ab60f2",
+                "rewrite_replacements": "adc9fcaba52ffd8a4b694e24f4150ae9587792dfd4b1575477b4f766f1995b9f",
+                "outside_window_errors": "670915b2fe00fe979ea9034a6ba3ead4825dc392d9dc928ef1e2de70885eabed",
+            },
+            id="scalar-parameter",
+        ),
+        pytest.param(
+            "-50",
+            {
+                "concept_proofs": "c93058fe11c9456bca51722fa00af6de57a7bd604270da203d98b88138e943b9",
+                "receipt_semantics": "52640fe7901b4b021131c03986464731b34faa66f74ac427497cd3246f466e61",
+                "rewrite_replacements": "adc9fcaba52ffd8a4b694e24f4150ae9587792dfd4b1575477b4f766f1995b9f",
+                "outside_window_errors": "670915b2fe00fe979ea9034a6ba3ead4825dc392d9dc928ef1e2de70885eabed",
+            },
+            id="derived-parameter",
+        ),
+    ],
+)
+def test_receipt_replay_payloads_keep_schema_v1_golden_digests(cap, golden):
+    from axiom_encode.successor_repoint import _OUTSIDE_WINDOW_ERRORS
+
+    # Landed receipts replay under later encoder versions. Changing any golden
+    # requires a receipt-schema compatibility decision, not merely regenerating
+    # snapshots after a formatter, proof or error-message change.
+    legacy = _legacy_module(cap=cap)
+    successor = _successor_module(cap=cap)
+    dependent = _dependent(legacy)
+    _request, proofs = _prove(legacy, successor, dependent)
+    _postimage, replacements = _rewrite(dependent, successor)
+    payloads = {
+        "concept_proofs": [proof.as_receipt_entry() for proof in proofs.proofs],
+        "receipt_semantics": proofs.receipt_semantics(),
+        "rewrite_replacements": list(replacements),
+        "outside_window_errors": _OUTSIDE_WINDOW_ERRORS,
+    }
+    actual = {
+        name: hashlib.sha256(
+            json.dumps(
+                payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode("ascii")
+        ).hexdigest()
+        for name, payload in payloads.items()
+    }
+    assert actual == golden

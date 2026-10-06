@@ -333,7 +333,7 @@ Authority is one exact JSON envelope:
   "schema": "axiom-encode/legacy-successor-repoint/v1",
   "legacy_primary": "us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml",
   "successor_primary": "us/policies/irs/rev-proc-2025-32/page-15.yaml",
-  "dependents": ["us/statutes/26/32.yaml"],
+  "dependents": ["us/statutes/26/32.yaml", "us/statutes/26/24/d.yaml"],
   "concept_map": [
     {"from": "eitc_earned_income_amounts", "to": "earned_income_credit_earned_income_amounts"},
     {"from": "eitc_maximum_credit_amounts", "to": "earned_income_credit_maximum_credit_amounts"},
@@ -376,13 +376,20 @@ retired module in any reference form (durable identity, jurisdiction-prefixed
 or jurisdiction-less path with or without a suffix, companion, manifest path,
 ProgramSpec scope entry) fails closed.
 
-The reference inventory scans every tracked file at clean HEAD with one
-`git grep` for the module's path stem. A hit is owned only when the transaction
-retires the file, rewrites it (a declared dependent), or reconciles it (a
-declared ProgramSpec or one of the six metadata files below). Signed
-provenance, `oracle-coverage-pending.yaml`, `.axiom/retired-schema-freeze.json`,
-`tests/`, undeclared protected modules or ProgramSpecs, and anything else are
-refusals: a repoint never leaves a stale reference behind.
+The reference inventory scans tracked files at clean HEAD with a literal
+`git grep` for the module's path stem. It also scans tracked YAML and JSON
+files containing a backslash and compares decoded string scalars with their
+raw source spans. Escapes or line folds that conceal a legacy or successor
+reference are refused, as are unparseable candidates. An unrelated backslash
+alongside a literal reference remains valid. A literal hit is owned only when
+the transaction retires the file, rewrites it (a declared dependent), or
+reconciles it (a declared ProgramSpec or one of the six metadata files below).
+Signed provenance, `oracle-coverage-pending.yaml`,
+`.axiom/retired-schema-freeze.json`, `tests/`, undeclared protected modules or
+ProgramSpecs, and anything else are refusals: a repoint never leaves a stale
+reference behind. Any tracked RuleSpec module with a `source_relation` of type
+`sets` targeting a concept in either the legacy or successor module is also
+refused, since it could override the literal values used by the concept proof.
 
 Legacy ownership is bound to digests: every v1 manifest of the retired group
 must bind exactly that group's bytes. A dependent is rewritten rather than
@@ -409,6 +416,18 @@ parameter keyed `0` (`src/formula.rs:1183-1217`); both fail with
 derived rule and fail with `EvalError::MissingDerivedFormulaVersion`.
 Compilation succeeds either way; evaluation for that period fails loudly.
 
+The plan also follows proof-import hash pins through every tracked atomic
+module. Any importer pinning a rewritten dependent must itself appear in
+`dependents`, including importers reached through further hash refreshes. For
+the EITC repoint, `us/statutes/26/24/d.yaml` pins `us/statutes/26/32.yaml`, so
+both belong in the envelope. The plan processes these pins in dependency order,
+refuses cycles and already-stale pins, and changes each exact hash token from
+the target's base-commit digest to its postimage digest. A dependent with no
+legacy reference is allowed only when it receives a hash refresh. Each refresh
+is recorded in that dependent's receipt rewrite entries and covered by the
+structural postimage proof. Discovery, ordering and digests use only Git objects,
+so guard replay derives the same cascade without modifying the checkout.
+
 The transaction validates the rewritten dependents and their transitive
 dependents on an isolated overlay, then installs in one recoverable transaction:
 the rewritten dependents, the reconciled metadata
@@ -423,6 +442,12 @@ under `.axiom/legacy-successor-repoints/`, and two signed manifest classes:
 - a **dependent** manifest per rewritten dependent, owning its live files;
 - a **retired** manifest at the legacy primary's canonical manifest path,
   owning only the deletion of the legacy group.
+
+Only successor-repoint transactions admit the additional metadata paths and
+jurisdiction-less manifest deletions. The v3 apply journal records that explicit
+capability so installation and recovery enforce the same target restrictions;
+other transactions cannot acquire it by choosing one of those paths.
+Jurisdiction-less manifests can never be written.
 
 The successor keeps its own signed-v5 model manifest untouched. Every receipt
 claim (ownership evidence, proofs, rewrites, metadata and ProgramSpec

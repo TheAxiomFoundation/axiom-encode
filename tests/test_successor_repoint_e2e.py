@@ -38,6 +38,7 @@ from tests.successor_repoint_fixtures import (
     SUCCESSOR_IDENTITY,
     SUCCESSOR_MANIFEST,
     TRANSITIVE,
+    TRANSITIVE_MANIFEST,
     build_repoint_fixture,
     git,
     run_repoint,
@@ -109,6 +110,59 @@ class TestRepointEndToEnd:
             repointed.preimages[DEPENDENT_COMPANION]
         )
 
+    def test_refreshes_the_hash_pinning_importer_and_validates_its_live_pin(
+        self, repointed
+    ):
+        from axiom_encode.harness.validator_pipeline import (
+            find_proof_import_hash_consistency_issues,
+        )
+
+        old_hash = "sha256:" + _sha256(repointed.preimages[DEPENDENT])
+        new_hash = "sha256:" + _sha256((repointed.repo / DEPENDENT).read_bytes())
+        before = repointed.preimages[TRANSITIVE].decode()
+        after = (repointed.repo / TRANSITIVE).read_text()
+        assert after == before.replace(old_hash, new_hash)
+        assert before != after
+        # Exercise the real hash checker: validators elsewhere in this fixture
+        # are stubbed, and a vacuous unresolved-import pass would hide drift.
+        options = {
+            "rules_file": repointed.repo / TRANSITIVE,
+            "policy_repo_path": repointed.repo / "us",
+        }
+        assert find_proof_import_hash_consistency_issues(before, **options)
+        assert find_proof_import_hash_consistency_issues(after, **options) == []
+
+        receipt_path, receipt = _receipt(repointed)
+        dependent = next(
+            item for item in receipt["dependents"] if item["primary"] == TRANSITIVE
+        )
+        assert dependent["rewrites"] == [
+            {
+                "path": TRANSITIVE,
+                "before_sha256": _sha256(repointed.preimages[TRANSITIVE]),
+                "after_sha256": _sha256(after.encode()),
+                "replacements": [
+                    {
+                        "operation": "refresh_proof_import_hash",
+                        "path": "rules.0.metadata.proof.atoms.0.import.hash",
+                        "target": "us:statutes/26/32#eitc_earned_income_amount",
+                        "from": old_hash,
+                        "to": new_hash,
+                        "count": 1,
+                    }
+                ],
+            }
+        ]
+        manifest = json.loads((repointed.repo / TRANSITIVE_MANIFEST).read_text())
+        assert manifest["tool"] == SUCCESSOR_REPOINT_DEPENDENT_TOOL
+        assert manifest["applied_files"] == [
+            {"path": TRANSITIVE, "sha256": _sha256(after.encode())}
+        ]
+        assert manifest["successor_repoint"]["receipt_path"] == receipt_path
+        assert manifest["successor_repoint"]["receipt_sha256"] == _sha256(
+            (repointed.repo / receipt_path).read_bytes()
+        )
+
     def test_retires_the_legacy_group_and_its_v1_manifests(self, repointed):
         for relative in (LEGACY, LEGACY_COMPANION, LEGACY_V1_MANIFEST):
             assert not (repointed.repo / relative).exists()
@@ -164,9 +218,11 @@ class TestRepointEndToEnd:
             }
         ]
         assert "owner_class" not in receipt["legacy"]
+        dependent = next(
+            item for item in receipt["dependents"] if item["primary"] == DEPENDENT
+        )
         assert [
-            (item["path"], item["owner_class"])
-            for item in receipt["dependents"][0]["manifests"]
+            (item["path"], item["owner_class"]) for item in dependent["manifests"]
         ] == [
             (DEPENDENT_MANIFEST, "v1-manual-hmac-untrusted"),
             (DEPENDENT_RELATIVE_V1, "v1-deterministic-hmac-untrusted"),
@@ -259,6 +315,8 @@ class TestRepointEndToEnd:
             DEPENDENT_RELATIVE_V1: "D",
             DEPENDENT: "M",
             DEPENDENT_MANIFEST: "M",
+            TRANSITIVE: "M",
+            TRANSITIVE_MANIFEST: "M",
             RETIRED_MANIFEST: "A",
             receipt_path: "A",
             PROGRAM_SPEC: "M",
@@ -350,7 +408,7 @@ class TestRepointEndToEnd:
         spec.write_text(spec.read_text() + "  state: []\n")
         git(repointed.repo, "commit", "-q", "-am", "unrelated edits")
 
-        for relative in (RETIRED_MANIFEST, DEPENDENT_MANIFEST):
+        for relative in (RETIRED_MANIFEST, DEPENDENT_MANIFEST, TRANSITIVE_MANIFEST):
             verified, _prefix, _digest, issues = (
                 _load_verified_applied_encoding_manifest_payload(
                     repointed.repo,

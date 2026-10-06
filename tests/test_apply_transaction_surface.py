@@ -1,8 +1,8 @@
 """The apply-transaction mutation surface a successor repoint needs.
 
 The allowlist admits the repoint receipt directory (one ``<sha256>.json``), the
-two repoint-only metadata files, and only the ProgramSpec paths one
-transaction declares.  Declared ProgramSpecs are journaled (schema v3) so a
+two repoint-only metadata files only with an explicit repoint capability,
+and only the ProgramSpec paths one transaction declares.  Declared ProgramSpecs are journaled (schema v3) so a
 killed install recovers under the same predicate, and jurisdiction-less v1
 manifests may be deleted but never written.
 """
@@ -37,7 +37,9 @@ class TestInstallSurface:
         ],
     )
     def test_admits_the_repoint_surface(self, tmp_path, relative):
-        assert _is_canonical_apply_transaction_target(tmp_path, Path(relative))
+        assert _is_canonical_apply_transaction_target(
+            tmp_path, Path(relative), successor_repoint=True
+        )
 
     @pytest.mark.parametrize(
         "relative",
@@ -101,7 +103,9 @@ class TestInstallSurface:
         repo = self._checkout(tmp_path)
         target = repo / ".axiom/encoding-manifests/policies/irs/legacy-table.json"
         with pytest.raises(RuntimeError, match="may only delete"):
-            _install_apply_transaction([(target, b"{}\n")], checkout_root=repo)
+            _install_apply_transaction(
+                [(target, b"{}\n")], checkout_root=repo, successor_repoint=True
+            )
 
     def test_recovery_refuses_a_journal_that_widens_its_program_specs(self, tmp_path):
         repo = self._checkout(tmp_path)
@@ -179,3 +183,134 @@ class TestInstallSurface:
         os.chmod(path, 0o600)
         with pytest.raises(RuntimeError, match="unsupported shape"):
             _load_apply_transaction_journal(transaction, checkout_root=repo.resolve())
+
+
+_REPOINT_ONLY_TARGETS = [
+    (".axiom/upstream-source-check-baseline.txt", b"new\n"),
+    ("known-missing-money-atoms.yaml", b"new\n"),
+    (".axiom/encoding-manifests/policies/irs/legacy-table.json", None),
+]
+
+
+@pytest.mark.parametrize(("relative", "postimage"), _REPOINT_ONLY_TARGETS)
+def test_non_repoint_transaction_refuses_repoint_only_targets(
+    tmp_path, relative, postimage
+):
+    repo = tmp_path / "rulespec-us"
+    target = repo / relative
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"old\n")
+    with pytest.raises(RuntimeError, match="outside the canonical"):
+        _install_apply_transaction([(target, postimage)], checkout_root=repo)
+    assert target.read_bytes() == b"old\n"
+
+
+@pytest.mark.parametrize(("relative", "postimage"), _REPOINT_ONLY_TARGETS)
+def test_repoint_transaction_journals_capability_and_recovers_same_surface(
+    tmp_path, relative, postimage
+):
+    repo = tmp_path / "rulespec-us"
+    target = repo / relative
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"old\n")
+    seen = {}
+
+    def check_recovery_surface():
+        transaction = repo / ".axiom/.apply-transaction"
+        seen.update(_load_apply_transaction_journal(transaction, checkout_root=repo))
+        assert seen["successor_repoint"] is True
+        assert seen["declared_program_specs"] == []
+
+    _install_apply_transaction(
+        [(target, postimage)],
+        checkout_root=repo,
+        successor_repoint=True,
+        post_install_check=check_recovery_surface,
+    )
+    assert seen["schema"] == _APPLY_TRANSACTION_SCHEMA_V3
+    if postimage is None:
+        assert not target.exists()
+    else:
+        assert target.read_bytes() == postimage
+
+
+@pytest.mark.parametrize(("relative", "postimage"), _REPOINT_ONLY_TARGETS)
+@pytest.mark.parametrize("version", ["v2", "v3-absent", "v3-false"])
+def test_non_repoint_recovery_refuses_repoint_only_targets(
+    tmp_path, relative, postimage, version
+):
+    repo = tmp_path / "rulespec-us"
+    transaction = repo / ".axiom/.apply-transaction"
+    transaction.mkdir(parents=True, mode=0o700)
+    journal = {
+        "schema": _APPLY_TRANSACTION_SCHEMA,
+        "state": "prepared",
+        "entries": [
+            {
+                "path": relative,
+                "existed": True,
+                "mode": 0o644,
+                "old_sha256": "0" * 64,
+                "backup": "000000.old",
+                "delete": postimage is None,
+                "new_sha256": "1" * 64 if postimage is not None else None,
+            }
+        ],
+        "created_directories": [],
+    }
+    if version != "v2":
+        journal.update(
+            schema=_APPLY_TRANSACTION_SCHEMA_V3,
+            declared_program_specs=[PROGRAM_SPEC],
+        )
+    if version == "v3-false":
+        journal["successor_repoint"] = False
+    path = transaction / "journal.json"
+    path.write_text(json.dumps(journal))
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match="target is not canonical"):
+        _load_apply_transaction_journal(transaction, checkout_root=repo)
+
+
+@pytest.mark.parametrize("marker", [None, "true", 1, [], {}])
+def test_recovery_refuses_non_boolean_repoint_capability(tmp_path, marker):
+    repo = tmp_path / "rulespec-us"
+    transaction = repo / ".axiom/.apply-transaction"
+    transaction.mkdir(parents=True, mode=0o700)
+    path = transaction / "journal.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": _APPLY_TRANSACTION_SCHEMA_V3,
+                "state": "prepared",
+                "entries": [],
+                "created_directories": [],
+                "declared_program_specs": [],
+                "successor_repoint": marker,
+            }
+        )
+    )
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match="repoint marker is invalid"):
+        _load_apply_transaction_journal(transaction, checkout_root=repo)
+
+
+def test_v2_journal_cannot_carry_repoint_capability(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    transaction = repo / ".axiom/.apply-transaction"
+    transaction.mkdir(parents=True, mode=0o700)
+    path = transaction / "journal.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": _APPLY_TRANSACTION_SCHEMA,
+                "state": "prepared",
+                "entries": [],
+                "created_directories": [],
+                "successor_repoint": True,
+            }
+        )
+    )
+    path.chmod(0o600)
+    with pytest.raises(RuntimeError, match="unsupported shape"):
+        _load_apply_transaction_journal(transaction, checkout_root=repo)

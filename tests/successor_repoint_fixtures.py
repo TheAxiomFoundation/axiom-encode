@@ -4,7 +4,8 @@ The layout follows rulespec-us c654250f: a legacy v1 module with six indexed
 tables and one scalar (here two tables and the scalar) and no ``effective_to``;
 a signed-v5 successor at an unrelated canonical path whose window ends
 2026-12-31; one dependent, ``us/statutes/26/32.yaml``, whose two v1 manifests
-disagree about its companion digest; one ProgramSpec; and all six metadata
+disagree about its companion digest; a hash-pinning importer,
+``us/statutes/26/24/d.yaml``, owned by a v1 hash-repair manifest; one ProgramSpec; and all six metadata
 files a repoint reconciles.  Nothing here vendors rulespec-us bytes.
 """
 
@@ -58,6 +59,7 @@ SUCCESSOR_MANIFEST = (
 )
 DEPENDENT_RELATIVE_V1 = ".axiom/encoding-manifests/statutes/26/32.json"
 DEPENDENT_MANIFEST = ".axiom/encoding-manifests/us/statutes/26/32.json"
+TRANSITIVE_MANIFEST = ".axiom/encoding-manifests/us/statutes/26/24/d.json"
 METADATA_FILES = (
     "known-validation-gaps.yaml",
     ".axiom/toolchain.toml",
@@ -84,7 +86,7 @@ ENVELOPE = {
     "schema": ENVELOPE_SCHEMA,
     "legacy_primary": LEGACY,
     "successor_primary": SUCCESSOR,
-    "dependents": [DEPENDENT],
+    "dependents": [DEPENDENT, TRANSITIVE],
     "concept_map": CONCEPT_MAP,
     "program_scope_updates": [{"program_spec": PROGRAM_SPEC, "scope": "federal"}],
 }
@@ -287,11 +289,32 @@ DEPENDENT_COMPANION_TEXT = """\
   outputs:
     us:statutes/26/32#eitc_earned_income_amount: 8680
 """
-TRANSITIVE_TEXT = """\
+TRANSITIVE_TEMPLATE = """\
 format: rulespec/v1
 imports:
   - us:statutes/26/32
-rules: []
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/24
+rules:
+  - name: earned_income_credit_amount_for_child_credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/32#eitc_earned_income_amount
+              output: eitc_earned_income_amount
+              hash: sha256:{dependent_sha256}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: eitc_earned_income_amount
 """
 PROGRAM_SPEC_TEXT = """\
 program: us/fiit
@@ -455,7 +478,11 @@ def build_repoint_fixture(
         repo, DEPENDENT, DEPENDENT_TEMPLATE.format(legacy_sha256=_sha256(legacy))
     )
     dependent_companion = _write(repo, DEPENDENT_COMPANION, DEPENDENT_COMPANION_TEXT)
-    _write(repo, TRANSITIVE, TRANSITIVE_TEXT)
+    transitive = _write(
+        repo,
+        TRANSITIVE,
+        TRANSITIVE_TEMPLATE.format(dependent_sha256=_sha256(dependent)),
+    )
     _write(repo, PROGRAM_SPEC, PROGRAM_SPEC_TEXT)
 
     # Metadata: every file a repoint reconciles, each naming the legacy module
@@ -489,6 +516,7 @@ def build_repoint_fixture(
                         {"module": SUCCESSOR, "via": ["module"]},
                     ],
                     "us/statute/26/32": [{"module": DEPENDENT, "via": ["module"]}],
+                    "us/statute/26/24": [{"module": TRANSITIVE, "via": ["module"]}],
                 },
             },
             indent=2,
@@ -617,6 +645,18 @@ def build_repoint_fixture(
         ),
     )
 
+    _write(
+        repo,
+        TRANSITIVE_MANIFEST,
+        _v1_manifest(
+            [{"path": TRANSITIVE, "sha256": _sha256(transitive)}],
+            tool="axiom-encode repair-proof-import-hashes",
+            backend="deterministic",
+            runner="deterministic-repair",
+            citation="us:statutes/26/24/d",
+        ),
+    )
+
     if before_commit is not None:
         before_commit(repo)
     git(repo, "add", "-A")
@@ -631,6 +671,7 @@ def build_repoint_fixture(
             LEGACY_COMPANION,
             DEPENDENT,
             DEPENDENT_COMPANION,
+            TRANSITIVE,
             PROGRAM_SPEC,
             *METADATA_FILES,
         )

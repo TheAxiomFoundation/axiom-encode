@@ -472,10 +472,12 @@ from .successor_repoint import (
     SuccessorRepointError,
     load_repoint_request_bytes,
     load_repoint_request_payload,
+    proof_import_pins,
     prove_concept_map,
     reconcile_money_atom_ratchet,
     reconcile_program_scope,
     reconcile_upstream_source_check_baseline,
+    reference_stem_pattern,
     repoint_reference_inventory_issues,
     rewrite_repoint_file,
 )
@@ -484,6 +486,9 @@ from .successor_repoint import (
 )
 from .successor_repoint import (
     is_program_spec_path as _successor_repoint_program_spec_path,
+)
+from .successor_repoint import (
+    module_identity as _successor_repoint_module_identity,
 )
 from .successor_repoint import (
     program_spec_lists_module as _successor_repoint_program_spec_lists_module,
@@ -21532,6 +21537,8 @@ _SUCCESSOR_REPOINT_V1_TOOLS = frozenset(
         # .axiom/encoding-manifests/statutes/26/32.json at rulespec-us c654250f,
         # was written by the deterministic repair tool.
         "axiom-encode deterministic/manual repair",
+        # The 24(d) proof-hash importer has this v1 owner at the same commit.
+        "axiom-encode repair-proof-import-hashes",
     }
 )
 _SUCCESSOR_REPOINT_V5_ONLY_FIELDS = frozenset(
@@ -21657,7 +21664,10 @@ def _successor_repoint_v1_owner_class(payload: Mapping[str, object]) -> str:
         or payload.get("runner") == "manual-attestation"
     ):
         return APPLIED_ENCODING_LEGACY_MANUAL_OWNER_CLASS
-    if payload.get("tool") == "axiom-encode deterministic/manual repair":
+    if payload.get("tool") in {
+        "axiom-encode deterministic/manual repair",
+        "axiom-encode repair-proof-import-hashes",
+    }:
         return "v1-deterministic-hmac-untrusted"
     return APPLIED_ENCODING_LEGACY_OWNER_CLASS
 
@@ -21741,6 +21751,135 @@ def _successor_repoint_tree_entries(
 
 def _successor_repoint_is_program_spec(path: Path) -> bool:
     return _successor_repoint_program_spec_path(PurePosixPath(path.as_posix()))
+
+
+def _successor_repoint_grep_blobs(
+    repo_path: Path,
+    *,
+    commit: str,
+    entries: Mapping[Path, tuple[str, str, str, int]],
+    patterns: Sequence[str],
+    pathspecs: Sequence[str] = (),
+) -> dict[str, bytes]:
+    """Read bounded candidates from immutable Git blobs, never checkout files."""
+
+    command = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
+    for pattern in patterns:
+        command.extend(["-e", pattern])
+    command.extend([commit, "--", *pathspecs])
+    # These extension globs are internal constants, not operator pathspecs.
+    environment = _rulespec_migration_git_environment()
+    environment["GIT_LITERAL_PATHSPECS"] = "0"
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        env=environment,
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        raise SuccessorRepointError(
+            "cannot scan the repoint reference inventory: "
+            + result.stderr.decode("utf-8", errors="replace").strip()
+        )
+    prefix = f"{commit}:".encode()
+    candidates: dict[str, bytes] = {}
+    for encoded in result.stdout.split(b"\0"):
+        if not encoded:
+            continue
+        if not encoded.startswith(prefix):
+            raise SuccessorRepointError("repoint reference candidate is malformed")
+        try:
+            path = Path(encoded[len(prefix) :].decode("utf-8"))
+        except UnicodeError as exc:
+            raise SuccessorRepointError(
+                "repoint reference candidate is malformed"
+            ) from exc
+        entry = entries.get(path)
+        if entry is None or entry[0] != "100644":
+            raise SuccessorRepointError(
+                f"repoint reference candidate is not a tracked regular 0644 file: {path}"
+            )
+        if entry[3] > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
+            raise SuccessorRepointError(
+                f"repoint reference candidate exceeds the 16 MiB inventory limit: {path}"
+            )
+        candidates[path.as_posix()] = _rulespec_migration_git_bytes(
+            repo_path, "cat-file", "blob", entry[2]
+        )
+    return candidates
+
+
+def _successor_repoint_refuse_escaped_references(
+    repo_path: Path,
+    *,
+    commit: str,
+    request,
+    entries: Mapping[Path, tuple[str, str, str, int]],
+) -> None:
+    """Ensure literal inventory scans cannot miss decoded legacy/successor names."""
+
+    candidates = _successor_repoint_grep_blobs(
+        repo_path,
+        commit=commit,
+        entries=entries,
+        patterns=("\\",),
+        pathspecs=("*.yaml", "*.yml", "*.json"),
+    )
+    patterns = (
+        request.legacy_reference_pattern,
+        reference_stem_pattern(request.successor_scope_path),
+    )
+    for path, raw in candidates.items():
+        try:
+            text = raw.decode("utf-8")
+            scalars: list[tuple[str, str]] = []
+            if path.endswith(".json"):
+                json.loads(text)  # Refuse unparseable candidates before scanning spans.
+                cursor = 0
+                while cursor < len(text):
+                    if text[cursor] != '"':
+                        cursor += 1
+                        continue
+                    start = cursor
+                    value, cursor = json.decoder.scanstring(text, cursor + 1)
+                    scalars.append((value, text[start:cursor]))
+            else:
+                seen: set[int] = set()
+
+                def walk(node) -> None:
+                    if node is None or id(node) in seen:
+                        return
+                    seen.add(id(node))
+                    if isinstance(node, yaml.ScalarNode):
+                        if node.tag == "tag:yaml.org,2002:str":
+                            scalars.append(
+                                (
+                                    node.value,
+                                    text[node.start_mark.index : node.end_mark.index],
+                                )
+                            )
+                    elif isinstance(node, yaml.MappingNode):
+                        for key, value in node.value:
+                            walk(key)
+                            walk(value)
+                    elif isinstance(node, yaml.SequenceNode):
+                        for value in node.value:
+                            walk(value)
+
+                for document in yaml.compose_all(text):
+                    walk(document)
+        except (UnicodeError, ValueError, yaml.YAMLError, RecursionError) as exc:
+            raise SuccessorRepointError(
+                f"repoint cannot parse escaped-reference candidate: {path}"
+            ) from exc
+        for value, span in scalars:
+            if any(
+                pattern.search(value) and not pattern.search(span)
+                for pattern in patterns
+            ):
+                raise SuccessorRepointError(
+                    f"repoint refuses an escaped legacy or successor reference in {path}"
+                )
 
 
 def _successor_repoint_reference_candidates(
@@ -21838,7 +21977,123 @@ def _successor_repoint_reference_candidates(
                 f"reconciled: {path.as_posix()}"
             )
         candidates[path.as_posix()] = raw
+    _successor_repoint_refuse_escaped_references(
+        repo_path, commit=commit, request=request, entries=entries
+    )
     return candidates
+
+
+def _successor_repoint_refuse_sets_overrides(
+    repo_path: Path,
+    *,
+    commit: str,
+    request,
+    entries: Mapping[Path, tuple[str, str, str, int]],
+) -> None:
+    """Literal ladders cannot prove parameters overridden by a sets relation."""
+
+    candidates = _successor_repoint_grep_blobs(
+        repo_path,
+        commit=commit,
+        entries=entries,
+        patterns=(request.legacy_scope_path, request.successor_scope_path),
+        pathspecs=("*.yaml",),
+    )
+    targets = (f"{request.legacy_identity}#", f"{request.successor_identity}#")
+    for path, raw in candidates.items():
+        if path.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
+        ) or not _is_protected_rulespec_yaml_path(
+            Path(path), roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+        ):
+            continue
+        try:
+            payload = yaml.safe_load(raw)
+        except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+            raise SuccessorRepointError(
+                f"repoint cannot parse sets-relation candidate: {path}"
+            ) from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
+            raise SuccessorRepointError(
+                f"repoint sets-relation candidate is malformed: {path}"
+            )
+        for rule in payload["rules"]:
+            relation = rule.get("source_relation") if isinstance(rule, dict) else None
+            if not isinstance(relation, dict):
+                continue
+            relation_type = relation.get("type")
+            target = relation.get("target")
+            if (
+                isinstance(relation_type, str)
+                and relation_type.strip().lower() == "sets"
+                and isinstance(target, str)
+                and target.strip().startswith(targets)
+            ):
+                raise SuccessorRepointError(
+                    f"repoint cannot prove a source_relation sets override in {path}: "
+                    f"{target.strip()}"
+                )
+
+
+def _successor_repoint_hash_pin_order(
+    repo_path: Path,
+    *,
+    commit: str,
+    request,
+    entries: Mapping[Path, tuple[str, str, str, int]],
+) -> tuple[list[Path], dict[Path, set[Path]]]:
+    """Require the declared dependent set to close over all proof-hash pins.
+
+    Scan literal identities and every escaped YAML candidate so decoded targets
+    cannot bypass the closure.  Topological order is stable in envelope order.
+    """
+
+    primaries = [Path(path.as_posix()) for path in request.dependents]
+    identities = {
+        _successor_repoint_module_identity(path): Path(path.as_posix())
+        for path in request.dependents
+    }
+    dependencies: dict[Path, set[Path]] = {path: set() for path in primaries}
+    candidates = _successor_repoint_grep_blobs(
+        repo_path,
+        commit=commit,
+        entries=entries,
+        patterns=(*identities, "\\"),
+        pathspecs=("*.yaml",),
+    )
+    for path_text, raw in candidates.items():
+        path = Path(path_text)
+        if path_text.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
+        ) or not _is_protected_rulespec_yaml_path(
+            path, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+        ):
+            continue
+        pins = proof_import_pins(raw, label=f"proof-hash importer {path_text}")
+        for target, _pin in pins:
+            identity, _separator, _concept = target.partition("#")
+            dependency = identities.get(identity)
+            if dependency is None:
+                continue
+            if path not in dependencies:
+                raise SuccessorRepointError(
+                    f"proof-hash pinning importer {path_text} must be declared in "
+                    f"dependents (pins rewritten {dependency.as_posix()})"
+                )
+            dependencies[path].add(dependency)
+    pending = list(primaries)
+    order: list[Path] = []
+    while pending:
+        ready = [path for path in pending if dependencies[path].issubset(order)]
+        if not ready:
+            raise SuccessorRepointError(
+                "proof-import hash dependency cycle among: "
+                + ", ".join(path.as_posix() for path in pending)
+            )
+        for path in ready:
+            order.append(path)
+            pending.remove(path)
+    return order, dependencies
 
 
 def _successor_repoint_structural_residue(value: object, pattern: re.Pattern) -> bool:
@@ -21961,22 +22216,26 @@ def _successor_repoint_metadata_reconciliations(
                 )
             else:
                 if waiver_digest is None:
-                    continue
-                pattern = re.compile(
-                    r'(?m)^validation_waiver_set_sha256 = "[0-9a-f]{64}"$'
-                )
-                rewritten_text, count = pattern.subn(
-                    f'validation_waiver_set_sha256 = "{waiver_digest}"',
-                    text,
-                )
-                if count != 1:
-                    raise SuccessorRepointError(
-                        "RuleSpec toolchain waiver binding is not one canonical entry"
+                    rewritten, operations = raw, ()
+                else:
+                    pattern = re.compile(
+                        r'(?m)^validation_waiver_set_sha256 = "[0-9a-f]{64}"$'
                     )
-                rewritten = rewritten_text.encode("utf-8")
-                operations = (
-                    {"operation": "update_validation_waiver_set_sha256", "count": 1},
-                )
+                    rewritten_text, count = pattern.subn(
+                        f'validation_waiver_set_sha256 = "{waiver_digest}"',
+                        text,
+                    )
+                    if count != 1:
+                        raise SuccessorRepointError(
+                            "RuleSpec toolchain waiver binding is not one canonical entry"
+                        )
+                    rewritten = rewritten_text.encode("utf-8")
+                    operations = (
+                        {
+                            "operation": "update_validation_waiver_set_sha256",
+                            "count": 1,
+                        },
+                    )
         except (json.JSONDecodeError, RecursionError) as exc:
             raise SuccessorRepointError(
                 f"successor repoint metadata is invalid JSON: {relative.as_posix()}"
@@ -22260,6 +22519,10 @@ def _plan_successor_repoint(
             )
         dependent_manifests[primary] = records
 
+    rewrite_order, hash_dependencies = _successor_repoint_hash_pin_order(
+        repo_path, commit=commit, request=request, entries=entries
+    )
+
     # ---- concept equivalence proof -----------------------------------------
     proof_set = prove_concept_map(
         legacy_raw=read(legacy_primary, "legacy primary"),
@@ -22283,6 +22546,9 @@ def _plan_successor_repoint(
     candidates = _successor_repoint_reference_candidates(
         repo_path, commit=commit, request=request, entries=entries
     )
+    _successor_repoint_refuse_sets_overrides(
+        repo_path, commit=commit, request=request, entries=entries
+    )
     inventory_issues = repoint_reference_inventory_issues(
         candidates,
         request=request,
@@ -22303,7 +22569,7 @@ def _plan_successor_repoint(
     )
     postimages: dict[Path, bytes] = {}
     dependent_records: list[dict[str, object]] = []
-    for primary in dependent_primaries:
+    for primary in rewrite_order:
         rewrites: list[dict[str, object]] = []
         live_files: list[dict[str, object]] = []
         before_files: list[dict[str, object]] = []
@@ -22328,6 +22594,17 @@ def _plan_successor_repoint(
                 successor_sha256=successor_sha256,
                 renames=proof_set.renames,
                 label=path.as_posix(),
+                proof_hash_refreshes={
+                    _successor_repoint_module_identity(
+                        PurePosixPath(target.as_posix())
+                    ): (
+                        sha(dependent_preimages[target.as_posix()]),
+                        sha(postimages[target]),
+                    )
+                    for target in sorted(hash_dependencies[primary], key=Path.as_posix)
+                }
+                if is_primary
+                else None,
             )
             if _migration_corpus_citations(raw) != _migration_corpus_citations(
                 rewritten
@@ -22993,6 +23270,7 @@ def _finish_successor_repoint(
         pre_install_check=pre_install_check,
         post_install_check=post_install_check,
         declared_program_specs=program_specs,
+        successor_repoint=True,
     )
     for path in sorted(plan.legacy_files):
         print(f"retired {path}")
@@ -23412,7 +23690,11 @@ def guard_generated_change_issues(
             f"{path} changed without the successor repoint it records"
             for path in receipt_changes
         ]
-    if not protected:
+    # Manifest-only promotions and refreshes are valid, but they still need
+    # signature verification and any repoint receipt change-set binding.
+    if not protected and not any(
+        _is_applied_encoding_manifest_path(Path(path), roots=roots) for path in changed
+    ):
         return []
 
     expected_manifest_waiver_set_sha256, waiver_transition_issues = (
@@ -23518,6 +23800,7 @@ def guard_generated_change_issues(
     issues.extend(
         _successor_repoint_change_set_issues(
             repo_path,
+            comparison_ref=base_ref or head_ref,
             receipt_changes=receipt_changes,
             surviving_manifest_paths=[
                 path
@@ -23554,6 +23837,7 @@ def _successor_repoint_change_set_issues(
     *,
     receipt_changes: Sequence[str],
     surviving_manifest_paths: Sequence[str],
+    comparison_ref: str = "HEAD",
 ) -> list[str]:
     """Bind every changed repoint manifest to a receipt introduced alongside it.
 
@@ -23566,11 +23850,38 @@ def _successor_repoint_change_set_issues(
 
     issues: list[str] = []
     fresh: list[Path] = []
+    # Inspect the comparison tree, not merely the presence of a live receipt:
+    # formatting edits preserve its signature but invalidate manifest digests.
+    try:
+        existing_receipts = (
+            {
+                os.fsdecode(path)
+                for path in _rulespec_migration_git_bytes(
+                    repo_path,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    "-z",
+                    comparison_ref,
+                    "--",
+                    SUCCESSOR_REPOINT_RECEIPT_DIR.as_posix(),
+                ).split(b"\0")
+                if path
+            }
+            if receipt_changes
+            else set()
+        )
+    except RuntimeError as exc:
+        return [f"Cannot establish newly added successor repoint receipts: {exc}"]
     for path in receipt_changes:
         relative = Path(path)
         if _is_unambiguously_absent_repo_path(repo_path, relative):
             issues.append(
                 f"{path} is a successor repoint receipt and cannot be removed"
+            )
+        elif relative.as_posix() in existing_receipts:
+            issues.append(
+                f"{path} is an existing successor repoint receipt and cannot be modified"
             )
         else:
             fresh.append(relative)
@@ -57042,6 +57353,7 @@ def _is_canonical_apply_transaction_target(
     relative: Path,
     *,
     declared_program_specs: frozenset[Path] = frozenset(),
+    successor_repoint: bool = False,
 ) -> bool:
     """Return whether a journal path is one sanctioned live mutation target.
 
@@ -57067,7 +57379,7 @@ def _is_canonical_apply_transaction_target(
         return True
     if relative in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS:
         return True
-    if relative in _SUCCESSOR_REPOINT_METADATA_PATHS:
+    if successor_repoint and relative in _SUCCESSOR_REPOINT_METADATA_PATHS:
         return True
     if relative in declared_program_specs and _is_declared_program_spec_target(
         relative
@@ -57094,7 +57406,7 @@ def _is_canonical_apply_transaction_target(
     return (
         canonical_tail(manifest_tail, suffix=".json")
         and not manifest_tail.name.endswith(".test.json")
-    ) or _is_jurisdictionless_manifest_target(relative)
+    ) or (successor_repoint and _is_jurisdictionless_manifest_target(relative))
 
 
 def _is_jurisdictionless_manifest_target(relative: Path) -> bool:
@@ -57123,12 +57435,14 @@ def _apply_transaction_target_relative_path(
     target: Path,
     *,
     declared_program_specs: frozenset[Path] = frozenset(),
+    successor_repoint: bool = False,
 ) -> str:
     relative_value = _apply_transaction_relative_path(checkout_root, target)
     if not _is_canonical_apply_transaction_target(
         checkout_root,
         Path(relative_value),
         declared_program_specs=declared_program_specs,
+        successor_repoint=successor_repoint,
     ):
         raise RuntimeError(
             "Apply transaction target is outside the canonical RuleSpec/manifest "
@@ -57289,13 +57603,21 @@ def _load_apply_transaction_journal(
         expected_journal_fields = base_fields
     elif payload.get("schema") == _APPLY_TRANSACTION_SCHEMA_V3:
         expected_journal_fields = base_fields | {"declared_program_specs"}
+        if "successor_repoint" in payload:
+            expected_journal_fields.add("successor_repoint")
     else:
         raise RuntimeError("Apply transaction journal schema is unsupported")
     if set(payload) != expected_journal_fields:
         raise RuntimeError("Apply transaction journal has an unsupported shape")
+    successor_repoint = payload.get("successor_repoint", False)
+    if type(successor_repoint) is not bool:
+        raise RuntimeError("Apply transaction journal repoint marker is invalid")
     declared_program_specs = _apply_transaction_declared_program_specs(
         payload.get("declared_program_specs", []),
-        required=payload.get("schema") == _APPLY_TRANSACTION_SCHEMA_V3,
+        required=(
+            payload.get("schema") == _APPLY_TRANSACTION_SCHEMA_V3
+            and not successor_repoint
+        ),
     )
     if payload.get("state") not in {"prepared", "applying", "committed"}:
         raise RuntimeError("Apply transaction journal state is invalid")
@@ -57336,6 +57658,7 @@ def _load_apply_transaction_journal(
             checkout_root,
             relative,
             declared_program_specs=declared_program_specs,
+            successor_repoint=successor_repoint,
         ):
             raise RuntimeError("Apply transaction journal target is not canonical")
         if path_value in seen_paths:
@@ -57599,12 +57922,15 @@ def _install_apply_transaction(
     pre_install_check: Callable[[], None] | None = None,
     post_install_check: Callable[[], None] | None = None,
     declared_program_specs: Sequence[Path] = (),
+    successor_repoint: bool = False,
 ) -> None:
     """Durably install a byte-exact set with killed-process recovery.
 
     ``declared_program_specs`` admits exactly those ProgramSpec paths to this
     one transaction; they are journaled (schema v3) so a killed install
-    recovers under the same target predicate.
+    recovers under the same target predicate. ``successor_repoint`` admits
+    the repoint-only metadata and jurisdiction-less manifest deletions and
+    is carried in the same journal so other transactions cannot use them.
     """
 
     normalized_files = [
@@ -57627,6 +57953,8 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    if type(successor_repoint) is not bool:
+        raise RuntimeError("Apply transaction repoint marker is invalid")
     declared_specs = frozenset(Path(path) for path in declared_program_specs)
     if any(not _is_declared_program_spec_target(path) for path in declared_specs):
         raise RuntimeError("Apply transaction declares a noncanonical ProgramSpec")
@@ -57635,6 +57963,7 @@ def _install_apply_transaction(
             checkout_root,
             target,
             declared_program_specs=declared_specs,
+            successor_repoint=successor_repoint,
         )
         for target, _raw in normalized_files
     }
@@ -57717,8 +58046,9 @@ def _install_apply_transaction(
                 "entries": entries,
                 "created_directories": created_directories,
             }
-            if declared_specs:
+            if declared_specs or successor_repoint:
                 journal["schema"] = _APPLY_TRANSACTION_SCHEMA_V3
+                journal["successor_repoint"] = successor_repoint
                 journal["declared_program_specs"] = sorted(
                     path.as_posix() for path in declared_specs
                 )

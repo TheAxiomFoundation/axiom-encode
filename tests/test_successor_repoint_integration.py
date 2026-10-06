@@ -21,6 +21,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from axiom_encode.successor_repoint import (
     ENVELOPE_SCHEMA,
@@ -33,6 +34,7 @@ RULESPEC_REF = "c654250f07c39c35ca7f3e79975368b019d0e4ca"
 LEGACY_PRIMARY = "us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
 SUCCESSOR_PRIMARY = "us/policies/irs/rev-proc-2025-32/page-15.yaml"
 DEPENDENT_PRIMARY = "us/statutes/26/32.yaml"
+HASH_PINNING_PRIMARY = "us/statutes/26/24/d.yaml"
 
 # `patch -p1 < diag-26-32-repoint-page-15.diff` applied to us/statutes/26/32.yaml
 # at rulespec-us c654250f.
@@ -101,7 +103,12 @@ def sources() -> dict[str, bytes]:
     repo = _checkout()
     return {
         path: _blob(repo, path)
-        for path in (LEGACY_PRIMARY, SUCCESSOR_PRIMARY, DEPENDENT_PRIMARY)
+        for path in (
+            LEGACY_PRIMARY,
+            SUCCESSOR_PRIMARY,
+            DEPENDENT_PRIMARY,
+            HASH_PINNING_PRIMARY,
+        )
     }
 
 
@@ -112,7 +119,7 @@ def request_envelope():
             "schema": ENVELOPE_SCHEMA,
             "legacy_primary": LEGACY_PRIMARY,
             "successor_primary": SUCCESSOR_PRIMARY,
-            "dependents": [DEPENDENT_PRIMARY],
+            "dependents": [DEPENDENT_PRIMARY, HASH_PINNING_PRIMARY],
             "concept_map": [{"from": old, "to": new} for old, new in CONCEPT_MAP],
             "program_scope_updates": [
                 {"program_spec": "programs/us/fiit/fy-2026.yaml", "scope": "federal"}
@@ -127,7 +134,9 @@ def proofs(sources, request_envelope):
         legacy_raw=sources[LEGACY_PRIMARY],
         successor_raw=sources[SUCCESSOR_PRIMARY],
         request=request_envelope,
-        dependent_raws={DEPENDENT_PRIMARY: sources[DEPENDENT_PRIMARY]},
+        dependent_raws={
+            path: sources[path] for path in (DEPENDENT_PRIMARY, HASH_PINNING_PRIMARY)
+        },
     )
 
 
@@ -244,7 +253,31 @@ def test_the_whole_transaction_plans_from_the_real_commit(request_envelope):
             "owner_class": "v1-hmac-untrusted",
         },
     )
-    (dependent,) = plan.dependent_records
+    dependent = next(
+        item for item in plan.dependent_records if item["primary"] == DEPENDENT_PRIMARY
+    )
+    pinning = next(
+        item
+        for item in plan.dependent_records
+        if item["primary"] == HASH_PINNING_PRIMARY
+    )
+    assert len(plan.dependent_records) == 2
+    refreshed = yaml.safe_load(plan.postimages[Path(HASH_PINNING_PRIMARY)])
+    pins = [
+        atom["import"]
+        for rule in refreshed["rules"]
+        for proof in (rule.get("metadata", {}).get("proof", {}), rule.get("proof", {}))
+        for atom in proof.get("atoms", [])
+        if isinstance(atom.get("import"), dict)
+        and atom["import"].get("target", "").startswith("us:statutes/26/32#")
+    ]
+    assert pins
+    assert all(pin["hash"] == "sha256:" + EXPECTED_POSTIMAGE_SHA256 for pin in pins)
+    assert any(
+        replacement["operation"] == "refresh_proof_import_hash"
+        for rewrite in pinning["rewrites"]
+        for replacement in rewrite["replacements"]
+    )
     assert [(item["path"], item["owner_class"]) for item in dependent["manifests"]] == [
         (
             ".axiom/encoding-manifests/us/statutes/26/32.json",
@@ -273,6 +306,7 @@ def test_the_whole_transaction_plans_from_the_real_commit(request_envelope):
     assert sorted(path.as_posix() for path in plan.deletions) == [
         ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
         "earned-income-credit.json",
+        ".axiom/encoding-manifests/statutes/26/24/d.json",
         ".axiom/encoding-manifests/statutes/26/32.json",
         "us/policies/irs/rev-proc-2025-32/earned-income-credit.test.yaml",
         LEGACY_PRIMARY,
