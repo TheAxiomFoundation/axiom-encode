@@ -1,0 +1,1 @@
+Recognize the complete German disability-pension evidence condition in English-named formula witnesses, and keep the medical onset-age condition separate from the following independent effects requirement. Calendar witnesses remain subject to existing execution and source-coverage checks.

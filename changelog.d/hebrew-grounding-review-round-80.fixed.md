@@ -1,0 +1,1 @@
+A negative spelled leading amount keeps its sign when composed with printed lower scales or remainders ("−שלושה מיליון ו־200 אלף" is minus 3,200,000, "−אלפיים ו־300" minus 2,300), and a list that shares a scale word closes with a vav conjunction as well as with "או" ("1, 2 ו־3 מיליון" and "אחד, שניים ושלושה מיליון" are one, two and three million).

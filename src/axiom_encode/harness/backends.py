@@ -9,6 +9,7 @@ Both use embedded prompts -- no external plugin dependencies.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -19,11 +20,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
 from axiom_encode.prompts.encoder import get_encoder_prompt
 
 from .encoding_db import TokenUsage
+from .eval_evidence import scrub_attestation_signing_keys
 from .observability import extract_reasoning_output_tokens
 from .pricing import estimate_usage_cost_usd
 
@@ -38,6 +43,7 @@ class EncoderRequest:
     corpus_citation_path: str | None = None
     model: str = DEFAULT_CLI_MODEL
     timeout: int = 300
+    require_complete_source_unit: bool = False
 
 
 @dataclass
@@ -51,6 +57,8 @@ class EncoderResponse:
     tokens: Optional[TokenUsage] = None
     cost_usd: Optional[float] = None
     trace: Optional[dict[str, Any]] = None
+    codex_cli_version: Optional[str] = None
+    codex_cli_sha256: Optional[str] = None
 
 
 @dataclass
@@ -63,7 +71,6 @@ class PredictionScores:
     integration_reviewer: float = 7.0
     ci_pass: bool = True
     policyengine_match: Optional[float] = None
-    taxsim_match: Optional[float] = None
     confidence: float = 0.5
 
 
@@ -79,14 +86,6 @@ class EncoderBackend(ABC):
     def predict(self, citation: str, source_text: str) -> PredictionScores:
         """Predict quality scores before encoding."""
         pass  # pragma: no cover
-
-
-def _is_within(root: Path, candidate: Path) -> bool:
-    try:
-        candidate.resolve().relative_to(root.resolve())
-        return True
-    except ValueError:
-        return False
 
 
 def parse_claude_cli_json_output(
@@ -158,6 +157,7 @@ class ClaudeCodeBackend(EncoderBackend):
             request.citation,
             str(request.output_path),
             corpus_citation_path=request.corpus_citation_path,
+            require_complete_source_unit=request.require_complete_source_unit,
         )
         prompt += f"\n\nSource Text:\n{request.source_text}\n"
 
@@ -224,7 +224,6 @@ Score each dimension from 1-10. Output ONLY valid JSON:
   "integration_reviewer": <float 1-10>,
   "ci_pass": <boolean>,
   "policyengine_match": <float 0-1>,
-  "taxsim_match": <float 0-1>,
   "confidence": <float 0-1>
 }}
 """
@@ -252,7 +251,6 @@ Score each dimension from 1-10. Output ONLY valid JSON:
                 integration_reviewer=float(data.get("integration_reviewer", 7.0)),
                 ci_pass=bool(data.get("ci_pass", True)),
                 policyengine_match=data.get("policyengine_match"),
-                taxsim_match=data.get("taxsim_match"),
                 confidence=float(data.get("confidence", 0.5)),
             )
 
@@ -267,21 +265,32 @@ Score each dimension from 1-10. Output ONLY valid JSON:
         timeout: int = 300,
         writable_dir: Path | None = None,
     ) -> tuple[str, int]:
-        """Run Claude Code CLI as subprocess."""
+        """Run Claude in one isolated output directory without shell authority."""
+        execution_root = (writable_dir or self.cwd).resolve()
+        tools = "Read,Write,Edit" if writable_dir is not None else ""
+        permission_mode = "acceptEdits" if writable_dir is not None else "dontAsk"
         cmd = [
             "claude",
             "--print",
             "--output-format",
             "json",
             "--permission-mode",
-            "bypassPermissions",
+            permission_mode,
+            "--safe-mode",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--no-chrome",
+            "--strict-mcp-config",
+            "--mcp-config",
+            '{"mcpServers": {}}',
+            "--tools",
+            tools,
+            "--allowed-tools",
+            tools,
         ]
 
         if model:
             cmd.extend(["--model", model])
-
-        if writable_dir and not _is_within(self.cwd, writable_dir):
-            cmd.extend(["--add-dir", str(writable_dir)])
 
         cmd.extend(["-p", prompt])
 
@@ -291,7 +300,8 @@ Score each dimension from 1-10. Output ONLY valid JSON:
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=self.cwd,
+                cwd=execution_root,
+                env=scrub_attestation_signing_keys(),
             )
             return result.stdout + result.stderr, result.returncode
         except subprocess.TimeoutExpired:
@@ -337,9 +347,11 @@ class CodexCLIBackend(EncoderBackend):
             request.citation,
             str(request.output_path),
             corpus_citation_path=request.corpus_citation_path,
+            require_complete_source_unit=request.require_complete_source_unit,
         )
         prompt += f"\n\nSource Text:\n{request.source_text}\n"
 
+        codex_cli_version, codex_cli_sha256 = self._trusted_cli_provenance()
         output, returncode = self._run_codex_exec(
             prompt=prompt,
             model=request.model,
@@ -366,6 +378,8 @@ class CodexCLIBackend(EncoderBackend):
                 tokens=token_usage,
                 cost_usd=cost_usd,
                 trace=trace,
+                codex_cli_version=codex_cli_version,
+                codex_cli_sha256=codex_cli_sha256,
             )
 
         if request.output_path.exists():
@@ -385,7 +399,28 @@ class CodexCLIBackend(EncoderBackend):
             tokens=token_usage,
             cost_usd=cost_usd,
             trace=trace,
+            codex_cli_version=codex_cli_version,
+            codex_cli_sha256=codex_cli_sha256,
         )
+
+    @staticmethod
+    def _trusted_cli_provenance() -> tuple[str | None, str | None]:
+        if not (
+            os.environ.get("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
+            and os.environ.get("CODEX_HOME")
+        ):
+            return None, None
+        executable = Path(resolve_codex_cli()).resolve(strict=True)
+        expected_digest = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_SHA256")
+        version = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_VERSION")
+        if not expected_digest or not version:
+            raise RuntimeError("Trusted runtime omitted Codex CLI provenance")
+        digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+        if digest != expected_digest:
+            raise RuntimeError(
+                "Trusted Codex CLI changed after supervisor verification"
+            )
+        return version, digest
 
     def predict(self, citation: str, source_text: str) -> PredictionScores:
         """Predict scores using Codex CLI."""
@@ -398,7 +433,8 @@ class CodexCLIBackend(EncoderBackend):
         timeout: int,
         writable_dir: Path,
     ) -> tuple[str, int]:
-        """Run codex exec as subprocess."""
+        """Run codex exec with writes confined to the output directory."""
+        execution_root = writable_dir.resolve()
         cmd = [
             resolve_codex_cli(),
             "exec",
@@ -406,12 +442,10 @@ class CodexCLIBackend(EncoderBackend):
             "--model",
             model,
             "-C",
-            str(self.cwd),
+            str(execution_root),
             "--sandbox",
             self.sandbox,
         ]
-        if not _is_within(self.cwd, writable_dir):
-            cmd.extend(["--add-dir", str(writable_dir)])
         cmd.append(prompt)
 
         try:
@@ -420,7 +454,8 @@ class CodexCLIBackend(EncoderBackend):
                 capture_output=True,
                 text=True,
                 timeout=timeout,
-                cwd=self.cwd,
+                cwd=execution_root,
+                env=scrub_attestation_signing_keys(),
             )
             return result.stdout + result.stderr, result.returncode
         except subprocess.TimeoutExpired:
@@ -481,7 +516,9 @@ class CodexCLIBackend(EncoderBackend):
                 tokens = None
 
         return {
-            "text": "\n".join(assistant_messages).strip() or last_error or "",
+            "text": "\n".join(assistant_messages).strip()
+            or with_codex_model_availability_hint(last_error)
+            or "",
             "tokens": tokens,
             "cost_usd": estimate_usage_cost_usd(model, tokens),
             "trace": {
@@ -529,6 +566,7 @@ class AgentSDKBackend(EncoderBackend):
                 request.citation,
                 str(request.output_path),
                 corpus_citation_path=request.corpus_citation_path,
+                require_complete_source_unit=request.require_complete_source_unit,
             )
             prompt += f"\n\nSource Text:\n{request.source_text}\n"
 

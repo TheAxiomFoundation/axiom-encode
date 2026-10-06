@@ -1,0 +1,1 @@
+The spelled zero "אפס" is a Hebrew numeral: a list of rates that starts at zero ("השיעורים הם אפס, 10 ו־20 אחוזים") shares its unit across every member as the printed "0, 10 ו־20" does, and a zero floor, rate or range endpoint reads as the printed zero reads.

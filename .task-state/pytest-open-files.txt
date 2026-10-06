@@ -1,0 +1,17 @@
+COMMAND     PID      USER   FD   TYPE DEVICE SIZE/OFF                NODE NAME
+python3.1 84381 maxghenis  cwd    DIR   1,13     1312          1138462299 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode
+python3.1 84381 maxghenis  txt    REG   1,13    49968             6092842 /Users/maxghenis/.local/share/uv/python/cpython-3.13.9-macos-aarch64-none/bin/python3.13
+python3.1 84381 maxghenis  txt    REG   1,13    66592          1138576233 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/charset_normalizer/md.cpython-313-darwin.so
+python3.1 84381 maxghenis  txt    REG   1,13    56560          1138573984 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/coverage/tracer.cpython-313-darwin.so
+python3.1 84381 maxghenis  txt    REG   1,13   502424          1138576229 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/charset_normalizer/md__mypyc.cpython-313-darwin.so
+python3.1 84381 maxghenis  txt    REG   1,13  2562000 1152921500312573255 /usr/lib/dyld
+python3.1 84381 maxghenis  txt    REG   1,13   212944          1138574935 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/_cffi_backend.cpython-313-darwin.so
+python3.1 84381 maxghenis  txt    REG   1,13 17260080           785015391 /Users/maxghenis/.local/share/uv/python/cpython-3.13.9-macos-aarch64-none/lib/libpython3.13.dylib
+python3.1 84381 maxghenis  txt    REG   1,13   381208          1138573960 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/yaml/_yaml.cpython-313-darwin.so
+python3.1 84381 maxghenis  txt    REG   1,13 21422080          1138574285 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/cryptography/hazmat/bindings/_rust.abi3.so
+python3.1 84381 maxghenis  txt    REG   1,13  4220048          1138575042 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pydantic_core/_pydantic_core.cpython-313-darwin.so
+python3.1 84381 maxghenis    0r   CHR    3,2      0t0                 336 /dev/null
+python3.1 84381 maxghenis    1w   REG   1,13   473725          1139768005 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.task-state/pytest-full-parallel.log
+python3.1 84381 maxghenis    2w   REG   1,13   473725          1139768005 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.task-state/pytest-full-parallel.log
+python3.1 84381 maxghenis    9w   REG   1,13   473725          1139768005 /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.task-state/pytest-full-parallel.log
+python3.1 84381 maxghenis   10w   CHR    3,2      0t0                 336 /dev/null

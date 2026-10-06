@@ -1,0 +1,47 @@
+{
+  "binary": "/Users/maxghenis/TheAxiomFoundation/_worktrees/engine-findings/bin-relation-binding",
+  "policy_repo": "/Users/maxghenis/TheAxiomFoundation/rulespec-us",
+  "files": [
+    {
+      "path": "us/statutes/26/21.test.yaml",
+      "executions": [],
+      "exception": "UnsafeRulespecContextPath: Active RuleSpec root must be an exact direct jurisdiction child of a canonical rulespec-<country> checkout: /Users/maxghenis/TheAxiomFoundation/rulespec-us/us",
+      "source_case_names": [
+        "qualifying_child_person_holds",
+        "qualifying_child_local_law_exception_not_holds",
+        "single_one_child_low_agi_credit",
+        "related_provider_exception_denies_credit",
+        "no_qualifying_individual_zero_cdcc_expense_limit",
+        "auto_positive_treated_as_not_married_under_section_21",
+        "auto_positive_cdcc_refundable_under_2021_special_rule"
+      ]
+    },
+    {
+      "path": "us/statutes/26/24.test.yaml",
+      "executions": [],
+      "exception": "UnsafeRulespecContextPath: Active RuleSpec root must be an exact direct jurisdiction child of a canonical rulespec-<country> checkout: /Users/maxghenis/TheAxiomFoundation/rulespec-us/us",
+      "source_case_names": [
+        "qualifying_child_person_positive_and_identification",
+        "qualifying_child_noncitizen_exception_not_holds",
+        "post_2017_joint_credit_composes_subsection_h_and_phaseout",
+        "taxpayer_tin_after_due_date_disallows_credit"
+      ]
+    },
+    {
+      "path": "us/statutes/26/24/h.test.yaml",
+      "executions": [],
+      "exception": "UnsafeRulespecContextPath: Active RuleSpec root must be an exact direct jurisdiction child of a canonical rulespec-<country> checkout: /Users/maxghenis/TheAxiomFoundation/rulespec-us/us",
+      "source_case_names": [
+        "other_dependent_positive_path",
+        "other_dependent_noncitizen_exception_path",
+        "qualifying_child_with_required_social_security_numbers",
+        "joint_return_aggregate_credit_and_refundable_cap"
+      ]
+    }
+  ],
+  "checkout_inspection": {
+    "name": null,
+    "rejection": "atomic-root-at-checkout"
+  },
+  "requested_case_count": 15
+}

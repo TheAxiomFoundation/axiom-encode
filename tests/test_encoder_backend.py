@@ -4,6 +4,7 @@ Tests for encoder backend abstraction.
 Updated for self-contained backends (no plugin dependencies).
 """
 
+import hashlib
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -122,6 +123,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Never drop the jurisdiction prefix",
         "Importing an adjacent upstream output only as proof",
         "is not an executable dependency",
+        "RuleSpec document-root `inputs`",
+        "never nested under `module`",
         "purpose-limited replacement rate",
         "not as `section_<cited>_*`",
         "predicate for the excepted category",
@@ -134,6 +137,8 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "`clause_ii_provides_otherwise`",
         "paragraph_d_2_methodology_limit_satisfied",
         "dependency graph remains acyclic",
+        "copied context file already exports the operative legal condition",
+        "Do not\n  recreate it as a local factual input",
         "Axiom formulas have no date literal type",
         "Never use `post_YYYY`, `pre_YYYY`, `after_YYYY`, `before_YYYY`",
         "Do not write `else if` or `elif`",
@@ -143,7 +148,7 @@ def _assert_encoder_prompt_topics(prompt: str) -> None:
         "Do not\n  reconstruct the cited section's amount locally",
         "Only include `blocked_by` entries when you know the exact RuleSpec output",
         "us:statutes/us-ca/17000",
-        "Do not cite the copied `external/...`",
+        "direct release-bound corpus source text",
     ]
     for topic in required_topics:
         assert topic in prompt
@@ -161,10 +166,33 @@ def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
     assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
     normalized_prompt = " ".join(prompt.split())
     assert "Include `us/statute/26/63` in `module.source_verification`." in prompt
-    assert "primary row is split by a page break" in normalized_prompt
-    assert "supplied adjacent source context" in normalized_prompt
+    assert (
+        "module.source_verification.corpus_citation_path: us/statute/26/63"
+        in normalized_prompt
+    )
+    assert (
+        "Use that exact same `us/statute/26/63` value in every source-backed proof"
+        in prompt
+    )
+    assert "do not append subsection markers or other path segments" in prompt
+    assert "Never emit `corpus_citation_paths`" in normalized_prompt
+    assert "corpus resolver under this one canonical path" in normalized_prompt
     assert "Target citation/source id: 26 USC 63(c)(5)" in prompt
     assert "Expected output path: statutes/26/63/c/5.yaml" in prompt
+
+
+def test_complete_source_prompt_requires_explicit_branch_inventory():
+    prompt = get_encoder_prompt(
+        citation="42 USC 1437c-1",
+        output_path="statutes/42/1437c-1.yaml",
+        corpus_citation_path="us/statute/42/1437c–1",
+        require_complete_source_unit=True,
+    )
+    normalized_prompt = " ".join(prompt.split())
+
+    assert "inventory every top-level structural branch" in normalized_prompt
+    assert "Do not return while any branch is absent" in normalized_prompt
+    assert "absolute output path preserves the branch label" in normalized_prompt
 
 
 class TestClaudeCodeBackend:
@@ -225,6 +253,29 @@ class TestClaudeCodeBackend:
             # Should include --print and -p flags
             assert "--print" in cmd
             assert "-p" in cmd
+
+    def test_encode_confines_claude_to_output_directory(self, tmp_path):
+        backend = ClaudeCodeBackend(cwd=tmp_path / "mutable-checkout")
+        output = tmp_path / "isolated-output" / "rule.yaml"
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(stdout="rules: []", stderr="", returncode=0)
+            backend.encode(
+                EncoderRequest(
+                    citation="26 USC 1",
+                    source_text="Test",
+                    output_path=output,
+                )
+            )
+
+        cmd = mock_run.call_args[0][0]
+        kwargs = mock_run.call_args.kwargs
+        assert "bypassPermissions" not in cmd
+        assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+        assert cmd[cmd.index("--tools") + 1] == "Read,Write,Edit"
+        assert "--safe-mode" in cmd
+        assert "--no-session-persistence" in cmd
+        assert kwargs["cwd"] == output.parent.resolve()
 
     def test_predict_returns_scores(self):
         """predict() returns score predictions."""
@@ -450,6 +501,9 @@ class TestClaudeCodeBackendAdditional:
             cmd = mock_run.call_args[0][0]
             assert "--print" in cmd
             assert "--plugin-dir" not in cmd
+            # Current Claude CLI versions validate --mcp-config as a record
+            # with an mcpServers key; a bare "{}" fails every invocation.
+            assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers": {}}'
 
     def test_run_claude_code_timeout(self):
         """Test _run_claude_code handles timeout."""
@@ -640,6 +694,50 @@ class TestCodexCLIBackend:
             assert cmd[1:3] == ["exec", "--json"]
             assert "--model" in cmd
             assert "gpt-5.4" in cmd
+            assert "--add-dir" not in cmd
+            assert cmd[cmd.index("-C") + 1] == str(Path("/tmp/output").resolve())
+            assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/output").resolve()
+
+    def test_trusted_subscription_records_pinned_cli_provenance(
+        self, tmp_path, monkeypatch
+    ):
+        binary = tmp_path / "codex"
+        binary.write_bytes(b"pinned-codex")
+        monkeypatch.setattr(
+            "axiom_encode.harness.backends.resolve_codex_cli", lambda: str(binary)
+        )
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
+        digest = hashlib.sha256(b"pinned-codex").hexdigest()
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_VERSION", "codex-cli 0.test")
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_SHA256", digest)
+        version, digest = CodexCLIBackend._trusted_cli_provenance()
+        assert version == "codex-cli 0.test"
+        assert digest == hashlib.sha256(b"pinned-codex").hexdigest()
+
+    def test_trusted_subscription_executes_bound_cli_not_path_decoy(
+        self, tmp_path, monkeypatch
+    ):
+        trusted = tmp_path / "trusted-codex"
+        trusted.write_text("#!/bin/sh\nexit 0\n")
+        trusted.chmod(0o700)
+        decoy_dir = tmp_path / "decoy-bin"
+        decoy_dir.mkdir()
+        decoy_marker = tmp_path / "decoy-executed"
+        decoy = decoy_dir / "codex"
+        decoy.write_text(f"#!/bin/sh\ntouch {decoy_marker}\nexit 99\n")
+        decoy.chmod(0o700)
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN", str(trusted))
+        monkeypatch.setenv("PATH", f"{decoy_dir}{os.pathsep}{os.environ['PATH']}")
+
+        output, returncode = CodexCLIBackend()._run_codex_exec(
+            "prompt", "gpt-test", 10, tmp_path
+        )
+
+        assert returncode == 0, output
+        assert not decoy_marker.exists()
 
     def test_encode_parses_jsonl_usage(self):
         backend = CodexCLIBackend(cwd=Path("/tmp/work"))
@@ -727,6 +825,15 @@ class TestCodexAuthPreflight:
 
         with patch.dict(os.environ, {}, clear=True):
             assert codex_auth_json_path() == Path.home() / ".codex" / "auth.json"
+
+    def test_trusted_runtime_resolution_uses_supervisor_bound_path(self, monkeypatch):
+        from axiom_encode.codex_cli import resolve_codex_cli
+
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", "/protected/runtime-codex-home")
+        monkeypatch.setenv("AXIOM_ENCODE_CODEX_BIN", "/hostile/override")
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN", "/trusted/bin/codex")
+        assert resolve_codex_cli() == "/trusted/bin/codex"
 
     def test_auth_path_honors_codex_home(self, tmp_path):
         from axiom_encode.codex_cli import codex_auth_json_path

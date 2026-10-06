@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.12.0, hypothesis-6.168.2, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 3566 items
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/_pytest/_io/terminalwriter.py:168: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+====================== no tests ran in 120.87s (0:02:00) =======================

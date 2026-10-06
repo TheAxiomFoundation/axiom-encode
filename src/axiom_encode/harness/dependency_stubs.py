@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import re
 from dataclasses import dataclass
@@ -12,7 +11,16 @@ from typing import Sequence
 
 import yaml
 
-from axiom_encode.repo_routing import canonical_rulespec_repo_name
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.corpus_resolver import (
+    CorpusSourceNotFoundError,
+    LocalCorpusRelease,
+    resolve_local_corpus_dependency_artifacts,
+)
+from axiom_encode.repo_routing import (
+    canonical_rulespec_repo_name,
+    find_policy_repo_root,
+)
 
 
 @dataclass(frozen=True)
@@ -75,7 +83,6 @@ _QUOTED_DEFINITION_PATTERN = re.compile(
     r"[\"“]([^\"”]+)[\"”](?:\s+or\s+[\"“]([^\"”]+)[\"”])?\s+means\b",
     re.IGNORECASE,
 )
-_SOURCE_ROOT_SEGMENTS = {"legislation", "statutes", "regulation"}
 _CORPUS_PROVISION_KINDS = {
     "guidance",
     "legislation",
@@ -85,6 +92,175 @@ _CORPUS_PROVISION_KINDS = {
     "statute",
     "statutes",
 }
+_MAX_RULESPEC_CONTEXT_BYTES = 10 * 1024 * 1024
+_RULESPEC_CONTEXT_SUFFIXES = frozenset({".yaml"})
+_EXPLICIT_CONTEXT_SUFFIXES = frozenset(
+    {".json", ".md", ".markdown", ".rst", ".text", ".txt", ".yaml", ".yml"}
+)
+
+
+class UnsafeRulespecContextPath(ValueError):
+    """A context file escapes or uses indirection outside trusted RuleSpec roots."""
+
+
+def validate_rulespec_context_file(
+    path: Path,
+    policy_root: Path,
+) -> Path:
+    """Return a safe regular RuleSpec context file.
+
+    Context may come from the active policy root or a separate recognized
+    ``rulespec-*`` checkout (for canonical cross-jurisdiction imports). Reject
+    symlinks before reading or copying so repository content cannot redirect a
+    model-bearing process to credentials such as ``/proc/self/environ``.
+    """
+
+    return _validate_context_file(
+        path,
+        policy_root,
+        allow_explicit_path=False,
+        allowed_suffixes=_RULESPEC_CONTEXT_SUFFIXES,
+    )
+
+
+def validate_explicit_context_file(path: Path, policy_root: Path) -> Path:
+    """Return one bounded textual context file explicitly authorized by a caller."""
+
+    return _validate_context_file(
+        path,
+        policy_root,
+        allow_explicit_path=True,
+        allowed_suffixes=_EXPLICIT_CONTEXT_SUFFIXES,
+    )
+
+
+def validate_rulespec_context_directory(
+    path: Path,
+    policy_root: Path,
+) -> Path | None:
+    """Return a contained non-symlink directory, or ``None`` when absent."""
+
+    raw_path = Path(os.path.abspath(Path(path).expanduser()))
+    raw_policy_root = Path(os.path.abspath(Path(policy_root).expanduser()))
+    if raw_policy_root.is_symlink():
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context root is a symlink: {raw_policy_root}"
+        )
+    if not raw_policy_root.exists():
+        return None
+    try:
+        resolved_policy_root = raw_policy_root.resolve(strict=True)
+        relative = raw_path.relative_to(raw_policy_root)
+    except (OSError, ValueError) as exc:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context directory is outside {raw_policy_root}: {raw_path}"
+        ) from exc
+
+    cursor = resolved_policy_root
+    for part in relative.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"RuleSpec context directory contains a symlink: {raw_path}"
+            )
+    if not cursor.exists():
+        return None
+    resolved = cursor.resolve(strict=True)
+    try:
+        resolved.relative_to(resolved_policy_root)
+    except ValueError as exc:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context directory escapes {resolved_policy_root}: {raw_path}"
+        ) from exc
+    if not resolved.is_dir():
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context path is not a directory: {raw_path}"
+        )
+    return resolved
+
+
+def _validate_context_file(
+    path: Path,
+    policy_root: Path,
+    *,
+    allow_explicit_path: bool,
+    allowed_suffixes: frozenset[str],
+) -> Path:
+    """Validate one model-readable file before any content access."""
+
+    raw_path = Path(os.path.abspath(Path(path).expanduser()))
+    raw_policy_root = Path(os.path.abspath(Path(policy_root).expanduser()))
+    try:
+        resolved_policy_root = raw_policy_root.resolve(strict=True)
+    except OSError as exc:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context root does not exist: {raw_policy_root}"
+        ) from exc
+
+    try:
+        relative = raw_path.relative_to(raw_policy_root)
+        allowed_root = resolved_policy_root
+    except ValueError:
+        try:
+            resolved_path = raw_path.resolve(strict=True)
+        except OSError as exc:
+            raise UnsafeRulespecContextPath(
+                f"RuleSpec context file does not exist: {raw_path}"
+            ) from exc
+        external_root = find_policy_repo_root(resolved_path)
+        if external_root is None:
+            if not allow_explicit_path:
+                raise UnsafeRulespecContextPath(
+                    "RuleSpec context file is outside the active policy root and "
+                    f"a recognized RuleSpec checkout: {raw_path}"
+                )
+            allowed_root = Path(raw_path.anchor)
+            relative = raw_path.relative_to(allowed_root)
+        else:
+            allowed_root = external_root.resolve(strict=True)
+            try:
+                relative = raw_path.relative_to(allowed_root)
+            except ValueError as exc:
+                raise UnsafeRulespecContextPath(
+                    "RuleSpec context path uses indirection outside "
+                    f"{allowed_root}: {raw_path}"
+                ) from exc
+
+    cursor = allowed_root
+    for part in relative.parts:
+        cursor /= part
+        if cursor.is_symlink():
+            raise UnsafeRulespecContextPath(
+                f"RuleSpec context path contains a symlink: {raw_path}"
+            )
+
+    try:
+        resolved = cursor.resolve(strict=True)
+    except OSError as exc:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context file does not exist: {raw_path}"
+        ) from exc
+    try:
+        resolved.relative_to(allowed_root)
+    except ValueError as exc:
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context file escapes {allowed_root}: {raw_path}"
+        ) from exc
+    if resolved.suffix.lower() not in allowed_suffixes:
+        expected = ", ".join(sorted(allowed_suffixes))
+        raise UnsafeRulespecContextPath(
+            f"Context file must use one of these suffixes ({expected}): {raw_path}"
+        )
+    if not resolved.is_file():
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec context path is not a regular file: {raw_path}"
+        )
+    if resolved.stat().st_size > _MAX_RULESPEC_CONTEXT_BYTES:
+        raise UnsafeRulespecContextPath(
+            "RuleSpec context file exceeds the "
+            f"{_MAX_RULESPEC_CONTEXT_BYTES}-byte safety limit: {raw_path}"
+        )
+    return resolved
 
 
 def resolve_defined_terms_from_text(text: str) -> list[ResolvedDefinedTerm]:
@@ -104,24 +280,44 @@ def resolve_canonical_concepts_from_text(
 ) -> list[ResolvedCanonicalConcept]:
     """Resolve high-confidence reusable legal concepts from nearby corpus files."""
     index: dict[str, list[ResolvedCanonicalConcept]] = {}
+    validated_corpus_root = validate_rulespec_context_directory(
+        corpus_root,
+        corpus_root,
+    )
+    if validated_corpus_root is None:
+        return []
 
-    for candidate_file in sorted(corpus_root.rglob("*.yaml")):
-        if candidate_file.name.endswith(".test.yaml"):
+    for source_root_name in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
+        source_root = validate_rulespec_context_directory(
+            validated_corpus_root / source_root_name,
+            validated_corpus_root,
+        )
+        if source_root is None:
             continue
-        if (
-            current_file is not None
-            and candidate_file.resolve() == current_file.resolve()
-        ):
-            continue
+        for candidate_file in sorted(source_root.rglob("*.yaml")):
+            if candidate_file.name.endswith(".test.yaml"):
+                continue
+            candidate_file = validate_rulespec_context_file(
+                candidate_file,
+                validated_corpus_root,
+            )
+            if (
+                current_file is not None
+                and candidate_file.resolve() == current_file.resolve()
+            ):
+                continue
 
-        candidate = _build_canonical_concept_candidate(candidate_file, corpus_root)
-        if candidate is None:
-            continue
+            candidate = _build_canonical_concept_candidate(
+                candidate_file,
+                validated_corpus_root,
+            )
+            if candidate is None:
+                continue
 
-        for term in _extract_defined_concept_terms_from_source(
-            _extract_embedded_source_text(candidate_file.read_text())
-        ):
-            index.setdefault(term, []).append(_with_concept_term(candidate, term))
+            for term in _extract_defined_concept_terms_from_source(
+                _extract_embedded_source_text(candidate_file.read_text())
+            ):
+                index.setdefault(term, []).append(_with_concept_term(candidate, term))
 
     resolved: list[ResolvedCanonicalConcept] = []
     seen_targets: set[tuple[str, str]] = set()
@@ -148,7 +344,7 @@ def find_registered_stub_specs(
 ) -> list[ResolvedDefinedTerm]:
     """Return registered canonical stub specs for one unresolved import target."""
     normalized_import = import_path.strip().strip('"').strip("'")
-    if normalized_import.endswith((".yaml", ".yml")):
+    if normalized_import.endswith(".yaml"):
         normalized_import = str(Path(normalized_import).with_suffix(""))
     specs: list[ResolvedDefinedTerm] = []
     for symbol in symbol_names:
@@ -166,8 +362,19 @@ def import_target_to_relative_rulespec_path(import_target: str) -> Path:
         prefix, rest = normalized.split(":", 1)
         if re.fullmatch(r"[a-z][a-z0-9-]*", prefix) and rest:
             normalized = rest
-    if normalized.endswith((".yaml", ".yml")):
-        return Path(normalized)
+    relative = Path(normalized)
+    if (
+        relative.is_absolute()
+        or any(part in {"", ".", ".."} for part in relative.parts)
+        or not relative.parts
+        or relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        raise UnsafeRulespecContextPath(
+            "RuleSpec dependency targets must be under one of the four atomic "
+            f"module roots {sorted(RULESPEC_ATOMIC_MODULE_ROOTS)}: {import_target}"
+        )
+    if normalized.endswith(".yaml"):
+        return relative
     return Path(f"{normalized}.yaml")
 
 
@@ -178,7 +385,7 @@ def build_registered_stub_content(specs: Sequence[ResolvedDefinedTerm]) -> str:
 
     base_paths = {
         str(Path(spec.import_target.split("#", 1)[0]).with_suffix(""))
-        if spec.import_target.split("#", 1)[0].endswith((".yaml", ".yml"))
+        if spec.import_target.split("#", 1)[0].endswith(".yaml")
         else spec.import_target.split("#", 1)[0]
         for spec in specs
     }
@@ -264,17 +471,34 @@ def rulespec_file_has_stub_status(rules_file: Path) -> bool:
 
 
 def has_corpus_provision_for_import_target(
-    import_target: str, rules_repo_root: Path
+    import_target: str,
+    rules_repo_root: Path,
+    *,
+    corpus_release: LocalCorpusRelease,
 ) -> bool:
     """Return whether the import target has a local corpus.provisions row."""
-    return bool(find_corpus_provision_artifacts(import_target, rules_repo_root))
+    return bool(
+        find_corpus_provision_artifacts(
+            import_target,
+            rules_repo_root,
+            corpus_release=corpus_release,
+        )
+    )
 
 
 def find_corpus_provision_artifacts(
     import_target: str,
     rules_repo_root: Path,
+    *,
+    corpus_release: LocalCorpusRelease,
 ) -> list[Path]:
-    """Locate corpus.provisions files containing the import target."""
+    """Locate active corpus artifacts that resolve the import target.
+
+    Resolution is delegated to the shared corpus resolver so dependency checks
+    use the same verified release object, ambiguity handling, and parent slicing as
+    generation and validation. A malformed or ambiguous corpus fails closed
+    instead of being mistaken for authoritative source coverage.
+    """
     artifacts: list[Path] = []
     seen: set[Path] = set()
     citation_paths = _candidate_corpus_paths_for_import_target(
@@ -283,63 +507,18 @@ def find_corpus_provision_artifacts(
     )
     if not citation_paths:
         return []
-
-    for provisions_root in _candidate_corpus_provisions_roots(rules_repo_root):
-        for citation_path in citation_paths:
-            for candidate in _candidate_corpus_provision_files(
-                provisions_root,
-                citation_path,
-            ):
-                if not _corpus_file_contains_citation_path(candidate, citation_path):
-                    continue
-                resolved = candidate.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    artifacts.append(resolved)
-
+    try:
+        resolved_artifacts = resolve_local_corpus_dependency_artifacts(
+            citation_paths[0],
+            corpus_release,
+        )
+    except CorpusSourceNotFoundError:
+        return []
+    for resolved in resolved_artifacts:
+        if resolved not in seen:
+            seen.add(resolved)
+            artifacts.append(resolved)
     return artifacts
-
-
-def _candidate_corpus_provisions_roots(rules_repo_root: Path) -> list[Path]:
-    candidates: list[Path] = []
-    env_root = os.environ.get("AXIOM_CORPUS_ROOT")
-    if env_root:
-        candidates.append(Path(env_root).expanduser())
-    root = Path(rules_repo_root).expanduser().resolve()
-    candidates.extend([root.parent / "axiom-corpus", root.parent / "corpus"])
-    if root.parent.name.startswith("rulespec-"):
-        # A monorepo jurisdiction directory: the corpus checkout sits next to
-        # the monorepo checkout itself.
-        candidates.extend(
-            [
-                root.parent.parent / "axiom-corpus",
-                root.parent.parent / "corpus",
-            ]
-        )
-
-    provisions_roots: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        base = candidate.expanduser()
-        possible_roots = (
-            base,
-            base / "provisions",
-            base / "data" / "corpus",
-            base / "data" / "corpus" / "provisions",
-        )
-        for possible_root in possible_roots:
-            provisions_root = (
-                possible_root
-                if possible_root.name == "provisions"
-                else possible_root / "provisions"
-            )
-            if not provisions_root.is_dir():
-                continue
-            resolved = provisions_root.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                provisions_roots.append(resolved)
-    return provisions_roots
 
 
 def _candidate_corpus_paths_for_import_target(
@@ -347,7 +526,7 @@ def _candidate_corpus_paths_for_import_target(
     rules_repo_root: Path,
 ) -> tuple[str, ...]:
     normalized = import_target.strip().strip('"').strip("'").split("#", 1)[0]
-    if normalized.endswith((".yaml", ".yml")):
+    if normalized.endswith(".yaml"):
         normalized = str(Path(normalized).with_suffix(""))
     normalized = normalized.strip("/")
     if not normalized:
@@ -369,18 +548,7 @@ def _candidate_corpus_paths_for_import_target(
         kind, rest = _corpus_kind_and_rest(parts)
         primary = "/".join((jurisdiction, kind, *rest))
 
-    candidates: list[str] = []
-
-    def add(candidate: str) -> None:
-        cleaned = candidate.strip().strip("/")
-        if cleaned and cleaned not in candidates:
-            candidates.append(cleaned)
-
-    add(primary)
-    parts = primary.split("/")
-    for end in range(len(parts) - 1, 2, -1):
-        add("/".join(parts[:end]))
-    return tuple(candidates)
+    return (primary.strip().strip("/"),)
 
 
 def _looks_like_corpus_citation_path(identifier: str) -> bool:
@@ -409,34 +577,6 @@ def _corpus_kind_and_rest(parts: tuple[str, ...]) -> tuple[str, tuple[str, ...]]
     if head in {"guidance", "legislation"}:
         return head, parts[1:]
     return "policy", parts
-
-
-def _candidate_corpus_provision_files(
-    provisions_root: Path,
-    citation_path: str,
-) -> list[Path]:
-    parts = citation_path.split("/")
-    if len(parts) < 2:
-        return []
-    bucket = provisions_root / parts[0] / parts[1]
-    if not bucket.is_dir():
-        return []
-    return sorted(bucket.glob("*.jsonl"))
-
-
-def _corpus_file_contains_citation_path(
-    provision_file: Path,
-    citation_path: str,
-) -> bool:
-    with contextlib.suppress(OSError):
-        for line in provision_file.read_text().splitlines():
-            if not line.strip():
-                continue
-            with contextlib.suppress(json.JSONDecodeError):
-                payload = json.loads(line)
-                if payload.get("citation_path") == citation_path:
-                    return True
-    return False
 
 
 def _extract_embedded_source_text(content: str) -> str:
@@ -513,7 +653,7 @@ def _build_canonical_concept_candidate(
     except ValueError:
         return None
 
-    if not relative.parts or relative.parts[0] not in _SOURCE_ROOT_SEGMENTS:
+    if not relative.parts or relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
         return None
 
     citation = _first_nonempty_line(source_text) or relative.as_posix()

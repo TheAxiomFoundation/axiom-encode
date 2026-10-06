@@ -1,0 +1,1 @@
+Recognize explicit German statute dependency links and canonical amendment targets across selected capture scopes of the same verified corpus release. Name-only amendment discovery remains scoped to the target capture.

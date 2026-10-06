@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
+from axiom_oracles.bridges.adapters import PolicyEngineUSVarAdapter
 
-from axiom_encode.oracles.policyengine.adapters import PolicyEngineUSVarAdapter
 from axiom_encode.oracles.policyengine.classifier import (
     Classification,
     _build_rule_name_index,
@@ -33,6 +33,12 @@ _TEST_ADAPTERS = (
         spm=True,
     ),
 )
+
+
+def _canonical_content_root(tmp_path: Path, jurisdiction: str) -> Path:
+    root = tmp_path / f"rulespec-{jurisdiction.split('-', 1)[0]}" / jurisdiction
+    root.mkdir(parents=True)
+    return root
 
 
 def _make_rule_index() -> dict[str, PolicyEngineUSVarAdapter]:
@@ -128,7 +134,7 @@ def test_unmatched_rule_name_falls_through_to_not_comparable() -> None:
 
 def test_classify_rulespec_repo_walks_yaml_files(tmp_path: Path) -> None:
     """Walking a repo yields one Classification per executable rule."""
-    repo = tmp_path / "rulespec-us-xx"
+    repo = _canonical_content_root(tmp_path, "us-xx")
     rules_dir = repo / "regulations" / "abc" / "100"
     rules_dir.mkdir(parents=True)
     (rules_dir / "block-1.yaml").write_text(
@@ -175,7 +181,7 @@ def test_classify_rulespec_repo_walks_yaml_files(tmp_path: Path) -> None:
 
 
 def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) -> None:
-    repo = tmp_path / "rulespec-us-co"
+    repo = _canonical_content_root(tmp_path, "us-co")
     rules_dir = repo / "regulations" / "hcpf" / "health-coverage"
     rules_dir.mkdir(parents=True)
     (rules_dir / "eligibility.yaml").write_text(
@@ -323,10 +329,10 @@ def test_classify_rulespec_repo_supports_health_program_catalog(tmp_path: Path) 
     assert [c.legal_id.split("#")[1] for c in aca_only] == ["aca_ptc"]
 
 
-def test_classify_respects_not_comparable_prefix_for_matching_pe_name(
+def test_classify_excludes_composition_specs_from_atomic_outputs(
     tmp_path: Path,
 ) -> None:
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_content_root(tmp_path, "us")
     source_dir = repo / "statutes" / "42" / "1397jj" / "b"
     source_dir.mkdir(parents=True)
     (source_dir / "1.yaml").write_text(
@@ -382,15 +388,13 @@ def test_classify_respects_not_comparable_prefix_for_matching_pe_name(
     assert source_claim.policyengine_variable == "is_chip_eligible"
     assert "source-level CHIP eligibility prerequisites" in source_claim.rationale
 
-    program_claim = by_legal_id["us:programs/chip/fy-2026#is_chip_eligible"]
-    assert program_claim.mapping_type == "direct_variable"
-    assert program_claim.policyengine_variable == "is_chip_eligible"
+    assert "us:programs/chip/fy-2026#is_chip_eligible" not in by_legal_id
 
 
 def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
     tmp_path: Path,
 ) -> None:
-    repo = tmp_path / "rulespec-us-co"
+    repo = _canonical_content_root(tmp_path, "us-co")
     rules_dir = repo / "policies" / "cms"
     rules_dir.mkdir(parents=True)
     (rules_dir / "medicaid-chip-bhp-eligibility-levels.yaml").write_text(
@@ -457,7 +461,7 @@ def test_classify_splits_combined_medicaid_chip_sources_by_rule_name(
 
 
 def test_classify_rulespec_repo_filters_federal_ssi_sources(tmp_path: Path) -> None:
-    repo = tmp_path / "rulespec-us"
+    repo = _canonical_content_root(tmp_path, "us")
     ssi_dir = repo / "statutes" / "42" / "1382a" / "b"
     ssi_dir.mkdir(parents=True)
     (ssi_dir / "2.yaml").write_text(
@@ -562,7 +566,7 @@ def test_pe_us_var_adapters_is_consumable_by_classifier() -> None:
     ECPS comparison already consults) would otherwise silently corrupt every
     `axiom-encode classify` invocation. This guards against that.
     """
-    from axiom_encode.oracles.policyengine.adapters import PE_US_VAR_ADAPTERS
+    from axiom_oracles.bridges.adapters import PE_US_VAR_ADAPTERS
 
     # The index must build without raising.
     index = _build_rule_name_index(PE_US_VAR_ADAPTERS)
@@ -591,7 +595,7 @@ def test_pe_us_var_adapters_is_consumable_by_classifier() -> None:
 
 
 def test_pe_us_health_var_adapters_is_consumable_by_classifier() -> None:
-    from axiom_encode.oracles.policyengine.adapters import (
+    from axiom_oracles.bridges.adapters import (
         PE_US_HEALTH_VAR_ADAPTERS,
         PE_US_PROGRAM_VAR_ADAPTERS,
     )
@@ -631,7 +635,7 @@ def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
     - one bulk `legal_id_prefix: us-xx:...` entry that should be removed
     - a `prefixes:` section with one unrelated prefix (must survive)
 
-    Builds a fixture rulespec-us-xx repo with one Money-typed rule whose name
+    Builds a canonical rulespec-us/us-xx root with one Money-typed rule whose name
     is in the test adapter catalog (must be promoted) and one Judgment-typed
     rule whose name is not (must become not_comparable).
 
@@ -642,8 +646,8 @@ def test_cmd_classify_write_us_yaml_round_trip(tmp_path: Path) -> None:
 
     from axiom_encode.cli import cmd_classify
 
-    # Build the fixture rulespec-us-xx repo.
-    repo = tmp_path / "rulespec-us-xx"
+    # Build the fixture canonical state content root.
+    repo = _canonical_content_root(tmp_path, "us-xx")
     section = repo / "regulations" / "abc" / "100"
     section.mkdir(parents=True)
     (section / "block-1.yaml").write_text(

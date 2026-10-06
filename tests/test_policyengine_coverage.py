@@ -1,14 +1,13 @@
 from pathlib import Path
 
 import pytest
-
-from axiom_encode.oracles.policyengine.coverage import (
+from axiom_oracles.bridges.coverage import (
     build_policyengine_candidate_report,
     build_policyengine_cloud_queue_report,
     build_policyengine_coverage_report,
     build_policyengine_program_surface_report,
 )
-from axiom_encode.oracles.policyengine.registry import (
+from axiom_oracles.bridges.registry import (
     PolicyEngineMapping,
     load_policyengine_registry,
 )
@@ -502,13 +501,277 @@ outputs:
         country="us",
     )
     assert final_mapping.match_type == "exact"
-    assert (
-        registry.mapping_for_legal_id(
-            "us-ks:programs/tanf/fy-2026#ks_tanf_extra",
-            country="us",
-        )
-        is None
+    fallback = registry.mapping_for_legal_id(
+        "us-ks:programs/tanf/fy-2026#ks_tanf_extra",
+        country="us",
     )
+    assert fallback is not None
+    assert fallback.legal_id == "us-ks:"
+    assert fallback.match_type == "prefix"
+    assert fallback.mapping_type == "not_comparable"
+    assert fallback.candidate_priority == "P4"
+
+
+def test_policyengine_coverage_classifies_bounded_dc_2026_schedule(tmp_path):
+    _write_rulespec_file(
+        tmp_path / "rulespec-us-dc" / "policies/income_tax/"
+        "2026_section_47_1806_03_schedule_before_credits.yaml",
+        """format: rulespec/v1
+rules:
+  - name: dc_pit_2026_section_47_1806_03_bracket_upper
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_bracket_floor
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_bracket_base
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_bracket_rate
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_taxable_income_boundary
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_bracket_selector
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: dc_pit_2026_section_47_1806_03_schedule_before_credits
+    kind: derived
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+""",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 7
+    assert report["status_counts"] == {
+        "comparable": 2,
+        "known_not_comparable": 5,
+    }
+    items = {item["rule_name"]: item for item in report["items"]}
+    assert (
+        items["dc_pit_2026_section_47_1806_03_taxable_income_boundary"][
+            "policyengine_variable"
+        ]
+        == "dc_taxable_income_joint"
+    )
+    assert (
+        items["dc_pit_2026_section_47_1806_03_schedule_before_credits"][
+            "policyengine_variable"
+        ]
+        == "dc_income_tax_before_credits_joint"
+    )
+    assert {
+        item["candidate_priority"]
+        for name, item in items.items()
+        if name
+        in {
+            "dc_pit_2026_section_47_1806_03_bracket_upper",
+            "dc_pit_2026_section_47_1806_03_bracket_floor",
+            "dc_pit_2026_section_47_1806_03_bracket_base",
+            "dc_pit_2026_section_47_1806_03_bracket_rate",
+            "dc_pit_2026_section_47_1806_03_bracket_selector",
+        }
+    } == {"P4"}
+
+
+def test_policyengine_coverage_classifies_bounded_ca_2026_bhst(tmp_path):
+    output_names = (
+        "ca_pit_pilot_rate_schedule_threshold",
+        "ca_pit_pilot_schedule_x_upper",
+        "ca_pit_pilot_schedule_x_floor",
+        "ca_pit_pilot_schedule_x_base",
+        "ca_pit_pilot_schedule_x_rate",
+        "ca_pit_pilot_schedule_y_upper",
+        "ca_pit_pilot_schedule_y_floor",
+        "ca_pit_pilot_schedule_y_base",
+        "ca_pit_pilot_schedule_y_rate",
+        "ca_pit_pilot_schedule_z_upper",
+        "ca_pit_pilot_schedule_z_floor",
+        "ca_pit_pilot_schedule_z_base",
+        "ca_pit_pilot_schedule_z_rate",
+        "ca_pit_pilot_behavioral_health_services_tax_threshold",
+        "ca_pit_pilot_behavioral_health_services_tax_rate",
+        "ca_pit_pilot_completed_taxable_income",
+        "ca_pit_pilot_rate_schedule_applicable",
+        "ca_pit_pilot_schedule_x_bracket",
+        "ca_pit_pilot_schedule_y_bracket",
+        "ca_pit_pilot_schedule_z_bracket",
+        "ca_pit_pilot_schedule_x_top_bracket_base",
+        "ca_pit_pilot_schedule_y_top_bracket_base",
+        "ca_pit_pilot_schedule_z_top_bracket_base",
+        "ca_pit_pilot_schedule_x_tax",
+        "ca_pit_pilot_schedule_y_tax",
+        "ca_pit_pilot_schedule_z_tax",
+        "ca_pit_pilot_estimated_tax_rate_schedule_amount",
+        "ca_pit_pilot_behavioral_health_services_tax",
+        "ca_pit_pilot_estimated_tax_schedule_branch_total",
+    )
+    rules = "\n".join(
+        "  - name: "
+        f"{name}\n"
+        "    kind: derived\n"
+        "    versions:\n"
+        "      - effective_from: '2026-01-01'\n"
+        "        formula: 0"
+        for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ca"
+        / "policies/income_tax/pilot_liability_pipeline.yaml",
+        f"format: rulespec/v1\nrules:\n{rules}\n",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 29
+    assert report["status_counts"] == {
+        "comparable": 4,
+        "known_not_comparable": 25,
+    }
+    items = {item["rule_name"]: item for item in report["items"]}
+    assert set(items) == set(output_names)
+    assert {name for name, item in items.items() if item["status"] == "comparable"} == {
+        "ca_pit_pilot_behavioral_health_services_tax_threshold",
+        "ca_pit_pilot_behavioral_health_services_tax_rate",
+        "ca_pit_pilot_completed_taxable_income",
+        "ca_pit_pilot_behavioral_health_services_tax",
+    }
+    assert (
+        items["ca_pit_pilot_behavioral_health_services_tax_threshold"][
+            "policyengine_parameter"
+        ]
+        == "gov.states.ca.tax.income.mental_health_services"
+    )
+    assert (
+        items["ca_pit_pilot_completed_taxable_income"]["policyengine_variable"]
+        == "ca_taxable_income"
+    )
+    assert (
+        items["ca_pit_pilot_behavioral_health_services_tax"]["policyengine_variable"]
+        == "ca_mental_health_services_tax"
+    )
+    assert {
+        item["candidate_priority"]
+        for item in items.values()
+        if item["status"] == "known_not_comparable"
+    } == {"P4"}
+
+
+def test_policyengine_coverage_classifies_bounded_ny_2026_main_income_tax(tmp_path):
+    filing_statuses = (
+        "joint_or_surviving",
+        "head_of_household",
+        "single_or_separate",
+    )
+    ordinals = (
+        "first",
+        "second",
+        "third",
+        "fourth",
+        "fifth",
+        "sixth",
+        "seventh",
+        "eighth",
+    )
+    direct_variables = {
+        "ny_pit_pilot_taxable_income": "ny_taxable_income",
+        "ny_pit_pilot_main_income_tax": "ny_main_income_tax",
+    }
+    parameter_outputs = {
+        f"ny_pit_pilot_{filing_status}_{ordinal}_upper_bound"
+        for filing_status in filing_statuses
+        for ordinal in ordinals
+    }
+    not_comparable_outputs = {
+        *(
+            f"ny_pit_pilot_{filing_status}_bracket_selector"
+            for filing_status in filing_statuses
+        ),
+        *(
+            f"ny_pit_pilot_{filing_status}_bracket_{table}"
+            for filing_status in filing_statuses
+            for table in ("floor", "base", "rate")
+        ),
+    }
+    output_names = (
+        *direct_variables,
+        *sorted(parameter_outputs),
+        *sorted(not_comparable_outputs),
+    )
+    rules = "\n".join(
+        "  - name: "
+        f"{name}\n"
+        "    kind: derived\n"
+        "    versions:\n"
+        "      - effective_from: '2026-01-01'\n"
+        "        formula: 0"
+        for name in output_names
+    )
+    _write_rulespec_file(
+        tmp_path
+        / "rulespec-us-ny"
+        / "policies/income_tax/pilot_liability_pipeline.yaml",
+        f"format: rulespec/v1\nrules:\n{rules}\n",
+    )
+
+    report = build_policyengine_coverage_report(tmp_path, program="tax")
+
+    assert report["total_outputs"] == 38
+    assert report["status_counts"] == {
+        "comparable": 26,
+        "known_not_comparable": 12,
+    }
+    items = {item["rule_name"]: item for item in report["items"]}
+    assert set(items) == set(output_names)
+    assert {name for name, item in items.items() if item["status"] == "comparable"} == {
+        *direct_variables,
+        *parameter_outputs,
+    }
+    for output_name, variable in direct_variables.items():
+        assert items[output_name]["policyengine_variable"] == variable
+    assert (
+        items["ny_pit_pilot_joint_or_surviving_first_upper_bound"][
+            "policyengine_parameter"
+        ]
+        == "gov.states.ny.tax.income.main.joint"
+    )
+    assert (
+        items["ny_pit_pilot_head_of_household_eighth_upper_bound"][
+            "policyengine_parameter"
+        ]
+        == "gov.states.ny.tax.income.main.head_of_household"
+    )
+    assert (
+        items["ny_pit_pilot_single_or_separate_fourth_upper_bound"][
+            "policyengine_parameter"
+        ]
+        == "gov.states.ny.tax.income.main.single"
+    )
+    assert {
+        name for name, item in items.items() if item["status"] == "known_not_comparable"
+    } == not_comparable_outputs
+    assert {
+        item["candidate_priority"]
+        for item in items.values()
+        if item["status"] == "known_not_comparable"
+    } == {"P4"}
 
 
 def test_policyengine_coverage_classifies_new_york_tanf_program_output(tmp_path):
@@ -9149,12 +9412,7 @@ def test_policyengine_coverage_classifies_arizona_snap_composition_outputs(
         / "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
         """format: rulespec/v1
 rules:
-  - name: snap_gross_monthly_income
-    kind: derived
-    versions:
-      - effective_from: '2025-10-01'
-        formula: earned_income + unearned_income
-  - name: snap_net_income
+  - name: na_net_income
     kind: derived
     versions:
       - effective_from: '2025-10-01'
@@ -9164,17 +9422,12 @@ rules:
     versions:
       - effective_from: '2025-10-01'
         formula: income_eligible and resource_eligible
-  - name: snap_maximum_allotment
-    kind: derived
-    versions:
-      - effective_from: '2025-10-01'
-        formula: thrift_food_plan_amount
   - name: snap_excess_shelter_deduction
     kind: derived
     versions:
       - effective_from: '2025-10-01'
         formula: shelter_deduction
-  - name: snap_regular_month_allotment
+  - name: na_regular_month_allotment
     kind: derived
     versions:
       - effective_from: '2025-10-01'
@@ -9189,30 +9442,27 @@ rules:
   period: 2026-01
   input: {}
   output:
-    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_gross_monthly_income: 2000
-    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_net_income: 1200
+    us:policies/usda/snap/state-plan-composition#snap_gross_monthly_income: 2000
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_net_income: 1200
     us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_eligible: holds
-    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_maximum_allotment: 768
     us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_excess_shelter_deduction: 350
-    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#snap_regular_month_allotment: 408
+    us-az:policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation#na_regular_month_allotment: 408
 """,
     )
 
     coverage = build_policyengine_coverage_report(tmp_path, program="snap")
 
-    assert coverage["status_counts"] == {"known_not_comparable": 6}
+    assert coverage["status_counts"] == {"known_not_comparable": 4}
     composition_items = {
         item["rule_name"]: item
         for item in coverage["items"]
         if item["file"].endswith("fy-2026-benefit-calculation.yaml")
     }
     assert set(composition_items) == {
-        "snap_gross_monthly_income",
-        "snap_net_income",
+        "na_net_income",
         "snap_eligible",
-        "snap_maximum_allotment",
         "snap_excess_shelter_deduction",
-        "snap_regular_month_allotment",
+        "na_regular_month_allotment",
     }
     assert {item["status"] for item in composition_items.values()} == {
         "known_not_comparable"
@@ -9220,27 +9470,18 @@ rules:
     assert {item["candidate_priority"] for item in composition_items.values()} == {"P4"}
     assert {item["tested"] for item in composition_items.values()} == {True}
     assert (
-        composition_items["snap_gross_monthly_income"]["policyengine_variable"]
-        == "snap_gross_income"
-    )
-    assert (
-        composition_items["snap_net_income"]["policyengine_variable"]
-        == "snap_net_income"
+        composition_items["na_net_income"]["policyengine_variable"] == "snap_net_income"
     )
     assert (
         composition_items["snap_eligible"]["policyengine_variable"]
         == "is_snap_eligible"
     )
     assert (
-        composition_items["snap_maximum_allotment"]["policyengine_variable"]
-        == "snap_max_allotment"
-    )
-    assert (
         composition_items["snap_excess_shelter_deduction"]["policyengine_variable"]
         == "snap_excess_shelter_expense_deduction"
     )
     assert (
-        composition_items["snap_regular_month_allotment"]["policyengine_variable"]
+        composition_items["na_regular_month_allotment"]["policyengine_variable"]
         == "snap"
     )
 

@@ -1,0 +1,1 @@
+An amount noun is known in its plural and suffixed forms ("התשלומים יהיו 50 או 2%", "תשלומיו יהיו" are fifty shekels), and a clause adverb closes the phrase before it ("מהמותר בחוק אז הקנס יהיה" reads as "מן המותר אז הקנס יהיה" does).

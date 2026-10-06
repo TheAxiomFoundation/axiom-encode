@@ -280,6 +280,12 @@ def emit_eval_result(result: Any, trace_payload: Mapping[str, Any] | None) -> No
             "axiom_encode.runner": getattr(result, "runner", None),
             "axiom_encode.mode": getattr(result, "mode", None),
             "axiom_encode.success": getattr(result, "success", None),
+            "axiom_encode.failure_kind": getattr(result, "failure_kind", None),
+            "axiom_encode.timed_out": getattr(result, "timed_out", False),
+            "axiom_encode.timeout_stage": getattr(result, "timeout_stage", None),
+            "axiom_encode.timeout_reason": getattr(result, "timeout_reason", None),
+            "axiom_encode.timeout_seconds": getattr(result, "timeout_seconds", None),
+            "axiom_encode.timeout_attempts": getattr(result, "timeout_attempts", 0),
             "axiom_encode.output_file": getattr(result, "output_file", None),
             "axiom_encode.trace_file": getattr(result, "trace_file", None),
             "axiom_encode.retrieved_files_count": len(
@@ -430,8 +436,16 @@ def _base_llm_attributes(
     if cost_usd is not None:
         attrs["axiom_encode.cost.total_usd"] = cost_usd
 
-    if usage is not None and model:
-        breakdown = estimate_usage_cost_breakdown(model, usage)
+    if usage is not None and model and cost_usd is not None:
+        # ``usage`` here aggregates all attempts in the span, so the
+        # per-request context-tier gate does not apply; per-attempt pricing
+        # (which produced ``cost_usd``) already enforced it. Emitting the
+        # breakdown only when the total is known keeps the two consistent.
+        breakdown = estimate_usage_cost_breakdown(
+            model,
+            usage,
+            enforce_context_tier=False,
+        )
         if breakdown is not None:
             attrs.update(
                 {

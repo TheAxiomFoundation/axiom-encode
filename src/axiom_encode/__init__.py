@@ -1,4 +1,4 @@
-__version__ = "0.2.1201"
+__version__ = "0.2.2053"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
@@ -6,6 +6,8 @@ __version__ = "0.2.1201"
 from .constants import (
     DEFAULT_CLI_MODEL,
     DEFAULT_MODEL,
+    DEFAULT_OPENAI_ESCALATE_AFTER,
+    DEFAULT_OPENAI_ESCALATION_MODEL,
     DEFAULT_OPENAI_MODEL,
     REVIEWER_CLI_MODEL,
 )
@@ -45,7 +47,6 @@ from .harness import (
     print_calibration_report,
     run_model_eval,
     save_calibration_snapshot,
-    validate_file,
     validate_rulespec_proofs,
 )
 
@@ -54,6 +55,8 @@ __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_CLI_MODEL",
     "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_OPENAI_ESCALATION_MODEL",
+    "DEFAULT_OPENAI_ESCALATE_AFTER",
     "REVIEWER_CLI_MODEL",
     "EncodingDB",
     "EncodingRun",
@@ -66,7 +69,6 @@ __all__ = [
     "ValidatorPipeline",
     "ValidationResult",
     "PipelineResult",
-    "validate_file",
     "ProofValidationResult",
     "find_rulespec_proof_issues",
     "validate_rulespec_proofs",

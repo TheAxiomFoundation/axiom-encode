@@ -1,0 +1,1 @@
+A verb or copula before a fraction word is clause context whatever letter it ends in ("המעסיקה שילמה חמישית השכר", "הקצבה הייתה חמישית השכר" are fifths of the wage), and a supplement of a fraction under any explicit partitive ("תוספת חמישית מן השכר", "מתוך השכר", "של השכר") is an amount to encode, not a schedule reference.

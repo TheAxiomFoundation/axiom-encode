@@ -1,0 +1,131 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.9, pytest-9.0.2, pluggy-1.6.0
+rootdir: /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.12.0, hypothesis-6.168.2, asyncio-1.3.0, cov-7.0.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 15760 items
+
+tests/test_age_relative_source_matching.py ..................            [  0%]
+tests/test_all_state_snap_queue.py ...........                           [  0%]
+tests/test_ar_2026_oracle_registry.py ...                                [  0%]
+tests/test_attempt_budget.py ........................................... [  0%]
+......                                                                   [  0%]
+tests/test_calendar_age_witnesses.py ................................... [  0%]
+...................                                                      [  0%]
+tests/test_calendar_formula_execution.py ............................... [  1%]
+...............................................                          [  1%]
+tests/test_ci_parity.py .........................                        [  1%]
+tests/test_cli.py ...............F........................
+
+=================================== FAILURES ===================================
+________ test_current_encoder_affecting_changes_are_behind_version_bump ________
+
+    def test_current_encoder_affecting_changes_are_behind_version_bump():
+        repo = Path(__file__).parents[1]
+        try:
+            _git(repo, "rev-parse", "--is-inside-work-tree")
+        except subprocess.CalledProcessError:
+            pytest.skip("version provenance check requires a git checkout")
+    
+>       provenance = _require_axiom_encode_version_provenance(repo)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cli.py:1200: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+repo_root = PosixPath('/Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode')
+
+    def _require_axiom_encode_version_provenance(
+        repo_root: Path,
+    ) -> dict[str, str]:
+        """Require encoder-affecting code changes to be behind a version bump."""
+        repo = Path(repo_root)
+        current_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
+        pyproject_version = current_versions.get("pyproject")
+        package_version = current_versions.get("package")
+        lock_version = current_versions.get("lock")
+        if not pyproject_version or not package_version or not lock_version:
+            raise RuntimeError(
+                "Cannot apply generated RuleSpec: axiom-encode version metadata is "
+                "incomplete; pyproject.toml, src/axiom_encode/__init__.py, and "
+                "uv.lock must declare the encoder version."
+            )
+        if (
+            pyproject_version != package_version
+            or pyproject_version != lock_version
+            or pyproject_version != __version__
+        ):
+>           raise RuntimeError(
+                "Cannot apply generated RuleSpec: axiom-encode version metadata is "
+                f"inconsistent (pyproject={pyproject_version}, "
+                f"package={package_version}, lock={lock_version}, "
+                f"runtime={__version__})."
+            )
+E           RuntimeError: Cannot apply generated RuleSpec: axiom-encode version metadata is inconsistent (pyproject=0.2.1201, package=0.2.1201, lock=0.2.1201, runtime=0.2.2053).
+
+src/axiom_encode/cli.py:26919: RuntimeError
+=============================== warnings summary ===============================
+.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:72
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:72: PyparsingDeprecationWarning: 'enablePackrat' deprecated - use 'enable_packrat'
+    ParserElement.enablePackrat()
+
+.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:85
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:85: PyparsingDeprecationWarning: 'escChar' argument is deprecated, use 'esc_char'
+    quoted_identifier = QuotedString('"', escChar="\\", unquoteResults=True)
+
+.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:85
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/expressions/parser.py:85: PyparsingDeprecationWarning: 'unquoteResults' argument is deprecated, use 'unquote_results'
+    quoted_identifier = QuotedString('"', escChar="\\", unquoteResults=True)
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:365
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:365: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:494
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:494: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:498
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:498: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:502
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:502: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:506
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:506: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:538
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:538: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:542
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:542: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:546
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:546: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:550
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/pyiceberg/table/metadata.py:550: PydanticDeprecatedSince212: Using `@model_validator` with mode='after' on a classmethod is deprecated. Instead, use an instance method. See the documentation at https://docs.pydantic.dev/2.12/concepts/validators/#model-after-validator. Deprecated in Pydantic V2.12 to be removed in V3.0.
+    @model_validator(mode="after")
+
+tests/test_cli.py::test_legacy_pending_detection_requires_signed_untampered_evidence
+  /Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/_pytest/runner.py:249: PluggyTeardownRaisedWarning: A plugin raised an exception during an old-style hookwrapper teardown.
+  Plugin: hypothesispytest, Hook: pytest_runtest_makereport
+  KeyboardInterrupt: 
+  For more information see https://pluggy.readthedocs.io/en/stable/api_reference.html#pluggy.PluggyTeardownRaisedWarning
+    report: TestReport = ihook.pytest_runtest_makereport(item=item, call=call)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_cli.py::test_current_encoder_affecting_changes_are_behind_version_bump
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+/Users/maxghenis/.subfleet/worktrees/20260927-153130-producer-axiom-encode/.venv/lib/python3.13/site-packages/_pytest/nodes.py:280: KeyboardInterrupt
+(to show a full traceback on KeyboardInterrupt use --full-trace)
+============ 1 failed, 277 passed, 13 warnings in 864.51s (0:14:24) ============

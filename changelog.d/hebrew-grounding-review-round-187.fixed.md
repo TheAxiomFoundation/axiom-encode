@@ -1,0 +1,1 @@
+A bidirectional mark inside a numeric token is dropped before any other mark is spaced, and after a fraction glyph as after a digit ("−‏.5 אחוזים" is −0.005, "½‏%" 0.005); a comma-grouped whole with more than one group is grouped thousands in any script ("1,234,567%" is 12,345.67).

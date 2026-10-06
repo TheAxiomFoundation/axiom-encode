@@ -2,7 +2,20 @@ from pathlib import Path
 
 import pytest
 
-from axiom_encode.harness.validator_pipeline import ValidatorPipeline
+from axiom_encode.harness.validator_pipeline import (
+    ValidatorPipeline as _ValidatorPipeline,
+)
+
+
+class ValidatorPipeline(_ValidatorPipeline):
+    """Test convenience wrapper for a corpus-free static import check."""
+
+    def __init__(self, *args, local_corpus_release=None, **kwargs):
+        super().__init__(
+            *args,
+            local_corpus_release=local_corpus_release,
+            **kwargs,
+        )
 
 
 def _repo_roots() -> tuple[Path, Path]:

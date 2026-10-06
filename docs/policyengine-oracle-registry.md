@@ -14,6 +14,61 @@ RuleSpec must not contain PolicyEngine/TAXSIM mappings, reviewer metadata,
 ingestion traces, AKN/source-document artifacts, oracle tolerances, scenario
 defaults, or harness heuristics.
 
+## Runtime admission
+
+PolicyEngine evidence requires one RuleSpec-pinned, sealed runtime. Every
+canonical `rulespec-<country>` checkout must commit exactly one
+`.axiom/policyengine-runtime.toml`:
+
+```toml
+[policyengine_runtime]
+schema = "axiom-policyengine-runtime-pin/v1"
+git_commit = "<lowercase 40-character commit SHA>"
+```
+
+The pin deliberately has no repository field. Axiom Encode maps the canonical
+country to the literal official PolicyEngine HTTPS URL in code, fetches the pin
+into a fresh isolated Git object database, and compares every checkout file and
+executable bit with that fetched tree. Checkout remotes, branches, tracking
+refs, Git configuration, credentials, and caller strings are not authority.
+
+Pass the absolute sealed checkout path as `--policyengine-runtime-root` to
+`validate`, `eval-suite`, `eval-suite-revalidate`, `eval-suite-report`, and
+`eval-suite-archive` whenever the validation or suite selects PolicyEngine:
+
+```bash
+axiom-encode validate /path/to/rulespec-us/us/statutes/example.yaml \
+  --oracle policyengine \
+  --policyengine-runtime-root /absolute/path/to/policyengine-us \
+  --corpus-path /absolute/path/to/axiom-corpus \
+  --axiom-rules-engine-path /absolute/path/to/axiom-rules-engine
+```
+
+The runtime must use a protected detached `HEAD` at the exact pin. Its checkout
+and complete import closure must be root-owned and caller/ACL-nonwritable under
+protected root-owned ancestors, while the launcher runs unprivileged with equal
+real and effective UIDs. Symlinks, writable or special entries, and host-owned
+Python components are rejected.
+
+`.venv` is a checkout-owned standalone CPython prefix, not a conventional venv
+linked to a host interpreter or standard library. It contains a regular
+`.venv/bin/python`, the complete `lib/pythonX.Y` standard library, exactly one
+corresponding `site-packages`, dependencies, metadata, and native extensions.
+`pyvenv.cfg`, `.pth`, `sitecustomize.py`, and `usercustomize.py` are forbidden.
+
+Admission and every oracle launch use `python -I -S -B`. A trusted bootstrap
+prepends only the validated checkout and `site-packages`; all initial Python
+paths and prefixes must remain inside `.venv`. The parent process—not the
+probed child—hashes the full checkout, stdlib, dependency, metadata, native-file,
+and PolicyEngine closure before and after imports and around each oracle run.
+The resulting `axiom-policyengine-runtime/v2` identity and canonical SHA-256
+flow through suite admission, results, verdicts, reports, and archives. Pin or
+closure mutation, resume mismatches, and zero comparable evidence fail closed.
+
+TAXSIM and the former `all` selector are removed. Validation, suite evidence,
+prediction scores, run records, telemetry, and exports accept only PolicyEngine
+or no oracle; old payloads containing TAXSIM fields are rejected.
+
 ## Mapping Keys
 
 Mappings are keyed by canonical Axiom legal output IDs:
@@ -144,18 +199,20 @@ Use the coverage command before assigning autonomous encoding work and after a
 batch lands:
 
 ```bash
-axiom-encode oracle-coverage --root /path/to/workspace --program snap
+axiom-encode oracle-coverage --root /path/to/rulespec-us --program snap
 ```
 
-The report scans sibling `rulespec-*` repositories, constructs canonical legal IDs
-for every executable `kind: parameter` and `kind: derived` output, and classifies
-each output as:
+The report scans only the explicit canonical country checkout, constructs
+canonical legal IDs for every executable `kind: parameter` and `kind: derived`
+output, and classifies each output as:
 
 - `comparable`: an exact registry mapping can be run against PolicyEngine
 - `known_not_comparable`: the registry deliberately classifies the output as out
   of oracle scope, usually because it is a legal intermediate or source-specific
   assembly point
 - `unmapped`: no registry entry or prefix covers the output yet
+- `pending_classification`: a temporary declaration records classification debt;
+  release gates reject this status
 
 Autonomous agents should treat `unmapped` as work queue material. They should
 either add an exact oracle mapping, add a narrow `not_comparable` classification
@@ -165,7 +222,10 @@ Do not hide unmapped outputs in RuleSpec metadata.
 CI jobs that need complete classification can use:
 
 ```bash
-axiom-encode oracle-coverage --root /path/to/workspace --fail-on-unmapped
+axiom-encode oracle-coverage \
+  --root /path/to/rulespec-us \
+  --fail-on-unmapped \
+  --fail-on-pending
 ```
 
 CI jobs that need oracle-tested RuleSpec should also fail on comparable outputs
@@ -175,6 +235,7 @@ missing from companion tests:
 axiom-encode oracle-coverage \
   --root /path/to/workspace \
   --fail-on-unmapped \
+  --fail-on-pending \
   --fail-on-untested-comparable
 ```
 
@@ -204,8 +265,8 @@ specific local artifact.
 
 ### CI ownership of the federal income tax (FIIT) comparison
 
-`axiom-encode tax-populace-compare` (and its `tax-ecps-compare` alias) is the
-FIIT comparison harness. As of the A9 runner unification it is **deprecated for
+`axiom-encode tax-populace-compare` is the FIIT comparison harness. As of the
+A9 runner unification it is **deprecated for
 CI / weekly reporting**: the reported FIIT number and its dashboard artifact are
 produced by `axiom-oracles`, which wraps this command in its standard
 comparison runner (`comparisons/fiit-ecps.yaml` → `scripts/run_comparison.py`),
@@ -232,7 +293,7 @@ axiom-encode oracle-coverage \
 Use the candidate command to turn coverage into a priority queue:
 
 ```bash
-axiom-encode oracle-candidates --root /path/to/workspace --program snap
+axiom-encode oracle-candidates --root /path/to/rulespec-us --program snap
 ```
 
 The command prioritizes untested comparable mappings, unmapped outputs that look
@@ -246,7 +307,7 @@ Use the cloud queue command to export deterministic work items before assigning
 parallel encoding work:
 
 ```bash
-axiom-encode cloud-queue --root /path/to/workspace --json
+axiom-encode cloud-queue --root /path/to/rulespec-us --json
 ```
 
 The queue is model-free orchestration input. It converts PolicyEngine program

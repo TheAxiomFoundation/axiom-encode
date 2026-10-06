@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_current_encoder_affecting_changes_are_behind_version_bump ________
+tests/test_cli.py:1200: in test_current_encoder_affecting_changes_are_behind_version_bump
+    provenance = _require_axiom_encode_version_provenance(repo)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/axiom_encode/cli.py:26919: in _require_axiom_encode_version_provenance
+    raise RuntimeError(
+E   RuntimeError: Cannot apply generated RuleSpec: axiom-encode version metadata is inconsistent (pyproject=0.2.1201, package=0.2.1201, lock=0.2.1201, runtime=0.2.2053).
+=========================== short test summary info ============================
+FAILED tests/test_cli.py::test_current_encoder_affecting_changes_are_behind_version_bump
+1 failed, 1388 deselected in 115.35s (0:01:55)

@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
+from axiom_encode import __version__
 from axiom_encode import run_log as rl
 from axiom_encode import run_log_export as rx
+from tests.eval_evidence_fixtures import (
+    TEST_APPLY_PRIVATE_KEY_B64,
+    TEST_APPLY_PUBLIC_KEY_B64,
+)
+from tests.signing_broker_fixtures import SigningBrokerFixture
 
 # ---------------------------------------------------------------------------
 # Pipeline spec / DAG
@@ -219,6 +227,25 @@ def test_backfill_emits_generate_with_backfilled_flag():
     assert generate.attrs["citation"] == "us-ct/statute/17b-104"
 
 
+def test_backfill_preserves_escalation_metadata_and_aggregate_duration():
+    escalation = {
+        "escalated": True,
+        "failed_attempt_count": 2,
+        "initial_model": "gpt-5.6-terra",
+        "escalation_model": "gpt-5.6-sol",
+    }
+    events = rx.synthesize_backfill_events(
+        _fake_run(
+            total_duration_ms=12600,
+            outcome={"generation_escalation": escalation},
+        ),
+        None,
+    )
+    generate = next(event for event in events if event.stage == "generate")
+    assert generate.duration_ms == 12600
+    assert generate.attrs["generation_escalation"] == escalation
+
+
 def test_backfill_never_fabricates_downstream_or_judge_stages():
     run = _fake_run(
         outcome={
@@ -270,7 +297,7 @@ def test_backfill_uses_manifest_provenance_when_present(tmp_path):
         "trace_sha256": "cafef00d",
         "context_manifest_file": "/tmp/ctx.json",
         "context_manifest_sha256": "0011",
-        "signature": {"key_id": "axiom-encode-apply-v1"},
+        "signature": {"key_id": "sha256:" + "a" * 64},
         "applied_files": [{"path": "statutes/17b-104.yaml", "sha256": "aa"}],
         "_manifest_path": "/tmp/m.json",
         "_manifest_sha256": "ff00",
@@ -282,7 +309,7 @@ def test_backfill_uses_manifest_provenance_when_present(tmp_path):
     assert generate.attrs["generation_prompt_sha256"] == "deadbeef"
     assert generate.attrs["trace_sha256"] == "cafef00d"
     apply_event = next(e for e in events if e.stage == "apply")
-    assert apply_event.attrs["signature_key_id"] == "axiom-encode-apply-v1"
+    assert apply_event.attrs["signature_key_id"] == "sha256:" + "a" * 64
     assert apply_event.attrs["manifest_sha_chain"]
 
 
@@ -321,7 +348,6 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
         missing_source_numeric_occurrence_count=0,
         generalist_review_pass=None,
         policyengine_pass=None,
-        taxsim_pass=None,
     )
     result = SimpleNamespace(
         success=False,
@@ -341,7 +367,17 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
     writer = rx.emit_live_encode_events(
         result,
         "liverun1",
-        {"final_success": False, "status": "apply_blocked_validation"},
+        {
+            "final_success": False,
+            "status": "apply_blocked_validation",
+            "generation_escalation": {
+                "escalated": True,
+                "failed_attempt_count": 2,
+                "initial_model": "gpt-5.6-terra",
+                "escalation_model": "gpt-5.6-sol",
+            },
+        },
+        total_duration_ms=12600,
         log_dir=tmp_path,
     )
     assert writer.last_error is None
@@ -352,6 +388,13 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
     assert by_stage["gate.ci"].reason_code == "ci_failure"
     assert by_stage["gate.grounding"].status == "passed"
     assert by_stage["apply"].status == "failed"
+    assert by_stage["generate"].duration_ms == 12600
+    assert by_stage["generate"].attrs["generation_escalation"] == {
+        "escalated": True,
+        "failed_attempt_count": 2,
+        "initial_model": "gpt-5.6-terra",
+        "escalation_model": "gpt-5.6-sol",
+    }
     # Live logs are NOT flagged as backfill.
     assert by_stage["generate"].attrs.get("backfilled") is None
 
@@ -536,14 +579,219 @@ def test_backfill_survives_malformed_timestamp_row(tmp_path):
     assert report["exported"] == 2
 
 
-def test_build_manifest_index_skips_non_dict_and_bad_json(tmp_path):
-    mdir = tmp_path / "repo" / ".axiom" / "encoding-manifests"
+def test_build_manifest_index_rejects_unverified_json(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    mdir = repo / ".axiom" / "encoding-manifests"
     mdir.mkdir(parents=True)
     (mdir / "list.json").write_text("[1, 2, 3]")  # valid JSON, not an object
     (mdir / "broken.json").write_text("{not json")
     (mdir / "ok.json").write_text(json.dumps({"run_id": "abc12345", "backend": "x"}))
-    index = rx.build_manifest_index([tmp_path / "repo"])
-    assert set(index) == {"abc12345"}  # no crash; only the real manifest indexed
+    with pytest.raises(ValueError, match="Invalid apply manifests"):
+        rx.build_manifest_index([repo])
+
+
+def test_build_manifest_index_rejects_workspace_and_duplicate_checkouts(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    with pytest.raises(ValueError, match="exact canonical"):
+        rx.build_manifest_index([tmp_path])
+    with pytest.raises(ValueError, match="Duplicate RuleSpec checkout"):
+        rx.build_manifest_index([repo, repo])
+
+
+def _write_verified_run_log_manifest(tmp_path, monkeypatch):
+    repo = tmp_path / "rulespec-us"
+    waiver = repo / "known-validation-gaps.yaml"
+    waiver.parent.mkdir(parents=True, exist_ok=True)
+    waiver.write_text("validate_failures: {}\n")
+    waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+    toolchain = repo / ".axiom/toolchain.toml"
+    toolchain.parent.mkdir(parents=True, exist_ok=True)
+    toolchain.write_text(
+        "[toolchain]\n"
+        'axiom_corpus_release = "run-log-test"\n'
+        f'axiom_corpus_release_content_sha256 = "{"e" * 64}"\n'
+        f'validation_waiver_set_sha256 = "{waiver_sha256}"\n'
+    )
+    rule_rel = "us/statutes/26/1.yaml"
+    corpus_path = "us/statute/26/1"
+    source_sha256 = "a" * 64
+    rule = repo / rule_rel
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {corpus_path}\n"
+        f"    source_sha256: {source_sha256}\n"
+        "rules: []\n"
+    )
+    provision_file = "data/corpus/provisions/us/statute/test.jsonl"
+    source_attestation = {
+        "requested_corpus_citation_path": corpus_path,
+        "resolved_corpus_citation_path": corpus_path,
+        "corpus_source": "local",
+        "corpus_release": "run-log-test",
+        "corpus_release_content_sha256": "e" * 64,
+        "corpus_release_selector_sha256": "b" * 64,
+        "provision_file": provision_file,
+        "provision_file_sha256": "c" * 64,
+        "row": {
+            "provision_file": provision_file,
+            "provision_file_sha256": "c" * 64,
+            "line_number": 1,
+            "record_id": "test:1",
+            "citation_path": corpus_path,
+            "jurisdiction": "us",
+            "document_class": "statute",
+            "version": "test",
+            "source_path": "sources/us/statute/1",
+            "source_as_of": "2026-01-01",
+            "expression_date": "2026-01-01",
+            "body_sha256": source_sha256,
+        },
+        "component_rows": [],
+        "source_sha256": source_sha256,
+        "resolved_text_sha256": source_sha256,
+        "generation_input_sha256": "d" * 64,
+        "rulespec_root": "rulespec-us/us",
+        "source_as_of": "2026-01-01",
+        "expression_date": "2026-01-01",
+    }
+    payload = {
+        "schema_version": "axiom-encode/applied-rulespec/v5",
+        "generated_at": "2026-07-11T00:00:00+00:00",
+        "run_id": "abc12345",
+        "backend": "codex",
+        "tool": "axiom-encode encode --apply",
+        "axiom_encode_version": __version__,
+        "axiom_encode_git": {
+            "root": "/repo/axiom-encode",
+            "commit": "a" * 40,
+            "dirty_tracked": False,
+            "version": __version__,
+            "version_commit": "b" * 40,
+            "identity_source": "git",
+        },
+        "generation_prompt_sha256": None,
+        "citation": corpus_path,
+        "runner": "codex",
+        "model": "run-log-test-model",
+        "validation_waiver_set_sha256": waiver_sha256,
+        "generated_output_root": str(tmp_path / "generated"),
+        "generated_output_file": None,
+        "generated_output_sha256": None,
+        "trace_file": None,
+        "trace_sha256": None,
+        "context_manifest_file": None,
+        "context_manifest_sha256": None,
+        "source_attestation": source_attestation,
+        "applied_files": [
+            {
+                "path": rule_rel,
+                "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+            }
+        ],
+        "validation_execution": {
+            "schema": "axiom-encode/apply-validation-execution/v1",
+            "axiom_encode": {
+                "repository": "github.com/TheAxiomFoundation/axiom-encode",
+                "commit": "a" * 40,
+                "version": __version__,
+                "identity_source": "git",
+            },
+            "axiom_rules_engine": {
+                "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",
+                "commit": "e" * 40,
+            },
+            "policy_pre_apply": {
+                "rulespec_root": "rulespec-us/us",
+                "pre_apply_content_sha256": "a" * 64,
+                "pre_apply_file_count": 1,
+                "toolchain_contract_sha256": "b" * 64,
+                "validation_waiver_set_sha256": waiver_sha256,
+            },
+            "rulespec_dependencies": [],
+        },
+    }
+    from axiom_encode.cli import _sign_applied_encoding_manifest
+
+    signing_broker = SigningBrokerFixture(
+        apply_private_key=TEST_APPLY_PRIVATE_KEY_B64,
+        apply_public_key=TEST_APPLY_PUBLIC_KEY_B64,
+    )
+    _sign_applied_encoding_manifest(payload, signing_broker)
+    manifest = repo / ".axiom/encoding-manifests/us/statutes/26/1.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(payload))
+    monkeypatch.setenv(
+        "AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY",
+        TEST_APPLY_PUBLIC_KEY_B64,
+    )
+    monkeypatch.setattr(
+        "axiom_encode.signing_broker._active_broker",
+        signing_broker,
+    )
+    monkeypatch.setattr("axiom_encode.signing_broker._active_broker_pid", None)
+    return repo, rule, manifest
+
+
+def test_build_manifest_index_accepts_verified_v4(tmp_path, monkeypatch):
+    repo, _rule, _manifest = _write_verified_run_log_manifest(tmp_path, monkeypatch)
+
+    index = rx.build_manifest_index([repo])
+
+    assert set(index) == {"abc12345"}
+    assert len(index["abc12345"]["_manifest_sha256"]) == 64
+
+
+def test_build_manifest_index_reuses_one_receipt_proof_cache(tmp_path, monkeypatch):
+    import axiom_encode.cli as cli_module
+
+    repo, _rule, manifest = _write_verified_run_log_manifest(tmp_path, monkeypatch)
+    second = manifest.with_name("second.json")
+    second.write_bytes(manifest.read_bytes())
+    original = cli_module._load_verified_applied_encoding_manifest_payload
+    proof_calls = 0
+
+    def counted_loader(*args, **kwargs):
+        nonlocal proof_calls
+        cache = kwargs["path_migration_receipt_proof_cache"]
+        proof_key = (str(repo), "shared-receipt")
+        if proof_key not in cache:
+            proof_calls += 1
+            cache[proof_key] = ()
+        payload, root_prefix, digest, issues = original(*args, **kwargs)
+        if payload is not None and Path(args[1]).name == "second.json":
+            payload = dict(payload)
+            payload["run_id"] = "second-run"
+        return payload, root_prefix, digest, issues
+
+    monkeypatch.setattr(
+        cli_module,
+        "_load_verified_applied_encoding_manifest_payload",
+        counted_loader,
+    )
+
+    index = rx.build_manifest_index([repo])
+
+    assert set(index) == {"abc12345", "second-run"}
+    assert proof_calls == 1
+
+
+def test_build_manifest_index_rejects_stale_or_tampered_manifest(tmp_path, monkeypatch):
+    repo, rule, manifest = _write_verified_run_log_manifest(tmp_path, monkeypatch)
+    rule.write_text("format: rulespec/v1\nrules: []\n# changed\n")
+    with pytest.raises(ValueError, match="stale sha256"):
+        rx.build_manifest_index([repo])
+
+    _repo, _rule, manifest = _write_verified_run_log_manifest(tmp_path, monkeypatch)
+    payload = json.loads(manifest.read_text())
+    payload["backend"] = "openai"
+    manifest.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="invalid encoder apply manifest signature"):
+        rx.build_manifest_index([repo])
 
 
 def test_publish_and_staleness_tolerate_corrupt_line(tmp_path):
