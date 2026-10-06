@@ -8831,6 +8831,7 @@ class _IntervalSelectorBound:
 
 
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
+    re.compile(r"AXIOM_ORACLE_UNSUPPORTED:"),
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
@@ -42905,8 +42906,9 @@ print(f'RESULT:{{float(value)}}')
             household_state = adapter.default_state_code
         if adapter is not None and adapter.state_code_from_boolean_input is not None:
             input_key, true_state, false_state = adapter.state_code_from_boolean_input
-            if input_key in inputs:
-                household_state = true_state if bool(inputs[input_key]) else false_state
+            state_selection = self._rulespec_test_input_value(inputs, input_key)
+            if state_selection is not None:
+                household_state = true_state if bool(state_selection) else false_state
         utility_region = None
         if "snap_utility_region" in inputs:
             utility_region = str(inputs["snap_utility_region"])
@@ -42981,6 +42983,30 @@ print(f'RESULT:{{float(value)}}')
                 )
         household_extra = ", ".join(household_extra_parts)
 
+        parameter_check_script = ""
+        if adapter is not None and adapter.boolean_input_parameter_check is not None:
+            input_key, parameter_path, value_mode = (
+                adapter.boolean_input_parameter_check
+            )
+            requested_value = self._rulespec_test_input_value(inputs, input_key)
+            if requested_value is not None:
+                parameter_period = self._normalize_monthly_pe_period(
+                    inputs.get("period"), year, "01"
+                )
+                parameter_expr = (
+                    f"bool(_check_params.{parameter_path}[{household_state!r}])"
+                )
+                if value_mode == "inverted_bool":
+                    parameter_expr = f"not {parameter_expr}"
+                parameter_check_script = f"""
+from policyengine_us import CountryTaxBenefitSystem
+
+_check_params = CountryTaxBenefitSystem().parameters({parameter_period!r})
+if {bool(requested_value)!r} != ({parameter_expr}):
+    print({('AXIOM_ORACLE_UNSUPPORTED: state parameter ' + parameter_path + ' disagrees with RuleSpec input ' + input_key + ' for ' + household_state)!r})
+    raise SystemExit(86)
+"""
+
         if adapter is not None and adapter.parameter_path is not None:
             parameter_period = self._normalize_monthly_pe_period(
                 inputs.get("period"), year, "01"
@@ -42989,18 +43015,25 @@ print(f'RESULT:{{float(value)}}')
             if adapter.parameter_value_mode == "float":
                 return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
 val = float({value_expr})
 print(f'RESULT:{{val}}')
 """
+            boolean_expr = (
+                f"not bool({value_expr})"
+                if adapter.parameter_value_mode == "inverted_bool"
+                else f"bool({value_expr})"
+            )
             return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
-val = 1.0 if bool({value_expr}) else 0.0
+val = 1.0 if {boolean_expr} else 0.0
 print(f'RESULT:{{val}}')
 """
 
@@ -43012,6 +43045,7 @@ print(f'RESULT:{{val}}')
 
         script = f"""
 from policyengine_us import Simulation
+{parameter_check_script}
 
 situation = {{
     'people': {people_str},

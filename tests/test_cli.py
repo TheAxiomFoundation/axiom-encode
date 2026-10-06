@@ -1281,14 +1281,13 @@ def test_arizona_snap_ecps_projects_boundary_inputs():
         "snap_total_monthly_unearned_income": 200.0,
     }
     assert project_jurisdiction_household_inputs(config, values, 0) == {
-        "na_net_income": 750.0,
         "na_budgetary_unit_is_eligible": True,
         "budgetary_unit_participant_count": 2,
+        "az_utility_allowance_participant_count": 2,
         "thrifty_food_plan_amount_for_budgetary_unit_size": 536.0,
         "minimum_na_allotment": 24.0,
         "initial_month_proration_applies": False,
         "prorated_initial_month_na_benefit": 0,
-        "snap_excess_shelter_deduction_for_net_income": 150.0,
     }
 
 
