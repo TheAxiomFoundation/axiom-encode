@@ -43,9 +43,7 @@ STRUCTURES = (
 
 
 def _inventory(source: str, citation: str, profile: str):
-    cleaned = authoritative_numeric_recall_text(
-        source, corpus_citation_path=citation
-    )
+    cleaned = authoritative_numeric_recall_text(source, corpus_citation_path=citation)
     occurrences = extract_typed_numeric_inventory_occurrences_from_text(
         cleaned, profile=profile
     )
@@ -123,7 +121,10 @@ def test_generated_marker_renumbering_preserves_substantive_inventory(
                 assert source[start:end].strip()
                 assert "£" not in source[start:end]
             inventories.append(
-                [(item.value, item.raw) for item in _inventory(source, citation, profile)]
+                [
+                    (item.value, item.raw)
+                    for item in _inventory(source, citation, profile)
+                ]
             )
         assert inventories[0] == inventories[1] == [(float(amount), str(amount))]
 
@@ -186,10 +187,19 @@ def test_bibliographic_near_misses_cannot_remove_amounts(source, value, profile)
 
 @pytest.mark.parametrize(
     "prefix,required",
-    (("$1\u00a0", 236), ("$1 ", 236), ("1/", 236), ("− ", 236),
-     ("1 * ", 236), ("1,", 1236), ("1. ", 236)),
+    (
+        ("$1\u00a0", 236),
+        ("$1 ", 236),
+        ("1/", 236),
+        ("− ", 236),
+        ("1 * ", 236),
+        ("1,", 1236),
+        ("1. ", 236),
+    ),
 )
-def test_numeric_envelope_prefixes_cannot_hide_bibliographic_shaped_amounts(prefix, required):
+def test_numeric_envelope_prefixes_cannot_hide_bibliographic_shaped_amounts(
+    prefix, required
+):
     source = f"{prefix}236 of the National Housing Act subsidy is payable."
     assert not _additional_numeric_recall_spans(source, corpus_citation_path=US)
     assert any(item.value == required for item in _inventory(source, US, "legacy"))
@@ -205,8 +215,21 @@ def test_ambiguous_multiple_quantities_cannot_be_treated_as_a_heading():
 @pytest.mark.parametrize("profile", PROFILES)
 def test_currency_vocabulary_protects_citation_shaped_amounts(profile):
     prefixes = (
-        "£", "$", "€", "¥", "₹", "pounds", "dollars", "euros", "gbp",
-        "usd", "cad", "aud", "chf", "Canadian dollars", "Swiss francs",
+        "£",
+        "$",
+        "€",
+        "¥",
+        "₹",
+        "pounds",
+        "dollars",
+        "euros",
+        "gbp",
+        "usd",
+        "cad",
+        "aud",
+        "chf",
+        "Canadian dollars",
+        "Swiss francs",
     )
     for currency in prefixes:
         for citation, numeral, fragment in (
@@ -214,7 +237,9 @@ def test_currency_vocabulary_protects_citation_shaped_amounts(profile):
             (US, 236, "236 of the National Housing Act"),
         ):
             source = f"{currency} {fragment} subsidy is payable."
-            assert any(item.value == numeral for item in _inventory(source, citation, profile)), source
+            assert any(
+                item.value == numeral for item in _inventory(source, citation, profile)
+            ), source
             assert _recall_issues(source, citation, profile), source
 
 
@@ -235,16 +260,23 @@ def test_currency_extensions_preserve_untyped_numeric_obligations(profile):
         ):
             for spacing in ("", " "):
                 source = f"{currency}{spacing}{fragment} subsidy is payable."
-                assert not _additional_numeric_recall_spans(source, corpus_citation_path=citation)
+                assert not _additional_numeric_recall_spans(
+                    source, corpus_citation_path=citation
+                )
                 if spacing:
                     # Existing extraction does not promise numeric obligations
                     # for digits glued to unknown currency words. The new
                     # masks must still avoid claiming those tokens as citations.
-                    assert any(item.value == numeral for item in _inventory(source, citation, profile)), source
+                    assert any(
+                        item.value == numeral
+                        for item in _inventory(source, citation, profile)
+                    ), source
                     assert _recall_issues(source, citation, profile), source
         source = f"Act of 1977 {currency} is payable."
         assert not _additional_numeric_recall_spans(source, corpus_citation_path=UK)
-        assert any(item.value == 1977 for item in _inventory(source, UK, profile)), source
+        assert any(item.value == 1977 for item in _inventory(source, UK, profile)), (
+            source
+        )
         assert _recall_issues(source, UK, profile), source
 
 
@@ -282,22 +314,33 @@ def test_generated_duration_conversions_cannot_hide_a_separate_payment(unit, fac
     "source,converted",
     (("deux ans", 24), ("La sixieme semaine.", 42)),
 )
-def test_word_durations_without_a_surviving_source_amount_keep_a_recall_obligation(source, converted):
+def test_word_durations_without_a_surviving_source_amount_keep_a_recall_obligation(
+    source, converted
+):
     assert converted in [item.value for item in _inventory(source, UK, "legacy")]
     assert _recall_issues(source, UK, "legacy")
 
 
 @pytest.mark.parametrize(
     "source,amount,factor",
-    (("eight weeks", 8, 7), ("La periode est de six semaines.", 6, 7),
-     ("Cette prolongation ne peut depasser quinze ans.", 15, 12)),
+    (
+        ("eight weeks", 8, 7),
+        ("La periode est de six semaines.", 6, 7),
+        ("Cette prolongation ne peut depasser quinze ans.", 15, 12),
+    ),
 )
-def test_word_durations_with_a_complete_recalled_amount_do_not_require_its_conversion(source, amount, factor):
+def test_word_durations_with_a_complete_recalled_amount_do_not_require_its_conversion(
+    source, amount, factor
+):
     assert [item.value for item in _inventory(source, UK, "legacy")] == [amount]
     assert _recall_issues(source, UK, "legacy")
     assert not _recall_issues(source, UK, "legacy", (amount,))
-    assert numeric_value_is_grounded(amount * factor, extract_typed_numeric_occurrences_from_text(source))
-    assert _recall_issues(f"{source} The payment is £{amount * factor}.", UK, "legacy", (amount,))
+    assert numeric_value_is_grounded(
+        amount * factor, extract_typed_numeric_occurrences_from_text(source)
+    )
+    assert _recall_issues(
+        f"{source} The payment is £{amount * factor}.", UK, "legacy", (amount,)
+    )
 
 
 @pytest.mark.parametrize("source", ("1\u00a0000 weeks", "1.000 weeks"))

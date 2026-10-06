@@ -15955,9 +15955,7 @@ def _tokenize_numeric_occurrences_from_text(
     # source-stated amount when the complete numeral is already in inventory.
     # Defer that decision until the digit passes finish: grouped or ambiguous
     # numbers can be read differently by the legacy European phrase parser.
-    duration_conversions: list[
-        tuple[NumericOccurrence, tuple[int, int], float]
-    ] = []
+    duration_conversions: list[tuple[NumericOccurrence, tuple[int, int], float]] = []
 
     def add_duration_conversion(
         match: re.Match[str], source_value: float, factor: int

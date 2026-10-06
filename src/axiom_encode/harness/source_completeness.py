@@ -13092,16 +13092,14 @@ def _additional_numeric_recall_spans(
     editorial notes are source-format conventions, not rules supplied by an
     encoding. Mask only their own spans so equal operative amounts survive.
     """
+
     def is_quantity(match: re.Match[str]) -> bool:
         return bool(
             _RECALL_QUANTITY_SUFFIX.match(text, match.end())
             or _RECALL_QUANTITY_PREFIX.search(text[: match.start()])
             # A citation recognizer must never take the suffix of a decimal,
             # grouped amount, signed amount or larger identifier.
-            or (
-                match.start() > 0
-                and text[match.start() - 1] in ".,0123456789_+-−"
-            )
+            or (match.start() > 0 and text[match.start() - 1] in ".,0123456789_+-−")
         )
 
     spans = [
