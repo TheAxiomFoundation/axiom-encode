@@ -1,0 +1,63 @@
+format: rulespec/v1
+module:
+  status: deferred
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-or/manual/odhs/open/page-26
+    source_sha256: c4abf857ffa0d1d59b9904e9df6ca1fc17d8cbce5a6db251e96377627051c0b9
+  summary: “OPEN is intended to be the initial resource location for staff looking
+    for policy answers or clarity.” This introductory page describes the manual’s
+    purpose, contents, update schedule, staff resources, error-reporting contact,
+    and instruction not to save or download it. It states no eligibility calculation.
+  deferred_outputs:
+  - output: us-or:policies/odhs/open/page-26#manual_introduction
+    reason: Page 26, source unit formula clause 1, “The Oregon Programs Eligibility
+      Notebook (OPEN) was originally created as a tool to support workers through
+      eligibility determination and family engagement,” describes the manual’s purpose.
+      It supplies neither a computation nor inputs from which a computed result could
+      be derived.
+  - output: us-or:policies/odhs/open/page-26#manual_contents
+    reason: 'Page 26, source unit formula clause 8, “The manual: • Serves as a simplified
+      explanation of federal and state regulations • Includes examples of how policy
+      is applied and affects families • Links to Oregon Administrative Rules (OARs)
+      • Connects portions of policy that are closely interconnected,” lists the manual’s
+      functions. It supplies neither a computation nor inputs from which a computed
+      result could be derived.'
+  - output: us-or:policies/odhs/open/page-26#additional_resources
+    reason: Page 26, source unit formula clause 11, “Additional resources and tools
+      can be found on Program specific SharePoint pages, accessible only to internal
+      ODHS users,” introduces a list of resource locations, followed by other training
+      and policy-resource webpages. It supplies neither a computation nor inputs from
+      which a computed result could be derived.
+rules:
+- name: table_of_contents_month
+  kind: parameter
+  dtype: Integer
+  source: Table of contents date, “(07/2026)”.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-or/manual/odhs/open/page-26
+          excerpt: (07/2026)
+  versions:
+  - effective_from: '2026-07-01'
+    formula: '7'
+- name: table_of_contents_year
+  kind: parameter
+  dtype: Integer
+  source: Table of contents date, “(07/2026)”.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-or/manual/odhs/open/page-26
+          excerpt: (07/2026)
+  versions:
+  - effective_from: '2026-07-01'
+    formula: '2026'

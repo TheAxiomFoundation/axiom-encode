@@ -2,6 +2,15 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Stop agency-manual typography from creating complete-source-unit
+  formula-output obligations. The arithmetic recognizer read a month/year
+  date (`93 (07/2026)`, the header of every Oregon Programs Eligibility
+  Notebook page), a `•` list bullet between words, a web address and a
+  footnote asterisk as operators, so every Oregon page in the SNAP dispatch
+  pilot asked for a computation no encoding could provide. Those spans are
+  now blanked before matching; a `•` next to a number, a parenthesis or a
+  one-letter variable stays multiplication (the § 32a EStG tariff).
+
 - Accept a federal regulation's `<title>-cfr` module root
   (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
   anchor alongside the corpus-shaped `us:regulations/42/457/800/...` root. The
