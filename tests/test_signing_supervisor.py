@@ -1774,6 +1774,26 @@ def test_invalid_external_signer_response_fails_closed(
         )
     assert completed.returncode != 0
     assert expected in completed.stderr
+    broker_detail = {
+        "wrong_challenge_signature": "challenge response is invalid",
+        "legacy_v1_response": "response identity is invalid",
+        "extra_challenge_field": 'unknown field "legacy"',
+    }.get(behavior)
+    if broker_detail is not None:
+        # The supervisor kills the broker as soon as it reads the failed
+        # initialization frame, so the broker must report its detailed failure
+        # before it sends that frame.
+        lines = completed.stderr.splitlines()
+        broker_lines = [
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("signing broker: ") and broker_detail in line
+        ]
+        supervisor_line = lines.index(
+            "signing supervisor: External apply signer initialization failed"
+        )
+        assert broker_lines, completed.stderr
+        assert broker_lines[0] < supervisor_line
 
 
 def test_non_socket_signer_descriptor_is_rejected(

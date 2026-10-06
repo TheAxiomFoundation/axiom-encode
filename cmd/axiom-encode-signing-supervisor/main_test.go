@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -390,6 +391,59 @@ func TestBrokerAllowsVerificationOnlyButRejectsAliasedSignerDescriptors(t *testi
 	})
 	if err == nil || !strings.Contains(err.Error(), "must be distinct") {
 		t.Fatalf("expected aliased signer descriptor rejection, got %v", err)
+	}
+}
+
+type orderedWriter struct {
+	name   string
+	events *[]string
+	buffer bytes.Buffer
+}
+
+func (writer *orderedWriter) Write(data []byte) (int, error) {
+	*writer.events = append(*writer.events, writer.name)
+	return writer.buffer.Write(data)
+}
+
+func TestBrokerFailureReportsDiagnosticBeforeErrorFrame(t *testing.T) {
+	var events []string
+	diagnostics := &orderedWriter{name: "diagnostic", events: &events}
+	connection := &orderedWriter{name: "frame", events: &events}
+	cause := errors.New("external apply signer challenge response is invalid")
+
+	err := failBroker(
+		diagnostics, connection, 0, "External apply signer initialization failed", cause,
+	)
+
+	// The supervisor kills the broker once it reads the frame, so the detailed
+	// diagnostic must already be on stderr by then.
+	if len(events) < 2 || events[0] != "diagnostic" {
+		t.Fatalf("expected the diagnostic before the error frame, got %v", events)
+	}
+	for _, event := range events[1:] {
+		if event != "frame" {
+			t.Fatalf("expected only frame writes after the diagnostic, got %v", events)
+		}
+	}
+	if got := diagnostics.buffer.String(); got != "signing broker: "+cause.Error()+"\n" {
+		t.Fatalf("unexpected diagnostic %q", got)
+	}
+	var response receivedBrokerResponse
+	if err := receiveFrame(&connection.buffer, &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Version != protocolVersion || response.ID != 0 || response.OK {
+		t.Fatalf("unexpected error frame %#v", response)
+	}
+	if response.Error != "External apply signer initialization failed" {
+		t.Fatalf("error frame must carry only the public message, got %q", response.Error)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("expected the broker error to wrap its cause, got %v", err)
+	}
+	var reported reportedBrokerError
+	if !errors.As(err, &reported) {
+		t.Fatalf("expected main to see the diagnostic as already reported, got %T", err)
 	}
 }
 
