@@ -6355,6 +6355,10 @@ def _copy_targeted_atomic_inputs(runner_temp: Path, artifact: Path) -> None:
             "persisted source bundle differs from atomic source input",
         ),
         (
+            "sealed-source-bundle-replace",
+            MULTILANE_REPLACE_ERROR,
+        ),
+        (
             "coherent-canonical-refresh-rewrite",
             "persisted canonical refresh bundle differs from atomic source input",
         ),
@@ -6470,7 +6474,22 @@ def test_targeted_artifact_packages_signed_review_context(
             ),
             encoding="utf-8",
         )
-    (tmp_path / "target-operation.txt").write_text("create\n", encoding="ascii")
+    target_operation = (
+        "replace" if mutation == "sealed-source-bundle-replace" else "create"
+    )
+    source_bundle = (
+        ["us-la/statute/47:295"]
+        if mutation == "sealed-source-bundle-replace"
+        else []
+    )
+    if mutation != "coherent-source-bundle-rewrite":
+        (tmp_path / "source-bundle.json").write_text(
+            json.dumps(source_bundle) + "\n",
+            encoding="utf-8",
+        )
+    (tmp_path / "target-operation.txt").write_text(
+        f"{target_operation}\n", encoding="ascii"
+    )
     review_content = "Preserve every supported provision.\n"
     context_payload = {
         "citation": citation,
@@ -6480,7 +6499,7 @@ def test_targeted_artifact_packages_signed_review_context(
             "rulespec_path": rulespec_path,
             "required_deferred_outputs": [],
             "required_test_cases": required_cases,
-            "target_operation": "create",
+            "target_operation": target_operation,
         },
         "review_findings_files": [
             {
@@ -6530,8 +6549,10 @@ def test_targeted_artifact_packages_signed_review_context(
         "applied_files": [{"path": rulespec_path}],
         "context_manifest_file": str(context_path),
         "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
-        "target_operation": "create",
-        "creation_target": {
+        "target_operation": target_operation,
+    }
+    if target_operation == "create":
+        applied_manifest["creation_target"] = {
             "base_commit": rulespec_ref,
             "base_tree": rulespec_tree,
             "primary": rulespec_path,
@@ -6539,8 +6560,7 @@ def test_targeted_artifact_packages_signed_review_context(
             "canonical_manifest": ".axiom/encoding-manifests/"
             + rulespec_path.replace(".yaml", ".json"),
             "orphan_manifest": None,
-        },
-    }
+        }
     if mutation == "manifest-operation-flip":
         applied_manifest["target_operation"] = "replace"
     elif mutation == "manifest-operation-removal":
@@ -6592,10 +6612,54 @@ def test_targeted_artifact_packages_signed_review_context(
         )
     applied_path.write_bytes(applied_bytes)
 
+    if mutation == "sealed-source-bundle-replace":
+        source_citation = source_bundle[0]
+        source_context = {
+            "citation": source_citation,
+            "review_findings_files": [],
+        }
+        source_context_bytes = json.dumps(source_context, sort_keys=True).encode()
+        source_context_path = (
+            tmp_path / "generated" / "source-01" / "context-manifest.json"
+        )
+        source_context_path.parent.mkdir(parents=True)
+        source_context_path.write_bytes(source_context_bytes)
+        source_manifest_path = (
+            rulespec
+            / ".axiom/encoding-manifests/us-la/statutes/47/295.json"
+        )
+        source_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        source_manifest_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "citation": source_citation,
+                    "context_manifest_file": str(source_context_path),
+                    "context_manifest_sha256": hashlib.sha256(
+                        source_context_bytes
+                    ).hexdigest(),
+                    "applied_files": [],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
     packaged_context = tmp_path / "artifact" / "context-manifest.json"
     packaged_inventory = tmp_path / "artifact" / "apply-manifests.json"
     packaged_context.parent.mkdir()
     _copy_targeted_atomic_inputs(tmp_path, packaged_context.parent)
+    if mutation == "sealed-source-bundle-replace":
+        for name in (
+            "guard-generated.json",
+            "metadata.json",
+            "rulespec-generated-head.txt",
+            "rulespec-tree.txt",
+            "signed-import-inventory.json",
+            "status.txt",
+            "worktree-copy.json",
+        ):
+            (packaged_context.parent / name).write_text("fixture\n", encoding="utf-8")
     if mutation == "post-copy-original-controls":
         (tmp_path / "source-bundle.json").write_text(
             '["us-la/statute/47:999"]\n', encoding="utf-8"
@@ -6612,10 +6676,10 @@ def test_targeted_artifact_packages_signed_review_context(
         "ATOMIC_SOURCE_JSON": json.dumps(
             {
                 "schema": "axiom-encode/atomic-source-transaction/v2",
-                "source_bundle": [],
+                "source_bundle": source_bundle,
                 "canonical_refresh_bundle": [],
                 "primary_required_test_cases": required_cases,
-                "target_operation": "create",
+                "target_operation": target_operation,
             }
         ),
         "CITATION": citation,
@@ -6626,6 +6690,11 @@ def test_targeted_artifact_packages_signed_review_context(
         "RULESPEC_CHECKOUT": "rulespec-nz",
         "RULESPEC_REF": rulespec_ref,
         "REPLACE_RULESPEC_PATH": rulespec_path,
+        **(
+            {"SEALED_ARTIFACT_REVALIDATION": "1"}
+            if mutation == "sealed-source-bundle-replace"
+            else {}
+        ),
     }
     completed = subprocess.run(
         [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
