@@ -20,6 +20,7 @@ import functools
 import hashlib
 import json
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -124,6 +125,8 @@ def test_page_93_no_longer_asks_for_typography_formulas():
         "SNAP Staff Tools: https://dhsoha.sharepoint.com/teams/Hub-DHS-ET/"
         "SitePages/SNAP.aspx",
         "See oregon.gov/odhs/food/pages/snap-benefits.aspx for details.",
+        # A capitalized word glued after a period is not a web address.
+        "The net amount.Net income is listed on the notice.",
     ),
 )
 def test_manual_typography_is_not_a_computation(source: str):
@@ -143,10 +146,31 @@ def test_manual_typography_is_not_a_computation(source: str):
         "A household receives 1/2 of the amount.",
         "The result is 2 * 3.",
         "The amount is computed by dividing income by the divisor.",
+        # A fraction of a stated base is not a month/year date.
+        "A household pays 1/2000 of income.",
+        # An asterisk next to a number or a one-letter variable multiplies.
+        "The result is rate* 12.",
+        "The amount is 2 *x.",
+        "Then A *B applies.",
     ),
 )
 def test_real_arithmetic_stays_a_computation(source: str):
     assert source_states_explicit_computation(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        # Masked typography must not let the words on either side meet an
+        # operator (main: not a computation; review of #1771).
+        "or • *Victims of Severe Trafficking",
+        "Language* - No modification",
+        "Unsubsidized employment* • Subsidized private sector employment*",
+        "Eligibility • December 9, 2025 – OBBB",
+    ),
+)
+def test_masking_does_not_create_computations(source: str):
+    assert not source_states_explicit_computation(source)
 
 
 @pytest.mark.parametrize(
@@ -161,6 +185,10 @@ def test_real_arithmetic_stays_a_computation(source: str):
         ("0,42 • x", False),
         ("2 • 3", False),
         ("Section 1 • Intent", False),
+        # Decided trade-off: a bullet between two words is a list marker even
+        # when both words could be formula terms; no corpus clause at
+        # 8f7d60aa writes a word-only product this way.
+        ("Steuersatz • Einkommen", True),
     ),
 )
 def test_list_bullet_is_told_from_multiplication(source: str, expected: bool):
@@ -181,3 +209,16 @@ def test_masking_keeps_offsets():
     assert "•" not in masked
     assert "*" not in masked
     assert masked.startswith("93 (")
+    assert completeness_module._TYPOGRAPHY_MASK in masked
+
+
+def test_bullet_check_stays_linear_on_long_bodies():
+    # 8,000 bullets in one body took seconds when every bullet re-scanned
+    # the whole prefix.
+    source = "Item one • Item two is here. " * 8000
+
+    started = time.perf_counter()
+    masked = completeness_module._without_manual_typography_operators(source)
+
+    assert time.perf_counter() - started < 2
+    assert "•" not in masked

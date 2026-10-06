@@ -441,17 +441,28 @@ _GERMAN_CARDINAL_VALUES = {
 _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNORECASE)
 # Agency-manual typography that the arithmetic recognizer would otherwise read
 # as operators: a month/year date (every page header of the Oregon eligibility
-# notebook reads "93 (07/2026)"), web addresses, whose path slashes and
-# hyphens are neither division nor subtraction, and footnote asterisks
-# attached to a word ("Application Status *includes screenshots").
-_SLASH_MONTH_YEAR = re.compile(r"(?<![\w/.])(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}(?![\w/])")
-_WEB_ADDRESS = re.compile(
-    r"\bhttps?://\S+|"
-    r"\b(?:[A-Za-z0-9-]+\.)+(?:com|gov|org|net|edu|us|info)\b(?:/\S*)?",
-    re.IGNORECASE,
+# notebook reads "93 (07/2026)"; `1/2000 of income` stays a fraction), web
+# addresses, whose path slashes and hyphens are neither division nor
+# subtraction, and footnote asterisks attached to a word ("Application Status
+# *includes screenshots", "verification* is required"). An asterisk next to a
+# number or a one-letter variable (`rate* 12`, `2 *x`) stays multiplication.
+_SLASH_MONTH_YEAR = re.compile(
+    r"(?<![\w/.])(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}(?![\w/])(?![ \t]+of\b)"
 )
-_FOOTNOTE_ASTERISK = re.compile(r"(?:(?<=\s)|^)\*(?=[A-Za-z])|(?<=[A-Za-z])\*(?=\s|$)")
+_WEB_ADDRESS = re.compile(
+    r"\bhttps?://\S+"
+    r"|(?<![\w.@-])www\.\S+"
+    r"|(?<![\w.@-])(?:[A-Za-z0-9-]{1,63}\.){1,10}"
+    r"(?:com|gov|org|net|edu|us|info)/\S*"
+)
+_FOOTNOTE_ASTERISK = re.compile(
+    r"(?:(?<=\s)|^)\*(?=[A-Za-z]{2})"
+    r"|(?<=[A-Za-z]{2})\*(?=[ \t]+[A-Za-z]{2}|[ \t]*(?:$|[.,;:)\n]))"
+)
 _LIST_BULLET = "•"
+# Masked typography becomes this sentinel, not a space, so the operand and
+# operator patterns cannot join the words on either side of it.
+_TYPOGRAPHY_MASK = "\x00"
 _ARITHMETIC_EXPRESSION = re.compile(
     r"(?:\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß]*)"
     r"[ \t]*(?:[+*/=×·•∗∙]|(?<!\w)[−–-](?!\w))[ \t]*"
@@ -4479,14 +4490,18 @@ def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     is multiplication, as in the § 32a EStG tariff "(914,51 • y + 1 400) • y".
     """
 
-    following = re.match(r"[A-Za-zÄÖÜäöüß]+|\S", source_text[end:].lstrip(" \t"))
+    # Bounded windows keep this linear on long bodies with many bullets.
+    following = re.match(
+        r"[A-Za-zÄÖÜäöüß]+|\S", source_text[end : end + 64].lstrip(" \t")
+    )
     if following is None:
         return False
     following_token = following.group(0)
     if not following_token.isalpha() or len(following_token) < 2:
         return False
     previous = re.search(
-        r"(?:[A-Za-zÄÖÜäöüß]+|\S)\Z", source_text[:start].rstrip(" \t")
+        r"(?:[A-Za-zÄÖÜäöüß]+|\S)\Z",
+        source_text[max(0, start - 64) : start].rstrip(" \t"),
     )
     if previous is None:
         return True
@@ -4502,10 +4517,12 @@ def _without_manual_typography_operators(source_text: str) -> str:
     masked = list(source_text)
     for pattern in (_SLASH_MONTH_YEAR, _WEB_ADDRESS, _FOOTNOTE_ASTERISK):
         for match in pattern.finditer(source_text):
-            masked[match.start() : match.end()] = " " * (match.end() - match.start())
+            masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
+                match.end() - match.start()
+            )
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
-            masked[match.start()] = " "
+            masked[match.start()] = _TYPOGRAPHY_MASK
     return "".join(masked)
 
 
