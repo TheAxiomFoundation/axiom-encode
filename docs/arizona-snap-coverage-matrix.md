@@ -109,6 +109,18 @@ household at this income qualifies: test the same facts against the
 source-repaired Arizona ECE module and independent eligibility chain after
 protected generation, including February/March benefit-month boundaries.
 
+An **atomic gross-gate discrepancy**, not full-household parity: the signed
+Arizona FAA5 `gross-income-test.yaml` compiled without editing under a local
+Axiom engine checkout. With $2,500 countable gross income, a $1,304.1666666667
+monthly FPL input, the expanded test enabled, and no elderly/disabled or
+categorical bypass, it uses the open-ended 185% parameter and yields a
+$2,412.708333333395 gross limit and a denial in both February and March 2026.
+The focused PolicyEngine gross-test override using the same income and FPL
+fails in February but passes in March at its 200% limit. This comparison
+isolates the temporal rule gap; it does not match the complete household input
+model or use the CI-pinned Axiom engine. Repair the dated RuleSpec parameter
+and affected companion fixture only through signed, source-bound generation.
+
 A **matched medical-deduction amount boundary**, not end-to-end household
 parity: for January 2026 in Arizona, PolicyEngine US
 `d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
