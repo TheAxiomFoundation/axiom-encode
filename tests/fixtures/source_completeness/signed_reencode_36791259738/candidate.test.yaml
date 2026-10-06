@@ -1,0 +1,10 @@
+- name: table_of_contents_date_snapshot
+  period:
+    period_kind: custom
+    name: day
+    start: '2026-07-01'
+    end: '2026-07-01'
+  input: {}
+  output:
+    us-or:policies/odhs/open/page-26#table_of_contents_month: 7
+    us-or:policies/odhs/open/page-26#table_of_contents_year: 2026
