@@ -9787,6 +9787,18 @@ def test_editorial_slash_date_does_not_create_computation_obligation():
     )
 
 
+def test_snap_table_range_plus_labels_do_not_create_computation_obligation():
+    source = (
+        "Table 2: Standard Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 5: Maximum Asset Limits Household with at least 1 member "
+        "age 60+ or disabled $4,500 All other households $3,000"
+    )
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(source + " Benefit = 300 - 30.")
+    assert source_states_explicit_computation("Benefit = 6+ 48.")
+
+
 @pytest.mark.parametrize(
     "conjunction", ["und/oder", "und / oder", "UND/ODER", "and/or", "and / or"]
 )
