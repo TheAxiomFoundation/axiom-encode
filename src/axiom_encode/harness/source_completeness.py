@@ -4632,6 +4632,18 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
         return True
     for match in _ARITHMETIC_EXPRESSION.finditer(masked_source_text):
         title_prefix = masked_source_text[max(0, match.start() - 120) : match.start()]
+        if re.fullmatch(r"\d+\+\s+(?:\d+|[A-Za-z]+)", match.group(0)) and (
+            re.search(r"\bage\s+$", title_prefix, flags=re.IGNORECASE)
+            or re.search(
+                r"\bhousehold\s+size(?:\s+\d+)+\s+$",
+                title_prefix,
+                flags=re.IGNORECASE,
+            )
+        ):
+            # An age threshold ("age 60+ or disabled") or the last column
+            # of a household-size table ("1 2 3 4 5 6+ 48 States") is a
+            # range label, not addition to the following prose/table cell.
+            continue
         if re.fullmatch(
             r"(?:19|20)\d{2}\s+[–—]\s+[A-Z][A-Za-z'-]*",
             match.group(0),
