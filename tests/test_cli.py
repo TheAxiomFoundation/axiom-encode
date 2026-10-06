@@ -14592,7 +14592,9 @@ class TestCmdEncode:
         )
 
     @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
-    def test_encode_escalates_after_n_validator_failures(self, tmp_path, reasoning_effort):
+    def test_encode_escalates_after_n_validator_failures(
+        self, tmp_path, reasoning_effort
+    ):
         args = self._make_args(
             tmp_path,
             model=None,

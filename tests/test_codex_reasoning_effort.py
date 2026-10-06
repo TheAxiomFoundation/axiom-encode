@@ -66,13 +66,19 @@ def test_run_model_eval_applies_effort_only_to_codex_runners(tmp_path, effort):
         patch.object(evals, "_validate_eval_oracle_runtime"),
         patch.object(evals, "resolve_corpus_source_unit"),
         patch.object(
-            evals, "_authoritative_rulespec_dependency_scope", return_value=nullcontext()
+            evals,
+            "_authoritative_rulespec_dependency_scope",
+            return_value=nullcontext(),
         ),
         patch.object(evals, "_run_single_eval") as run_single,
     ):
         evals.run_model_eval(
             citations=["us/statute/26/1"],
-            runner_specs=["chosen=codex:test-model", "openai:test-model", "claude:opus"],
+            runner_specs=[
+                "chosen=codex:test-model",
+                "openai:test-model",
+                "claude:opus",
+            ],
             output_root=tmp_path / "output",
             policy_path=tmp_path / "policy",
             runtime_axiom_rules_path=tmp_path / "engine",
@@ -156,9 +162,7 @@ def test_codex_subprocess_uses_model_reasoning_effort_and_records_trace(
         for index, arg in enumerate(observed["cmd"])
         if arg == "-c"
     ]
-    assert config_overrides == [
-        f"model_reasoning_effort={json.dumps(effort or 'low')}"
-    ]
+    assert config_overrides == [f"model_reasoning_effort={json.dumps(effort or 'low')}"]
     assert response.trace["reasoning_effort"] == (effort or "low")
     assert response.text == "generated output"
     assert response.error is None
