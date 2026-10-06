@@ -18,16 +18,21 @@ test is **not** a matched PolicyEngine household comparison; these counts
 establish classification and local test presence only. In particular, the
 mapped ECE rate still has the documented 2026-03 temporal discrepancy.
 
-The registered Arizona Populace comparison bridge also projects PolicyEngine's
+The first-pass Arizona Populace bridge projected PolicyEngine's
 `snap_net_income`, `is_snap_eligible`, `snap_max_allotment`, `snap_min_allotment`,
-and `snap_excess_shelter_expense_deduction` into RuleSpec inputs (see
+and `snap_excess_shelter_expense_deduction` into RuleSpec inputs. The merged
+[axiom-oracles #597](https://github.com/TheAxiomFoundation/axiom-oracles/pull/597),
+pinned by [axiom-encode #1772](https://github.com/TheAxiomFoundation/axiom-encode/pull/1772),
+removed the PolicyEngine-fed net-income and excess-shelter inputs and projects
+the underlying Arizona utility facts instead. The current bridge still feeds
+PolicyEngine's `is_snap_eligible`, `snap_max_allotment`, and
+`snap_min_allotment` to the Arizona benefit path (see
 `axiom_oracles/bridges/snap_populace.py`,
-`project_jurisdiction_household_inputs`). Its allotment and eligibility
-comparisons therefore cannot establish independent end-to-end parity for
-those upstream calculations. First remove each oracle-derived input only
-after the corresponding source-grounded RuleSpec path is composed, then run
-matched households with the same member facts and compare intermediate as
-well as final outputs.
+`project_jurisdiction_household_inputs`). Allotment and eligibility comparison
+still cannot establish independent end-to-end parity. Remove each remaining
+oracle-derived input only after the corresponding source-grounded RuleSpec path
+is composed, then run matched households with the same member facts and compare
+intermediate as well as final outputs.
 
 One **partial financial-path comparison**, not household parity: at the pinned
 PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
