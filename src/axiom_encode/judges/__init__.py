@@ -1,7 +1,8 @@
 """LLM judge stages for the encoding pipeline (maximum-traceability part 2).
 
-Cross-family judging: the generator is ``gpt-5.5``; judges run on a Claude-family
-model. Every stage emits a structured :class:`~axiom_encode.judges.run_log.JudgeEvent`
+Cross-family judging: the generator is ``gpt-6-luna``; judges run on a
+Claude-family model. Every stage emits a structured
+:class:`~axiom_encode.judges.run_log.JudgeEvent`
 (``axiom_encode.run_log.v1``) and is fail-closed — a judge that cannot reach a
 verdict emits a ``judge_error`` event, never a silent pass.
 
@@ -28,6 +29,7 @@ from . import (
     drift,
     grid_adequacy,
     preclassifier,
+    regeneration,
     statutory_fidelity,
 )
 from .client import JudgeCall, JudgeClient, model_family, truncate_provision
@@ -69,6 +71,7 @@ __all__ = [
     "disposition",
     "preclassifier",
     "drift",
+    "regeneration",
     "calibration",
     # stage types
     "Disposition",

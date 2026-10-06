@@ -1,0 +1,1 @@
+A negative glyph rate applies its sign after its fractional tail ("-2½% וחצי" is -0.03), a fraction-slash rate keeps its fractional tail ("2 1⁄2% וחצי" is 0.03), and a thousands-grouped whole joins a slash fraction ("1,000 1/2" and "1,000 1⁄2" are 1,000.5).

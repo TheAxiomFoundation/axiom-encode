@@ -13,8 +13,6 @@ gates:
 cases:
   - kind: source
     name: snap_self_employment_expense_based_deduction_applies_co
-    source_id: Colorado SNAP self-employment expense deduction rule under 10 CCR 2506-1 section 4.403.11(B)-(C)(3)
     corpus_citation_path: us-co/regulation/10-ccr-2506-1/4.403.11
     oracle: policyengine
-    policyengine_country: auto
     policyengine_rule_hint: snap_self_employment_expense_based_deduction_applies

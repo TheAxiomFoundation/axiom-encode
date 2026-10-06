@@ -1,0 +1,1 @@
+A mixed rate after a spelled scaled amount keeps the amount's scale ("שלושה מיליון ושלושה וחצי אחוזים" is 3,000,000 and 3.5 percent; "ושלושה ושלושה רבעים אחוזים" likewise), and a shared-scale range reads a ל prefix on a spelled upper endpoint under "בין" or "מ־" ("בין שלושה לחמישה מיליון" runs from 3,000,000 to 5,000,000).

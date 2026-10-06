@@ -1,0 +1,1 @@
+Within a condition no ending marks a construct head, so a verb after a feminine noun still splits the list ("אם התשלומים הם 500, 2 או 3 מיליון שקלים לעובדת ישלם המעסיק, והיתרה תוחזר" keeps 500), and a relative clause on any subject, definite or not, shows itself by its own verb ("אחוזים מההכנסה שבית דין יקבע, תחול ההוראה" reads three rates).

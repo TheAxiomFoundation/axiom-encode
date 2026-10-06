@@ -13,16 +13,80 @@ workflow owns the encoder invocation and this module stays side-effect free.
 
 from __future__ import annotations
 
+import hashlib
+import html
 import json
 import random
+import unicodedata
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Optional
 
 import yaml
 
+from .regeneration import _SAFE_PATH_PART
+
 MIN_SAMPLE = 3
 MAX_SAMPLE = 5
+MAX_YAML_BYTES = 1024 * 1024
+MAX_YAML_NODES = 20_000
+MAX_YAML_DEPTH = 64
+MAX_RETAINED_DIFFS = 50
+MAX_DIFF_PATH_CHARS = 4096
+MAX_DIFF_VALUE_CHARS = 2048
+MAX_ERROR_CHARS = 4096
+MAX_GITHUB_ISSUE_BODY_BYTES = 60_000
+MAX_GITHUB_ISSUE_TITLE_CHARS = 240
+MAX_GITHUB_ISSUE_PATH_PREVIEW_CHARS = 256
+_UNSAFE_DISPLAY_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
+
+
+def _safe_load_drift_yaml(yaml_text: str) -> Any:
+    """Load bounded, non-aliased YAML for deterministic semantic comparison.
+
+    PyYAML preserves aliases as shared Python objects. Recursively normalizing
+    even a tiny exponential alias graph can therefore consume unbounded time
+    and memory. Scan the event stream first, where aliases have not been
+    expanded, and enforce conservative file, node, and nesting budgets.
+    """
+
+    if len(yaml_text.encode("utf-8")) > MAX_YAML_BYTES:
+        raise ValueError(f"drift YAML exceeds the {MAX_YAML_BYTES}-byte safety limit")
+
+    depth = 0
+    nodes = 0
+    for event in yaml.parse(yaml_text):
+        if isinstance(event, yaml.events.AliasEvent):
+            raise ValueError("drift YAML aliases are not allowed")
+        if isinstance(
+            event,
+            (
+                yaml.events.MappingStartEvent,
+                yaml.events.SequenceStartEvent,
+                yaml.events.ScalarEvent,
+            ),
+        ):
+            nodes += 1
+            if nodes > MAX_YAML_NODES:
+                raise ValueError(
+                    f"drift YAML exceeds the {MAX_YAML_NODES}-node safety limit"
+                )
+        if isinstance(
+            event,
+            (yaml.events.MappingStartEvent, yaml.events.SequenceStartEvent),
+        ):
+            depth += 1
+            if depth > MAX_YAML_DEPTH:
+                raise ValueError(
+                    f"drift YAML exceeds the {MAX_YAML_DEPTH}-level safety limit"
+                )
+        elif isinstance(
+            event,
+            (yaml.events.MappingEndEvent, yaml.events.SequenceEndEvent),
+        ):
+            depth -= 1
+
+    return yaml.safe_load(yaml_text)
 
 
 def normalize(value: Any) -> Any:
@@ -45,65 +109,191 @@ def semantic_key(yaml_text: str) -> str:
     """A stable, ordering-independent signature of a RuleSpec document."""
 
     return json.dumps(
-        normalize(yaml.safe_load(yaml_text) or {}), sort_keys=True, default=str
+        normalize(_safe_load_drift_yaml(yaml_text) or {}),
+        sort_keys=True,
+        default=str,
     )
 
 
-def _diff(a: Any, b: Any, path: str, out: list[dict[str, Any]]) -> None:
+def _is_unsafe_display_character(
+    character: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> bool:
+    """Return whether a character must not cross a display trust boundary raw."""
+
+    if preserve_lf_tab and character in {"\n", "\t"}:
+        return False
+    return unicodedata.category(character) in _UNSAFE_DISPLAY_CATEGORIES
+
+
+def _contains_unsafe_display_characters(
+    value: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> bool:
+    """Return whether text contains controls or display-direction metadata."""
+
+    return any(
+        _is_unsafe_display_character(
+            character,
+            preserve_lf_tab=preserve_lf_tab,
+        )
+        for character in value
+    )
+
+
+def _sanitize_display_text(
+    value: str,
+    *,
+    preserve_lf_tab: bool = False,
+) -> str:
+    """Render unsafe Unicode categories as visible, UTF-8-safe escapes."""
+
+    sanitized: list[str] = []
+    for character in value:
+        if not _is_unsafe_display_character(
+            character,
+            preserve_lf_tab=preserve_lf_tab,
+        ):
+            sanitized.append(character)
+            continue
+        code_point = ord(character)
+        if code_point <= 0xFFFF:
+            sanitized.append(f"\\u{code_point:04X}")
+        else:
+            sanitized.append(f"\\U{code_point:08X}")
+    return "".join(sanitized)
+
+
+def _bounded_diff_path(path: str) -> str:
+    """Return one control-free, bounded display path while traversing YAML."""
+
+    escaped = _sanitize_display_text(path) or "(root)"
+    if len(escaped) <= MAX_DIFF_PATH_CHARS:
+        return escaped
+    digest = hashlib.sha256(escaped.encode("utf-8")).hexdigest()[:12]
+    suffix = f"…[sha256:{digest}]"
+    return escaped[: MAX_DIFF_PATH_CHARS - len(suffix)] + suffix
+
+
+def _bounded_diff_value(value: Any) -> Any:
+    """Return a JSON-safe diff value whose report representation is bounded."""
+
+    safe_value = json.loads(json.dumps(value, sort_keys=True, default=str))
+    serialized = json.dumps(safe_value, sort_keys=True, default=str)
+    if len(serialized) <= MAX_DIFF_VALUE_CHARS:
+        return safe_value
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:12]
+    suffix = f"…[truncated; sha256:{digest}]"
+    return serialized[: MAX_DIFF_VALUE_CHARS - len(suffix)] + suffix
+
+
+def _bounded_error(error: str) -> str:
+    """Bound diagnostics so every producer report satisfies publisher schema."""
+
+    sanitized = _sanitize_display_text(error, preserve_lf_tab=True)
+    if len(sanitized) <= MAX_ERROR_CHARS:
+        return sanitized
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:12]
+    suffix = f"…[truncated; sha256:{digest}]"
+    return sanitized[: MAX_ERROR_CHARS - len(suffix)] + suffix
+
+
+def _record_diff(
+    out: list[dict[str, Any]],
+    total: list[int],
+    *,
+    path: str,
+    change: str,
+    merged: Any,
+    regenerated: Any,
+) -> None:
+    """Count every difference while retaining only a bounded issue preview."""
+
+    total[0] += 1
+    if len(out) >= MAX_RETAINED_DIFFS:
+        return
+    out.append(
+        {
+            "path": _bounded_diff_path(path),
+            "change": change,
+            "merged": _bounded_diff_value(merged),
+            "regenerated": _bounded_diff_value(regenerated),
+        }
+    )
+
+
+def _diff(
+    a: Any,
+    b: Any,
+    path: str,
+    out: list[dict[str, Any]],
+    total: list[int],
+) -> None:
     if isinstance(a, dict) and isinstance(b, dict):
         for key in sorted(set(a) | set(b), key=str):
-            sub = f"{path}.{key}" if path else str(key)
+            sub = _bounded_diff_path(f"{path}.{key}" if path else str(key))
             if key not in a:
-                out.append(
-                    {
-                        "path": sub,
-                        "change": "added",
-                        "merged": None,
-                        "regenerated": b[key],
-                    }
+                _record_diff(
+                    out,
+                    total,
+                    path=sub,
+                    change="added",
+                    merged=None,
+                    regenerated=b[key],
                 )
             elif key not in b:
-                out.append(
-                    {
-                        "path": sub,
-                        "change": "removed",
-                        "merged": a[key],
-                        "regenerated": None,
-                    }
+                _record_diff(
+                    out,
+                    total,
+                    path=sub,
+                    change="removed",
+                    merged=a[key],
+                    regenerated=None,
                 )
             else:
-                _diff(a[key], b[key], sub, out)
+                _diff(a[key], b[key], sub, out, total)
         return
     if isinstance(a, list) and isinstance(b, list):
         if a != b:
-            out.append(
-                {
-                    "path": path or "(root)",
-                    "change": "list_changed",
-                    "merged": a,
-                    "regenerated": b,
-                }
+            _record_diff(
+                out,
+                total,
+                path=path or "(root)",
+                change="list_changed",
+                merged=a,
+                regenerated=b,
             )
         return
     if a != b:
-        out.append(
-            {
-                "path": path or "(root)",
-                "change": "value_changed",
-                "merged": a,
-                "regenerated": b,
-            }
+        _record_diff(
+            out,
+            total,
+            path=path or "(root)",
+            change="value_changed",
+            merged=a,
+            regenerated=b,
         )
 
 
 def semantic_diff(merged_text: str, regenerated_text: str) -> list[dict[str, Any]]:
     """Return structured differences after ordering-insensitive normalization."""
 
-    a = normalize(yaml.safe_load(merged_text) or {})
-    b = normalize(yaml.safe_load(regenerated_text) or {})
+    return _semantic_diff_with_count(merged_text, regenerated_text)[0]
+
+
+def _semantic_diff_with_count(
+    merged_text: str, regenerated_text: str
+) -> tuple[list[dict[str, Any]], int]:
+    """Return retained differences and the full bounded-tree difference count."""
+
+    a = normalize(_safe_load_drift_yaml(merged_text) or {})
+    b = normalize(_safe_load_drift_yaml(regenerated_text) or {})
     out: list[dict[str, Any]] = []
-    _diff(a, b, "", out)
-    return out
+    total = [0]
+    _diff(a, b, "", out, total)
+    return out, total[0]
 
 
 def sample_modules(
@@ -126,11 +316,128 @@ class DriftResult:
     drifted: bool
     diffs: list[dict[str, Any]] = field(default_factory=list)
     error: Optional[str] = None
+    total_diffs: int | None = None
+
+    @property
+    def diff_count(self) -> int:
+        return self.total_diffs if self.total_diffs is not None else len(self.diffs)
 
 
 @dataclass
 class DriftReport:
     checked: list[DriftResult] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "DriftReport":
+        """Load the bounded JSON report passed to the isolated publisher job."""
+
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("results"), list
+        ):
+            raise ValueError("drift report must contain a results list")
+        raw_results = payload["results"]
+        if len(raw_results) > MAX_SAMPLE:
+            raise ValueError(f"drift report contains more than {MAX_SAMPLE} results")
+
+        checked: list[DriftResult] = []
+        seen_modules: set[str] = set()
+        for raw in raw_results:
+            if not isinstance(raw, dict):
+                raise ValueError("drift report result must be an object")
+            module = raw.get("module")
+            drifted = raw.get("drifted")
+            error = raw.get("error")
+            diffs = raw.get("diffs")
+            n_diffs = raw.get("n_diffs", len(diffs) if isinstance(diffs, list) else 0)
+            if (
+                not isinstance(module, str)
+                or not module
+                or len(module) > MAX_DIFF_PATH_CHARS
+            ):
+                raise ValueError("drift report result has an invalid module")
+            module_path = PurePosixPath(module)
+            if (
+                module_path.is_absolute()
+                or module_path.suffix != ".yaml"
+                or module_path.as_posix() != module
+                or any(part in {"", ".", ".."} for part in module_path.parts)
+                or any(
+                    _SAFE_PATH_PART.fullmatch(part) is None
+                    for part in module_path.parts
+                )
+                or module in seen_modules
+            ):
+                raise ValueError(
+                    "drift report result has an unsafe or duplicate module"
+                )
+            seen_modules.add(module)
+            if not isinstance(drifted, bool):
+                raise ValueError("drift report result has a non-boolean drifted field")
+            if error is not None and (
+                not isinstance(error, str)
+                or not error
+                or len(error) > MAX_ERROR_CHARS
+                or _contains_unsafe_display_characters(
+                    error,
+                    preserve_lf_tab=True,
+                )
+            ):
+                raise ValueError("drift report result has an invalid error")
+            if not isinstance(diffs, list):
+                raise ValueError("drift report result has an invalid diffs list")
+            if (
+                not isinstance(n_diffs, int)
+                or isinstance(n_diffs, bool)
+                or n_diffs < len(diffs)
+                or len(diffs) > MAX_RETAINED_DIFFS
+            ):
+                raise ValueError("drift report result has an invalid diff count")
+            for diff in diffs:
+                if not isinstance(diff, dict):
+                    raise ValueError("drift report diff must be an object")
+                path = diff.get("path")
+                change = diff.get("change")
+                if (
+                    not isinstance(path, str)
+                    or not path
+                    or len(path) > MAX_DIFF_PATH_CHARS
+                    or _contains_unsafe_display_characters(path)
+                    or not isinstance(change, str)
+                    or change
+                    not in {"added", "removed", "list_changed", "value_changed"}
+                    or "merged" not in diff
+                    or "regenerated" not in diff
+                ):
+                    raise ValueError("drift report diff has invalid required fields")
+            if error is not None:
+                if drifted or diffs or n_diffs:
+                    raise ValueError("drift report error result also claims drift")
+            elif drifted != bool(n_diffs):
+                raise ValueError("drift report drift flag does not match its diffs")
+            checked.append(
+                DriftResult(
+                    module=module,
+                    drifted=drifted,
+                    error=error,
+                    diffs=diffs,
+                    total_diffs=n_diffs,
+                )
+            )
+
+        report = cls(checked=checked)
+        expected_counts = {
+            "n_checked": len(report.checked),
+            "n_drifted": len(report.drifted),
+            "n_errors": len(report.errors),
+        }
+        if any(
+            not isinstance(payload.get(name), int)
+            or isinstance(payload.get(name), bool)
+            or payload.get(name) != value
+            for name, value in expected_counts.items()
+        ):
+            raise ValueError("drift report summary counts do not match its results")
+        return report
 
     @property
     def drifted(self) -> list[DriftResult]:
@@ -149,8 +456,17 @@ class DriftReport:
                 {
                     "module": r.module,
                     "drifted": r.drifted,
-                    "error": r.error,
-                    "diffs": r.diffs,
+                    "error": _bounded_error(r.error) if r.error else None,
+                    "n_diffs": max(r.diff_count, len(r.diffs)),
+                    "diffs": [
+                        {
+                            "path": _bounded_diff_path(str(diff.get("path") or "")),
+                            "change": diff.get("change"),
+                            "merged": _bounded_diff_value(diff.get("merged")),
+                            "regenerated": _bounded_diff_value(diff.get("regenerated")),
+                        }
+                        for diff in r.diffs[:MAX_RETAINED_DIFFS]
+                    ],
                 }
                 for r in self.checked
             ],
@@ -161,7 +477,8 @@ def drift_issue_body(result: DriftResult) -> str:
     """Build a GitHub issue body describing one module's drift."""
 
     lines = [
-        f"The golden-regeneration drift check re-generated `{result.module}` with "
+        "The golden-regeneration drift check re-generated "
+        f"{_github_inline_code(result.module)} with "
         "the current encoder and found a semantic difference from the merged "
         "module (comments and ordering ignored).",
         "",
@@ -169,18 +486,121 @@ def drift_issue_body(result: DriftResult) -> str:
         "immediately. Investigate whether the encoder change is intended; if so, "
         "re-merge the module, otherwise fix the regression.",
         "",
-        f"### Differences ({len(result.diffs)})",
+        f"### Differences ({result.diff_count})",
         "",
         "| path | change | merged | regenerated |",
         "| --- | --- | --- | --- |",
     ]
-    for d in result.diffs[:50]:
+    displayed = 0
+    for d in result.diffs[:MAX_RETAINED_DIFFS]:
         merged = json.dumps(d.get("merged"), default=str)[:120]
         regen = json.dumps(d.get("regenerated"), default=str)[:120]
-        lines.append(f"| `{d['path']}` | {d['change']} | `{merged}` | `{regen}` |")
-    if len(result.diffs) > 50:
-        lines.append(f"| … | … | {len(result.diffs) - 50} more | … |")
-    return "\n".join(lines)
+        path = _bounded_text_with_digest(
+            str(d["path"]),
+            MAX_GITHUB_ISSUE_PATH_PREVIEW_CHARS,
+        )
+        row = (
+            "| "
+            f"{_github_inline_code(path, table_cell=True)} | "
+            f"{_github_inline_code(d['change'], table_cell=True)} | "
+            f"{_github_inline_code(merged, table_cell=True)} | "
+            f"{_github_inline_code(regen, table_cell=True)} |"
+        )
+        if len("\n".join((*lines, row)).encode("utf-8")) > (
+            MAX_GITHUB_ISSUE_BODY_BYTES - 256
+        ):
+            break
+        lines.append(row)
+        displayed += 1
+    if result.diff_count > displayed:
+        lines.append(f"| … | … | {result.diff_count - displayed} more | … |")
+    return _bounded_utf8("\n".join(lines), MAX_GITHUB_ISSUE_BODY_BYTES)
+
+
+def drift_error_issue_body(result: DriftResult) -> str:
+    """Build a non-interpretable GitHub issue body for a regeneration error."""
+
+    body = (
+        "Golden regeneration could not check "
+        f"{_github_inline_code(result.module)}:\n\n"
+        f"<pre>{_github_safe_text(result.error or '', preserve_lf_tab=True)}</pre>\n"
+    )
+    return _bounded_utf8(body, MAX_GITHUB_ISSUE_BODY_BYTES)
+
+
+def drift_issue_title(result: DriftResult, *, regeneration_error: bool = False) -> str:
+    """Return a mention-safe issue title that fits the publisher budget."""
+
+    kind = "regeneration error" if regeneration_error else "drift"
+    prefix = f"Golden-regeneration {kind}: "
+    safe_module = result.module.replace("@", "＠")
+    available = MAX_GITHUB_ISSUE_TITLE_CHARS - len(prefix)
+    return prefix + _bounded_text_with_digest(safe_module, available)
+
+
+def _bounded_text_with_digest(value: str, max_chars: int) -> str:
+    """Truncate display text with a stable identity-preserving digest."""
+
+    sanitized = _sanitize_display_text(value)
+    if len(sanitized) <= max_chars:
+        return sanitized
+    digest = hashlib.sha256(sanitized.encode("utf-8")).hexdigest()[:12]
+    suffix = f"…[sha256:{digest}]"
+    return sanitized[: max_chars - len(suffix)] + suffix
+
+
+def _bounded_utf8(value: str, max_bytes: int) -> str:
+    """Apply a final byte budget to text passed to an external publisher."""
+
+    sanitized = _sanitize_display_text(value, preserve_lf_tab=True)
+    encoded = sanitized.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return sanitized
+    digest = hashlib.sha256(encoded).hexdigest()[:12]
+    suffix = f"\n\n[truncated; sha256:{digest}]"
+    available = max_bytes - len(suffix.encode("utf-8"))
+    prefix = encoded[:available].decode("utf-8", errors="ignore")
+    return prefix + suffix
+
+
+def enforce_github_issue_body_budget(value: str) -> str:
+    """Re-apply the final body budget after publisher-side redaction."""
+
+    return _bounded_utf8(value, MAX_GITHUB_ISSUE_BODY_BYTES)
+
+
+def enforce_github_issue_title_budget(value: str) -> str:
+    """Re-apply the final title budget after publisher-side redaction."""
+
+    return _bounded_text_with_digest(value, MAX_GITHUB_ISSUE_TITLE_CHARS)
+
+
+def _github_safe_text(value: object, *, preserve_lf_tab: bool = False) -> str:
+    """Escape untrusted report text and neutralize GitHub mentions."""
+
+    safe = html.escape(
+        _sanitize_display_text(str(value), preserve_lf_tab=preserve_lf_tab),
+        quote=True,
+    )
+    for character, entity in (
+        ("@", "&#64;"),
+        ("`", "&#96;"),
+        ("[", "&#91;"),
+        ("]", "&#93;"),
+        ("(", "&#40;"),
+        (")", "&#41;"),
+    ):
+        safe = safe.replace(character, entity)
+    return safe
+
+
+def _github_inline_code(value: object, *, table_cell: bool = False) -> str:
+    """Render untrusted text as HTML code without Markdown interpretation."""
+
+    safe = _github_safe_text(value).replace("\r", " ").replace("\n", " ")
+    if table_cell:
+        safe = safe.replace("|", "&#124;")
+    return f"<code>{safe}</code>"
 
 
 def check_module(
@@ -197,13 +617,24 @@ def check_module(
         regenerated = regenerate(module, merged_text)
     except Exception as exc:  # noqa: BLE001 - surfaced as a visible error
         return DriftResult(
-            module=module, drifted=False, error=f"regeneration failed: {exc}"
+            module=module,
+            drifted=False,
+            error=_bounded_error(f"regeneration failed: {exc}"),
         )
     try:
-        diffs = semantic_diff(merged_text, regenerated)
+        diffs, total_diffs = _semantic_diff_with_count(merged_text, regenerated)
     except Exception as exc:  # noqa: BLE001
-        return DriftResult(module=module, drifted=False, error=f"diff failed: {exc}")
-    return DriftResult(module=module, drifted=bool(diffs), diffs=diffs)
+        return DriftResult(
+            module=module,
+            drifted=False,
+            error=_bounded_error(f"diff failed: {exc}"),
+        )
+    return DriftResult(
+        module=module,
+        drifted=bool(total_diffs),
+        diffs=diffs,
+        total_diffs=total_diffs,
+    )
 
 
 def run_drift_check(

@@ -44,8 +44,9 @@ def validate_generated_against_registry(
     """Check every generated YAML file against the registry.
 
     `apply_anchor` (e.g. "us:regulations/7-cfr/273/10") is the anchor the
-    generated content will live under once applied; used to decide whether a
-    producer rule's name conflicts with the canonical for that concept.
+    generated content will live under once applied. It identifies producer
+    conflicts and distinguishes candidate-owned input slots from legacy slots
+    exposed by imported modules. The latter are validated by overlay execution.
     """
     violations: list[CanonicalNameViolation] = []
     for path in yaml_paths:
@@ -73,7 +74,10 @@ def validate_generated_against_registry(
             is_input_ref = bool(input_prefix)
             blocked = registry.lookup_synonym(name)
             if blocked is not None:
-                if is_input_ref and blocked.producer_anchor == anchor:
+                if is_input_ref and (
+                    blocked.producer_anchor == anchor
+                    or (apply_anchor is not None and anchor != apply_anchor)
+                ):
                     continue
                 violations.append(
                     CanonicalNameViolation(

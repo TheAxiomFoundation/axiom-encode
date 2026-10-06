@@ -1,0 +1,1 @@
+A relative clause in a rate's subject keeps its own predicate ("הריבית שהבנק יקבע תהיה 10 או 30%", "הריבית אשר הבנק יקבע תהיה" are two rates), and a consequent's subject keeps its attributives before its predicate ("הקנס המרבי יהיה 50 או 2%" is fifty shekels).

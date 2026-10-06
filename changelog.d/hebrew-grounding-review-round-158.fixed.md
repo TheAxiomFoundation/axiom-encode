@@ -1,0 +1,1 @@
+A fraction's base is an amount noun in one of its inflections and no other word: "דרגה חמישית המסומנת בטבלה" is a fifth grade, since "המסומנת" names no tax, while "חמישית מהמסים" is a fifth of the taxes.

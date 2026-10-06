@@ -1,0 +1,1 @@
+A remainder after a scaled amount composes only where no separate quantity follows: "3 מיליון ו־30 ימי מאסר" is a fine of 3,000,000 and thirty days, "3 מיליון ו־20 עובדים" a turnover of 3,000,000 and twenty workers, while "3 מיליון ו־200 שקלים" stays 3,000,200; printed and spelled alike.

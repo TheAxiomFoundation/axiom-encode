@@ -27157,6 +27157,1787 @@ mappings:
     candidate_priority: P4
     rationale: Axiom exposes the household-level work-expense allowance deduction allowed by R986-200-239 when the gross-income test is satisfied. PolicyEngine exposes person-level earned income after the work-expense allowance, not this household aggregate deduction as a one-to-one oracle target.
 
+  # Kentucky's TY2026 full-year-resident module is a source-readiness
+  # boundary. Exact P4 mappings keep its source holds and fail-closed
+  # sentinels from being treated as completed Kentucky tax results or compared
+  # with PolicyEngine's projected state-tax outputs.
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_input_domain_is_valid
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom validates the bounded Kentucky full-year-resident and aligned-filing-unit contract; PolicyEngine exposes no one-to-one predicate.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_final_return_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that the operative TY2026 Kentucky Form 740 final-return package is absent from the pinned corpus.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_income_and_modification_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that the complete TY2026 Kentucky income-base, addition, and subtraction chain is not pinned.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_deduction_and_exemption_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that the complete TY2026 Kentucky final-return deduction, election, and exemption chain is not pinned.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_tax_and_surtax_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: The regular 3.5 percent rate is official, but this hold records that final-return net income and the complete Kentucky statewide tax surface remain incomplete.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_nonrefundable_credit_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that complete TY2026 Kentucky nonrefundable-credit eligibility, limitations, ordering, recaptures, and carryforwards are not pinned.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_refundable_credit_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that complete TY2026 Kentucky refundable-credit eligibility, limitations, ordering, recaptures, and refundability are not pinned.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_complete_liability_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This completion-state predicate combines Axiom's Kentucky final-return, income, deduction, tax, surtax, and credit source holds.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_state_income_after_modifications
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while the TY2026 Kentucky income, addition, and subtraction chain is held, not completed state income after modifications.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_deductions_and_exemptions
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while the Kentucky final-return deduction, election, and exemption chain is held, not a completed deduction amount.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while Kentucky income, deductions, and exemptions are held, not completed Kentucky taxable or net income.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_tax_before_credits_including_statewide_surtaxes
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while final-return net income and statewide tax applicability are held, not completed before-credit Kentucky tax.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_tax_after_nonrefundable_credits
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while Kentucky nonrefundable-credit authority and ordering are held, not completed after-credit tax.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_refundable_credits
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is a fail-closed sentinel while the Kentucky refundable-credit inventory and ordering are held, not a completed credit amount.
+
+  - legal_id: us-ky:policies/income_tax/2026_full_year_resident_source_hold#ky_pit_2026_net_income_tax_liability_before_payments
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This signed-liability zero is a fail-closed sentinel while the annual Kentucky chain is held and must not be interpreted as zero tax.
+
+  # KRS 141.020 is a narrow schedule-before-credits surface, separate from the
+  # annual-return source hold above. The caller supplies completed Kentucky net
+  # income; the module applies only the official 2026 rate and claims neither
+  # upstream return construction nor any post-credit liability.
+  - legal_id: us-ky:policies/income_tax/2026_krs_141_020_schedule_before_credits#ky_pit_2026_krs_141_020_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ky.tax.income.rate
+    period: year
+    unit: rate
+    comparison: rate
+    rationale: KRS 141.020(2)(f) and PolicyEngine's Kentucky income-tax rate parameter both supply the 3.5 percent rate for tax year 2026.
+
+  - legal_id: us-ky:policies/income_tax/2026_krs_141_020_schedule_before_credits#ky_pit_2026_krs_141_020_net_income_boundary
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes its nonnegative caller-supplied completed-net-income boundary as a private diagnostic. PolicyEngine splits Kentucky taxable income between joint and separate-return Person variables and does not expose this selected TaxUnit boundary as one standalone variable; the reviewed Populace bridge follows PolicyEngine's upstream ky_files_separately branch to select the corresponding Person-summed boundary.
+
+  - legal_id: us-ky:policies/income_tax/2026_krs_141_020_schedule_before_credits#ky_pit_2026_krs_141_020_schedule_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ky_income_tax_before_non_refundable_credits_unit
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply Kentucky's annual income-tax rate to completed nonnegative Kentucky net or taxable income before subtracting any allowable nonrefundable or refundable credits.
+
+  # Alabama Code section 40-18-5 is a narrow schedule-before-credits surface.
+  # These exact entries override the jurisdiction-wide Alabama fallback without
+  # claiming that the separate source-held annual-return pipeline is complete.
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_first_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.single
+    parameter_key_path: [rates, 0]
+    period: year
+    comparison: rate
+    rationale: Same two percent first-bracket rate; PolicyEngine's Alabama joint and nonjoint scales share all three marginal rates, so the single scale is the exact canonical parameter target.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_second_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.single
+    parameter_key_path: [rates, 1]
+    period: year
+    comparison: rate
+    rationale: Same four percent second-bracket rate; PolicyEngine's Alabama joint and nonjoint scales share all three marginal rates, so the single scale is the exact canonical parameter target.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_third_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.single
+    parameter_key_path: [rates, 2]
+    period: year
+    comparison: rate
+    rationale: Same five percent third-bracket rate; PolicyEngine's Alabama joint and nonjoint scales share all three marginal rates, so the single scale is the exact canonical parameter target.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_nonjoint_first_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.single
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same 500 dollar first-bracket ceiling in PolicyEngine's Alabama nonjoint schedule.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_nonjoint_second_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.single
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same 3,000 dollar second-bracket ceiling in PolicyEngine's Alabama nonjoint schedule.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_joint_first_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.joint
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same 1,000 dollar first-bracket ceiling in PolicyEngine's Alabama joint schedule.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_joint_second_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.al.tax.income.rates.joint
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same 6,000 dollar second-bracket ceiling in PolicyEngine's Alabama joint schedule.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_taxable_income_boundary
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: al_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: RuleSpec preserves the completed Alabama taxable-income boundary supplied by the validated Populace projection before applying the nonnegative schedule floor.
+
+  - legal_id: us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits#al_pit_2026_section_40_18_5_schedule_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: al_income_tax_before_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply the Alabama section 40-18-5 schedule to completed Alabama taxable income before nonrefundable credits; neither mapping claims final annual liability.
+
+  # Canonical Connecticut TY2026 full-year-resident ordinary section 12-700
+  # tax before the personal credit. PolicyEngine publishes every statutory
+  # component and the after-personal-credit result, so the pre-credit total is
+  # recovered exactly from PE's own formula rather than reimplemented here.
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_filing_status_is_valid
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom validates exactly one of four schedule flags; PolicyEngine uses a categorical filing-status input and exposes no one-to-one validation judgment.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_input_domain_is_valid
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom validates its bounded full-year-resident completed-return input contract; PolicyEngine exposes no equivalent domain judgment.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_schedule_scale
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes an internal schedule-normalization scale; PolicyEngine's filing-status-indexed rate parameters require no one-to-one output with this helper.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_head_first_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.head_of_household
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first-bracket ceiling in PolicyEngine's Connecticut head-of-household rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_joint_first_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.joint
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first-bracket ceiling in PolicyEngine's Connecticut joint rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_1
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 0]
+    period: year
+    comparison: rate
+    rationale: Same first marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_2
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 1]
+    period: year
+    comparison: rate
+    rationale: Same second marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_3
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 2]
+    period: year
+    comparison: rate
+    rationale: Same third marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_4
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 3]
+    period: year
+    comparison: rate
+    rationale: Same fourth marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_5
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 4]
+    period: year
+    comparison: rate
+    rationale: Same fifth marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_6
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 5]
+    period: year
+    comparison: rate
+    rationale: Same sixth marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_rate_7
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [rates, 6]
+    period: year
+    comparison: rate
+    rationale: Same seventh marginal rate in PolicyEngine's Connecticut rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_2
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same second-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_3
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same third-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_4
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 3]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fourth-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_5
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 4]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fifth-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_6
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 5]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same sixth-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_floor_7
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.rates.single
+    parameter_key_path: [thresholds, 6]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same seventh-bracket floor in PolicyEngine's Connecticut single rate scale.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.start
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-rate phaseout start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_head_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.start
+    parameter_key_path: [HEAD_OF_HOUSEHOLD]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same head-of-household low-rate phaseout start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_joint_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.start
+    parameter_key_path: [JOINT]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same joint-filer low-rate phaseout start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_separate_phaseout_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.start
+    parameter_key_path: [SEPARATE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same married-separate low-rate phaseout start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.increment
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-rate phaseout increment in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_head_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.increment
+    parameter_key_path: [HEAD_OF_HOUSEHOLD]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same head-of-household low-rate phaseout increment in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_separate_phaseout_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.increment
+    parameter_key_path: [SEPARATE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same married-separate low-rate phaseout increment in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_phaseout_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-rate phaseout amount in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_phaseout_maximum
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.add_back.max_amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-rate phaseout maximum in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_low_recapture_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.low.start
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-tier recapture start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_middle_recapture_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.middle.start
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer middle-tier recapture start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_high_recapture_start
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.high.start
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer high-tier recapture start in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_recapture_increment
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.low.increment
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same statutory recapture increment used by PolicyEngine's Connecticut tiers.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_low_recapture_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.low.amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-tier recapture amount in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_middle_recapture_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.middle.amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer middle-tier recapture amount in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_high_recapture_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.high.amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer high-tier recapture amount in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_low_recapture_maximum
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.low.max_amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer low-tier recapture maximum in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_middle_recapture_maximum
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.middle.max_amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer middle-tier recapture maximum in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_single_high_recapture_maximum
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.high.max_amount
+    parameter_key_path: [SINGLE]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same single-filer high-tier recapture maximum in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_head_middle_recapture_amount
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.middle.amount
+    parameter_key_path: [HEAD_OF_HOUSEHOLD]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same head-of-household middle-tier recapture amount in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_tax_head_middle_recapture_maximum
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ct.tax.income.recapture.middle.max_amount
+    parameter_key_path: [HEAD_OF_HOUSEHOLD]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same head-of-household middle-tier recapture maximum in PolicyEngine.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_schedule_tax
+    country: us
+    program: tax
+    mapping_type: derived_expression
+    expression: ct_income_tax_after_personal_credits / (1 - ct_personal_credit_rate) - ct_income_tax_phase_out_add_back - ct_income_tax_low_tax_recapture - ct_income_tax_middle_tax_recapture - ct_income_tax_high_tax_recapture
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: PolicyEngine's own pre-credit total, recovered algebraically, less its four separately published section 12-700 addback and recapture components.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_low_rate_phaseout_addback
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ct_income_tax_phase_out_add_back
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut low-rate phaseout addback component.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_low_recapture
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ct_income_tax_low_tax_recapture
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut low-tier recapture component.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_middle_recapture
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ct_income_tax_middle_tax_recapture
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut middle-tier recapture component.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_ordinary_high_recapture
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ct_income_tax_high_tax_recapture
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same Connecticut high-tier recapture component.
+
+  - legal_id: us-ct:policies/income_tax/2026_resident_ordinary_tax_before_personal_credit#ct_pit_2026_resident_ordinary_tax_before_personal_credit
+    country: us
+    program: tax
+    mapping_type: derived_expression
+    expression: ct_income_tax_after_personal_credits / (1 - ct_personal_credit_rate)
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: PolicyEngine computes this same pre-credit total internally and publishes after-personal-credit tax as total times one minus its personal-credit rate; the rate is strictly below one throughout the parameter domain.
+
+  # The canonical section 47-1806.03(a)(11) module is a narrow joint-method
+  # schedule-before-credits surface on completed District taxable income. It
+  # neither chooses between joint and separate-return methods nor replaces the
+  # legacy broad-liability/TAXSIM diagnostic.
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_bracket_upper
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the six finite upper bounds as one selector-indexed private table. PolicyEngine exposes its District schedule through a marginal-rate parameter scale, not a one-to-one variable or table with this internal representation.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_bracket_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the seven excess-over floors as one selector-indexed private table. PolicyEngine's marginal-rate scale does not expose a one-to-one output with this cumulative-schedule representation.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec preserves the seven statutory cumulative base amounts as a private table. PolicyEngine computes the schedule through its marginal scale and exposes no matching cumulative-base table output.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_bracket_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores all seven marginal rates in one selector-indexed private table. PolicyEngine's parameter scale is not a one-to-one output with the same internal table identity, so the completed schedule is compared instead.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_taxable_income_boundary
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: dc_taxable_income_joint
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both values represent the completed joint-method District taxable-income boundary consumed by the section 47-1806.03(a)(11) schedule. PolicyEngine labels this boundary as potentially negative, and both its exact joint-method target and the RuleSpec independently floor it at zero before applying the schedule. The runner preserves finite negative values rather than rewriting them; this mapping does not claim to construct taxable income or select the filing method.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_bracket_selector
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec exposes its private integer selector only to index the four internal schedule tables. PolicyEngine publishes the computed joint-method tax but no one-to-one bracket-selector variable.
+
+  - legal_id: us-dc:policies/income_tax/2026_section_47_1806_03_schedule_before_credits#dc_pit_2026_section_47_1806_03_schedule_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: dc_income_tax_before_credits_joint
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply the post-2021 seven-band District schedule to completed joint-method District taxable income before credits. The exact joint-method target intentionally excludes PolicyEngine's broader filing-method selector dc_income_tax_before_credits.
+
+  # Georgia's canonical TY2026 section 48-7-20 surface accepts completed
+  # Georgia taxable net income and applies only the annual 4.99 percent rate.
+  # It does not construct taxable income, credits, payments, filing mechanics,
+  # or final Form 500 liability.
+  - legal_id: us-ga:policies/income_tax/2026_annual_tax_before_nonrefundable_credits#ga_pit_2026_annual_input_is_nonnegative
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom validates the caller-supplied completed Georgia taxable-net-income boundary. PolicyEngine exposes no one-to-one validation Judgment for this interface contract.
+
+  - legal_id: us-ga:policies/income_tax/2026_annual_tax_before_nonrefundable_credits#ga_pit_2026_annual_tax_before_nonrefundable_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ga_income_tax_before_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply O.C.G.A. section 48-7-20 tax to completed Georgia taxable income before nonrefundable credits. This mapping excludes taxable-income construction, filing mechanics, credits, payments, and final Form 500 liability.
+
+  # The official Kansas K-40ES module is a narrow schedule-before-credits
+  # surface on completed Kansas taxable income. It does not claim the complete
+  # annual-return liability chain or replace the legacy TAXSIM diagnostic.
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_lower_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ks.tax.income.rates.joint
+    parameter_key_path: [rates, 0]
+    period: year
+    comparison: rate
+    rationale: The official 2026 K-40ES and PolicyEngine's joint and all-other Kansas schedules use the same 5.2 percent lower marginal rate; the joint scale is the canonical exact parameter target.
+
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_upper_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ks.tax.income.rates.joint
+    parameter_key_path: [rates, 1]
+    period: year
+    comparison: rate
+    rationale: The official 2026 K-40ES and PolicyEngine's joint and all-other Kansas schedules use the same 5.58 percent upper marginal rate; the joint scale is the canonical exact parameter target.
+
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_joint_lower_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ks.tax.income.rates.joint
+    candidate_priority: P4
+    rationale: RuleSpec stores the official K-40ES last dollar in the joint lower bracket, $46,000. PolicyEngine's marginal scale stores the first dollar of the upper bracket, $46,001, so the two boundary representations intentionally differ by one dollar and are not direct parameter values.
+
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_other_lower_bracket_ceiling
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    policyengine_parameter: gov.states.ks.tax.income.rates.other
+    candidate_priority: P4
+    rationale: RuleSpec stores the official K-40ES last dollar in the all-other-filer lower bracket, $23,000. PolicyEngine's marginal scale stores the first dollar of the upper bracket, $23,001, so the two boundary representations intentionally differ by one dollar and are not direct parameter values.
+
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_taxable_income_boundary
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ks_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: RuleSpec preserves the nonnegative boundary derived from the caller-supplied completed Kansas taxable income before selecting and applying the K-40ES schedule; it does not claim to reconstruct taxable income.
+
+  - legal_id: us-ks:policies/income_tax/2026_k40es_schedule_before_credits#ks_pit_2026_k40es_schedule_before_credits
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ks_income_tax_before_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs select the joint or all-other Kansas schedule and apply it to completed Kansas taxable income before credits. The Populace runner fails closed if PolicyEngine's separate adjusted-gross-income gate would suppress an otherwise positive K-40ES schedule domain.
+
+  # Mississippi's canonical TY2026 section 27-7-5 surface applies the enacted
+  # Person-grain schedule to one caller-completed Mississippi taxable-income
+  # amount. It does not select a filing method, construct taxable income,
+  # aggregate an annual return, apply credits, or claim final liability.
+  - legal_id: us-ms:policies/income_tax/2026_section_27_7_5_schedule#ms_pit_2026_zero_tax_ceiling
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ms.tax.income.rate
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same $10,000 zero-tax ceiling in PolicyEngine's Mississippi marginal-rate scale for tax year 2026.
+
+  - legal_id: us-ms:policies/income_tax/2026_section_27_7_5_schedule#ms_pit_2026_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ms.tax.income.rate
+    parameter_key_path: [rates, 1]
+    period: year
+    comparison: rate
+    rationale: Same four percent marginal rate above $10,000 in PolicyEngine's Mississippi income-tax scale for tax year 2026.
+
+  - legal_id: us-ms:policies/income_tax/2026_section_27_7_5_schedule#ms_pit_2026_schedule_taxable_income
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes one normalized generic caller-supplied taxable-income boundary. PolicyEngine exposes filing-method-specific joint and separate Person candidates, not a one-to-one generic interface output.
+
+  - legal_id: us-ms:policies/income_tax/2026_section_27_7_5_schedule#ms_pit_2026_section_27_7_5_schedule_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ms_income_tax_before_credits_joint
+    entity: person
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply the tax-year-2026 section 27-7-5 schedule to one Person's completed nonnegative Mississippi taxable income before credits. The oracle validates PolicyEngine's joint/default Person schedule branch only; this mapping excludes filing-method selection, TaxUnit aggregation, credits, payments, and final liability.
+
+  # Ohio's bounded TY2026 nonbusiness-income module accepts one completed
+  # Ohio taxable-income boundary and applies only section 5747.02(A)(3)(c)'s
+  # schedule before credits. PolicyEngine-US 1.752.2 incorrectly treats the
+  # $26,050 equality point as taxable, so the comparable schedule records
+  # explicitly restore the statute's inclusive no-tax gate.
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_nonbusiness_taxable_income_construction_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This Judgment records that Ohio adjusted-gross-income, business-income separation, and exemption construction remain outside the bounded completed-income schedule. PolicyEngine exposes no equivalent source-readiness hold.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_business_income_and_excess_exemption_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This Judgment records that the separate Ohio business-income tax and excess-exemption allocation remain outside the bounded nonbusiness schedule. PolicyEngine exposes no equivalent source-readiness hold.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_credit_surface_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This Judgment records that the complete Ohio credit inventory, limitations, and ordering remain outside the bounded schedule. PolicyEngine exposes no equivalent source-readiness hold.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_final_return_ordering_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This Judgment records that final Ohio IT 1040 ordering and liability remain outside the bounded schedule. PolicyEngine exposes no equivalent source-readiness hold.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: oh_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both values are the completed nonnegative Ohio taxable-income boundary used by the nonbusiness-income schedule; this mapping does not claim to construct that amount from return components.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_schedule_tax
+    country: us
+    program: tax
+    mapping_type: derived_expression
+    expression: oh_income_tax_before_non_refundable_credits * (oh_taxable_income > 26050)
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: PolicyEngine's published before-credit schedule is preserved above the authoritative 2026 Ohio no-tax threshold and set to zero at or below $26,050, correcting PolicyEngine-US 1.752.2's strict-inequality defect to match section 5747.02(A)(3)(c). The campaign runner reads the threshold from PolicyEngine's own statutory parameter and validates exact TaxUnit identity before applying this gate.
+
+  - legal_id: us-oh:policies/income_tax/pilot_liability_pipeline#oh_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: derived_expression
+    expression: oh_income_tax_before_non_refundable_credits * (oh_taxable_income > 26050)
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Within this bounded module this legacy-named output is exactly the nonbusiness-income schedule before nonrefundable credits, not final Ohio IT 1040 liability. The derived oracle preserves PolicyEngine's schedule above the statutory threshold while correcting its equality defect.
+
+  # Utah's canonical TY2026 full-year-resident surface applies section
+  # 59-10-104's rate to completed Utah taxable income, but must also honor the
+  # separate section 59-10-104.1 exemption. PolicyEngine publishes those two
+  # components separately, so the schedule comparison is explicitly derived.
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_input_domain_is_valid
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom validates the caller's nonnegative-income, aligned-filing-unit, full-year-resident interface contract. PolicyEngine exposes no one-to-one Judgment for that complete contract.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_before_credit_schedule_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This applicability Judgment combines Axiom's explicit interface guards with the section 59-10-104.1 exemption. PolicyEngine exposes the exemption but not the complete guarded predicate.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_income_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ut.tax.income.rate
+    period: year
+    comparison: rate
+    rationale: Same 4.45 percent Utah individual-income-tax rate for tax year 2026.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_resident_state_taxable_income_boundary
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes a fail-closed normalization of caller-supplied completed Utah taxable income. PolicyEngine's ut_taxable_income is the upstream input, not a one-to-one output with the same interface guards.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_resident_income_tax_before_credits
+    country: us
+    program: tax
+    mapping_type: derived_expression
+    expression: ut_income_tax_before_credits * (1 - ut_income_tax_exempt)
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: PolicyEngine publishes section 59-10-104 tax before credits and the section 59-10-104.1 exemption separately. Multiplying by one minus the Boolean exemption reproduces the canonical exemption-aware schedule output without claiming the taxpayer credit or final liability.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_taxpayer_credit_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that the section 59-10-1018 taxpayer credit is intentionally outside the canonical schedule surface.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_final_resident_liability_source_hold_applies
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This source-readiness hold records that downstream credits, payments, and final resident liability are intentionally outside the canonical schedule surface.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_taxpayer_tax_credit
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is an explicit fail-closed source-hold sentinel, not a computed taxpayer-credit result.
+
+  - legal_id: us-ut:policies/income_tax/2026_full_year_resident_before_credit_schedule#ut_pit_2026_final_resident_income_tax_liability_before_payments
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This zero is an explicit fail-closed source-hold sentinel, not computed final Utah liability.
+
+  # California's TY2026 pilot contains one independently comparable subgraph:
+  # the 1 percent Behavioral Health Services Tax on completed California
+  # taxable income above $1 million. These records deliberately do not promote
+  # the pilot's separate rate-schedule branch or broad liability surface.
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_rate_schedule_threshold
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec's $100,000 threshold selects the official California rate-schedule branch instead of the tax table. PolicyEngine exposes completed California income-tax results, not this source-specific routing threshold as a one-to-one parameter or variable.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_upper
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule X finite upper bounds as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that internal representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule X excess-over floors as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that cumulative-schedule representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec preserves the published Schedule X cumulative base amounts. PolicyEngine computes tax through a marginal scale and exposes no matching cumulative-base table output.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule X rates in one selector-indexed private table. PolicyEngine's filing-status-specific marginal scale is not a one-to-one output with this table identity.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_upper
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Y finite upper bounds as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that internal representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Y excess-over floors as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that cumulative-schedule representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec preserves the published Schedule Y cumulative base amounts. PolicyEngine computes tax through a marginal scale and exposes no matching cumulative-base table output.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Y rates in one selector-indexed private table. PolicyEngine's filing-status-specific marginal scale is not a one-to-one output with this table identity.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_upper
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Z finite upper bounds as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that internal representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Z excess-over floors as a selector-indexed private table. PolicyEngine's marginal scale does not expose a one-to-one output with that cumulative-schedule representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec preserves the published Schedule Z cumulative base amounts. PolicyEngine computes tax through a marginal scale and exposes no matching cumulative-base table output.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: RuleSpec stores the Schedule Z rates in one selector-indexed private table. PolicyEngine's filing-status-specific marginal scale is not a one-to-one output with this table identity.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_behavioral_health_services_tax_threshold
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ca.tax.income.mental_health_services
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both sources set the additional California tax threshold at $1 million of completed California taxable income. The second threshold in PolicyEngine's marginal scale is the first dollar at which the 1 percent rate applies.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_behavioral_health_services_tax_rate
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ca.tax.income.mental_health_services
+    parameter_key_path: [rates, 1]
+    period: year
+    comparison: rate
+    rationale: Both sources apply a 1 percent additional California tax rate to completed California taxable income above $1 million.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_completed_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ca_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: RuleSpec preserves the nonnegative boundary derived from caller-supplied completed California taxable income. It does not construct taxable income, and the campaign supplies the distinct upstream PolicyEngine ca_taxable_income value directly.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_rate_schedule_applicable
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This Boolean selects the official greater-than-$100,000 rate-schedule branch instead of the tax table. PolicyEngine does not expose that source-specific applicability judgment as a one-to-one variable.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This private integer selects RuleSpec's internal Schedule X tables. PolicyEngine publishes computed tax but no one-to-one bracket-selector variable.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This private integer selects RuleSpec's internal Schedule Y tables. PolicyEngine publishes computed tax but no one-to-one bracket-selector variable.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_bracket
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This private integer selects RuleSpec's internal Schedule Z tables. PolicyEngine publishes computed tax but no one-to-one bracket-selector variable.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_top_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This internal Schedule X top-bracket base is derived from RuleSpec's published cumulative schedule representation. PolicyEngine exposes no one-to-one variable with that representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_top_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This internal Schedule Y top-bracket base is derived from RuleSpec's published cumulative schedule representation. PolicyEngine exposes no one-to-one variable with that representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_top_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This internal Schedule Z top-bracket base is derived from RuleSpec's published cumulative schedule representation. PolicyEngine exposes no one-to-one variable with that representation.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_x_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This branch-specific Schedule X amount is a non-applicable zero sentinel for other filing classifications and for the tax-table domain. PolicyEngine's broader California schedule variables do not have the same one-to-one branch contract.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_y_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This branch-specific Schedule Y amount is a non-applicable zero sentinel for other filing classifications and for the tax-table domain. PolicyEngine's broader California schedule variables do not have the same one-to-one branch contract.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_schedule_z_tax
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This branch-specific Schedule Z amount is a non-applicable zero sentinel for other filing classifications and for the tax-table domain. PolicyEngine's broader California schedule variables do not have the same one-to-one branch contract.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_estimated_tax_rate_schedule_amount
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This output is only the Form 540-ES greater-than-$100,000 rate-schedule branch and returns a non-applicable zero sentinel in the tax-table domain. PolicyEngine does not expose that bounded estimated-tax worksheet branch one to one.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_behavioral_health_services_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ca_mental_health_services_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs impose the 1 percent additional California tax on the portion of completed California taxable income above $1 million. This exact subgraph comparison makes no claim about the separate rate-schedule branch or full California liability.
+
+  - legal_id: us-ca:policies/income_tax/pilot_liability_pipeline#ca_pit_pilot_estimated_tax_schedule_branch_total
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: This estimated-tax worksheet total combines RuleSpec's bounded rate-schedule branch with Behavioral Health Services Tax. PolicyEngine exposes broader California income-tax totals with different tax-table, credit, and liability scope, so only the BHST component is directly comparable.
+
+  # Minnesota's tax-year-2026 pilot exposes a source-faithful continuous
+  # section 290.06 rate schedule. The exact mapping deliberately does not
+  # promote the pilot's historical broad-liability concept.
+  - legal_id: us-mn:policies/income_tax/pilot_liability_pipeline#mn_pit_pilot_schedule_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: mn_basic_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply Minnesota's four-rate individual schedule to completed Minnesota taxable income selected by filing status. The final official tax-year-2026 RuleSpec thresholds are $10 to $30 above PolicyEngine-US 1.752.2's thresholds, producing only a reviewed sub-dollar residual under the preserved $1 absolute tolerance. This narrow mapping makes no claim about taxable-income construction, tax-table rounding, alternative minimum tax, net investment income tax, credits, payments, or final liability.
+
+  # New York Tax Law section 601's bounded TY2026 main resident schedule.
+  # These exact records cover every output in the canonical RuleSpec module
+  # and take precedence over the jurisdiction-wide fallback below. They do not
+  # claim supplemental tax, credits, local taxes, or final annual liability.
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ny_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: RuleSpec preserves the completed New York taxable-income boundary supplied to the section 601 main schedule; PolicyEngine exposes that same completed boundary as ny_taxable_income.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_main_income_tax
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ny_main_income_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply the 2026 section 601 main resident schedule to completed New York taxable income before supplemental tax, credits, local taxes, payments, or final liability.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_bracket_selector
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the internal integer row selected from the joint-or-surviving statutory table; PolicyEngine applies a marginal scale and exposes no one-to-one selector output.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_bracket_selector
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the internal integer row selected from the head-of-household statutory table; PolicyEngine applies a marginal scale and exposes no one-to-one selector output.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_bracket_selector
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the internal integer row selected from the single-or-separate statutory table; PolicyEngine applies a marginal scale and exposes no one-to-one selector output.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_first_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_second_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same second upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_third_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 3]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same third upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_fourth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 4]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fourth upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_fifth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 5]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fifth upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_sixth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 6]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same sixth upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_seventh_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 7]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same seventh upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_eighth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.joint
+    parameter_key_path: [thresholds, 8]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same eighth upper bound in the 2026 joint and surviving-spouse section 601 schedule; PolicyEngine's joint and surviving-spouse scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_first_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_second_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same second upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_third_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 3]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same third upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_fourth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 4]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fourth upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_fifth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 5]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fifth upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_sixth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 6]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same sixth upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_seventh_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 7]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same seventh upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_eighth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.head_of_household
+    parameter_key_path: [thresholds, 8]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same eighth upper bound in the 2026 head-of-household section 601 schedule.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_first_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 1]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same first upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_second_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 2]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same second upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_third_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 3]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same third upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_fourth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 4]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fourth upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_fifth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 5]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same fifth upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_sixth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 6]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same sixth upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_seventh_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 7]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same seventh upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_eighth_upper_bound
+    country: us
+    program: tax
+    mapping_type: parameter_value
+    policyengine_parameter: gov.states.ny.tax.income.main.single
+    parameter_key_path: [thresholds, 8]
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Same eighth upper bound in the 2026 single and married-separate section 601 schedule; PolicyEngine's single and separate scales are identical.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_bracket_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory floor table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the statute's rounded cumulative-base table; PolicyEngine computes a continuous marginal scale and has no one-to-one published-base table target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_joint_or_surviving_bracket_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory rate table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_bracket_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory floor table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the statute's rounded cumulative-base table; PolicyEngine computes a continuous marginal scale and has no one-to-one published-base table target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_head_of_household_bracket_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory rate table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_bracket_floor
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory floor table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_bracket_base
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the statute's rounded cumulative-base table; PolicyEngine computes a continuous marginal scale and has no one-to-one published-base table target.
+
+  - legal_id: us-ny:policies/income_tax/pilot_liability_pipeline#ny_pit_pilot_single_or_separate_bracket_rate
+    country: us
+    program: tax
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: Axiom exposes the complete statutory rate table as one RuleSpec output; PolicyEngine's registry supports scalar scale-cell comparison but has no one-to-one whole-table oracle target.
+
+  # Indiana's bounded TY2026 adjusted-gross-income tax before credits and
+  # county tax. The completed-return AGI remains a caller boundary, so only
+  # the RuleSpec output is mapped directly.
+  - legal_id: us-in:policies/income_tax/pilot_liability_pipeline#in_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: in_agi_tax
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply Indiana's tax-year-2026 2.95 percent state rate to completed Indiana adjusted gross income with a zero floor, before credits and excluding the separate county tax.
+
+  # South Carolina's bounded TY2026 individual income tax before
+  # nonrefundable credits. The completed-return taxable-income input remains a
+  # caller boundary; promotion is limited to the enacted 2026 schedule and a
+  # runtime-proved nonnegative population domain.
+  - legal_id: us-sc:policies/income_tax/pilot_liability_pipeline#sc_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: sc_income_tax_before_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: On the reviewed nonnegative completed-return boundary, both outputs apply South Carolina's enacted tax-year-2026 1.99 percent and 5.21 percent-minus-$966 schedule to South Carolina taxable income before nonrefundable credits, payments, or final annual liability.
+
+  # Oklahoma's bounded TY2026 individual income tax before credits. Completed
+  # taxable income and filing-status classification remain caller boundaries;
+  # no credit, payment, or final-liability surface is promoted here.
+  - legal_id: us-ok:policies/income_tax/pilot_liability_pipeline#ok_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ok_income_tax_before_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: On the reviewed nonnegative completed-return boundary, both outputs apply Oklahoma's enacted tax-year-2026 four-band schedule to Oklahoma taxable income using the statutory single-or-separate versus joint, surviving-spouse, or head-of-household schedule branch, before credits, payments, or final annual liability.
+
+  # Montana's bounded TY2026 tax before nonrefundable credits. Completed
+  # taxable income, section 1222 net long-term capital gain, and filing-status
+  # classification remain reviewed caller boundaries; credits, payments, and
+  # final annual liability are not promoted.
+  - legal_id: us-mt:policies/income_tax/pilot_liability_pipeline#mt_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: mt_income_tax_before_non_refundable_credits_joint
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs compose Montana's complete temporary tax-year-2026 ordinary-income and net-long-term-capital-gain schedules under MCA 15-30-2103 from the same completed-return boundaries, before nonrefundable credits; this narrow mapping excludes credits, payments, and final annual liability.
+
+  # Arkansas Act 2 of 2026 supplies this bounded Person-grain individual
+  # schedule component. Person-to-TaxUnit summation belongs only to the
+  # reviewed Populace comparison accounting and does not change its entity.
+  - legal_id: us-ar:policies/income_tax/pilot_liability_pipeline#ar_pit_pilot_income_tax_before_non_refundable_credits_indiv
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: ar_income_tax_before_non_refundable_credits_indiv
+    entity: person
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply Arkansas Act 2 of 2026 section 1's complete tax-year-2026 individual schedule, including the high-income bracket-adjustment table, to completed-return individual taxable income at Person grain before nonrefundable credits; this narrow mapping excludes taxable-income construction, filing-unit aggregation or method selection, low-income tables, credits, payments, and final liability.
+
+  # Pennsylvania's bounded TY2026 resident tax before forgiveness. The
+  # completed-return adjusted-taxable-income input remains a caller boundary;
+  # these exact output mappings are promoted only with a runtime proof that the
+  # selected certified population stays in RuleSpec's nonnegative domain.
+  - legal_id: us-pa:policies/income_tax/pilot_liability_pipeline#pa_pit_pilot_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: pa_adjusted_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: On the reviewed nonnegative completed-return boundary, RuleSpec's taxable-income output and PolicyEngine's pa_adjusted_taxable_income expose the same Pennsylvania adjusted taxable income before tax forgiveness and credits.
+
+  - legal_id: us-pa:policies/income_tax/pilot_liability_pipeline#pa_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: pa_income_tax_before_forgiveness
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: On the reviewed nonnegative completed-return boundary, both outputs apply Pennsylvania's tax-year-2026 3.07 percent rate to adjusted taxable income before tax forgiveness, credits, payments, or final annual liability.
+
+  # Illinois's bounded TY2026 annual tax before nonrefundable credits.
+  # The canonical module accepts completed Illinois taxable income and
+  # investment-credit recapture boundaries; it does not reconstruct either
+  # upstream chain or claim credits, payments, or final annual liability.
+  - legal_id: us-il:policies/income_tax/pilot_liability_pipeline#il_pit_pilot_taxable_income
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: il_taxable_income
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: RuleSpec preserves the completed Illinois taxable-income boundary after a nonnegative floor; PolicyEngine exposes the same completed TaxUnit boundary as il_taxable_income.
+
+  - legal_id: us-il:policies/income_tax/pilot_liability_pipeline#il_pit_pilot_income_tax_liability
+    country: us
+    program: tax
+    mapping_type: direct_variable
+    policyengine_variable: il_income_tax_before_non_refundable_credits
+    entity: tax_unit
+    period: year
+    unit: USD
+    comparison: money
+    rationale: Both outputs apply the 4.95 percent tax to completed Illinois taxable income and add completed investment-credit recapture before nonrefundable credits; this mapping excludes taxable-income construction, credit computation, payments, and final annual liability.
+
+
 prefixes:
   - legal_id_prefix: us-dc:statutes/4/4-205/49#
     country: us
@@ -29403,6 +31184,12 @@ prefixes:
     candidate_priority: P4
     rationale: PolicyEngine-US does not model CT agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
+  - legal_id_prefix: "us-dc:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every District statute, agency manual, regulation, or source-level output one to one; independently reviewed comparable outputs carry exact mappings which take precedence over this jurisdiction-wide fallback.
+
   - legal_id_prefix: "us-de:"
     country: us
     mapping_type: not_comparable
@@ -29439,6 +31226,12 @@ prefixes:
     candidate_priority: P4
     rationale: PolicyEngine-US does not model IN agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
+  - legal_id_prefix: "us-ks:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every Kansas statute, agency manual, regulation, or source-level output one to one; independently reviewed comparable outputs carry exact mappings which take precedence over this jurisdiction-wide fallback.
+
   - legal_id_prefix: "us-ma:"
     country: us
     mapping_type: not_comparable
@@ -29450,6 +31243,30 @@ prefixes:
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: PolicyEngine-US does not model MD agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-mn:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every Minnesota statute, agency policy manual, or state regulation at output granularity; independently reviewed comparable outputs carry exact mappings which take precedence over this jurisdiction-wide fallback.
+
+  - legal_id_prefix: "us-ms:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every MS statute, agency policy manual, or state regulation at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-mt:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every Montana statute, agency policy manual, or state regulation at output granularity; independently reviewed comparable outputs carry exact mappings which take precedence over this jurisdiction-wide fallback.
+
+  - legal_id_prefix: "us-ut:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every Utah statute, agency policy manual, or state regulation at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-nc:"
     country: us
@@ -29475,11 +31292,23 @@ prefixes:
     candidate_priority: P4
     rationale: PolicyEngine-US does not model NY agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
+  - legal_id_prefix: "us-oh:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model every Ohio statute, agency policy manual, or state regulation at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
   - legal_id_prefix: "us-ok:"
     country: us
     mapping_type: not_comparable
     candidate_priority: P4
     rationale: PolicyEngine-US does not model OK agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
+
+  - legal_id_prefix: "us-pa:"
+    country: us
+    mapping_type: not_comparable
+    candidate_priority: P4
+    rationale: PolicyEngine-US does not model PA agency policy manuals or state regulations at output granularity; comparable state outputs carry exact mappings which take precedence over this prefix.
 
   - legal_id_prefix: "us-sc:"
     country: us

@@ -1,0 +1,1 @@
+A maqaf after a Hebrew prefix before a word binds the prefix as attachment does: the numeric text view moves the prefix cluster up to its word in place, so "ו־עד", "ו־המתינה" and "ה־שיעורים" are "ועד", "והמתינה" and "השיעורים" to every reader, and the attached, maqaf and hyphen spellings ground, recall and extract the same values everywhere.

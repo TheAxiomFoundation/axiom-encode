@@ -1,0 +1,1 @@
+A fraction or count before a percent noun or sign counts a rate and is no tail or remainder of the scaled amount before it ("3 מיליון וחצי אחוז" is 3,000,000 and half a percent; "3 מיליון ועשרים%" 3,000,000 and twenty percent), and a shared-scale range reads mixed endpoints ("בין 2 וחצי ל־3 מיליון" runs from 2,500,000).

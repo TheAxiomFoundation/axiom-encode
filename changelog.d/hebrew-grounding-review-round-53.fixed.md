@@ -1,0 +1,1 @@
+A printed remainder after a scaled amount is read whole before its marker: "3 מיליון ו־3 1/2 אחוזים" is 3,000,000 and 3.5 percent (also with a fraction slash or a percent sign), while "3 מיליון ו־3 וחצי שקלים" and "3 מיליון ו־3 1/2 שקלים" are 3,000,003.5.

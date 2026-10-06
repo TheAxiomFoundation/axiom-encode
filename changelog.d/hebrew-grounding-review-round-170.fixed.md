@@ -1,0 +1,1 @@
+A fraction's count takes the traditional spellings ("שלש עשיריות האחוז" is 0.003, "חמשה רבעים" 1.25), a fraction takes a bare construct or possessed amount as its operand in a paying clause ("ישלם לעובד חמישית שכרו", "חמישית שכר המינימום"), the paying vocabulary knows the past, present and passive forms ("ניתנה", "הפקיד", "העניק", "משולם"), and a bonus is an amount.

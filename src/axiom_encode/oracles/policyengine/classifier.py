@@ -1,7 +1,7 @@
 """Pattern-driven PolicyEngine oracle classifier for RuleSpec encodings.
 
-The classifier walks a `rulespec-us-<state>` repository, looks up each
-output's name in the requested program's adapter catalog in `adapters.py`,
+The classifier walks a canonical ``rulespec-us/us-<state>`` content root,
+looks up each output's name in the requested program's adapter catalog,
 and emits a `us.yaml` mapping entry per output.
 
 Single source of truth: each program's pattern catalog is the adapter list
@@ -25,13 +25,18 @@ from pathlib import Path
 from typing import Iterable
 
 import yaml
-
-from axiom_encode.oracles.policyengine.adapters import (
+from axiom_oracles.bridges.adapters import (
     PE_US_PROGRAM_VAR_ADAPTERS,
     PE_US_VAR_ADAPTERS,
     PolicyEngineUSVarAdapter,
 )
-from axiom_encode.oracles.policyengine.registry import load_policyengine_registry
+from axiom_oracles.bridges.registry import load_policyengine_registry
+
+from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.repo_routing import (
+    canonical_rulespec_root_identity,
+    monorepo_checkout_name,
+)
 
 # RuleSpec dtypes that align with money-amount PolicyEngine variables.
 _MONEY_DTYPES = frozenset({"Money", "USD", "Integer", "Decimal", "Number"})
@@ -319,7 +324,15 @@ def classify_rulespec_repo(
     program: str = "snap",
     adapters: Iterable[PolicyEngineUSVarAdapter] | None = None,
 ) -> list[Classification]:
-    """Walk a `rulespec-us-<state>` repo and classify every executable output."""
+    """Classify executable outputs beneath one canonical jurisdiction root."""
+
+    repo_root = Path(repo_root).resolve()
+    expected_identity = f"{monorepo_checkout_name(jurisdiction)}/{jurisdiction}"
+    if canonical_rulespec_root_identity(repo_root) != expected_identity:
+        raise ValueError(
+            "classifier root must be the exact canonical jurisdiction root "
+            f"{expected_identity}: {repo_root}"
+        )
     # Resolve the adapter catalog at call time (not at function-def time) so
     # callers and tests can inject alternatives via either the explicit
     # argument or by patching `PE_US_VAR_ADAPTERS` on this module.
@@ -338,7 +351,13 @@ def classify_rulespec_repo(
     rule_index = _build_rule_name_index(adapters)
 
     classifications: list[Classification] = []
-    for path in sorted(repo_root.rglob("*.yaml")):
+    paths = (
+        path
+        for source_root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)
+        for path in (repo_root / source_root).rglob("*.yaml")
+        if (repo_root / source_root).is_dir()
+    )
+    for path in sorted(paths):
         if path.name.endswith(".test.yaml"):
             continue
         rel = path.relative_to(repo_root)

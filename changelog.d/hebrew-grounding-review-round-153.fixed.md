@@ -1,0 +1,1 @@
+A rate's main predicate is the last one before its pair, so every relative clause in the subject keeps its own verb whatever opened it ("הריבית שבנק ישראל יקבע תהיה 10 או 30%" is two rates), and a consequent's subject is found by walking back over all its modifiers ("הקנס הקבוע בחוק יהיה 50 או 2%" is fifty shekels).

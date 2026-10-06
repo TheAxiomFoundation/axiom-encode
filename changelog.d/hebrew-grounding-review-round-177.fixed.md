@@ -1,0 +1,1 @@
+A scale word inside a counted fraction's count is the count's alone ("בין 500 עשיריות לאלף עשיריות האחוז" runs from 0.5 to 1), a counted fraction endpoint is complete on its own, and a bare endpoint before a counted fraction shares its fraction word ("בין שתיים לשלוש עשיריות האחוז" runs from 0.002).
