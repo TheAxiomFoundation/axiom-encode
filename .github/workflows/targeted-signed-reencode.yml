@@ -1020,7 +1020,7 @@ jobs:
           if [ -d axiom-corpus/.axiom/corpus-locks ]; then
             release_object="axiom-corpus/releases/${release_name}/${release_sha}.json"
             provision_paths_json="$(jq -e \
-              '[.content.artifacts[] | select(.artifact_class == "provisions") | .path] \
+              '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
                | if length > 0 then . else error("no provision artifacts") end' \
               "$release_object")"
             mapfile -t provision_paths < <(jq -r '.[]' <<< "$provision_paths_json")
