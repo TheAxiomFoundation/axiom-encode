@@ -155,6 +155,19 @@ FNS approval or binding determination, and it does not explain the contrary
 FNS first-quarter status entry. Keep October–February geography unencoded
 until the discrepancy is reconciled against approval-level authority.
 
+Separately, [DES's September 24, 2025 ABAWD look-back
+bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20(09-24-2025)%20-%20ABAWD%20Three-Month%20Look%20Back.pdf)
+instructs staff to treat August–October 2025 as countable for participants
+whose homelessness, former-foster-youth, veteran, age-55–64, or older-child
+exemptions ended, if they have no other exemption or qualifying work. It
+directs adverse action for November after three countable months. This is
+evidence for a distinct **person-level exemption transition**, not an FNS
+approval identifying geographically waived areas or a resolution of the
+contrary FNS first-quarter status entry. The [March 2, 2026 DES change
+notice](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/2026-03-02_WhatChanged.pdf)
+repeats the need to correct August–October countable-month indicators; that
+later operational reminder likewise does not establish geographic authority.
+
 The block-9 compile failure is reproducible without another protected attempt.
 Using the archived rejected candidate, pinned RuleSpec US
 `9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and the failed run's engine
