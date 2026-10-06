@@ -35,6 +35,7 @@ from typing import Any, Mapping, Protocol
 
 import yaml
 
+from axiom_encode.harness.numeric_context import CURRENCY_MARKER_FRAGMENT
 from axiom_encode.harness.proof_validator import _normalize_atom_path
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
@@ -13008,6 +13009,138 @@ def _partition_condition_clause_at_rows(
     )
 
 
+_RECALL_ENGLISH_REFERENCE_TARGET = (
+    r"\d+(?:\.\d+)*[A-Za-z]*(?:\([A-Za-z0-9]+\))*"
+    r"(?![\w]|\.\d)"
+)
+_RECALL_COMPLETE_ENGLISH_REFERENCE = re.compile(
+    r"\b(?:sections?|subsections?|sub-paragraphs?|paragraphs?|regulations?)\s+"
+    + _RECALL_ENGLISH_REFERENCE_TARGET
+    + r"(?:\s*(?:through|to|and|,|[-–—])\s*"
+    + _RECALL_ENGLISH_REFERENCE_TARGET
+    + r")*",
+    re.IGNORECASE,
+)
+# Preserve amounts carrying known currency tokens even where the numeric
+# extractor currently records only a scalar rather than typed money evidence.
+_RECALL_CURRENCY_MARKER_FRAGMENT = (
+    rf"(?:{CURRENCY_MARKER_FRAGMENT}|(?:jpy|ils|nis|kr|kroner|øre)\b)"
+)
+_RECALL_QUANTITY_SUFFIX = re.compile(
+    rf"\s*(?:%|{_RECALL_CURRENCY_MARKER_FRAGMENT}|percent\b|percentage\b|"
+    r"days?\b|weeks?\b|months?\b|years?\b|people\b|persons?\b|children\b|"
+    r"[-–]year\b|[.,]\d)",
+    re.IGNORECASE,
+)
+_RECALL_QUANTITY_PREFIX = re.compile(
+    rf"(?:{_RECALL_CURRENCY_MARKER_FRAGMENT}|[₪₩₽₺₴₦₵¢￠]|"
+    r"(?-i:\b[A-Z]{3})|\d[\s.,_]*|[+\-−*/×÷^])\s*$",
+    re.IGNORECASE,
+)
+_RECALL_UK_LEGAL_YEAR = re.compile(
+    r"(?<![£$€\d])\b(?:(?P<short_year>(?:18|19|20)\d{2})\s+Act\b|"
+    r"Act\s+of\s+(?P<of_year>(?:18|19|20)\d{2})\b)"
+)
+_RECALL_UK_PROSE_START = r"(?:This|The|A|An|If|Where|Whether|For|In|Subject|Except)\b"
+_RECALL_UK_BARE_MARKER = re.compile(
+    r"(?m)(?:^[ \t]*(?:General[ \t]+)?|"
+    r"(?<=[.!?])[ \t]+)"
+    r"(?P<labels>\d+[A-Za-z]?(?:[ \t]+\d+[A-Za-z]?)?)[ \t]+"
+    rf"(?={_RECALL_UK_PROSE_START})"
+)
+_RECALL_UK_SCHEDULE_HEADING_MARKER = re.compile(
+    r"(?m)^(?:Prisoners|"
+    r"Child or qualifying young person (?:normally living with the claimant|"
+    r"looked after by a local authority)|"
+    r"Temporary absence (?:in Great Britain|outside Great Britain)|"
+    r"Death of child or qualifying young person|Amount of additional payment|"
+    r"Amount for the eldest child or qualifying young person born before "
+    r"\d{1,2}(?:st|nd|rd|th) [A-Z][a-z]+ \d{4})[ \t]+"
+    r"(?P<labels>\d+(?:[ \t]+\d+)?)[ \t]+"
+    rf"(?={_RECALL_UK_PROSE_START})"
+)
+_RECALL_UK_PAREN_MARKER = re.compile(
+    rf"(?m)^[ \t]*(?P<label>\d+[A-Za-z]?)\)[ \t]+(?={_RECALL_UK_PROSE_START}|[“\"])"
+)
+_RECALL_UK_TABLE_MARKER = re.compile(
+    r"(?m)^[ \t]*\|[ \t]*(?P<label>[1-9]\d*)"
+    r"(?:Severe Disability|Disability|Disabled Child|Carer|Enhanced Disability)"
+    r" Premium[—.]+[ \t]*\|[ \t]*(?P<repeat>[1-9]\d*)"
+    r"(?=[ \t\u00a0]*(?:\||[a-z]?\s*[£$€]))"
+)
+_RECALL_US_BIBLIOGRAPHIC = tuple(
+    re.compile(pattern)
+    for pattern in (
+        r"\bPub\.\s*L\.\s*\d+\s*[-–—]\s*\d+\b(?![.,]\d)",
+        r"\b\d+\s+Stat\.\s*\d+\b(?![.,]\d)",
+        r"\bInternal Revenue Service Notice\s+\d{4}\s*[-–—]\s*\d+\b(?![.,]\d)",
+        r"\b\d+\s+U\.S\.C\.\s+note\s+prec\.\s*\d+[A-Za-z]*\b(?![.,]\d)",
+        r"\b\d+[A-Za-z]*(?:\([A-Za-z0-9]+\))*\s+of\s+the\s+"
+        r"[A-Z][A-Za-z'-]*(?:\s+(?:[A-Z][A-Za-z'-]*|and|of|the)){0,10}\s+Act\b",
+        r"(?m)^[ \t]*[1-9]\d?(?:[ \t]+[1-9]\d?)?[ \t]+So in original\.",
+        r"\bSee\s+\d{4}\s+Amendment note below\.",
+    )
+)
+
+
+def _additional_numeric_recall_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Recognize citation-local furniture without blacklisting its numeric value.
+
+    The citation is resolver-owned. Flattened UK paragraph labels and US
+    editorial notes are source-format conventions, not rules supplied by an
+    encoding. Mask only their own spans so equal operative amounts survive.
+    """
+    def is_quantity(match: re.Match[str]) -> bool:
+        return bool(
+            _RECALL_QUANTITY_SUFFIX.match(text, match.end())
+            or _RECALL_QUANTITY_PREFIX.search(text[: match.start()])
+            # A citation recognizer must never take the suffix of a decimal,
+            # grouped amount, signed amount or larger identifier.
+            or (
+                match.start() > 0
+                and text[match.start() - 1] in ".,0123456789_+-−"
+            )
+        )
+
+    spans = [
+        match.span()
+        for match in _RECALL_COMPLETE_ENGLISH_REFERENCE.finditer(text)
+        if not is_quantity(match)
+    ]
+    if corpus_citation_path.startswith(("uk/statute/", "uk/regulation/")):
+        for match in _RECALL_UK_LEGAL_YEAR.finditer(text):
+            if not is_quantity(match):
+                group = "short_year" if match.group("short_year") else "of_year"
+                spans.append(match.span(group))
+        spans.extend(
+            match.span("labels") for match in _RECALL_UK_BARE_MARKER.finditer(text)
+        )
+        spans.extend(
+            match.span("label") for match in _RECALL_UK_PAREN_MARKER.finditer(text)
+        )
+        if corpus_citation_path == "uk/regulation/uksi/2002/1792/schedule/IIA":
+            # This CLML snapshot flattens these actual schedule headings and
+            # their paragraph labels. Arbitrary capitalized prose is ambiguous
+            # (e.g. `Minimum earnings 100 The claimant...`) and stays required.
+            spans.extend(
+                match.span("labels")
+                for match in _RECALL_UK_SCHEDULE_HEADING_MARKER.finditer(text)
+            )
+        for match in _RECALL_UK_TABLE_MARKER.finditer(text):
+            if match.group("label") == match.group("repeat"):
+                spans.extend((match.span("label"), match.span("repeat")))
+    if corpus_citation_path.startswith("us/statute/"):
+        spans.extend(
+            match.span()
+            for pattern in _RECALL_US_BIBLIOGRAPHIC
+            for match in pattern.finditer(text)
+            if not is_quantity(match)
+        )
+    return tuple(spans)
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
@@ -13137,6 +13270,15 @@ def authoritative_numeric_recall_text(
             else match.group(0)
         ),
         cleaned,
+    )
+    # Footnote authentication above needs its section citations intact. Only
+    # mask complete references after those linked definitions are recognized,
+    # and before the older partial-reference cleanup can leave numeric tails.
+    cleaned = _mask_numeric_spans(
+        cleaned,
+        _additional_numeric_recall_spans(
+            cleaned, corpus_citation_path=corpus_citation_path
+        ),
     )
     cleaned = re.sub(
         r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"

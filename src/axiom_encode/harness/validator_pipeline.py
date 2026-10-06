@@ -87,6 +87,9 @@ from axiom_encode.engine_binding import (
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
 )
+from axiom_encode.harness.numeric_context import (
+    CURRENCY_MARKER_FRAGMENT as _CURRENCY_MARKER_FRAGMENT,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
     _path_identity_fingerprint,
@@ -8660,12 +8663,6 @@ _STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
 _STRUCTURAL_GLUED_SENTENCE_MARKER_PATTERN = re.compile(
     r"(?<![\w])(?:[1-9]\d?)(?=[A-ZÄÖÜ])"
 )
-_CURRENCY_MARKER_FRAGMENT = (
-    r"(?:[$£€¥₹]|"
-    r"(?:euros?|eur|dollars?|usd|pounds?|gbp|cad|aud|chf)\b|"
-    r"(?:(?:u\.?\s*s\.?|united\s+states|canadian|australian)\s+dollars?|"
-    r"swiss\s+francs?)\b)"
-)
 _CURRENCY_MARKER_BEFORE_NUMBER_PATTERN = re.compile(
     rf"{_CURRENCY_MARKER_FRAGMENT}\s*$",
     re.IGNORECASE,
@@ -15954,26 +15951,39 @@ def _tokenize_numeric_occurrences_from_text(
             requires_rate_context=True,
         )
 
-    week_matches: list[tuple[tuple[int, int], float]] = []
+    # Unit conversions authorize formula literals; they are not a second
+    # source-stated amount when the complete numeral is already in inventory.
+    # Defer that decision until the digit passes finish: grouped or ambiguous
+    # numbers can be read differently by the legacy European phrase parser.
+    duration_conversions: list[
+        tuple[NumericOccurrence, tuple[int, int], float]
+    ] = []
+
+    def add_duration_conversion(
+        match: re.Match[str], source_value: float, factor: int
+    ) -> None:
+        value = source_value * factor
+        collector.add_grounding(raw_view, match.span(), value)
+        occurrence = collector.occurrence(raw_view, match.span(), value)
+        collector.inventory.append(occurrence)
+        duration_conversions.append(
+            (occurrence, raw_view.source_span(match.span("number")), source_value)
+        )
+
     for match in _WEEK_DURATION_PATTERN.finditer(raw_text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
-            week_matches.append((match.span(), value * 7))
+            add_duration_conversion(match, value, 7)
     for match in _ORDINAL_WEEK_DURATION_PATTERN.finditer(raw_text):
         normalized = re.sub(r"\s+", " ", match.group("number").strip().lower())
         value = _FRENCH_ORDINAL_PHRASE_VALUES.get(normalized)
         if value is not None:
-            week_matches.append((match.span(), value * 7))
-    for span, value in unique_matches(week_matches):
-        add_both(raw_view, span, value)
+            add_duration_conversion(match, value, 7)
 
-    year_matches: list[tuple[tuple[int, int], float]] = []
     for match in _YEAR_DURATION_PATTERN.finditer(raw_text):
         value = _parse_belgian_numeric_phrase(match.group("number"))
         if value is not None:
-            year_matches.append((match.span(), value * 12))
-    for span, value in unique_matches(year_matches):
-        add_both(raw_view, span, value)
+            add_duration_conversion(match, value, 12)
 
     centime_match = _CENTIME_UNIT_PATTERN.search(raw_text)
     if centime_match:
@@ -16858,11 +16868,28 @@ def _tokenize_numeric_occurrences_from_text(
     collector.inventory = list(
         _complete_typed_year_occurrences(collector, collector.inventory)
     )
+    redundant_duration_ids = {
+        id(converted)
+        for converted, number_span, source_value in duration_conversions
+        if any(
+            item is not converted
+            and item.span == number_span
+            and not item.is_word_number
+            and not item.has_temporal_context
+            and not item.has_structural_context
+            and _occurrence_value_matches(item.value, source_value)
+            and not _is_same_evidence_scaled_inventory_duplicate(
+                item, collector.inventory
+            )
+            for item in collector.inventory
+        )
+    }
     inventory_occurrences = tuple(collector.inventory)
     normalized_inventory = _scalar_recall_numeric_inventory(
         occurrence
         for occurrence in inventory_occurrences
-        if not _is_same_evidence_scaled_inventory_duplicate(
+        if id(occurrence) not in redundant_duration_ids
+        and not _is_same_evidence_scaled_inventory_duplicate(
             occurrence,
             inventory_occurrences,
         )

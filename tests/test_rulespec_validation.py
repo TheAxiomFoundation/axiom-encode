@@ -31730,7 +31730,9 @@ def test_numeric_occurrence_extraction_accepts_belgian_direct_percent():
 def test_numeric_occurrence_extraction_accepts_belgian_week_duration_days():
     text = "La periode de protection est de six semaines."
 
-    assert 42 in extract_numeric_occurrences_from_text(text)
+    assert 6 in extract_numeric_occurrences_from_text(text)
+    assert 42 not in extract_numeric_occurrences_from_text(text)
+    assert 42 in extract_numbers_from_text(text)
 
 
 def test_numeric_occurrence_extraction_accepts_french_ordinal_week_duration_days():
@@ -31742,7 +31744,9 @@ def test_numeric_occurrence_extraction_accepts_french_ordinal_week_duration_days
 def test_numeric_occurrence_extraction_accepts_french_year_duration_months():
     text = "Cette prolongation ne peut depasser quinze ans."
 
-    assert 180 in extract_numeric_occurrences_from_text(text)
+    assert 15 in extract_numeric_occurrences_from_text(text)
+    assert 180 not in extract_numeric_occurrences_from_text(text)
+    assert 180 in extract_numbers_from_text(text)
 
 
 def test_numeric_occurrence_extraction_accepts_french_hundreds():
