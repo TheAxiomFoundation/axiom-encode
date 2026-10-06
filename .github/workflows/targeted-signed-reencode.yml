@@ -972,6 +972,8 @@ jobs:
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           QUEUE_ID: ${{ inputs.queue_id }}
           QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           materializer=axiom-encode/scripts/materialize_corpus_release.py
@@ -1015,6 +1017,29 @@ jobs:
             echo "Pinned corpus checkout predates signed release provenance" >&2
             exit 1
           }
+          if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            release_object="axiom-corpus/releases/${release_name}/${release_sha}.json"
+            provision_paths_json="$(jq -e \
+              '[.content.artifacts[] | select(.artifact_class == "provisions") | .path] \
+               | if length > 0 then . else error("no provision artifacts") end' \
+              "$release_object")"
+            mapfile -t provision_paths < <(jq -r '.[]' <<< "$provision_paths_json")
+            fetch_args=()
+            for path in "${provision_paths[@]}"; do
+              case "$path" in
+                data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; exit 1 ;;
+              esac
+            done
+            uv run --project axiom-corpus --locked --python 3.14 \
+              axiom-corpus-ingest corpus fetch --repo axiom-corpus \
+              --no-cache --verify "${fetch_args[@]}"
+          else
+            test -d axiom-corpus/data/corpus/provisions || {
+              echo "Pinned corpus checkout has neither locks nor provisions" >&2
+              exit 1
+            }
+          fi
 
       - name: Provision protected signing supervisor
         id: provision_signing_supervisor

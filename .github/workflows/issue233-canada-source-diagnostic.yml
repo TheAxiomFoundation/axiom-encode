@@ -1,0 +1,275 @@
+# REVIEW DRAFT: install as .github/workflows/issue233-canada-source-diagnostic.yml only after review.
+name: Issue 233 Canada protected source diagnostic
+'on':
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+    - name: Initialize retained evidence and require default-branch dispatch
+      shell: bash
+      env:
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -euo pipefail
+        mkdir "$RUNNER_TEMP/ca-diagnostic"
+        report="$RUNNER_TEMP/ca-diagnostic"
+        printf 'initializing\n' > "$report/setup-stages.log"
+        test "$GITHUB_REPOSITORY" = TheAxiomFoundation/axiom-encode
+        test "$GITHUB_EVENT_NAME" = workflow_dispatch
+        test "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH"
+        case "$GITHUB_WORKFLOW_REF" in
+          "TheAxiomFoundation/axiom-encode/.github/workflows/issue233-canada-source-diagnostic.yml@refs/heads/$DEFAULT_BRANCH") ;;
+          *) echo 'Unexpected workflow identity' >&2; exit 1 ;;
+        esac
+    - name: Checkout rulespec-ca
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        repository: TheAxiomFoundation/rulespec-ca
+        ref: d3b0378a9f2e957f3f3bf741de5a894f03fab32e
+        path: rulespec-ca
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Checkout axiom-encode
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        repository: TheAxiomFoundation/axiom-encode
+        ref: 4956c8305ee155f476a3c0c6dbe8efbd443626a4
+        path: axiom-encode
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Checkout axiom-rules-engine
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        repository: TheAxiomFoundation/axiom-rules-engine
+        ref: 89571cc2a938707fd60a5489b951135345697296
+        path: axiom-rules-engine
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Checkout axiom-corpus
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      with:
+        repository: TheAxiomFoundation/axiom-corpus
+        ref: d24cbde7e6d125a6f859f43c188b0ffbd115b835
+        path: axiom-corpus
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Initialize evidence and authenticate official checkout ancestry
+      shell: bash
+      run: |-
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        printf 'stage 5 started\n' >> "$report/setup-stages.log"
+        trap 'code=$?; printf "stage 5 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-5.log" 2>&1
+        set -euo pipefail
+        test -d "$RUNNER_TEMP/ca-diagnostic"
+        python3 - <<'PYCODE'
+        import json,os
+        from pathlib import Path
+        Path(os.environ['RUNNER_TEMP'],'ca-diagnostic','dispatch.json').write_text(json.dumps({k:os.environ.get(k) for k in ['GITHUB_REPOSITORY','GITHUB_SHA','GITHUB_REF','GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_EVENT_NAME']},indent=2))
+        PYCODE
+        test "$(git -C rulespec-ca rev-parse HEAD)" = d3b0378a9f2e957f3f3bf741de5a894f03fab32e
+        origin="$(git -C rulespec-ca remote get-url origin)"
+        test "${origin%.git}" = https://github.com/TheAxiomFoundation/rulespec-ca
+        git -C rulespec-ca fetch --no-tags origin main
+        git -C rulespec-ca merge-base --is-ancestor d3b0378a9f2e957f3f3bf741de5a894f03fab32e FETCH_HEAD
+        test "$(git -C axiom-encode rev-parse HEAD)" = 4956c8305ee155f476a3c0c6dbe8efbd443626a4
+        origin="$(git -C axiom-encode remote get-url origin)"
+        test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-encode
+        git -C axiom-encode fetch --no-tags origin main
+        git -C axiom-encode merge-base --is-ancestor 4956c8305ee155f476a3c0c6dbe8efbd443626a4 FETCH_HEAD
+        test "$(git -C axiom-rules-engine rev-parse HEAD)" = 89571cc2a938707fd60a5489b951135345697296
+        origin="$(git -C axiom-rules-engine remote get-url origin)"
+        test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-rules-engine
+        git -C axiom-rules-engine fetch --no-tags origin main
+        git -C axiom-rules-engine merge-base --is-ancestor 89571cc2a938707fd60a5489b951135345697296 FETCH_HEAD
+        test "$(git -C axiom-corpus rev-parse HEAD)" = d24cbde7e6d125a6f859f43c188b0ffbd115b835
+        origin="$(git -C axiom-corpus remote get-url origin)"
+        test "${origin%.git}" = https://github.com/TheAxiomFoundation/axiom-corpus
+        git -C axiom-corpus fetch --no-tags origin main
+        git -C axiom-corpus merge-base --is-ancestor d24cbde7e6d125a6f859f43c188b0ffbd115b835 FETCH_HEAD
+    - name: Set up uv
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+      with:
+        version: 0.11.7
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      with:
+        toolchain: stable
+    - name: Set up Go
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      with:
+        go-version: 1.26.1
+        cache: false
+    - name: Install exact locked encoder dependencies and build engine
+      shell: bash
+      run: |
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        printf 'stage 9 started\n' >> "$report/setup-stages.log"
+        trap 'code=$?; printf "stage 9 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-9.log" 2>&1
+        set -euo pipefail
+        (cd axiom-encode && uv sync --frozen --python 3.14)
+        axiom-encode/.venv/bin/axiom-encode engine-bind \
+          --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+          --pin 89571cc2a938707fd60a5489b951135345697296 \
+          > "$report/engine-bind-setup.json"
+        cp axiom-rules-engine/target/release/axiom-rules-engine.provenance.json "$report/engine-provenance.json"
+        axiom-encode/.venv/bin/python --version > "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
+        rustc --version >> "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
+        go version >> "$RUNNER_TEMP/ca-diagnostic/runtime-versions.txt"
+        sha256sum axiom-rules-engine/target/release/axiom-rules-engine > "$RUNNER_TEMP/ca-diagnostic/engine.sha256"
+    - name: Acquire authenticated fixed release and signed artifact inventory
+      shell: bash
+      run: |-
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        printf 'stage 10 started\n' >> "$report/setup-stages.log"
+        trap 'code=$?; printf "stage 10 exit=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-10.log" 2>&1
+        set -euo pipefail
+        axiom-encode/.venv/bin/python - <<'PYCODE'
+        import hashlib,json,os,subprocess
+        from pathlib import Path,PurePosixPath
+        from axiom_encode.corpus_release import verify_release_object
+        from axiom_encode.corpus_resolver import LocalCorpusRelease
+        base='https://pub-a8952f8657fc49fda358146ac001366c.r2.dev'
+        name='ca-rulespec-2026-07-21-oracle-complete-v2'; digest='5acdb15ce948857a13baf9088c2179951716edd47a0327c078b4e97be6eb0ef4'
+        report=Path(os.environ['RUNNER_TEMP'],'ca-diagnostic')
+        public_object=report/'signed-release-object.json'
+        subprocess.run(['curl','--fail','--silent','--show-error','--location',
+                        '--proto','=https','--proto-redir','=https','--tlsv1.2',
+                        '--connect-timeout','30','--max-time','120','--max-filesize','16777216',
+                        '--output',str(public_object),f'{base}/releases/{name}/{digest}.json'],check=True)
+        assert public_object.stat().st_size <= 16*1024*1024
+        raw=public_object.read_bytes()
+        payload=json.loads(raw); verified=verify_release_object(payload,public_key=os.environ['CORPUS_PUBLIC_ROOT'])
+        assert verified.name==name and verified.content_sha256==digest
+        assert payload['content']['git']['commit']=='d24cbde7e6d125a6f859f43c188b0ffbd115b835'
+        root=Path('axiom-corpus'); records=payload['content']['artifacts'];assert len(records)==201
+        assert sum(a['bytes'] for a in records)==25144927
+        for a in records:
+            relative=PurePosixPath(a['path'])
+            assert not relative.is_absolute() and all(p not in ('','..','.') for p in relative.parts)
+            assert relative.parts[:2]==('data','corpus')
+            sha=a['sha256'];assert len(sha)==64 and all(c in '0123456789abcdef' for c in sha)
+            assert a['r2_key']==f'objects/sha256/{sha[:2]}/{sha}'
+            target=root.joinpath(*relative.parts)
+            assert not any(p.is_symlink() for p in [target,*target.parents])
+            assert target.is_file() and target.stat().st_size==a['bytes']
+            data=target.read_bytes()
+            assert len(data)==a['bytes'] and hashlib.sha256(data).hexdigest()==sha
+            # Exact tracked checkout bytes are authenticated by the signed inventory.
+        # Normalize only transport shape for the established materializer; signed object is unchanged.
+        report=Path(os.environ['RUNNER_TEMP'],'ca-diagnostic')
+        envelope=report/'release-transport.json';envelope.write_text(json.dumps([{'release_object':payload}]))
+        subprocess.run(['axiom-encode/.venv/bin/python','axiom-encode/scripts/materialize_corpus_release.py','materialize','--toolchain','rulespec-ca/.axiom/toolchain.toml','--response',str(envelope),'--corpus-root',str(root)],check=True)
+        LocalCorpusRelease(root,name,digest,os.environ['CORPUS_PUBLIC_ROOT'])
+        (report/'release-verification.json').write_text(json.dumps({'release':name,'content_sha256':digest,'verified_artifacts':records},indent=2))
+        PYCODE
+      env:
+        CORPUS_PUBLIC_ROOT: KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg=
+    - name: Provision verification-only protected runtime
+      run: |
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        printf 'stage 11 started\n' >> "$report/setup-stages.log"
+        trap 'code=$?; printf "stage 11 status=%s\n" "$code" >> "$report/setup-stages.log"' EXIT
+        exec >> "$report/setup-stage-11.log" 2>&1
+        set -euo pipefail
+        CGO_ENABLED=0 go -C axiom-encode build -trimpath -buildvcs=false -ldflags='-buildid=' -o "$RUNNER_TEMP/ca-supervisor" ./cmd/axiom-encode-signing-supervisor
+        sudo apt-get update -qq
+        sudo apt-get install -y patchelf
+        python_path="$GITHUB_WORKSPACE/axiom-encode/.venv/bin/python"
+        site="$($python_path -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+        test ! -e /opt/axiom-verification
+        sudo "$python_path" axiom-encode/scripts/provision_verification_supervisor.py  --destination /opt/axiom-verification --supervisor "$RUNNER_TEMP/ca-supervisor"  --site-packages "$site" --git "$(command -v git)"  --apply-root "$APPLY_PUBLIC_ROOT" --eval-root "$EVAL_PUBLIC_ROOT" --corpus-release-root "$CORPUS_PUBLIC_ROOT"  --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode  --encoder-commit 4956c8305ee155f476a3c0c6dbe8efbd443626a4 --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode"
+        sudo chown -R 0:0 /opt/axiom-verification
+        sudo chmod -R go-w /opt/axiom-verification
+        sudo chown 0:0 /opt
+        sudo chmod go-w /opt
+        test "$(stat -c '%u' /opt)" = "0"
+        test -z "$(find /opt -maxdepth 0 -perm /022)"
+        cp /opt/axiom-verification/python/runtime-attestation.json "$RUNNER_TEMP/ca-diagnostic/"
+      env:
+        APPLY_PUBLIC_ROOT: Z49/3S0xAyn0yMWhSB/pfDt48B96Z4wwU+NuNnZNSdg=
+        EVAL_PUBLIC_ROOT: oJql9HpnWYAv+VX43C0qFKXJnSO+l/hkEn/5ODRVpPA=
+        CORPUS_PUBLIC_ROOT: KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg=
+    - name: Validate exactly two unchanged modules and retain actual exits
+      shell: bash
+      run: |
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        git -C rulespec-ca status --porcelain > "$report/before-status.txt"
+        test ! -s "$report/before-status.txt"
+        git -C rulespec-ca ls-files -z | (cd rulespec-ca && xargs -0 sha256sum) > "$report/before-files.sha256"
+        /opt/axiom-verification/axiom-encode-signing-supervisor \
+          --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+          --trusted-python-runtime-root /opt/axiom-verification/python \
+          --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages \
+          --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode \
+          -- /opt/axiom-verification/axiom-encode engine-bind \
+          --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+          --pin 89571cc2a938707fd60a5489b951135345697296 --no-build \
+          > "$report/engine-bind-protected.json" 2> "$report/engine-bind-protected.stderr.log"
+        result=0
+        for module in ca/policies/cra/benefits-2026/federal-family-and-climate-benefits.yaml ca/policies/revenu-quebec/tp1-2025/main-return.yaml; do
+          label="$(basename "$module" .yaml)"
+          code=0
+          timeout --signal=TERM --kill-after=30s 1200s     /opt/axiom-verification/axiom-encode-signing-supervisor     --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json     --trusted-python-runtime-root /opt/axiom-verification/python     --trusted-python-import-root /opt/axiom-verification/python/lib/python3.14/site-packages     --trusted-python-package-root /opt/axiom-verification/python/lib/python3.14/site-packages/axiom_encode     -- /opt/axiom-verification/axiom-encode validate "$GITHUB_WORKSPACE/rulespec-ca/$module"     --json --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"     --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"     --axiom-rules-engine-ref 89571cc2a938707fd60a5489b951135345697296     > "$report/$label.json" 2> "$report/$label.stderr.log" || code=$?
+          printf '%s\n' "$code" > "$report/$label.exit-code.txt"
+          if [ "$code" -ne 0 ]; then result=1; fi
+        done
+        git -C rulespec-ca ls-files -z | (cd rulespec-ca && xargs -0 sha256sum) > "$report/after-files.sha256"
+        cmp "$report/before-files.sha256" "$report/after-files.sha256"
+        git -C rulespec-ca status --porcelain > "$report/after-status.txt"
+        exit "$result"
+      timeout-minutes: 42
+    - name: Retain available setup and protected-import evidence
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        report="$RUNNER_TEMP/ca-diagnostic"
+        mkdir -p "$report"
+        {
+          uname -a
+          for tool in python python3 uv rustc cargo go git; do
+            if command -v "$tool" >/dev/null 2>&1; then "$tool" --version 2>&1 || true; fi
+          done
+        } > "$report/available-tool-versions.txt"
+        runtime=/opt/axiom-verification/python
+        if [ -f "$runtime/runtime-attestation.json" ]; then
+          cp "$runtime/runtime-attestation.json" "$report/runtime-attestation-final.json"
+        fi
+        if [ -x "$runtime/bin/python3.14" ]; then
+          code=0
+          "$runtime/bin/python3.14" -I - <<'PYCODE' > "$report/protected-imports.json" 2> "$report/protected-imports.stderr.log" || code=$?
+        import importlib.metadata,json,pathlib,sys
+        import axiom_encode,axiom_encode.entrypoint
+        root=pathlib.Path('/opt/axiom-verification/python').resolve()
+        locations=[pathlib.Path(x).resolve() for x in [axiom_encode.__file__,axiom_encode.entrypoint.__file__]]
+        assert all(x.is_relative_to(root) for x in locations)
+        assert not list((root/'lib/python3.14/site-packages').glob('*.pth'))
+        print(json.dumps({'executable':sys.executable,'prefix':sys.prefix,'package':str(locations[0]),'entrypoint':str(locations[1]),'distributions':sorted((d.metadata.get('Name',''),d.version) for d in importlib.metadata.distributions())},indent=2))
+        PYCODE
+          printf '%s\n' "$code" > "$report/protected-imports.exit-code.txt"
+          exit "$code"
+        else
+          printf 'Protected interpreter unavailable; setup incomplete\n' > "$report/protected-imports-unavailable.txt"
+        fi
+    - name: Retain diagnostic evidence on success or failure
+      if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: issue233-canada-two-module-diagnostic
+        path: ${{ runner.temp }}/ca-diagnostic/
+        if-no-files-found: error
+        retention-days: 14
+    if: ${{ github.repository == 'TheAxiomFoundation/axiom-encode' && github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}

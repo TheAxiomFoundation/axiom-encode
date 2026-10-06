@@ -20630,8 +20630,13 @@ def build_existing_target_oracle_contract(
     exact_mappings = getattr(policyengine_registry, "mappings_by_legal_id", {})
     if not isinstance(exact_mappings, dict):
         return None
+    # Registry entries classified as not_comparable document an oracle gap;
+    # they do not establish a PolicyEngine-owned public shape to preserve.
     surface_names = sorted(
-        name for name in rules if f"{target}#{name}" in exact_mappings
+        name
+        for name in rules
+        if (mapping := exact_mappings.get(f"{target}#{name}")) is not None
+        and getattr(mapping, "mapping_type", None) != "not_comparable"
     )
     entity_inference_memo: dict[str, tuple[str, ...]] = {}
     cyclic_entity_rules: set[str] = set()
@@ -36772,6 +36777,7 @@ class ValidatorPipeline:
         module_target: str | None,
         declared_relation_names: set[str],
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        compiled_relations: list[dict] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -36785,6 +36791,7 @@ class ValidatorPipeline:
                 period,
                 query_entity,
                 declared_relation_slots or {},
+                compiled_relations,
             )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
@@ -37169,6 +37176,9 @@ class ValidatorPipeline:
                         module_target=module_target,
                         declared_relation_names=declared_relation_names,
                         declared_relation_slots=declared_relation_slots,
+                        compiled_relations=compiled_payload.get("program", {}).get(
+                            "relations", []
+                        ),
                     )
                 )
                 issues.extend(execution_issues)

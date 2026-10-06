@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -12,6 +11,7 @@ def executable_relation_directions(
     period: dict[str, Any],
     query_entity: str,
     declared: dict[str, tuple[str, ...]],
+    relations: list[dict[str, Any]] | None = None,
 ) -> dict[str, tuple[int, str | None]]:
     """Return current slot and related entity, rejecting ambiguous evidence.
 
@@ -24,8 +24,12 @@ def executable_relation_directions(
             entries = aliases.setdefault(alias, [])
             if not any(entry is rule for entry in entries):
                 entries.append(rule)
-    found: dict[str, tuple[int, str | None]] = {}
-    visited: set[tuple[int, str | None]] = set()
+    directions: dict[str, int] = {}
+    explicit_hints: dict[str, set[str]] = {}
+    fallback_hints: dict[str, set[str]] = {}
+    visited: set[tuple[int, str, bool]] = set()
+    schemas = {str(r["name"]): r for r in relations or [] if r.get("name")}
+    active_relations: set[tuple[str, bool]] = set()
 
     def resolve(name: str) -> dict[str, Any]:
         matches = aliases.get(name, [])
@@ -55,77 +59,82 @@ def executable_relation_directions(
             raise ValueError("ambiguous effective compiled expression")
         return [selected[0].get("expr")]
 
-    def independent_scalar(
-        rule: dict[str, Any], seen: frozenset[int] = frozenset()
-    ) -> bool:
-        """Prove a compiled Scalar helper cannot depend on an entity or relation."""
-        if rule.get("entity") != "Scalar" or id(rule) in seen:
-            return False
-        seen = seen | {id(rule)}
-
-        def pure(node: Any) -> bool:
-            if not isinstance(node, dict):
-                return False
-            kind = node.get("kind")
-            if kind == "literal":
-                value = node.get("value")
-                if set(node) != {"kind", "value"} or not isinstance(value, dict):
-                    return False
-                if set(value) != {"kind", "value"}:
-                    return False
-                number = value["value"]
-                if value["kind"] == "integer":
-                    return type(number) is int and -(2**63) <= number < 2**63
-                if value["kind"] == "decimal" and type(number) in (str, int):
-                    try:
-                        return Decimal(number).is_finite()
-                    except InvalidOperation:
-                        return False
-                return False
-            if kind == "derived":
-                return set(node) <= {"kind", "name"} and independent_scalar(
-                    resolve(str(node.get("name", ""))), seen
-                )
-            if kind == "add":
-                items = node.get("items")
-                return (
-                    set(node) == {"kind", "items"}
-                    and isinstance(items, list)
-                    and bool(items)
-                    and all(pure(item) for item in items)
-                )
-            if kind in {"sub", "mul", "div"}:
-                return set(node) == {"kind", "left", "right"} and all(
-                    pure(node[key]) for key in ("left", "right")
-                )
-            return False
-
-        selected = expressions(rule)
-        return bool(selected) and all(pure(expr) for expr in selected)
-
-    def visit_rule(rule: dict[str, Any], entity: str) -> None:
-        if independent_scalar(rule):
-            return  # Scalar constants retain the surrounding entity context.
-        if rule.get("entity") and rule["entity"] != entity:
-            raise ValueError(
-                "compiled derived reference changes entity outside aggregation"
-            )
-        marker = (id(rule), entity)
+    def visit_rule(rule: dict[str, Any], entity: str, root: bool) -> None:
+        # Ordinary derived calls retain entity_id even across declared kinds.
+        # A derived body is evaluated without its caller's relation context.
+        hint = str(rule.get("entity") or entity)
+        if hint == "Scalar":
+            hint = entity
+        marker = (id(rule), hint, root)
         if marker in visited:
             return
         visited.add(marker)
         for expr in expressions(rule):
-            walk(expr, entity)
+            walk(expr, hint, root)
 
-    def walk(node: Any, entity: str) -> None:
+    def relation_derivation(relation: str, entity: str, root: bool) -> None:
+        schema = schemas.get(relation)
+        if schema is None and "#relation." in relation:
+            schema = schemas.get(relation.rsplit("#relation.", 1)[1])
+        derivation = (schema or {}).get("derivation")
+        if not derivation:
+            return
+        marker = (relation, root)
+        if marker in active_relations:
+            raise ValueError("cyclic compiled relation derivation")
+        active_relations.add(marker)
+        try:
+            current, related = (
+                derivation.get("current_slot"),
+                derivation.get("related_slot"),
+            )
+            if (
+                type(current) is not int
+                or type(related) is not int
+                or {current, related} != {0, 1}
+            ):
+                raise ValueError("invalid executable binary relation coordinates")
+            source = derivation["source_relation"]
+            slots = derivation.get("slot_entities") or []
+            current_kind = slots[current] if len(slots) == 2 else None
+            related_kind = slots[related] if len(slots) == 2 else None
+            if root:
+                record(source, (current, related_kind))
+            relation_derivation(source, entity, root)
+            # Only derived-relation predicates install RelationEvalContext.
+            context = (current_kind, root, related_kind, False)
+            walk(derivation["predicate"], related_kind or entity, False, context)
+        finally:
+            active_relations.remove(marker)
+
+    def record(
+        relation: str, direction: tuple[int, str | None], *, explicit: bool = True
+    ) -> None:
+        current, hint = direction
+        if relation in directions and directions[relation] != current:
+            raise ValueError(f"conflicting executable directions for {relation}")
+        directions[relation] = current
+        if hint is not None:
+            hints = explicit_hints if explicit else fallback_hints
+            hints.setdefault(relation, set()).add(hint)
+
+    def walk(node: Any, entity: str, root: bool, context: tuple | None = None) -> None:
         if isinstance(node, list):
             for child in node:
-                walk(child, entity)
+                walk(child, entity, root, context)
             return
         if not isinstance(node, dict):
             return
         if node.get("kind") == "derived":
-            visit_rule(resolve(str(node.get("name", ""))), entity)
+            rule = resolve(str(node.get("name", "")))
+            target_root = root
+            if context:
+                current_kind, current_root, related_kind, related_root = context
+                if rule.get("entity") == current_kind and current_kind is not None:
+                    target_root = current_root
+                elif rule.get("entity") == related_kind and related_kind is not None:
+                    target_root = related_root
+            visit_rule(rule, entity, target_root)
             return
         if "current_slot" in node or "related_slot" in node:
             relation = node.get("relation")
@@ -138,6 +147,16 @@ def executable_relation_directions(
                 or {current, related} != {0, 1}
             ):
                 raise ValueError("invalid executable binary relation coordinates")
+            if node.get("kind") == "relation_member":
+                if context is None:
+                    raise ValueError(
+                        "relation member requires derived relation context"
+                    )
+                current_kind, current_root, related_kind, _ = context
+                if current_root:
+                    record(relation, (current, related_kind))
+                relation_derivation(relation, current_kind or entity, current_root)
+                return
             slots = declared.get(relation)
             if slots is None and "#relation." in relation:
                 slots = declared.get(relation.rsplit("#relation.", 1)[1])
@@ -152,7 +171,7 @@ def executable_relation_directions(
                         return  # Nested aggregations establish their own context.
                     if value.get("kind") == "derived":
                         child = resolve(str(value.get("name", "")))
-                        if independent_scalar(child):
+                        if child.get("entity") == "Scalar":
                             return
                         child_entities.add(
                             str(
@@ -167,33 +186,34 @@ def executable_relation_directions(
             for key, value in node.items():
                 if key not in {"current_slot", "related_slot", "relation", "kind"}:
                     child_refs(value)
-            if len(child_entities) > 1:
-                raise ValueError(f"conflicting related entities for {relation}")
-            if child_entities:
+            # Sum value and predicate execute on the same related ID even
+            # when their ordinary derived annotations differ. Mixed kinds are
+            # unavailable typing evidence, not a coordinate conflict.
+            if len(child_entities) == 1:
                 other = next(iter(child_entities))
-                if slots and sorted(slots) != sorted((entity, other)):
-                    raise ValueError(
-                        f"entity evidence conflicts with declaration for {relation}"
-                    )
             elif slots and len(slots) == 2 and entity in slots:
                 other = slots[1 - slots.index(entity)]
             else:
                 other = None
-            if entity == query_entity:
-                direction = (current, other)
-                if relation in found and found[relation] != direction:
-                    raise ValueError(
-                        f"conflicting executable directions for {relation}"
-                    )
-                found[relation] = direction
+            if root:
+                record(relation, (current, other), explicit=len(child_entities) == 1)
+            relation_derivation(relation, entity, root)
             for key, value in node.items():
                 if key not in {"current_slot", "related_slot", "relation", "kind"}:
-                    walk(value, other or "Entity")
+                    walk(value, other or "Entity", False)
             return
         for value in node.values():
-            walk(value, entity)
+            walk(value, entity, root, context)
 
     for output in outputs:
         if output in aliases:
-            visit_rule(resolve(output), query_entity)
+            visit_rule(resolve(output), query_entity, True)
+    found: dict[str, tuple[int, str | None]] = {}
+    for relation, current in directions.items():
+        # A bare count supplies no child type evidence. Delay its declaration
+        # fallback until the entire reachable closure has supplied explicit hints.
+        hints = explicit_hints.get(relation) or fallback_hints.get(relation, set())
+        if len(hints) > 1:
+            raise ValueError(f"conflicting related entities for {relation}")
+        found[relation] = (current, next(iter(hints)) if hints else None)
     return found

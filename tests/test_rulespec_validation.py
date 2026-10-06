@@ -2895,6 +2895,83 @@ inputs:
     assert find_existing_target_oracle_contract_issues(existing, contract) == []
 
 
+def test_not_comparable_registry_entry_does_not_freeze_replacement_shape():
+    target = "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: expanded_categorical_eligibility_deems_resources_met
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#expanded_categorical_eligibility_deems_resources_met": SimpleNamespace(
+                mapping_type="not_comparable"
+            )
+        }
+    )
+
+    assert (
+        build_existing_target_oracle_contract(
+            existing,
+            target=target,
+            policyengine_registry=registry,
+        )
+        is None
+    )
+
+
+def test_mixed_oracle_registry_preserves_only_comparable_surface_shape():
+    target = "us-az:policies/des/faa5/na-categorical-eligibility/expanded-categorical-eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: unmapped_arizona_ece_deeming
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+  - name: mapped_categorical_eligibility
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: true
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#unmapped_arizona_ece_deeming": SimpleNamespace(
+                mapping_type="not_comparable"
+            ),
+            f"{target}#mapped_categorical_eligibility": SimpleNamespace(
+                mapping_type="direct_variable"
+            ),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert [surface.name for surface in contract.surfaces] == [
+        "mapped_categorical_eligibility"
+    ]
+
+
 def test_exact_oracle_replacement_contract_preserves_visibility_and_rejects_path_identity_helpers():
     target = "us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits"
     mapped_name = "al_pit_2026_section_40_18_5_schedule_before_credits"
@@ -7036,7 +7113,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2084"')
+        .startswith('__version__ = "0.2.2092"')
     )
 
 
@@ -7268,13 +7345,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2084"
+    assert encoder_package["version"] == "0.2.2092"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2084"
+    assert project["project"]["version"] == "0.2.2092"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2084"')
+        .startswith('__version__ = "0.2.2092"')
     )
 
 
@@ -7536,13 +7613,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2084"
+    assert encoder_package["version"] == "0.2.2092"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2084"
+    assert project["project"]["version"] == "0.2.2092"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2084"')
+        .startswith('__version__ = "0.2.2092"')
     )
 
 

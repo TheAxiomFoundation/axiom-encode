@@ -7,6 +7,30 @@ All notable changes to Axiom Encode will be documented here.
   section headings, telephone numbers, PO boxes, ZIP+4 codes and
   letter-prefixed form numbers are no longer demanded as named scalars.
 
+- Accept a federal regulation's `<title>-cfr` module root
+  (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
+  anchor alongside the corpus-shaped `us:regulations/42/457/800/...` root. The
+  source sub-paragraph coverage gate and the apply-time scope filter already
+  counted that root, while completeness coverage silently dropped it, so one
+  deferral could satisfy at most one of the two gates and the model saw only
+  "neither encoded nor precisely deferred". Imprecise regulation deferrals now
+  get `[complete-source-unit:deferral]` feedback naming the literal canonical
+  branch citation (`us/regulation/42/457/622(a)`), as statute deferrals do.
+
+- Raise the LLM judge output budget from 2,048 to 16,000 tokens and report a
+  reply cut off by the budget as a `max_tokens` judge error naming the budget,
+  instead of a generic parse error. The statutory-fidelity referee's findings
+  JSON was truncated on modules of about 30k input tokens. 16,000 stays under
+  the anthropic SDK's non-streaming ceiling, and `AXIOM_JUDGE_MAX_TOKENS` still
+  overrides it.
+
+- Separate executable relation directions from advisory entity hints, deferring
+  declaration fallback until reachable explicit evidence is collected and retaining
+  fallback for mixed sum value/predicate annotations on one related entity ID.
+
+- Match companion relation traversal to engine entity-ID context across ordinary
+  derived references, nested aggregations, and derived-relation predicates.
+
 - Preserve entity context for proven numeric Scalar constant helpers during
   companion relation discovery; reject input-dependent or cyclic helpers.
 

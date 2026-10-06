@@ -2043,14 +2043,20 @@ def _imprecise_deferral_retry_shape(
         citation_parts = [
             part for part in corpus_citation_path.strip("/").split("/") if part
         ]
-        if len(citation_parts) >= 3 and citation_parts[1] == "statute":
+        # `_reason_cites_exact_current_statute_branch` has no CFR-style reader;
+        # a regulation branch binds through its literal corpus path, e.g.
+        # `us/regulation/42/457/622(a)`, not `42 CFR 457.622(a)`.
+        if len(citation_parts) >= 3 and citation_parts[1] in {"statute", "regulation"}:
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
             )
             branch_hint = (
                 "\nFor this rejected current-source branch, the literal canonical "
                 f"citation required in `reason` is "
-                f"`{corpus_citation_path.rstrip('/')}{fragments}`."
+                f"`{corpus_citation_path.rstrip('/')}{fragments}` when the reason "
+                "cites this branch itself (a repeal, a runtime gap, or a "
+                "source-stated input); a reason naming an exact external missing "
+                "dependency need not cite it."
             )
     return f"{_IMPRECISE_DEFERRAL_RETRY_SHAPE}{branch_hint}"
 
@@ -5460,6 +5466,33 @@ def _authoritative_source_unit_aliases(
     return tuple(dict.fromkeys(alias for alias in aliases if alias))
 
 
+def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
+    """Return the RuleSpec roots a deferred output may anchor this source unit at.
+
+    The corpus-shaped root from `_rulespec_target_base` comes first. Federal
+    regulations are written at a `<title>-cfr` module root instead
+    (`us/regulation/42/457/800` lives at `us:regulations/42-cfr/457/800`,
+    with a dotted section leaf nested as in
+    `evals._source_identifier_to_relative_rulespec_path`). The source
+    sub-paragraph coverage gate and the apply-time scope filter accept
+    deferrals at that module root, so completeness accepts it too; otherwise
+    one deferral can satisfy at most one of the two coverage gates. The last
+    entry is the root retry advice should name.
+    """
+
+    base = _rulespec_target_base(corpus_citation_path)
+    jurisdiction, _, remainder = base.partition(":")
+    root, _, tail = remainder.partition("/")
+    title, _, rest = tail.partition("/")
+    if jurisdiction != "us" or root != "regulations" or not title.isdigit():
+        return (base,)
+    segments = [part for part in rest.split("/") if part]
+    if segments:
+        segments = [*segments[:-1], *(part for part in segments[-1].split(".") if part)]
+    module_root = "/".join([f"us:regulations/{title}-cfr", *segments])
+    return tuple(dict.fromkeys((base, module_root)))
+
+
 def _deferred_coverage(
     payload: dict[str, Any],
     *,
@@ -5472,7 +5505,9 @@ def _deferred_coverage(
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
     if not isinstance(records, list):
         return set(), []
-    base_target = _rulespec_target_base(corpus_citation_path)
+    deferral_anchors = _deferral_anchor_bases(corpus_citation_path)
+    base_target = deferral_anchors[0]
+    preferred_anchor = deferral_anchors[-1]
     covered: set[tuple[str, ...]] = set()
     issues: list[str] = []
     for index, record in enumerate(records):
@@ -5482,14 +5517,19 @@ def _deferred_coverage(
         output_path = output.split("#", 1)[0]
         path: tuple[str, ...] | None = None
         display_path: tuple[str, ...] | None = None
-        if output_path == base_target:
-            path = ()
-            display_path = ()
-        elif output_path.startswith(f"{base_target}/"):
-            display_path = tuple(
-                part for part in output_path[len(base_target) + 1 :].split("/") if part
-            )
-            path = tuple(part.lower() for part in display_path)
+        output_anchor = preferred_anchor
+        for anchor in deferral_anchors:
+            if output_path == anchor:
+                path = ()
+                display_path = ()
+            elif output_path.startswith(f"{anchor}/"):
+                display_path = tuple(
+                    part for part in output_path[len(anchor) + 1 :].split("/") if part
+                )
+                path = tuple(part.lower() for part in display_path)
+            if path is not None:
+                output_anchor = anchor
+                break
         if path is None:
             fragment = output.partition("#")[2]
             jurisdiction = base_target.partition(":")[0].lower()
@@ -5516,7 +5556,7 @@ def _deferred_coverage(
                     branches=branches,
                 )
                 corrected_output = (
-                    f"{base_target}/{'/'.join(display_branch)}#{fragment}"
+                    f"{preferred_anchor}/{'/'.join(display_branch)}#{fragment}"
                 )
                 issues.append(
                     "[complete-source-unit:deferral] "
@@ -5528,7 +5568,7 @@ def _deferred_coverage(
             continue
         reason = str(record.get("reason") or "").strip()
         blocked_by = record.get("blocked_by")
-        normalized_base_target = base_target.lower()
+        normalized_anchors = tuple(anchor.lower() for anchor in deferral_anchors)
         blocker_targets = (
             tuple(item.strip() for item in blocked_by if isinstance(item, str))
             if isinstance(blocked_by, list)
@@ -5545,11 +5585,10 @@ def _deferred_coverage(
                     flags=re.IGNORECASE,
                 )
                 and item.lower() != output.lower()
-                and not (
-                    item.lower().split("#", 1)[0] == normalized_base_target
-                    or item.lower()
-                    .split("#", 1)[0]
-                    .startswith(f"{normalized_base_target}/")
+                and not any(
+                    item.lower().split("#", 1)[0] == anchor
+                    or item.lower().split("#", 1)[0].startswith(f"{anchor}/")
+                    for anchor in normalized_anchors
                 )
                 for item in blocker_targets
             )
@@ -5714,7 +5753,7 @@ def _deferred_coverage(
                 rendered_branch = "/".join(display_cited_branch)
                 if reason_is_precise_for(cited_source_scope_text, cited_branch):
                     fragment = output.partition("#")[2]
-                    corrected_output = f"{base_target}/{rendered_branch}#{fragment}"
+                    corrected_output = f"{output_anchor}/{rendered_branch}#{fragment}"
                     retry_shape = _imprecise_deferral_retry_shape(
                         corpus_citation_path=corpus_citation_path,
                         path=display_cited_branch,
