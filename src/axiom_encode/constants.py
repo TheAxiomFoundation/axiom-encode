@@ -2,7 +2,10 @@
 # Change the model in ONE place, it changes everywhere.
 
 # Full model ID for Agent SDK (API) backend
-DEFAULT_MODEL = "claude-opus-4-6"
+DEFAULT_MODEL = "claude-opus-5-5"
+# Opus 5.5 defaults to medium effort; encoding is intelligence-sensitive, so the
+# API backend asks for high explicitly (override with AXIOM_API_ENCODER_EFFORT).
+DEFAULT_API_ENCODER_EFFORT = "high"
 
 # Short-form model names for Claude Code CLI backend
 DEFAULT_CLI_MODEL = "opus"

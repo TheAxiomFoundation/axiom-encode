@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from axiom_encode.harness.encoding_db import TokenUsage
 from axiom_encode.harness.pricing import (
+    ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES,
+    ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES,
     ModelPricing,
     PricingRates,
     _load_pricing_rates,
+    anthropic_refusal_is_billed,
     estimate_usage_cost_breakdown,
     estimate_usage_cost_usd,
     get_model_pricing,
@@ -95,6 +98,64 @@ def test_gpt_6_encoder_pair_rates_trace_to_vendor_pages():
     # Variant boundary: lexical siblings never inherit GPT-6 Sol pricing.
     assert get_model_pricing("gpt-6-solstice") is None
     assert get_model_pricing("gpt-6") is None
+
+
+def test_claude_5_5_rates_trace_to_vendor_page():
+    opus = get_model_pricing("claude-opus-5-5")
+    sonnet = get_model_pricing("claude-sonnet-5-5")
+    assert (
+        opus.input_per_million,
+        opus.output_per_million,
+        opus.cache_read_per_million,
+        opus.cache_create_per_million,
+        opus.max_input_tokens,
+    ) == (4.0, 20.0, 0.20, 5.0, None)
+    assert (
+        sonnet.input_per_million,
+        sonnet.output_per_million,
+        sonnet.cache_read_per_million,
+        sonnet.cache_create_per_million,
+        sonnet.max_input_tokens,
+    ) == (2.0, 10.0, 0.20, 2.50, None)
+    for pricing in (opus, sonnet):
+        assert pricing.source_url == (
+            "https://platform.claude.com/docs/en/about-claude/pricing"
+        )
+        assert pricing.captured_at == "2026-09-28"
+        assert pricing.promotional_until is None
+    # Variant boundary: lexical lookalikes never inherit the 5.5 rates.
+    for lookalike in ("claude-opus-5-50", "claude-opus-5-5x", "claude-sonnet-5-50"):
+        assert get_model_pricing(lookalike) is None, lookalike
+    # One million output tokens on Opus 5.5 costs the published $20.
+    assert (
+        estimate_usage_cost_usd(
+            "claude-opus-5-5", TokenUsage(input_tokens=0, output_tokens=1_000_000)
+        )
+        == 20.0
+    )
+
+
+def test_anthropic_refusal_billing_matches_vendor_table():
+    # "Billed before any output" column of
+    # platform.claude.com/docs/en/build-with-claude/refusals-and-fallback,
+    # read 2026-10-05.
+    billed = {"bio", "frontier_llm", "reasoning_extraction"}
+    free = {"cyber", "general_harms"}
+    assert ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES == billed
+    assert ANTHROPIC_FREE_PRE_OUTPUT_REFUSAL_CATEGORIES == free
+    # Before any output: billed and free by the table, a null category free.
+    for category in billed:
+        assert anthropic_refusal_is_billed(category, 0) is True, category
+    for category in [*free, None]:
+        assert anthropic_refusal_is_billed(category, 0) is False, category
+    # A category the table did not list, even a near miss, has an unknown bill.
+    unlisted = ["", "Bio", "chem", "a_future_category"]
+    for category in unlisted:
+        assert anthropic_refusal_is_billed(category, 0) is None, category
+    # After any output every refusal bills the input and that output.
+    for category in [*billed, *free, None, *unlisted]:
+        for output_tokens in (1, 50, 64_000):
+            assert anthropic_refusal_is_billed(category, output_tokens) is True
 
 
 def test_prefix_fallback_requires_variant_boundary():
