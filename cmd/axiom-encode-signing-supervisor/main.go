@@ -410,7 +410,10 @@ func main() {
 			err = serveBroker(brokerServerFD, parsed)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "signing broker: %v\n", err)
+			var reported reportedBrokerError
+			if !errors.As(err, &reported) {
+				reportBrokerFailure(os.Stderr, err)
+			}
 			os.Exit(2)
 		}
 		return
@@ -1576,8 +1579,13 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		initialization.Operation != "initialize" ||
 		!initialization.hasValidInitializationShape() {
 		zeroRequestSecrets(&initialization)
-		_ = sendError(connection, 0, "Signing broker initialization is malformed")
-		return errors.New("initialization is malformed")
+		return failBroker(
+			os.Stderr,
+			connection,
+			0,
+			"Signing broker initialization is malformed",
+			errors.New("initialization is malformed"),
+		)
 	}
 	var applySigner *externalSigner
 	var evalSigner *externalSigner
@@ -1603,8 +1611,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External apply signer initialization failed")
-			return err
+			return failBroker(
+				os.Stderr, connection, 0, "External apply signer initialization failed", err,
+			)
 		}
 		defer applySigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "apply_ed25519")
@@ -1616,8 +1625,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External eval signer initialization failed")
-			return err
+			return failBroker(
+				os.Stderr, connection, 0, "External eval signer initialization failed", err,
+			)
 		}
 		defer evalSigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "eval_ed25519")
@@ -1681,8 +1691,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := applySigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External apply signer failed")
-				return signErr
+				return failBroker(
+					os.Stderr, connection, request.ID, "External apply signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1704,8 +1715,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := evalSigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External eval signer failed")
-				return signErr
+				return failBroker(
+					os.Stderr, connection, request.ID, "External eval signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1727,6 +1739,41 @@ func zeroRequestSecrets(request *brokerRequest) {
 	zero(request.EvalPublicKey)
 	zero(request.CorpusReleasePublicKey)
 	zeroPublicKeys(request.CorpusReleasePublicKeys)
+}
+
+// reportedBrokerError marks a broker failure whose diagnostic is already on
+// stderr, so main does not print it a second time.
+type reportedBrokerError struct {
+	err error
+}
+
+func (reported reportedBrokerError) Error() string {
+	return reported.err.Error()
+}
+
+func (reported reportedBrokerError) Unwrap() error {
+	return reported.err
+}
+
+func reportBrokerFailure(diagnostics io.Writer, err error) {
+	fmt.Fprintf(diagnostics, "signing broker: %v\n", err)
+}
+
+// failBroker writes the detailed diagnostic to stderr before it sends the
+// fixed public error frame. A peer can stop the broker as soon as it reads
+// that frame (the supervisor kills it after a failed initialization), so a
+// diagnostic written after the frame can be lost. The frame carries only the
+// fixed public message.
+func failBroker(
+	diagnostics io.Writer,
+	connection io.Writer,
+	requestID int64,
+	message string,
+	err error,
+) error {
+	reportBrokerFailure(diagnostics, err)
+	_ = sendError(connection, requestID, message)
+	return reportedBrokerError{err: err}
 }
 
 func sendError(connection io.Writer, requestID int64, message string) error {
