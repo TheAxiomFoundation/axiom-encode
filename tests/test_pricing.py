@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from axiom_encode.harness.encoding_db import TokenUsage
 from axiom_encode.harness.pricing import (
     ANTHROPIC_BILLED_PRE_OUTPUT_REFUSAL_CATEGORIES,
@@ -164,6 +166,61 @@ def test_prefix_fallback_requires_variant_boundary():
     # ...but lexical siblings that merely share leading characters do not.
     assert get_model_pricing("gpt-5.6-solstice") is None
     assert get_model_pricing("gpt-5.6-terra2") is None
+
+
+def test_gpt_6_1_sol_proxy_rates_record_unverified_local_provenance():
+    pricing = get_model_pricing("gpt-6.1-sol")
+    assert pricing is not None
+    assert (
+        pricing.input_per_million,
+        pricing.output_per_million,
+        pricing.cache_read_per_million,
+        pricing.cache_create_per_million,
+        pricing.max_input_tokens,
+    ) == (2.0, 10.0, 0.20, 2.50, 272000)
+    assert pricing.source_url == (
+        "UNVERIFIED: src/axiom_encode/harness/pricing_rates.toml:40-47"
+        "@3bf5a2afbff0 (gpt-6-sol proxy)"
+    )
+    assert pricing.captured_at == "2026-10-06"
+    assert pricing.promotional_until is None
+    assert get_pricing_rates().version >= 5
+    assert get_pricing_rates().effective_date >= "2026-10-06"
+
+
+def test_gpt_6_1_sol_proxy_variant_matching_requires_boundary():
+    pricing = get_model_pricing("gpt-6.1-sol")
+    assert pricing is not None
+    assert get_model_pricing("gpt-6.1-sol-fast") == pricing
+    assert get_model_pricing("gpt-6.1-solstice") is None
+    assert get_model_pricing("gpt-6.1-sol2") is None
+    assert get_model_pricing("gpt-6.1") is None
+
+
+@pytest.mark.parametrize("model", ["gpt-6.1-sol", "gpt-6.1-sol-fast"])
+@pytest.mark.parametrize("input_tokens", [1000, 272000, 272001])
+def test_gpt_6_1_sol_proxy_estimators_refuse_unverified_prices(model, input_tokens):
+    usage = TokenUsage(
+        input_tokens=input_tokens,
+        output_tokens=100,
+        cache_read_tokens=500,
+        cache_creation_tokens=100,
+    )
+
+    assert estimate_usage_cost_usd(model, usage) is None
+    assert estimate_usage_cost_breakdown(model, usage) is None
+
+
+@pytest.mark.parametrize("input_tokens", [1000, 272001])
+def test_aggregated_usage_cannot_bypass_unverified_pricing(input_tokens):
+    usage = TokenUsage(input_tokens=input_tokens, output_tokens=100)
+
+    assert (
+        estimate_usage_cost_breakdown(
+            "gpt-6.1-sol", usage, enforce_context_tier=False
+        )
+        is None
+    )
 
 
 def test_context_tier_gate_can_be_skipped_for_aggregated_usage():

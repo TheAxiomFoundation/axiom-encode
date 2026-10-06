@@ -88,21 +88,74 @@ class TestPinnedCodexCLI:
             bundle.add(tmp_path / "package", arcname="package")
         return archive
 
-    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch):
+    def test_reviewed_darwin_arm64_release_pin(self):
+        pin = provisioner._CODEX_CLI_PINS[("darwin", "arm64")]
+        assert provisioner._CODEX_CLI_VERSION == "0.159.0"
+        assert pin["url"] == (
+            "https://registry.npmjs.org/@openai/codex/-/"
+            "codex-0.159.0-darwin-arm64.tgz"
+        )
+        assert pin["member"] == "package/vendor/aarch64-apple-darwin/bin/codex"
+        assert pin["archive_sha256"] == (
+            "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce"
+        )
+        assert pin["sha256"] == (
+            "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a"
+        )
+
+    @pytest.mark.parametrize("machine", ["arm64", "aarch64"])
+    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch, machine):
         binary = b"#!/bin/sh\necho codex-cli-test\n"
+        archive = self._archive(tmp_path, binary)
+        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: machine)
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "sha256",
+            provisioner.hashlib.sha256(binary).hexdigest(),
+        )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        config = provisioner._install_pinned_codex_cli(destination, archive)
+        installed = destination / "bin/codex"
+        assert installed.read_bytes() == binary
+        assert stat.S_IMODE(installed.stat().st_mode) == 0o755
+        assert config == {
+            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "version": "0.159.0",
+            "sha256": hashlib.sha256(binary).hexdigest(),
+            "path": str(installed),
+        }
+        identity = destination / "codex-cli.json"
+        assert json.loads(identity.read_text()) == config
+        assert stat.S_IMODE(identity.stat().st_mode) == 0o444
+
+    def test_archive_hash_mismatch_fails_before_install(self, tmp_path, monkeypatch):
+        binary = b"reviewed binary in an unreviewed archive"
         archive = self._archive(tmp_path, binary)
         monkeypatch.setattr(provisioner.sys, "platform", "darwin")
         monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
         monkeypatch.setitem(
             provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
             "sha256",
-            provisioner.hashlib.sha256(binary).hexdigest(),
+            hashlib.sha256(binary).hexdigest(),
+        )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            "0" * 64,
         )
         destination = tmp_path / "runtime"
         destination.mkdir()
-        config = provisioner._install_pinned_codex_cli(destination, archive)
-        assert (destination / "bin/codex").read_bytes() == binary
-        assert config["sha256"] == provisioner.hashlib.sha256(binary).hexdigest()
+        with pytest.raises(SystemExit, match="archive sha256 mismatch"):
+            provisioner._install_pinned_codex_cli(destination, archive)
+        assert not (destination / "bin").exists()
+        assert not (destination / "codex-cli.json").exists()
 
     def test_hash_mismatch_hard_fails_and_removes_binary(self, tmp_path, monkeypatch):
         archive = self._archive(tmp_path, b"tampered")
@@ -113,11 +166,17 @@ class TestPinnedCodexCLI:
             "sha256",
             "0" * 64,
         )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
         destination = tmp_path / "runtime"
         destination.mkdir()
         with pytest.raises(SystemExit, match="sha256 mismatch"):
             provisioner._install_pinned_codex_cli(destination, archive)
         assert not (destination / "bin/codex").exists()
+        assert not (destination / "codex-cli.json").exists()
 
 
 class TestRpathComponentInside:
