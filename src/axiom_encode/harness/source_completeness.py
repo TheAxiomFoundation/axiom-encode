@@ -2117,26 +2117,36 @@ _ENGLISH_LEGAL_CITATION = re.compile(
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # US state eligibility manuals cite administrative-code sections such as
 # `WAC 388-450-0015` and sibling manual policies such as `policy 770-2`. Both
-# are locators. List continuations keep the identifier's hyphenated shape so a
-# substantive number after `policy 254,` is never swallowed.
+# are locators. A reference never crosses a line, never stops inside a dotted
+# or comma-grouped number (`Policy 24.01` is a structural label, `policy
+# 6,740` a value), and takes its whole hyphen chain (`POLICY 05-1-2024`). List
+# continuations keep the identifier's hyphenated shape and never take a range
+# that a unit word follows, so `policy 254, 3 members` and `policy 254, 10-15
+# days` keep their values.
+_RECALL_UNIT_WORD = (
+    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
+    r"people|dollars?|cents?)"
+)
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
-    r"\bWAC\s+\d+-\d+-\d+[A-Za-z]?"
-    r"(?:\s*(?:,|and|or|through|to)\s*\d+-\d+-\d+[A-Za-z]?)*"
-    r"|\bpolic(?:y|ies)\s+\d+(?:-\d+)?"
-    r"(?:\s*(?:,|and|or|through|to)\s*\d+-\d+)*\b",
+    r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
+    r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
+    r"|\bpolic(?:y|ies)[ \t]+\d+(?:-\d+)*(?![.,]?\d)"
+    r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+(?:-\d+)*(?![.,]?\d)"
+    rf"(?![ \t]*{_RECALL_UNIT_WORD}\b))*",
     flags=re.IGNORECASE,
 )
 # Paginated US manuals repeat numbered section headings such as
 # `214.3 Telephone Allowance` or `770-1 Advance Notice of Adverse Action` on
 # their own line. Only a dotted or hyphenated label followed by a digit-free,
-# unpunctuated title of at least two words is a heading; a flattened table row
-# such as `7.65 Percent` keeps its value.
+# unpunctuated, title-case title of at least two words is a heading; a
+# flattened table row such as `7.65 Percent`, `24-60 MONTH TIME LIMIT` or
+# `75.38 AABD cash payment` keeps its value.
 _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
     r"(?m)^[ \t]*\d+(?:[.-]\d+)+"
     r"(?=[ \t]+"
-    r"(?!(?:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|"
+    r"(?!(?i:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|"
     r"Years?|Hours?)\b)"
-    r"[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15}[ \t]*$)"
+    r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
 # numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
@@ -2145,12 +2155,15 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
     r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
     r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
     r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
-    r"|\b(?:Schedule|Form)\s+[A-Z]{1,3}-\d+[A-Z]*\b"
+    r"|\b(?:Schedule|Form)[ \t]+[A-Z]{1,3}-\d+[A-Z]*(?:-\d+[A-Z]*)*\b"
 )
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
 # 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. Neither
-# the page number nor the month/year stamp is a value.
+# the page number nor the month/year stamp is a value. The page number is
+# replaced with a neutral mark, not removed: most notebook pages are one
+# line, and a line that then began with `Chapter N:` would be dropped whole
+# as a structural heading, taking the page's real values with it.
 _US_MANUAL_PAGE_NUMBER = re.compile(
     r"\A\s*\d{1,4}(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))"
 )
@@ -12486,6 +12499,13 @@ def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
     return text
 
 
+def _is_title_case_manual_heading(title: str) -> bool:
+    """Every word of four or more letters, outside parentheses, is capitalized."""
+
+    words = re.findall(r"[A-Za-z'’]+", re.sub(r"\([^)]*\)", " ", title))
+    return all(word[0].isupper() for word in words if len(word) >= 4)
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
@@ -12625,10 +12645,17 @@ def authoritative_numeric_recall_text(
         # otherwise read as a numbered heading.
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
-        cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub("", cleaned)
         if "/manual/" in corpus_citation_path:
-            cleaned = _US_MANUAL_PAGE_NUMBER.sub("", cleaned)
-            cleaned = _US_MANUAL_REVISION_STAMP.sub("", cleaned)
+            cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub(
+                lambda match: (
+                    ""
+                    if _is_title_case_manual_heading(match.group("title"))
+                    else match.group(0)
+                ),
+                cleaned,
+            )
+            cleaned = _US_MANUAL_PAGE_NUMBER.sub("—", cleaned)
+            cleaned = _US_MANUAL_REVISION_STAMP.sub(" ", cleaned)
     cleaned = re.sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",

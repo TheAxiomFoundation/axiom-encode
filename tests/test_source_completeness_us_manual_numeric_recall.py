@@ -66,10 +66,10 @@ def _replay(run_id: str):
         corpus_citation_path=recorded["citation"],
         test_cases=yaml.safe_load(tests),
         extract_numeric_occurrences=functools.partial(
-            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
         ),
         extract_numeric_grounding_occurrences=functools.partial(
-            extract_typed_numeric_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_occurrences_from_text, profile="legacy"
         ),
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
@@ -123,3 +123,62 @@ def test_values_near_the_header_shape_are_kept(source, citation, kept):
     cleaned = authoritative_numeric_recall_text(source, corpus_citation_path=citation)
 
     assert re.search(rf"\b{kept}\b", cleaned)
+
+
+def _legacy_values(source: str, citation: str) -> set[float]:
+    cleaned = authoritative_numeric_recall_text(source, corpus_citation_path=citation)
+    return {
+        occurrence.value
+        for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned, profile="legacy"
+        )
+    }
+
+
+def test_values_after_a_masked_page_header_stay_in_recall():
+    # Oregon notebook page 82 is one line; with its page number removed it
+    # began with `Chapter 1:` and was dropped whole as a structural heading.
+    source = (
+        "82 Chapter 1: Introduction to the Oregon Programs Eligibility Notebook "
+        "\u2022 Section 4: Glossary and acronyms (07/2026) Households may receive "
+        "up to $3200.00 over a 90-day certification period."
+    )
+
+    values = _legacy_values(source, "us-or/manual/odhs/open/page-82")
+
+    assert {3200, 90} <= values
+    assert not values & {82, 7, 2026}
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        # A dotted policy label is structural; it must not leave `.01` behind.
+        ("Policy 24.01 Definitions apply to all programs.", set()),
+        # A comma-grouped amount after `policy` is a value.
+        ("The insurance policy 6,740 Total assets", {6740}),
+        # A range that a unit word follows is not a list continuation.
+        ("Refer to policy 254, 10-15 days apply.", {10, 15}),
+        # A reference never crosses a line.
+        ("countable resources policy\n\n130% gross income limit", {1.3}),
+        # The whole hyphen chain is the identifier.
+        ("POLICY 05-1-2024 update", set()),
+        ("Use Form IL-482-0634 and Form FNS-380-1.", set()),
+    ),
+)
+def test_policy_and_form_references_mask_whole_identifiers_only(source, expected):
+    assert _legacy_values(source, "us-wa/manual/dshs/eaz/example") == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "citation", "expected"),
+    (
+        ("24-60 MONTH TIME LIMIT", "us-la/manual/dcfs/fitap/page-7", {24, 60}),
+        ("0.3 PERCENT MAP INCREASE", "us-ca/manual/cdss/acl/page-3", {0.003}),
+        ("75.38 AABD cash payment", "us-il/manual/dhs/csmm/18929", {75.38}),
+        # Outside manuals, numbered-heading masking does not apply.
+        ("214.3 Telephone Allowance", "us-ca/guidance/cdss/acl-2024-24-55", {214.3}),
+    ),
+)
+def test_table_rows_are_not_section_headings(source, citation, expected):
+    assert _legacy_values(source + "\n", citation) == expected
