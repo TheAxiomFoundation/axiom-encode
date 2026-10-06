@@ -23,9 +23,7 @@ def _init_checkout(path: Path, origin: str) -> None:
 
 
 @pytest.mark.parametrize("probe", ["rev-parse", "remote"])
-def test_uk_compile_roots_recover_transient_git_timeout(
-    monkeypatch, tmp_path, probe
-):
+def test_uk_compile_roots_recover_transient_git_timeout(monkeypatch, tmp_path, probe):
     """A slow identity probe must not make a valid UK root appear unsafe."""
     checkout = tmp_path / "rulespec-uk"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-uk.git")
@@ -109,7 +107,9 @@ def test_uk_compile_roots_reject_failed_git_probe_with_bounded_attempts(
 
     monkeypatch.setattr(repo_routing.subprocess, "run", failed_git)
 
-    with pytest.raises(UnsafeRulespecContextPath, match="exact direct jurisdiction child"):
+    with pytest.raises(
+        UnsafeRulespecContextPath, match="exact direct jurisdiction child"
+    ):
         _candidate_rulespec_repo_roots("rulespec-uk", policy_root)
     assert attempts == ([10.0, 10.0] if error == "timeout" else [10.0])
 
@@ -126,7 +126,6 @@ def test_git_probe_timeout_rejects_invalid_configuration(monkeypatch, tmp_path, 
     monkeypatch.setattr(repo_routing.subprocess, "run", unexpected_git)
 
     assert inspect_canonical_rulespec_checkout(checkout) == (
-        None, "git-top-level-probe-invalid-timeout"
+        None,
+        "git-top-level-probe-invalid-timeout",
     )
-
-
