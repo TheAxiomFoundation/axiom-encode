@@ -13699,8 +13699,49 @@ def _rule_cited_source_paths(
     return {path for path in candidates if len(path) == maximum_depth}
 
 
+def _work_chart_heading_starts(text: str) -> tuple[int, ...]:
+    """Recognize printed chart boundaries without treating references as headings."""
+    headings = tuple(
+        re.finditer(r"(?<![\w.])\d{1,4}\s+WORK CHART\s+[–—-]\s+(?=\w)", text)
+    )
+    quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', text))
+    instruction = (
+        r"(?:Amount|Total|Enter|Subtract|Add|Multiply|Divide|Contributions|Cost)"
+    )
+    starts: list[int] = []
+    previous_title: str | None = None
+    for index, match in enumerate(headings):
+        stop = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+        following = text[match.end() : min(stop, match.end() + 600)]
+        title_match = re.match(rf"([^.;\n]{{3,160}}?)\s+{instruction}\b", following)
+        title = title_match.group(1).strip() if title_match else None
+        inside_quote = any(q.start() <= match.start() < q.end() for q in quoted)
+        prefix = text[max(0, match.start() - 256) : match.start()]
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        physical_heading = not text[line_start : match.start()].strip()
+        # A flattened boundary must follow the preceding chart's named result,
+        # not an unrelated backspace elsewhere in prose containing an equals sign.
+        printed_result = (
+            previous_title is not None
+            and re.search(
+                rf"\x08\s*{re.escape(previous_title)}\s*=\s*[1-9]\d{{0,2}}\s*$",
+                prefix,
+            )
+            is not None
+        )
+        rows = re.search(
+            rf"\b{instruction}\b[^.;\n]{{0,240}}\s[1-9]\d{{0,2}}(?=\s|$)",
+            following,
+        )
+        if not inside_quote and (physical_heading or printed_result) and rows:
+            starts.append(match.start())
+        previous_title = title if rows and not inside_quote else None
+    return tuple(starts)
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
+    boundaries.extend(_work_chart_heading_starts(text))
     boundaries.extend(
         match.end()
         for match in re.finditer(
@@ -16546,6 +16587,7 @@ def _source_clause_spans(
     split_points = {
         0,
         len(source_text),
+        *_work_chart_heading_starts(source_text),
         *(
             point
             for span in _spaced_german_sentence_label_spans(source_text)
