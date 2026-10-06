@@ -44,7 +44,9 @@ def test_uncorroborated_or_nonterminal_text_is_unchanged(body, context):
 def test_genuine_conditions_are_preserved(condition):
     expected = c._source_conjunctive_fact_gates(condition)
     assert expected
-    assert c._source_conjunctive_fact_gates(HEADING + condition + " " + LABEL) == expected
+    assert (
+        c._source_conjunctive_fact_gates(HEADING + condition + " " + LABEL) == expected
+    )
 
 
 def test_no_general_sentence_or_decimal_truncation():
@@ -68,6 +70,9 @@ def test_reference_or_quoted_heading_cannot_corroborate_label(context):
 
 def test_real_heading_after_publisher_introductory_sentence():
     body = INSTRUCTION + " " + LABEL
-    assert c._without_completed_chart_result_label(
-        body, "Do not enclose these pages with your return. " + HEADING + body
-    ) == INSTRUCTION
+    assert (
+        c._without_completed_chart_result_label(
+            body, "Do not enclose these pages with your return. " + HEADING + body
+        )
+        == INSTRUCTION
+    )
