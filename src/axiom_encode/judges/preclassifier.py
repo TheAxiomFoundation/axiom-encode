@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from .client import JudgeClient, truncate_provision
+from .client import JudgeClient, truncate_provision, with_call_diagnostics
 from .run_log import (
     Finding,
     JudgeEvent,
@@ -301,17 +301,20 @@ def classify(
         reason=reason,
         confidence=confidence,
         method="llm",
-        event=_build_event(
-            entry_ref,
-            classification,
-            route,
-            reason,
-            confidence,
-            method="llm",
-            model=call.model,
-            generator_model=client.generator_model,
-            escalated=call.escalated,
-            tokens=call.tokens,
+        event=with_call_diagnostics(
+            _build_event(
+                entry_ref,
+                classification,
+                route,
+                reason,
+                confidence,
+                method="llm",
+                model=call.model,
+                generator_model=client.generator_model,
+                escalated=call.escalated,
+                tokens=call.tokens,
+            ),
+            call,
         ),
     )
 
