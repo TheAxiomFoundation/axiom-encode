@@ -158,6 +158,9 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     assert "positive ordinal-numbered article label" in default_prompt
     assert "terminal component is exactly 1" in default_prompt
     assert "legacy ARLIS\n  `2^{1}-ին`" in default_prompt
+    assert "`169^{10 }- րդ`" in default_prompt
+    assert "`169^{12}\u00a0- րդ`" in default_prompt
+    assert "`169.23 -րդ`" in default_prompt
     assert "malformed-ordinal" in default_prompt
     assert "calendar-valid `DD.MM.YY`" in default_prompt
     normalized_prompt = " ".join(default_prompt.split())

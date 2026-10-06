@@ -9857,6 +9857,67 @@ rules:
         assert metrics.missing_source_numeric_occurrence_count == 1
         assert any("73" in issue for issue in metrics.numeric_occurrence_issues)
 
+    def test_complete_mode_numeric_recall_uses_armenian_editorial_filter(
+        self,
+        tmp_path,
+    ):
+        citation_path = "am/statute/act-172160/article-1"
+        source_text = (
+            "Շահառուին վճարել 500 դրամ:\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+        )
+        corpus_release = _write_test_corpus_provision(
+            tmp_path,
+            citation_path=citation_path,
+            body=source_text,
+        )
+        rulespec_file = tmp_path / "statutes/act-172160/article-1.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation_path}
+rules:
+  - name: benefit_amount
+    kind: parameter
+    dtype: Money
+    unit: AMD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 500
+""",
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=True),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "am"),
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                source_citation_path=citation_path,
+                require_complete_source_unit=True,
+                skip_reviewers=True,
+            )
+
+        assert metrics.ci_pass
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.covered_source_numeric_occurrence_count == 1
+        assert metrics.missing_source_numeric_occurrence_count == 0
+        assert metrics.numeric_occurrence_issues == []
+
     def test_complete_mode_typed_recall_excludes_stage_labels_but_demands_one_euro(
         self,
         tmp_path,

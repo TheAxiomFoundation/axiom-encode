@@ -1190,10 +1190,13 @@ ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL = """- In Armenian ARLIS text, treat
   as editorial provenance only a parenthetical on its own line whose body
   begins with one positive ordinal-numbered article label. Use `-ին` only when
   its terminal component is exactly 1 (`1-ին`, `4.1-ին`, or legacy ARLIS
-  `2^{1}-ին`); otherwise use `-րդ` (`147-րդ`, `4.2-րդ`, or `2^{2}-րդ`). The
-  body contains no nested parenthetical, includes at least one amendment-action
-  abbreviation (`փոփ`, `լրաց`, or `խմբ`), and after the article label consists
-  solely of those abbreviations plus one or more paired amendment citations.
+  `2^{1}-ին`); otherwise use `-րդ` (`147-րդ`, `4.2-րդ`, or `2^{2}-րդ`). Legacy
+  ARLIS exports may include horizontal spaces or a nonbreaking space before or
+  after the dash and before a superscript's closing brace, as in
+  `169^{10 }- րդ`, `169^{12} - րդ`, or `169.23 -րդ`. The body contains no nested
+  parenthetical, includes at least one amendment-action abbreviation (`փոփ`,
+  `լրաց`, or `խմբ`), and after the article label consists solely of those
+  abbreviations plus one or more paired amendment citations.
   Each citation must have a calendar-valid `DD.MM.YY` or `DD.MM.YYYY` date
   followed by a `Հ-N[-N]-Ն`, `ՀՕ-N[-N]-Ն`, or legacy `ՀՕ-N` law identifier;
   only whitespace, commas, or semicolons may separate these items. An action

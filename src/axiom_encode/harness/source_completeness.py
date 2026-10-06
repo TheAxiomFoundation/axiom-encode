@@ -2194,13 +2194,17 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
 _ARMENIAN_AMENDMENT_HISTORY_DASH = (
     r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
 )
+_ARMENIAN_AMENDMENT_HISTORY_LABEL_SPACE = r"[ \t\u00a0]*"
 _ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX = re.compile(
     r"\s*(?P<article_base>[0-9]+)"
     r"(?:"
     r"[.\u2024](?P<article_dotted_component>[0-9]+)|"
-    r"\^\{(?P<article_superscript_component>[0-9]+)\}"
+    rf"\^\{{(?P<article_superscript_component>[0-9]+)"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_LABEL_SPACE}\}}"
     r")?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_LABEL_SPACE}"
     rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_LABEL_SPACE}"
     r"(?P<article_ordinal_suffix>ին|րդ)\s+հոդվածը\s+",
 )
 _ARMENIAN_AMENDMENT_HISTORY_STANDALONE = re.compile(
@@ -2212,6 +2216,16 @@ _ARMENIAN_AMENDMENT_HISTORY_STANDALONE = re.compile(
 # content instead of losing recall pressure through an ASCII-only depth scan.
 _ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES = "(⁽₍❨❪⟮⦅⸨⹙⹛︵﹙（｟﴿"
 _ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES = ")⁾₎❩❫⟯⦆⸩⹚⹜︶﹚）｠﴾"
+_ARMENIAN_AMENDMENT_HISTORY_CLOSING_BY_OPENING = dict(
+    zip(
+        _ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES,
+        _ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES,
+        strict=True,
+    )
+)
+_ARMENIAN_AMENDMENT_HISTORY_CLOSING_SET = frozenset(
+    _ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES
+)
 # Amendment-action abbreviations are matched case-insensitively, but the paired
 # `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
 # alternation so recognizing an uppercase action cannot also fold the
@@ -12137,28 +12151,34 @@ def _strip_standalone_armenian_amendment_history(source_text: str) -> str:
         return source_text
 
     depth_scan_position = 0
-    depths = [0] * len(_ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES)
+    expected_closing_parentheses: list[str] = []
+    parenthesis_pairing_is_valid = True
     removal_spans: list[tuple[int, int]] = []
 
-    def parenthesis_depth_before(index: int) -> int:
+    def parenthesis_state_before(index: int) -> tuple[int, bool]:
         # Candidates arrive in source order. Scan only as far as the next
-        # already-validated Armenian candidate and retain O(1) memory.
-        nonlocal depth_scan_position
+        # already-validated Armenian candidate. The stack is proportional only
+        # to actual nesting depth and enforces exact paired/LIFO closing order.
+        nonlocal depth_scan_position, parenthesis_pairing_is_valid
         while depth_scan_position < index:
             character = source_text[depth_scan_position]
-            opening_index = _ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES.find(
+            expected_closing = _ARMENIAN_AMENDMENT_HISTORY_CLOSING_BY_OPENING.get(
                 character
             )
-            if opening_index >= 0:
-                depths[opening_index] += 1
-            else:
-                closing_index = _ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES.find(
-                    character
-                )
-                if closing_index >= 0:
-                    depths[closing_index] = max(0, depths[closing_index] - 1)
+            if expected_closing is not None:
+                expected_closing_parentheses.append(expected_closing)
+            elif character in _ARMENIAN_AMENDMENT_HISTORY_CLOSING_SET:
+                if (
+                    not expected_closing_parentheses
+                    or expected_closing_parentheses[-1] != character
+                ):
+                    # Crossed, mismatched, and stray closing delimiters are a
+                    # permanent fail-closed condition for this source text.
+                    parenthesis_pairing_is_valid = False
+                else:
+                    expected_closing_parentheses.pop()
             depth_scan_position += 1
-        return sum(depths)
+        return len(expected_closing_parentheses), parenthesis_pairing_is_valid
 
     for candidate in _ARMENIAN_AMENDMENT_HISTORY_STANDALONE.finditer(source_text):
         body_start, body_end = candidate.span("body")
@@ -12192,13 +12212,21 @@ def _strip_standalone_armenian_amendment_history(source_text: str) -> str:
         # A candidate whose opening parenthesis sits inside another parenthetical
         # is nested, and the prompt contract keeps nested parentheticals as source
         # content. Strip only candidates that open at depth zero.
-        if parenthesis_depth_before(body_start - 1) != 0:
+        depth, pairing_is_valid = parenthesis_state_before(body_start - 1)
+        if not pairing_is_valid or depth != 0:
             continue
         removal_spans.append(candidate.span())
 
-    # Preserve both the original object and O(1) auxiliary memory whenever no
+    # Preserve the original object and avoid reconstruction whenever no
     # candidate is admitted. Only an accepted removal pays to rebuild text.
     if not removal_spans:
+        return source_text
+
+    # Validate the remainder before rebuilding anything. A malformed delimiter
+    # after an otherwise admissible ledger invalidates every scheduled removal,
+    # so no partial prefix can fail open.
+    final_depth, pairing_is_valid = parenthesis_state_before(len(source_text))
+    if not pairing_is_valid or final_depth != 0:
         return source_text
 
     fragments: list[str] = []
@@ -16698,7 +16726,10 @@ def _formula_branch_computation_occurrences(
         )
         if not _temporal_occurrence_is_formula_applicability_preface(
             occurrence,
-            branch.text,
+            # These offsets were extracted from ``recall_text``. Contextual
+            # span checks must use that same byte-for-byte string rather than
+            # stale offsets in the unfiltered branch text.
+            recall_text,
         )
         and not any(
             _numeric_occurrences_are_equivalent(occurrence, boundary)

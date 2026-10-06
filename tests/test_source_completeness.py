@@ -23015,6 +23015,44 @@ def test_armenian_history_filter_accepts_legacy_arlis_superscript_labels(
 @pytest.mark.parametrize(
     "article_label",
     (
+        "169^{10 }- րդ",
+        "169^{12}\u00a0- րդ",
+        "169.23 -րդ",
+        "169^{1 }- ին",
+    ),
+)
+def test_armenian_history_filter_accepts_official_legacy_ordinal_spacing(
+    article_label,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n({article_label} հոդվածը լրաց. 26.12.02 ՀՕ-517-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == lead
+
+
+@pytest.mark.parametrize(
+    "article_label",
+    (
+        "169^{ 10}-րդ",
+        "169^{1 0}-րդ",
+        "169. 23-րդ",
+        "169^{10}\n-րդ",
+        "169^{1 }- րդ",
+        "169.23 -ին",
+    ),
+)
+def test_armenian_history_filter_keeps_noncanonical_legacy_ordinal_spacing(
+    article_label,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n({article_label} հոդվածը լրաց. 26.12.02 ՀՕ-517-Ն)"
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    "article_label",
+    (
         "0-րդ",
         "1-րդ",
         "2-ին",
@@ -23268,6 +23306,96 @@ def test_armenian_history_filter_keeps_ledger_after_mismatched_unicode_parenthes
         f"{mismatched_closing_parenthesis}\n"
         "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
     )
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    ("opening_index", "closing_index"),
+    tuple(
+        (opening_index, closing_index)
+        for opening_index in range(
+            len(completeness_module._ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES)
+        )
+        for closing_index in range(
+            len(completeness_module._ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES)
+        )
+        if opening_index != closing_index
+    ),
+)
+def test_armenian_history_filter_keeps_ledger_after_every_mismatched_pair(
+    opening_index,
+    closing_index,
+):
+    opening = completeness_module._ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES[
+        opening_index
+    ]
+    mismatched_closing = (
+        completeness_module._ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES[
+            closing_index
+        ]
+    )
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = (
+        f"{lead}\n{opening}անցումային պայման{mismatched_closing}\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    ("outer_index", "inner_index"),
+    tuple(
+        (outer_index, inner_index)
+        for outer_index in range(
+            len(completeness_module._ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES)
+        )
+        for inner_index in range(
+            len(completeness_module._ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES)
+        )
+        if outer_index != inner_index
+    ),
+)
+def test_armenian_history_filter_keeps_ledger_after_every_crossed_pair(
+    outer_index,
+    inner_index,
+):
+    openings = completeness_module._ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES
+    closings = completeness_module._ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES
+    crossed = (
+        openings[outer_index]
+        + openings[inner_index]
+        + "անցումային պայման"
+        + closings[outer_index]
+        + closings[inner_index]
+    )
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n{crossed}\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    "stray_closing",
+    tuple(completeness_module._ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES),
+)
+def test_armenian_history_filter_keeps_ledger_after_every_stray_closing(
+    stray_closing,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = (
+        f"{lead}\n{stray_closing}անցումային պայման\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+def test_armenian_history_filter_aborts_scheduled_removal_on_later_mismatch():
+    lead = "Շահառուին վճարել 500 դրամ:"
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source = f"{lead}\n{ledger}\n（անցումային պայման)"
 
     assert authoritative_numeric_recall_text(source) is source
 
@@ -23606,6 +23734,91 @@ rules:
     )
 
     assert not _has_issue(result, "numeric-recall")
+
+
+def test_armenian_history_filter_does_not_shift_formula_applicability_offsets():
+    formula_source = "For tax years 2025, the benefit is 10 multiplied by 2."
+    ledger = "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    source_with_ledger = f"{ledger}\n{formula_source}"
+    content = """\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: am/statute/example/1
+rules:
+  - name: decoy_ten
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 10
+  - name: decoy_two
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 2
+  - name: benefit
+    kind: derived
+    dtype: Decimal
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: am/statute/example/1
+              excerpt: For tax years 2025, the benefit is 10 multiplied by 2.
+    versions:
+      - effective_from: '2025-01-01'
+        formula: x * y
+"""
+    test_cases = [
+        {
+            "name": "decoy formula",
+            "period": "2025-01-01",
+            "input": {"x": 7, "y": 3},
+            "output": {"benefit": 21},
+        }
+    ]
+    branch = completeness_module.SourceStructureBranch(
+        path=(),
+        kind="source-unit",
+        label="source unit",
+        text=source_with_ledger,
+        start=0,
+        end=len(source_with_ledger),
+    )
+    occurrences = completeness_module._formula_branch_computation_occurrences(
+        branch,
+        interval=None,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert [occurrence.value for occurrence in occurrences] == [10.0, 2.0, 2.0]
+    recall_text = authoritative_numeric_recall_text(source_with_ledger)
+    assert all(
+        recall_text[occurrence.start : occurrence.end] == occurrence.raw
+        for occurrence in occurrences
+    )
+    for source in (formula_source, source_with_ledger):
+        result = _analyze(
+            content,
+            source,
+            corpus_citation_path="am/statute/example/1",
+            test_cases=test_cases,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text,
+                profile="legacy",
+            ),
+        )
+        assert _has_issue(
+            result,
+            "companion tests do not demonstrate formula branch",
+        )
 
 
 @pytest.mark.parametrize(

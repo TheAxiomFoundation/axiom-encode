@@ -120,6 +120,7 @@ from .policyengine_runtime import (
 from .pricing import estimate_usage_cost_usd
 from .source_completeness import (
     _rulespec_target_base,
+    authoritative_numeric_recall_text,
     collect_artifact_numeric_values,
 )
 from .validator_pipeline import (
@@ -7577,7 +7578,7 @@ def _evaluate_artifact_in_scope(
     # separately parsed proof evidence below — never in module.summary.
     numeric_validation_source_text = embedded_source or numeric_source_text or ""
     numeric_recall_source_text = (
-        evaluation_source_text
+        authoritative_numeric_recall_text(evaluation_source_text)
         if require_complete_source_unit
         else numeric_validation_source_text
     )
@@ -7594,11 +7595,7 @@ def _evaluate_artifact_in_scope(
                     numeric_payload
                 )
     numeric_profile = _numeric_profile_for_citation_path(numeric_source_citation_path)
-    half_up_recall_source_text = (
-        evaluation_source_text
-        if require_complete_source_unit
-        else numeric_validation_source_text
-    )
+    half_up_recall_source_text = numeric_recall_source_text
     half_up_authoritative_source_text = (
         evaluation_source_text if require_complete_source_unit else source_text
     )
