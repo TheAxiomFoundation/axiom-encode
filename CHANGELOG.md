@@ -2,6 +2,17 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Keep US manual and form locators out of complete-source-unit numeric recall:
+  `WAC` section citations, `policy NNN-N` cross-references, numbered manual
+  section headings, telephone numbers, PO boxes, ZIP+4 codes and
+  letter-prefixed form numbers are no longer demanded as named scalars.
+  Paginated manuals also drop the page number and `(MM/YYYY)` revision
+  stamp of their page headers (`93 (07/2026) Chapter 2:...`), which the
+  Oregon Programs Eligibility Notebook prints on every page. Values stay in
+  recall when a unit follows them (`policy 10-day notice`) or when a
+  cents-shaped row such as `44.50 Countable Earned Income` sits beside a
+  `$` amount line of a budget table.
+
 - Stop agency-manual typography from creating complete-source-unit
   formula-output obligations. The arithmetic recognizer read a month/year
   date (`93 (07/2026)`, the header of every Oregon Programs Eligibility

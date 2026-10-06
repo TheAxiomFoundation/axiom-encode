@@ -21433,6 +21433,136 @@ def test_guidance_structural_number_cleanup_preserves_substantive_values():
     assert values == {1, 2}
 
 
+def _us_legacy_numeric_recall_values(
+    source: str,
+    corpus_citation_path: str = "us-wa/manual/dshs/eaz/example",
+) -> set[float]:
+    """US citation paths use the legacy numeric profile in production."""
+
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path=corpus_citation_path,
+    )
+    return {
+        occurrence.value
+        for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned,
+            profile="legacy",
+        )
+    }
+
+
+def test_us_manual_code_and_policy_references_are_not_numeric_recall_values():
+    # WA DSHS EAZ manual and Utah DWS eligibility manual cross-references.
+    source = (
+        "See WAC 388-450-0015 for excludable income. We must consider countable "
+        "liquid resources under WAC 388-470-0055 when determining eligibility. "
+        "If the client is a migrant use WAC 388-406-0021, then see "
+        "WAC 388-450-0230. For exceptions refer to policy 770-2. Refer to "
+        "policy 770-3 to determine when no notice is required. At least one "
+        "member is elderly or disabled according to policy 254. A household "
+        "may not have over $100 in liquid assets. Advance notice is defined as "
+        "10 days. Verification must arrive before the 60th day after the date "
+        "of application."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 60, 100}
+
+
+def test_us_policy_reference_does_not_swallow_following_value():
+    source = (
+        "Under policy 254, 3 members qualify. See policies 770-2 and 770-3; "
+        "4 days apply."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {3, 4}
+
+
+def test_numbered_manual_section_headings_are_not_numeric_recall_values():
+    # Maryland FIA SNAP Manual section 214 page 5 and Utah DWS policy 770-1.
+    source = (
+        "SNAP MANUAL UTILITY ALLOWANCES\n\n"
+        "214.2 Shared Utility Costs (continued)\n\n"
+        "D. The household pays $35 of the cost.\n\n"
+        "214.3 Telephone Allowance\n\n"
+        "A. The telephone allowance is $27.\n\n"
+        "770-1 Advance Notice of Adverse Action\n\n"
+        "Advance notice is 10 days."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 27, 35}
+
+
+def test_leading_values_that_are_not_section_headings_stay_in_numeric_recall():
+    source = (
+        "7.65 Percent\n"
+        "2.5 Times the standard applies to each member.\n"
+        "1.5 percent of gross income is excluded.\n"
+        "12.5 Months\n"
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {0.015, 0.0765, 2.5, 12.5}
+
+
+def test_us_form_contact_and_form_number_identifiers_are_not_numeric_recall():
+    # Kansas K-40ES voucher instructions.
+    source = (
+        "Mail to: Estimated Tax, Kansas Department of Revenue, PO Box 3506, "
+        "Topeka KS 66625-3506. Questions? Call 785-368-8222 or (785) 368-8222. "
+        "Use Schedule K-210 to figure any underpayment. Topeka, KS 66625- 3506. "
+        "Pay if your tax is $500 or more."
+    )
+
+    assert _us_legacy_numeric_recall_values(
+        source,
+        "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    ) == {500}
+
+
+@pytest.mark.parametrize(
+    "corpus_citation_path",
+    ["de/statute/estg/32", "dk/statute/lbk-603-2025/x/paragraf-2", ""],
+)
+def test_us_locator_masks_do_not_apply_outside_us_citation_paths(
+    corpus_citation_path: str,
+):
+    # A German thousands separator would otherwise read as a heading label.
+    cleaned = authoritative_numeric_recall_text(
+        "1.000 Euro Freibetrag pro Kind\n",
+        corpus_citation_path=corpus_citation_path,
+    )
+
+    assert "1.000" in cleaned
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source", "kept"),
+    (
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "12.50 Weekly Allowance\n",
+            "12.50",
+        ),
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "Under policy 2 adults must sign.",
+            "policy 2",
+        ),
+        ("de/manual/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+        # The gate reads the leading jurisdiction, not any `us/` segment.
+        ("de/manual/us/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+    ),
+)
+def test_us_manual_locator_masks_do_not_apply_to_other_manuals(
+    corpus_citation_path: str, source: str, kept: str
+):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=corpus_citation_path
+    )
+
+    assert kept in cleaned
+
+
 def test_guidance_footnote_cleanup_preserves_numbered_rules_and_categories():
     source = (
         "2 SNAP units are eligible as defined by section 5. "
