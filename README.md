@@ -89,6 +89,12 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+Git probes for RuleSpec checkout identity and configuration use a 10-second
+timeout per attempt and retry once on timeout. On loaded hosts, set
+`AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
+to change that budget. Exhausted timeouts and Git launch failures still reject
+checkout admission; invalid timeout values are rejected before Git is launched.
+
 `encode` resolves the requested citation to exactly one active
 `corpus.provisions` row before model generation. Each RuleSpec checkout must
 pin one signed release object in `.axiom/toolchain.toml` through
