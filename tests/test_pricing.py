@@ -216,9 +216,7 @@ def test_aggregated_usage_cannot_bypass_unverified_pricing(input_tokens):
     usage = TokenUsage(input_tokens=input_tokens, output_tokens=100)
 
     assert (
-        estimate_usage_cost_breakdown(
-            "gpt-6.1-sol", usage, enforce_context_tier=False
-        )
+        estimate_usage_cost_breakdown("gpt-6.1-sol", usage, enforce_context_tier=False)
         is None
     )
 

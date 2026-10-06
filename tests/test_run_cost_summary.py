@@ -293,7 +293,9 @@ class TestRendering:
         assert "Unpriced model(s): model-without-rates" in markdown
 
     @pytest.mark.parametrize("model", ["gpt-6.1-sol", "gpt-6.1-sol-fast"])
-    def test_unverified_proxy_remains_unpriced(self, tmp_path: Path, model: str) -> None:
+    def test_unverified_proxy_remains_unpriced(
+        self, tmp_path: Path, model: str
+    ) -> None:
         _write_trace(
             tmp_path,
             "openai",

@@ -92,8 +92,7 @@ class TestPinnedCodexCLI:
         pin = provisioner._CODEX_CLI_PINS[("darwin", "arm64")]
         assert provisioner._CODEX_CLI_VERSION == "0.159.0"
         assert pin["url"] == (
-            "https://registry.npmjs.org/@openai/codex/-/"
-            "codex-0.159.0-darwin-arm64.tgz"
+            "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-darwin-arm64.tgz"
         )
         assert pin["member"] == "package/vendor/aarch64-apple-darwin/bin/codex"
         assert pin["archive_sha256"] == (
