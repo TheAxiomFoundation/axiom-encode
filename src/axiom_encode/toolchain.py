@@ -12,6 +12,11 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
+from .corpus_release import (
+    CorpusReleaseObjectError,
+    CorpusReleaseTrust,
+    corpus_release_trust_from_keyring,
+)
 from .corpus_resolver import (
     InvalidCorpusReleaseError,
     LocalCorpusRelease,
@@ -255,7 +260,7 @@ def load_rulespec_local_corpus_release(
     _verify_rulespec_validation_waiver_set(toolchain)
     public_key = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.get()
     if public_key is not None:
-        public_keys = (public_key,)
+        trust = CorpusReleaseTrust(public_key)
     else:
         try:
             broker = get_signing_broker()
@@ -271,14 +276,24 @@ def load_rulespec_local_corpus_release(
             raise RuleSpecToolchainError(
                 "The protected signing broker has no valid corpus release public keyring"
             )
-        public_keys = tuple(
-            b64encode(candidate).decode("ascii") for candidate in public_keys_raw
-        )
+        try:
+            trust = corpus_release_trust_from_keyring(
+                tuple(
+                    b64encode(candidate).decode("ascii")
+                    for candidate in public_keys_raw
+                ),
+                broker.corpus_release_retired_release_objects,
+            )
+        except CorpusReleaseObjectError as exc:
+            raise RuleSpecToolchainError(
+                "The protected signing broker exposed an unscoped retired corpus "
+                f"release key: {exc}"
+            ) from exc
     return LocalCorpusRelease(
         corpus_root,
         toolchain.corpus_release,
         toolchain.corpus_release_content_sha256,
-        public_keys,
+        trust,
     )
 
 

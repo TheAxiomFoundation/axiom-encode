@@ -97,6 +97,11 @@ class SigningBroker(Protocol):
     @property
     def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]: ...
 
+    @property
+    def corpus_release_retired_release_objects(
+        self,
+    ) -> tuple[frozenset[tuple[str, str]], ...]: ...
+
     def apply_ed25519_sign(self, payload: bytes) -> bytes: ...
 
     def eval_ed25519_sign(self, payload: bytes) -> bytes: ...
@@ -111,6 +116,8 @@ class BrokerStatus:
     eval_public_key_raw: bytes | None
     corpus_release_public_key_raw: bytes | None
     corpus_release_public_keys_raw: tuple[bytes, ...]
+    # One allowlist per retired key, aligned with corpus_release_public_keys_raw[1:].
+    corpus_release_retired_release_objects: tuple[frozenset[tuple[str, str]], ...] = ()
 
 
 def scrub_private_signing_environment(
@@ -186,10 +193,14 @@ class SigningBrokerClient:
             "eval_public_key",
             "corpus_release_public_key",
         }
+        keyring_status_fields = {*legacy_status_fields, "corpus_release_public_keys"}
         status_fields = set(status)
         if status_fields not in {
             frozenset(legacy_status_fields),
-            frozenset({*legacy_status_fields, "corpus_release_public_keys"}),
+            frozenset(keyring_status_fields),
+            frozenset(
+                {*keyring_status_fields, "corpus_release_retired_release_objects"}
+            ),
         }:
             raise SigningBrokerError("Signing broker returned malformed status")
         raw_capabilities = status.get("capabilities")
@@ -253,13 +264,70 @@ class SigningBrokerClient:
                 "Signing broker must expose distinct protected apply, eval, and "
                 "corpus release trust roots"
             )
+        corpus_release_retired_release_objects = (
+            self._decode_retired_release_objects(
+                status.get("corpus_release_retired_release_objects"),
+                retired_key_count=len(corpus_release_public_keys_raw) - 1,
+            )
+            if "corpus_release_retired_release_objects" in status
+            else ()
+        )
+        if len(corpus_release_retired_release_objects) != (
+            len(corpus_release_public_keys_raw) - 1
+        ):
+            # A retired key without its own allowlist would authenticate any
+            # object it signs; the broker must never expose an unscoped one.
+            raise SigningBrokerError(
+                "Signing broker exposed a retired corpus release key without a "
+                "release-object allowlist"
+            )
         self._status = BrokerStatus(
             frozenset(raw_capabilities),
             apply_public_key_raw,
             eval_public_key_raw,
             corpus_release_public_key_raw,
             corpus_release_public_keys_raw,
+            corpus_release_retired_release_objects,
         )
+
+    @staticmethod
+    def _decode_retired_release_objects(
+        encoded: object, *, retired_key_count: int
+    ) -> tuple[frozenset[tuple[str, str]], ...]:
+        """Decode one exact allowlist per retired corpus release key."""
+
+        if not isinstance(encoded, list) or len(encoded) != retired_key_count:
+            raise SigningBrokerError(
+                "Signing broker returned malformed retired corpus release allowlists"
+            )
+        allowlists: list[frozenset[tuple[str, str]]] = []
+        for entries in encoded:
+            if not isinstance(entries, list) or not entries:
+                raise SigningBrokerError(
+                    "Signing broker returned malformed retired corpus release "
+                    "allowlists"
+                )
+            pairs: set[tuple[str, str]] = set()
+            for entry in entries:
+                if (
+                    not isinstance(entry, dict)
+                    or set(entry) != {"release", "content_sha256"}
+                    or not isinstance(entry.get("release"), str)
+                    or not isinstance(entry.get("content_sha256"), str)
+                ):
+                    raise SigningBrokerError(
+                        "Signing broker returned malformed retired corpus release "
+                        "allowlists"
+                    )
+                pair = (entry["release"], entry["content_sha256"])
+                if pair in pairs:
+                    raise SigningBrokerError(
+                        "Signing broker returned malformed retired corpus release "
+                        "allowlists"
+                    )
+                pairs.add(pair)
+            allowlists.append(frozenset(pairs))
+        return tuple(allowlists)
 
     @staticmethod
     def _decode_status_public_key(
@@ -318,6 +386,12 @@ class SigningBrokerClient:
     @property
     def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]:
         return self._status.corpus_release_public_keys_raw
+
+    @property
+    def corpus_release_retired_release_objects(
+        self,
+    ) -> tuple[frozenset[tuple[str, str]], ...]:
+        return self._status.corpus_release_retired_release_objects
 
     @property
     def broker_pid(self) -> int | None:

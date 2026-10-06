@@ -4379,7 +4379,8 @@ def _fingerprint_waiver_chunk(
 
     The parent process resolved the release identity through the trusted
     signing broker; workers re-verify the signed release object against that
-    same trust root (a single key or the v3 keyring, passed through opaquely)
+    same trust root (a single key or the allowlist-scoped CorpusReleaseTrust,
+    passed through opaquely)
     and never hold any signing capability.
     """
     corpus_root, release_name, content_sha256, public_key = release_identity

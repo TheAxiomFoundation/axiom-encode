@@ -21,6 +21,7 @@ from typing import AbstractSet, Any, Literal
 
 from axiom_encode.corpus_release import (
     CorpusReleaseObjectError,
+    CorpusReleaseTrust,
     VerifiedReleaseArtifact,
     verify_release_object,
 )
@@ -309,7 +310,9 @@ class LocalCorpusRelease:
     root: Path
     name: str
     content_sha256: str
-    public_key: str | Sequence[str] = field(repr=False, compare=False)
+    public_key: str | Sequence[str] | CorpusReleaseTrust = field(
+        repr=False, compare=False
+    )
     provisions_root: Path = field(init=False)
     selector_sha256: str = field(init=False)
     scopes: tuple[ReleaseScope, ...] = field(init=False)

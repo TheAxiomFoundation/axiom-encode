@@ -87,6 +87,9 @@ class SigningBrokerFixture:
         eval_public_key: str | None = None,
         corpus_release_public_key: str | None = None,
         corpus_release_public_keys: tuple[str, ...] | None = None,
+        corpus_release_retired_release_objects: tuple[
+            frozenset[tuple[str, str]], ...
+        ] = (),
     ):
         self._apply_private_key = (
             _private_key(apply_private_key, label="Apply manifest")
@@ -138,6 +141,15 @@ class SigningBrokerFixture:
                 raise SigningBrokerError(
                     "Corpus release public keyring conflicts with its current key"
                 )
+        self._corpus_release_retired_release_objects = tuple(
+            corpus_release_retired_release_objects
+        )
+        if len(self._corpus_release_retired_release_objects) != max(
+            0, len(self._corpus_release_public_keys) - 1
+        ):
+            raise SigningBrokerError(
+                "Every retired corpus release key requires its own allowlist"
+            )
 
     @staticmethod
     def _validate_pair(
@@ -185,6 +197,12 @@ class SigningBrokerFixture:
     @property
     def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]:
         return self._corpus_release_public_keys
+
+    @property
+    def corpus_release_retired_release_objects(
+        self,
+    ) -> tuple[frozenset[tuple[str, str]], ...]:
+        return self._corpus_release_retired_release_objects
 
     def apply_ed25519_sign(self, payload: bytes) -> bytes:
         if self._apply_private_key is None:

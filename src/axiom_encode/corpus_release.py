@@ -9,7 +9,7 @@ import logging
 import re
 from base64 import b64decode
 from binascii import Error as BinasciiError
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,10 +41,63 @@ _DOCUMENT_CLASSES = {
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _RELEASE_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SCOPE_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,255}$")
+MAX_RETIRED_RELEASE_KEYS = 16
+MAX_RETIRED_RELEASE_OBJECTS_PER_KEY = 256
 
 
 class CorpusReleaseObjectError(ValueError):
     """A corpus release object is malformed, untrusted, or inconsistent."""
+
+
+@dataclass(frozen=True, slots=True)
+class RetiredCorpusReleaseKey:
+    """A rotated-out corpus release root, scoped to the objects it signed.
+
+    A retired key authenticates only the exact ``(release, content_sha256)``
+    pairs listed here. ``created_at`` is signed content, so whoever still holds
+    the retired private key could backdate a new object; a date cutoff would
+    not bind that key, but an identity allowlist does.
+    """
+
+    public_key: str
+    release_objects: frozenset[tuple[str, str]]
+
+
+@dataclass(frozen=True, slots=True)
+class CorpusReleaseTrust:
+    """The current corpus release root plus allowlist-scoped retired roots.
+
+    The current key authenticates any well-formed release object. Each retired
+    key authenticates only the release objects in its own allowlist.
+    """
+
+    current_public_key: str
+    retired_keys: tuple[RetiredCorpusReleaseKey, ...] = ()
+
+
+def corpus_release_trust_from_keyring(
+    public_keys: Sequence[str],
+    retired_release_objects: Sequence[Collection[tuple[str, str]]],
+) -> CorpusReleaseTrust:
+    """Pair ``public_keys[1:]`` with their allowlists; ``public_keys[0]`` is current."""
+
+    keyring = _release_public_keyring(public_keys)
+    if isinstance(retired_release_objects, (str, bytes)) or len(
+        retired_release_objects
+    ) != (len(keyring) - 1):
+        raise CorpusReleaseObjectError(
+            "every retired corpus release key requires its own release-object "
+            "allowlist"
+        )
+    return CorpusReleaseTrust(
+        keyring[0],
+        tuple(
+            RetiredCorpusReleaseKey(key, _retired_release_object_set(release_objects))
+            for key, release_objects in zip(
+                keyring[1:], retired_release_objects, strict=True
+            )
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,9 +150,17 @@ def canonical_release_object_bytes(payload: Mapping[str, Any]) -> bytes:
 def verify_release_object(
     payload: Mapping[str, Any],
     *,
-    public_key: str | Sequence[str],
+    public_key: str | Sequence[str] | CorpusReleaseTrust,
 ) -> VerifiedCorpusReleaseObject:
-    """Verify a supported canonical axiom-corpus contract and signature."""
+    """Verify a supported canonical axiom-corpus contract and signature.
+
+    ``public_key`` is the current release key, a one-key keyring, or a
+    :class:`CorpusReleaseTrust`. The current key authenticates any object. A
+    retired key authenticates an object only when the object's verified
+    ``(release, content_sha256)`` identity is in that key's allowlist. A
+    multi-key keyring without allowlists is rejected: it would let a retired
+    key authenticate arbitrary new objects.
+    """
 
     materialized = copy.deepcopy(dict(payload))
     verified = _validate_unsigned_release_object(materialized)
@@ -129,23 +190,156 @@ def verify_release_object(
         ) from exc
     if len(raw_signature) != 64:
         raise CorpusReleaseObjectError("release object signature has invalid length")
-    public_keys = _release_public_keyring(public_key)
-    loaded_public_keys = tuple(_load_ed25519_public_key(key) for key in public_keys)
+    # Load every key before any signature check so malformed or aliased trust
+    # material fails closed even when another key would verify.
+    current_key, retired_keys = _load_release_trust(public_key)
     canonical = canonical_release_object_bytes(materialized)
-    for key_index, loaded_public_key in enumerate(loaded_public_keys):
-        try:
-            loaded_public_key.verify(raw_signature, canonical)
-        except InvalidSignature:
+    if _signature_verifies(current_key, raw_signature, canonical):
+        logger.debug("release object signature verified with the current key")
+        return verified
+    identity = (verified.name, verified.content_sha256)
+    signed_by_retired_key = False
+    for key_index, (retired_key, release_objects) in enumerate(retired_keys):
+        if not _signature_verifies(retired_key, raw_signature, canonical):
             continue
-        logger.debug("release object signature verified with key index %d", key_index)
-        break
+        if identity in release_objects:
+            logger.debug(
+                "release object signature verified with allowlisted retired key "
+                "index %d",
+                key_index,
+            )
+            return verified
+        signed_by_retired_key = True
+    if signed_by_retired_key:
+        raise CorpusReleaseObjectError(
+            "release object is signed by a retired corpus release key, but "
+            f"{verified.name}@{verified.content_sha256} is not one of the "
+            "pre-rotation release objects that key may authenticate"
+        )
+    raise CorpusReleaseObjectError("release object signature is invalid")
+
+
+def _signature_verifies(
+    public_key: Ed25519PublicKey, signature: bytes, message: bytes
+) -> bool:
+    try:
+        public_key.verify(signature, message)
+    except InvalidSignature:
+        return False
+    return True
+
+
+def _load_release_trust(
+    public_key: str | Sequence[str] | CorpusReleaseTrust,
+) -> tuple[
+    Ed25519PublicKey,
+    tuple[tuple[Ed25519PublicKey, frozenset[tuple[str, str]]], ...],
+]:
+    """Load and validate the current key and every allowlist-scoped retired key."""
+
+    if isinstance(public_key, CorpusReleaseTrust):
+        trust = public_key
     else:
-        raise CorpusReleaseObjectError("release object signature is invalid")
-    return verified
+        keyring = _release_public_keyring(public_key)
+        if len(keyring) != 1:
+            raise CorpusReleaseObjectError(
+                "an unscoped corpus release keyring is not trusted; a retired "
+                "key must be scoped to the pre-rotation release objects it signed"
+            )
+        trust = CorpusReleaseTrust(keyring[0])
+    if not isinstance(trust.current_public_key, str):
+        raise CorpusReleaseObjectError(
+            "release public keyring must contain only encoded public keys"
+        )
+    if not isinstance(trust.retired_keys, tuple):
+        raise CorpusReleaseObjectError("retired corpus release keys must be a tuple")
+    if len(trust.retired_keys) > MAX_RETIRED_RELEASE_KEYS:
+        raise CorpusReleaseObjectError("too many retired corpus release keys")
+    current_key = _load_ed25519_public_key(trust.current_public_key)
+    seen = {_raw_public_key_bytes(current_key)}
+    retired_keys: list[tuple[Ed25519PublicKey, frozenset[tuple[str, str]]]] = []
+    for retired in trust.retired_keys:
+        if not isinstance(retired, RetiredCorpusReleaseKey) or not isinstance(
+            retired.public_key, str
+        ):
+            raise CorpusReleaseObjectError(
+                "retired corpus release keys must be encoded public keys"
+            )
+        loaded = _load_ed25519_public_key(retired.public_key)
+        raw = _raw_public_key_bytes(loaded)
+        if raw in seen:
+            raise CorpusReleaseObjectError(
+                "current and retired corpus release keys must be distinct"
+            )
+        seen.add(raw)
+        retired_keys.append(
+            (loaded, _retired_release_object_set(retired.release_objects))
+        )
+    return current_key, tuple(retired_keys)
+
+
+def _retired_release_object_set(
+    release_objects: object,
+) -> frozenset[tuple[str, str]]:
+    """Validate one retired key's non-empty ``(release, content_sha256)`` allowlist."""
+
+    if isinstance(release_objects, (str, bytes, Mapping)) or not isinstance(
+        release_objects, Collection
+    ):
+        raise CorpusReleaseObjectError(
+            "a retired corpus release key allowlist must be a collection of "
+            "(release, content_sha256) pairs"
+        )
+    if not release_objects:
+        raise CorpusReleaseObjectError(
+            "a retired corpus release key must allowlist at least one release object"
+        )
+    if len(release_objects) > MAX_RETIRED_RELEASE_OBJECTS_PER_KEY:
+        raise CorpusReleaseObjectError(
+            "a retired corpus release key allowlists too many release objects"
+        )
+    pairs: set[tuple[str, str]] = set()
+    names: set[str] = set()
+    for item in release_objects:
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not all(isinstance(part, str) for part in item)
+        ):
+            raise CorpusReleaseObjectError(
+                "a retired corpus release key allowlist entry must be a "
+                "(release, content_sha256) pair"
+            )
+        release, content_sha256 = item
+        try:
+            _validate_release_name(release)
+        except CorpusReleaseObjectError as exc:
+            raise CorpusReleaseObjectError(
+                f"retired corpus release allowlist has an invalid release name: {release!r}"
+            ) from exc
+        if _SHA256_RE.fullmatch(content_sha256) is None:
+            raise CorpusReleaseObjectError(
+                "retired corpus release allowlist has an invalid content sha256 "
+                f"for {release}"
+            )
+        if release in names:
+            raise CorpusReleaseObjectError(
+                f"retired corpus release allowlist names {release} more than once"
+            )
+        names.add(release)
+        pairs.add((release, content_sha256))
+    return frozenset(pairs)
+
+
+def _raw_public_key_bytes(public_key: Ed25519PublicKey) -> bytes:
+    return public_key.public_bytes(
+        serialization.Encoding.Raw,
+        serialization.PublicFormat.Raw,
+    )
 
 
 def _release_public_keyring(public_key: str | Sequence[str]) -> tuple[str, ...]:
-    """Normalize one legacy public key or an ordered verification keyring."""
+    """Normalize one public key or an ordered keyring of encoded public keys."""
 
     if isinstance(public_key, str):
         return (public_key,)

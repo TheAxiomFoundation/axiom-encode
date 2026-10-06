@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -128,11 +129,112 @@ type brokerOptions struct {
 }
 
 type signingTrustRoots struct {
-	Schema                  string   `json:"schema"`
-	ApplyPublicKey          string   `json:"apply_ed25519_public_key"`
-	EvalPublicKey           string   `json:"eval_ed25519_public_key"`
-	CorpusReleasePublicKey  *string  `json:"corpus_release_ed25519_public_key,omitempty"`
-	CorpusReleasePublicKeys []string `json:"corpus_release_ed25519_public_keys,omitempty"`
+	Schema                         string                          `json:"schema"`
+	ApplyPublicKey                 string                          `json:"apply_ed25519_public_key"`
+	EvalPublicKey                  string                          `json:"eval_ed25519_public_key"`
+	CorpusReleasePublicKey         *string                         `json:"corpus_release_ed25519_public_key,omitempty"`
+	CorpusReleasePublicKeys        []string                        `json:"corpus_release_ed25519_public_keys,omitempty"`
+	RetiredCorpusReleasePublicKeys []retiredCorpusReleaseTrustRoot `json:"retired_corpus_release_ed25519_public_keys,omitempty"`
+}
+
+// retiredCorpusReleaseTrustRoot is one rotated-out corpus release key and the
+// exact release objects it may still authenticate. created_at is signed
+// content, so a date cutoff cannot bind whoever still holds the retired
+// private key; an explicit (release, content_sha256) allowlist can.
+type retiredCorpusReleaseTrustRoot struct {
+	PublicKey      string                   `json:"public_key"`
+	ReleaseObjects []corpusReleaseObjectRef `json:"release_objects"`
+}
+
+// corpusReleaseObjectRef names one immutable signed corpus release object.
+type corpusReleaseObjectRef struct {
+	Release       string `json:"release"`
+	ContentSHA256 string `json:"content_sha256"`
+}
+
+const (
+	maxRetiredCorpusReleaseKeys          = 16
+	maxRetiredCorpusReleaseObjectsPerKey = 256
+	maxCorpusReleaseNameBytes            = 128
+)
+
+var (
+	corpusReleaseNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+	lowercaseSHA256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// UnmarshalJSON accepts exactly the release and content_sha256 fields. The
+// broker frame decoder does not reject unknown nested fields on its own.
+func (ref *corpusReleaseObjectRef) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if fields == nil || len(fields) != 2 {
+		return errors.New("corpus release object reference must contain exactly release and content_sha256")
+	}
+	for name := range fields {
+		if name != "release" && name != "content_sha256" {
+			return fmt.Errorf("json: unknown field %q", name)
+		}
+	}
+	type wireCorpusReleaseObjectRef corpusReleaseObjectRef
+	var decoded wireCorpusReleaseObjectRef
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	*ref = corpusReleaseObjectRef(decoded)
+	return nil
+}
+
+func validateRetiredReleaseObjects(releaseObjects []corpusReleaseObjectRef) error {
+	if len(releaseObjects) == 0 {
+		return errors.New("a retired corpus release key must allowlist at least one release object")
+	}
+	if len(releaseObjects) > maxRetiredCorpusReleaseObjectsPerKey {
+		return errors.New("a retired corpus release key allowlists too many release objects")
+	}
+	seen := make(map[string]struct{}, len(releaseObjects))
+	for _, releaseObject := range releaseObjects {
+		if len(releaseObject.Release) > maxCorpusReleaseNameBytes ||
+			!corpusReleaseNamePattern.MatchString(releaseObject.Release) ||
+			releaseObject.Release == "current" {
+			return fmt.Errorf("retired corpus release allowlist has an invalid release name %q", releaseObject.Release)
+		}
+		if !lowercaseSHA256Pattern.MatchString(releaseObject.ContentSHA256) {
+			return fmt.Errorf("retired corpus release allowlist has an invalid content sha256 for %s", releaseObject.Release)
+		}
+		if _, duplicate := seen[releaseObject.Release]; duplicate {
+			return fmt.Errorf("retired corpus release allowlist names %s more than once", releaseObject.Release)
+		}
+		seen[releaseObject.Release] = struct{}{}
+	}
+	return nil
+}
+
+func cloneRetiredReleaseObjects(retired [][]corpusReleaseObjectRef) [][]corpusReleaseObjectRef {
+	cloned := make([][]corpusReleaseObjectRef, len(retired))
+	for index, releaseObjects := range retired {
+		cloned[index] = append([]corpusReleaseObjectRef(nil), releaseObjects...)
+	}
+	return cloned
+}
+
+func equalRetiredReleaseObjects(left, right [][]corpusReleaseObjectRef) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if len(left[index]) != len(right[index]) {
+			return false
+		}
+		for objectIndex := range left[index] {
+			if left[index][objectIndex] != right[index][objectIndex] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 type brokerRequest struct {
@@ -144,7 +246,10 @@ type brokerRequest struct {
 	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
 	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
 	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
-	presentFields           map[string]struct{}
+	// One allowlist per retired key, aligned with CorpusReleasePublicKeys[1:].
+	// Present exactly when the keyring holds a retired key.
+	CorpusReleaseRetiredReleaseObjects [][]corpusReleaseObjectRef `json:"corpus_release_retired_release_objects,omitempty"`
+	presentFields                      map[string]struct{}
 }
 
 var brokerRequestFields = map[string]struct{}{
@@ -156,6 +261,8 @@ var brokerRequestFields = map[string]struct{}{
 	"eval_public_key":            {},
 	"corpus_release_public_key":  {},
 	"corpus_release_public_keys": {},
+	// Initialization only: never valid on a signing or status request.
+	"corpus_release_retired_release_objects": {},
 }
 
 func (request *brokerRequest) UnmarshalJSON(raw []byte) error {
@@ -214,7 +321,8 @@ func (request *brokerRequest) hasInitializationFields() bool {
 	return request.hasField("apply_public_key") ||
 		request.hasField("eval_public_key") ||
 		request.hasField("corpus_release_public_key") ||
-		request.hasField("corpus_release_public_keys")
+		request.hasField("corpus_release_public_keys") ||
+		request.hasField("corpus_release_retired_release_objects")
 }
 
 func (request *brokerRequest) hasValidInitializationShape() bool {
@@ -240,13 +348,33 @@ func (request *brokerRequest) hasValidInitializationShape() bool {
 		}
 		seen[encoded] = struct{}{}
 	}
-	return len(request.ApplyPublicKey) == ed25519.PublicKeySize &&
-		len(request.EvalPublicKey) == ed25519.PublicKeySize &&
-		len(request.CorpusReleasePublicKey) == ed25519.PublicKeySize &&
-		request.hasExactFields(
+	if len(request.ApplyPublicKey) != ed25519.PublicKeySize ||
+		len(request.EvalPublicKey) != ed25519.PublicKeySize ||
+		len(request.CorpusReleasePublicKey) != ed25519.PublicKeySize {
+		return false
+	}
+	retiredKeyCount := len(request.CorpusReleasePublicKeys) - 1
+	if retiredKeyCount == 0 {
+		return request.hasExactFields(
 			"version", "id", "op", "apply_public_key", "eval_public_key",
 			"corpus_release_public_key", "corpus_release_public_keys",
 		)
+	}
+	// A retired key is never provisioned without its own allowlist.
+	if retiredKeyCount > maxRetiredCorpusReleaseKeys ||
+		len(request.CorpusReleaseRetiredReleaseObjects) != retiredKeyCount {
+		return false
+	}
+	for _, releaseObjects := range request.CorpusReleaseRetiredReleaseObjects {
+		if validateRetiredReleaseObjects(releaseObjects) != nil {
+			return false
+		}
+	}
+	return request.hasExactFields(
+		"version", "id", "op", "apply_public_key", "eval_public_key",
+		"corpus_release_public_key", "corpus_release_public_keys",
+		"corpus_release_retired_release_objects",
+	)
 }
 
 func validateBrokerRequestEnvelope(request *brokerRequest, lastRequestID *int64) error {
@@ -293,6 +421,9 @@ type brokerStatus struct {
 	EvalPublicKey           []byte   `json:"eval_public_key"`
 	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key"`
 	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys"`
+	// Always present (an empty list when no key is retired) so the Python
+	// client can require one exact allowlist per retired key.
+	CorpusReleaseRetiredReleaseObjects [][]corpusReleaseObjectRef `json:"corpus_release_retired_release_objects"`
 }
 
 type brokerResponse struct {
@@ -317,7 +448,9 @@ type brokerResult struct {
 	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
 	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
 	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
-	Signature               []byte   `json:"signature,omitempty"`
+	// Decoded strictly per element; compared exactly against the trust roots.
+	CorpusReleaseRetiredReleaseObjects [][]corpusReleaseObjectRef `json:"corpus_release_retired_release_objects,omitempty"`
+	Signature                          []byte                     `json:"signature,omitempty"`
 }
 
 type signerRequest struct {
@@ -601,7 +734,7 @@ func supervise(arguments []string) error {
 		}
 	}
 
-	applyPublicKey, evalPublicKey, corpusReleasePublicKeys, err := loadProtectedTrustRoots(
+	applyPublicKey, evalPublicKey, corpusReleasePublicKeys, retiredReleaseObjects, err := loadProtectedTrustRoots(
 		parsed.trustRootsPath,
 	)
 	if err != nil {
@@ -630,6 +763,9 @@ func supervise(arguments []string) error {
 	initialization.EvalPublicKey = evalPublicKey
 	initialization.CorpusReleasePublicKey = corpusReleasePublicKeys[0]
 	initialization.CorpusReleasePublicKeys = corpusReleasePublicKeys
+	if len(retiredReleaseObjects) > 0 {
+		initialization.CorpusReleaseRetiredReleaseObjects = retiredReleaseObjects
+	}
 	if err := sendFrame(connection, initialization); err != nil {
 		return fmt.Errorf("could not provision signing broker: %w", err)
 	}
@@ -651,6 +787,7 @@ func supervise(arguments []string) error {
 		applyPublicKey,
 		evalPublicKey,
 		corpusReleasePublicKeys,
+		retiredReleaseObjects,
 		parsed.applySignerFD >= 0,
 		parsed.evalSignerFD >= 0,
 	); err != nil {
@@ -955,149 +1092,194 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 	return nil
 }
 
-func loadProtectedTrustRoots(path string) ([]byte, []byte, [][]byte, error) {
+func loadProtectedTrustRoots(path string) ([]byte, []byte, [][]byte, [][]corpusReleaseObjectRef, error) {
 	trustedPath, file, err := inspectTrustedRegularFile(path, false)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is not protected: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("signing trust-root config is not protected: %w", err)
 	}
 	defer file.Close()
 	raw, err := io.ReadAll(io.LimitReader(file, 64*1024+1))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("could not read signing trust-root config: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("could not read signing trust-root config: %w", err)
 	}
 	defer zero(raw)
 	if len(raw) > 64*1024 {
-		return nil, nil, nil, errors.New("signing trust-root config exceeds 64 KiB")
+		return nil, nil, nil, nil, errors.New("signing trust-root config exceeds 64 KiB")
 	}
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
 	return parseProtectedTrustRoots(raw, trustedPath)
 }
 
-func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [][]byte, error) {
+// parseProtectedTrustRoots returns the apply and eval roots, the corpus release
+// keyring ordered [current, retired...], and one release-object allowlist per
+// retired key (aligned with keyring[1:]).
+//
+//   - v2 carries one current corpus release key.
+//   - v3 carries a keyring; only its single-key form is still accepted, because
+//     a multi-key v3 keyring would let a retired key authenticate any object.
+//   - v4 carries the current key plus retired keys, each scoped to the exact
+//     (release, content_sha256) objects it may authenticate.
+func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [][]byte, [][]corpusReleaseObjectRef, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
-		return nil, nil, nil, errors.New("signing trust-root config must be one JSON object")
+		return nil, nil, nil, nil, errors.New("signing trust-root config must be one JSON object")
 	}
 	allowed := map[string]struct{}{
-		"schema":                             {},
-		"apply_ed25519_public_key":           {},
-		"eval_ed25519_public_key":            {},
-		"corpus_release_ed25519_public_key":  {},
-		"corpus_release_ed25519_public_keys": {},
+		"schema":                                    {},
+		"apply_ed25519_public_key":                  {},
+		"eval_ed25519_public_key":                   {},
+		"corpus_release_ed25519_public_key":         {},
+		"corpus_release_ed25519_public_keys":        {},
+		"retired_corpus_release_ed25519_public_keys": {},
 	}
 	for name := range fields {
 		if _, ok := allowed[name]; !ok {
-			return nil, nil, nil, fmt.Errorf("signing trust-root config has unknown field %q", name)
+			return nil, nil, nil, nil, fmt.Errorf("signing trust-root config has unknown field %q", name)
 		}
 	}
 	var config signingTrustRoots
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
-		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
 	const schemaV2 = "axiom-encode/signing-trust-roots/v2"
 	const schemaV3 = "axiom-encode/signing-trust-roots/v3"
-	if config.Schema != schemaV2 && config.Schema != schemaV3 {
-		return nil, nil, nil, errors.New("signing trust-root config schema is unsupported")
+	const schemaV4 = "axiom-encode/signing-trust-roots/v4"
+	if config.Schema != schemaV2 && config.Schema != schemaV3 && config.Schema != schemaV4 {
+		return nil, nil, nil, nil, errors.New("signing trust-root config schema is unsupported")
 	}
 	for _, required := range []string{
 		"schema", "apply_ed25519_public_key", "eval_ed25519_public_key",
 	} {
 		if _, present := fields[required]; !present {
-			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+			return nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 		}
 	}
 	_, hasCorpusReleasePublicKey := fields["corpus_release_ed25519_public_key"]
 	_, hasCorpusReleasePublicKeys := fields["corpus_release_ed25519_public_keys"]
-	if config.Schema == schemaV2 {
-		if len(fields) != 4 || !hasCorpusReleasePublicKey || hasCorpusReleasePublicKeys {
-			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+	_, hasRetiredCorpusReleasePublicKeys := fields["retired_corpus_release_ed25519_public_keys"]
+	switch config.Schema {
+	case schemaV2:
+		if len(fields) != 4 || !hasCorpusReleasePublicKey || hasCorpusReleasePublicKeys ||
+			hasRetiredCorpusReleasePublicKeys {
+			return nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 		}
-	} else if (!hasCorpusReleasePublicKey && !hasCorpusReleasePublicKeys) || len(fields) > 5 {
-		return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+	case schemaV3:
+		if (!hasCorpusReleasePublicKey && !hasCorpusReleasePublicKeys) || len(fields) > 5 ||
+			hasRetiredCorpusReleasePublicKeys {
+			return nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+		}
+	case schemaV4:
+		if len(fields) != 5 || !hasCorpusReleasePublicKey || hasCorpusReleasePublicKeys ||
+			!hasRetiredCorpusReleasePublicKeys {
+			return nil, nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+		}
 	}
 	applyPublicKey, err := parsePublicKey([]byte(config.ApplyPublicKey))
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("invalid apply manifest public key in %s: %w", trustedPath, err)
+		return nil, nil, nil, nil, fmt.Errorf("invalid apply manifest public key in %s: %w", trustedPath, err)
 	}
 	evalPublicKey, err := parsePublicKey([]byte(config.EvalPublicKey))
 	if err != nil {
 		zero(applyPublicKey)
-		return nil, nil, nil, fmt.Errorf("invalid eval evidence public key in %s: %w", trustedPath, err)
+		return nil, nil, nil, nil, fmt.Errorf("invalid eval evidence public key in %s: %w", trustedPath, err)
+	}
+	fail := func(corpusReleasePublicKeys [][]byte, err error) ([]byte, []byte, [][]byte, [][]corpusReleaseObjectRef, error) {
+		zero(applyPublicKey)
+		zero(evalPublicKey)
+		zeroPublicKeys(corpusReleasePublicKeys)
+		return nil, nil, nil, nil, err
 	}
 	var corpusReleasePublicKeys [][]byte
+	var retiredReleaseObjects [][]corpusReleaseObjectRef
 	if hasCorpusReleasePublicKeys {
 		if len(config.CorpusReleasePublicKeys) == 0 {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			return nil, nil, nil, errors.New("corpus release public keyring must not be empty")
+			return fail(nil, errors.New("corpus release public keyring must not be empty"))
 		}
 		for index, encoded := range config.CorpusReleasePublicKeys {
 			publicKey, parseErr := parseRawPublicKey([]byte(encoded))
 			if parseErr != nil {
-				zero(applyPublicKey)
-				zero(evalPublicKey)
-				zeroPublicKeys(corpusReleasePublicKeys)
-				return nil, nil, nil, fmt.Errorf(
+				return fail(corpusReleasePublicKeys, fmt.Errorf(
 					"invalid corpus release public key %d in %s: %w",
 					index, trustedPath, parseErr,
-				)
+				))
 			}
 			corpusReleasePublicKeys = append(corpusReleasePublicKeys, publicKey)
 		}
+		if len(corpusReleasePublicKeys) > 1 {
+			return fail(corpusReleasePublicKeys, errors.New(
+				"signing trust-root v3 carries unscoped retired corpus release public keys; "+
+					"provision signing-trust-roots/v4 so each retired key is scoped to an "+
+					"explicit release-object allowlist",
+			))
+		}
 	} else {
 		if config.CorpusReleasePublicKey == nil {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			return nil, nil, nil, errors.New("corpus release public key is missing")
+			return fail(nil, errors.New("corpus release public key is missing"))
 		}
 		publicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
 		if parseErr != nil {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			return nil, nil, nil, fmt.Errorf(
+			return fail(nil, fmt.Errorf(
 				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
-			)
+			))
 		}
 		corpusReleasePublicKeys = [][]byte{publicKey}
 	}
 	if hasCorpusReleasePublicKey && hasCorpusReleasePublicKeys {
 		if config.CorpusReleasePublicKey == nil {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New("corpus release public key is missing")
+			return fail(corpusReleasePublicKeys, errors.New("corpus release public key is missing"))
 		}
 		singularPublicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
 		if parseErr != nil {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, fmt.Errorf(
+			return fail(corpusReleasePublicKeys, fmt.Errorf(
 				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
-			)
+			))
 		}
 		matchesCurrent := bytes.Equal(singularPublicKey, corpusReleasePublicKeys[0])
 		zero(singularPublicKey)
 		if !matchesCurrent {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New(
+			return fail(corpusReleasePublicKeys, errors.New(
 				"singular and plural corpus release public keys conflict",
+			))
+		}
+	}
+	if config.Schema == schemaV4 {
+		if len(config.RetiredCorpusReleasePublicKeys) == 0 {
+			return fail(corpusReleasePublicKeys, errors.New(
+				"retired corpus release public keys must not be empty; use signing-trust-roots/v2 without retired keys",
+			))
+		}
+		if len(config.RetiredCorpusReleasePublicKeys) > maxRetiredCorpusReleaseKeys {
+			return fail(corpusReleasePublicKeys, errors.New("too many retired corpus release public keys"))
+		}
+		for index, retired := range config.RetiredCorpusReleasePublicKeys {
+			publicKey, parseErr := parseRawPublicKey([]byte(retired.PublicKey))
+			if parseErr != nil {
+				return fail(corpusReleasePublicKeys, fmt.Errorf(
+					"invalid retired corpus release public key %d in %s: %w",
+					index, trustedPath, parseErr,
+				))
+			}
+			corpusReleasePublicKeys = append(corpusReleasePublicKeys, publicKey)
+			if err := validateRetiredReleaseObjects(retired.ReleaseObjects); err != nil {
+				return fail(corpusReleasePublicKeys, fmt.Errorf(
+					"invalid allowlist for retired corpus release public key %d in %s: %w",
+					index, trustedPath, err,
+				))
+			}
+			retiredReleaseObjects = append(
+				retiredReleaseObjects,
+				append([]corpusReleaseObjectRef(nil), retired.ReleaseObjects...),
 			)
 		}
 	}
 	if bytes.Equal(applyPublicKey, evalPublicKey) {
-		zero(applyPublicKey)
-		zero(evalPublicKey)
-		zeroPublicKeys(corpusReleasePublicKeys)
-		return nil, nil, nil, errors.New(
+		return fail(corpusReleasePublicKeys, errors.New(
 			"apply, eval, and corpus release trust roots must be distinct",
-		)
+		))
 	}
 	seen := map[string]struct{}{
 		string(applyPublicKey): {},
@@ -1106,16 +1288,13 @@ func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [
 	for _, publicKey := range corpusReleasePublicKeys {
 		encoded := string(publicKey)
 		if _, duplicate := seen[encoded]; duplicate {
-			zero(applyPublicKey)
-			zero(evalPublicKey)
-			zeroPublicKeys(corpusReleasePublicKeys)
-			return nil, nil, nil, errors.New(
+			return fail(corpusReleasePublicKeys, errors.New(
 				"apply, eval, and corpus release trust roots must be distinct",
-			)
+			))
 		}
 		seen[encoded] = struct{}{}
 	}
-	return applyPublicKey, evalPublicKey, corpusReleasePublicKeys, nil
+	return applyPublicKey, evalPublicKey, corpusReleasePublicKeys, retiredReleaseObjects, nil
 }
 
 func parseRawPublicKey(material []byte) ([]byte, error) {
@@ -1294,6 +1473,7 @@ func validateStatus(
 	result brokerResult,
 	applyPublicKey, evalPublicKey []byte,
 	corpusReleasePublicKeys [][]byte,
+	retiredReleaseObjects [][]corpusReleaseObjectRef,
 	hasApplyCapability, hasEvalCapability bool,
 ) error {
 	expectedCapabilities := make([]string, 0, 2)
@@ -1314,6 +1494,9 @@ func validateStatus(
 	}
 	if !equalByteSlices(result.CorpusReleasePublicKeys, corpusReleasePublicKeys) {
 		return errors.New("signing broker returned the wrong corpus release public keyring")
+	}
+	if !equalRetiredReleaseObjects(result.CorpusReleaseRetiredReleaseObjects, retiredReleaseObjects) {
+		return errors.New("signing broker returned the wrong retired corpus release allowlists")
 	}
 	if !equalStrings(result.Capabilities, expectedCapabilities) {
 		return errors.New("signing broker returned unexpected capabilities")
@@ -1594,6 +1777,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		),
 		CorpusReleasePublicKeys: clonePublicKeys(
 			initialization.CorpusReleasePublicKeys,
+		),
+		CorpusReleaseRetiredReleaseObjects: cloneRetiredReleaseObjects(
+			initialization.CorpusReleaseRetiredReleaseObjects,
 		),
 	}
 	if parsed.applySignerFD >= 0 {

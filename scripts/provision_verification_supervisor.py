@@ -42,6 +42,8 @@ vectors that do matter.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -70,6 +72,24 @@ FORBIDDEN_PREFIXES = (
     "/sbin",
     "/lib",
 )
+
+# Retired corpus release roots are verification-only and scoped: each may
+# authenticate only the exact pre-rotation release objects it signed. The
+# reviewed default allowlist ships with this checkout; callers such as the
+# shared RuleSpec workflow may pass their own with
+# --retired-corpus-release-allowlist.
+DEFAULT_RETIRED_CORPUS_RELEASE_ALLOWLIST = (
+    Path(__file__).resolve().parents[1]
+    / "trust"
+    / "retired-corpus-release-allowlist.json"
+)
+RETIRED_CORPUS_RELEASE_ALLOWLIST_SCHEMA = (
+    "axiom-encode/retired-corpus-release-allowlist/v1"
+)
+MAX_RETIRED_CORPUS_RELEASE_KEYS = 16
+MAX_RETIRED_CORPUS_RELEASE_OBJECTS_PER_KEY = 256
+_RELEASE_NAME_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
 
 # A real CPython prefix (toolcache or standalone build) is ~20k files. Anything
 # far past that is a wrong-prefix copy about to fill the disk. Overridable for
@@ -1524,25 +1544,202 @@ def _verify_and_export_encoder_snapshot(
     return declared_version, package
 
 
+def _raw_ed25519_public_key(encoded: str, *, label: str) -> bytes:
+    """Decode one canonical base64 raw Ed25519 public key or refuse."""
+
+    text = encoded.strip()
+    try:
+        raw = base64.b64decode(text.encode("ascii"), validate=True)
+    except (binascii.Error, UnicodeEncodeError, ValueError) as exc:
+        raise SystemExit(
+            f"refusing to provision: {label} must be base64-encoded raw bytes"
+        ) from exc
+    if len(raw) != 32:
+        raise SystemExit(
+            f"refusing to provision: {label} must contain 32 raw Ed25519 bytes"
+        )
+    return raw
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    keys = [key for key, _value in pairs]
+    if len(keys) != len(set(keys)):
+        raise SystemExit(
+            "refusing to provision: retired corpus release allowlist has "
+            "duplicate JSON keys"
+        )
+    return dict(pairs)
+
+
+def _load_retired_corpus_release_allowlist(
+    path: Path,
+) -> dict[bytes, list[dict[str, str]]]:
+    """Load the reviewed allowlist: retired root -> exact release objects.
+
+    The shape is exact. Every retired key lists at least one
+    ``{"release", "content_sha256"}`` object, release names are unique per
+    key, and every key is a distinct raw Ed25519 public key.
+    """
+
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SystemExit(
+            f"refusing to provision: cannot read retired corpus release allowlist {path}"
+        ) from exc
+    if len(raw) > 64 * 1024:
+        raise SystemExit(
+            "refusing to provision: retired corpus release allowlist exceeds 64 KiB"
+        )
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys
+        )
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(
+            f"refusing to provision: {path} is not a UTF-8 JSON allowlist"
+        ) from exc
+    malformed = SystemExit(
+        f"refusing to provision: {path} is not an exact "
+        f"{RETIRED_CORPUS_RELEASE_ALLOWLIST_SCHEMA} allowlist"
+    )
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != {"schema", "retired_corpus_release_ed25519_public_keys"}
+        or payload["schema"] != RETIRED_CORPUS_RELEASE_ALLOWLIST_SCHEMA
+    ):
+        raise malformed
+    entries = payload["retired_corpus_release_ed25519_public_keys"]
+    if (
+        not isinstance(entries, list)
+        or not entries
+        or len(entries) > MAX_RETIRED_CORPUS_RELEASE_KEYS
+    ):
+        raise malformed
+    allowlist: dict[bytes, list[dict[str, str]]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "public_key",
+            "release_objects",
+        }:
+            raise malformed
+        public_key = entry["public_key"]
+        release_objects = entry["release_objects"]
+        if (
+            not isinstance(public_key, str)
+            or not isinstance(release_objects, list)
+            or not release_objects
+            or len(release_objects) > MAX_RETIRED_CORPUS_RELEASE_OBJECTS_PER_KEY
+        ):
+            raise malformed
+        key = _raw_ed25519_public_key(
+            public_key, label="retired corpus release allowlist key"
+        )
+        if key in allowlist:
+            raise SystemExit(
+                "refusing to provision: retired corpus release allowlist lists a "
+                "key more than once"
+            )
+        names: set[str] = set()
+        canonical_objects: list[dict[str, str]] = []
+        for release_object in release_objects:
+            if not isinstance(release_object, dict) or set(release_object) != {
+                "release",
+                "content_sha256",
+            }:
+                raise malformed
+            release = release_object["release"]
+            content_sha256 = release_object["content_sha256"]
+            if (
+                not isinstance(release, str)
+                or len(release) > 128
+                or _RELEASE_NAME_RE.fullmatch(release) is None
+                or release == "current"
+                or not isinstance(content_sha256, str)
+                or _SHA256_HEX_RE.fullmatch(content_sha256) is None
+            ):
+                raise malformed
+            if release in names:
+                raise SystemExit(
+                    "refusing to provision: retired corpus release allowlist "
+                    f"names {release} more than once for one key"
+                )
+            names.add(release)
+            canonical_objects.append(
+                {"release": release, "content_sha256": content_sha256}
+            )
+        allowlist[key] = sorted(
+            canonical_objects, key=lambda item: (item["release"], item["content_sha256"])
+        )
+    return allowlist
+
+
 def _signing_trust_roots_payload(
     apply_root: str,
     eval_root: str,
     corpus_release_root: str,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_corpus_release_allowlist: dict[bytes, list[dict[str, str]]] | None = None,
 ) -> dict[str, object]:
+    """Build the protected trust roots the signing supervisor loads.
+
+    Without retired roots this is the v2 single-key schema. With retired roots
+    it is v4: each retired root carries the exact release objects it may
+    authenticate, and a retired root absent from the allowlist is refused.
+    The unscoped v3 keyring is never written.
+    """
+
     payload: dict[str, object] = {
         "schema": "axiom-encode/signing-trust-roots/v2",
         "apply_ed25519_public_key": apply_root,
         "eval_ed25519_public_key": eval_root,
         "corpus_release_ed25519_public_key": corpus_release_root,
     }
-    if retired_corpus_release_roots:
-        payload["schema"] = "axiom-encode/signing-trust-roots/v3"
-        payload.pop("corpus_release_ed25519_public_key")
-        payload["corpus_release_ed25519_public_keys"] = [
-            corpus_release_root,
-            *retired_corpus_release_roots,
-        ]
+    if not retired_corpus_release_roots:
+        return payload
+    if retired_corpus_release_allowlist is None:
+        raise SystemExit(
+            "refusing to provision: retired corpus release roots require a "
+            "release-object allowlist"
+        )
+    if len(retired_corpus_release_roots) > MAX_RETIRED_CORPUS_RELEASE_KEYS:
+        raise SystemExit("refusing to provision: too many retired corpus release roots")
+    try:
+        current_raw: bytes | None = base64.b64decode(
+            corpus_release_root.strip().encode("ascii"), validate=True
+        )
+    except (binascii.Error, UnicodeEncodeError, ValueError):
+        current_raw = None
+    retired_entries: list[dict[str, object]] = []
+    seen: set[bytes] = set()
+    for root in retired_corpus_release_roots:
+        raw = _raw_ed25519_public_key(root, label="retired corpus release root")
+        if raw == current_raw or raw in seen:
+            raise SystemExit(
+                "refusing to provision: current and retired corpus release roots "
+                "must be distinct"
+            )
+        seen.add(raw)
+        release_objects = retired_corpus_release_allowlist.get(raw)
+        if release_objects is None:
+            raise SystemExit(
+                "refusing to provision: retired corpus release root "
+                f"{base64.b64encode(raw).decode('ascii')} has no release-object "
+                "allowlist; a retired key must never be trusted unscoped"
+            )
+        retired_entries.append(
+            {
+                "public_key": base64.b64encode(raw).decode("ascii"),
+                "release_objects": [dict(item) for item in release_objects],
+            }
+        )
+    if set(retired_corpus_release_allowlist) != seen:
+        raise SystemExit(
+            "refusing to provision: the retired corpus release allowlist names a "
+            "key that is not a provisioned retired root"
+        )
+    payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+    payload["retired_corpus_release_ed25519_public_keys"] = retired_entries
     return payload
 
 
@@ -1563,11 +1760,30 @@ def provision(
     codex_cli_archive: Path | None = None,
     install_pinned_codex_cli: bool = False,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_corpus_release_allowlist: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
             "refusing to provision: retired corpus release roots must not be empty"
         )
+    if retired_corpus_release_allowlist is not None and not retired_corpus_release_roots:
+        raise SystemExit(
+            "refusing to provision: --retired-corpus-release-allowlist requires "
+            "--retired-corpus-release-root"
+        )
+    # Validate the complete trust-root document before any staging work.
+    trust_payload = _signing_trust_roots_payload(
+        apply_root,
+        eval_root,
+        corpus_release_root,
+        retired_corpus_release_roots,
+        _load_retired_corpus_release_allowlist(
+            retired_corpus_release_allowlist
+            or DEFAULT_RETIRED_CORPUS_RELEASE_ALLOWLIST
+        )
+        if retired_corpus_release_roots
+        else None,
+    )
     encoder_attestation_args = (
         encoder_origin_repository,
         encoder_commit,
@@ -1640,12 +1856,6 @@ def provision(
         )
         launcher.chmod(0o755)
         trust = destination / "signing-trust-roots.json"
-        trust_payload = _signing_trust_roots_payload(
-            apply_root,
-            eval_root,
-            corpus_release_root,
-            retired_corpus_release_roots,
-        )
         trust.write_text(json.dumps(trust_payload, sort_keys=True) + "\n")
         trust.chmod(0o644)
         if provision_encoder:
@@ -1680,7 +1890,18 @@ if __name__ == "__main__":
         "--retired-corpus-release-root",
         action="append",
         default=[],
-        help="Retired verification-only corpus release root; repeat for each key.",
+        help="Retired verification-only corpus release root; repeat for each key. "
+        "Each must appear in the retired release-object allowlist.",
+    )
+    parser.add_argument(
+        "--retired-corpus-release-allowlist",
+        type=Path,
+        default=None,
+        help="Exact "
+        + RETIRED_CORPUS_RELEASE_ALLOWLIST_SCHEMA
+        + " JSON naming the (release, content_sha256) objects each retired root "
+        "may authenticate. Defaults to this checkout's reviewed "
+        "trust/retired-corpus-release-allowlist.json.",
     )
     parser.add_argument(
         "--install-pinned-codex-cli",
@@ -1761,4 +1982,7 @@ if __name__ == "__main__":
         else None,
         args.install_pinned_codex_cli,
         tuple(args.retired_corpus_release_root),
+        args.retired_corpus_release_allowlist.resolve()
+        if args.retired_corpus_release_allowlist is not None
+        else None,
     )
