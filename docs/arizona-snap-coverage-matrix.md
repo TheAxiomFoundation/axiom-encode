@@ -63,9 +63,11 @@ whole-dollar intermediate values for every FY 2026 case, but it is not the
 controlling intermediate rounding procedure. [DES FAA6's current Thrifty Food
 Plan table](https://dbmefaapolicy.azdes.gov/FAA6/Thrifty_Food_Plan_(NA).html)
 instructs manual calculation to round 30% of net income **up** to the next
-whole dollar before subtracting it from the maximum allotment; the
+whole dollar before subtracting it from the maximum allotment. The official
+[archived FY 2026 table](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J08_ThriftyFoodPlanNA_2026.1.pdf)
+explicitly covers 10/01/2025–09/30/2026 and gives the same instruction; the
 [archived FY 2025 table](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J08_ThriftyFoodPlanNA_2025.pdf)
-has the same instruction. For an integer maximum, that yields the same final
+also agrees. For an integer maximum, that yields the same final
 allotment as flooring the maximum minus the unrounded 30% contribution. It
 does not establish when Arizona rounds earned-income or shelter deductions or
 net income. Locate the applicable DES intermediate calculation rule or approved
