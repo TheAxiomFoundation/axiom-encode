@@ -1,0 +1,2 @@
+receipt version: 0.6.0
+ci-towncrier EXIT=0 0s

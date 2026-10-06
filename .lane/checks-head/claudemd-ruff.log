@@ -1,0 +1,4 @@
+$ uv run ruff check pyproject.toml src/axiom_encode scripts tests
+Uninstalled 32 packages in 228ms
+Installed 44 packages in 52ms
+All checks passed!

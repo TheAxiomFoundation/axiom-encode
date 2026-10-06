@@ -1,0 +1,1 @@
+$ .venv/bin/python -m compileall -q src/axiom_encode scripts

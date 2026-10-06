@@ -1,0 +1,22 @@
+HEAD:      b18687e61f193a43bc797ebbf35afa10e3ea4862
+tracked dirty: ''
+receipt:   0.6.0
+encoder:   0.2.1762
+python:    Python 3.13.9
+started:   2026-09-05T18:56:11Z
+
+ci-towncrier             EXIT=0  0s
+ci-pytest                EXIT=1  1755s
+    ==== 14 failed, 14015 passed, 36 skipped, 6 warnings in 1752.64s (0:29:12) =====
+focused                  EXIT=1  122s
+adoption                 EXIT=0  15s
+    ============================== 7 passed in 13.79s ==============================
+version-bump             EXIT=0  24s
+    ===================== 2 passed, 1316 deselected in 23.59s ======================
+compileall               EXIT=0  1s
+ci-lint                  EXIT=0  0s
+ci-format                EXIT=0  0s
+claudemd-ruff            EXIT=0  1s
+
+finished:  2026-09-05T19:28:09Z
+DONE

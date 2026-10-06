@@ -1,0 +1,2 @@
+$ uv tool run ruff format --check src/ tests/
+163 files already formatted

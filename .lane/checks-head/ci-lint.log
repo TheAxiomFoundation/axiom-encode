@@ -1,0 +1,2 @@
+$ uv tool run ruff check src/ tests/
+All checks passed!
