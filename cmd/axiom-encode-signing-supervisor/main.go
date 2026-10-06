@@ -1759,10 +1759,10 @@ func reportBrokerFailure(diagnostics io.Writer, err error) {
 	fmt.Fprintf(diagnostics, "signing broker: %v\n", err)
 }
 
-// failBroker writes the detailed diagnostic to stderr before it sends the
-// fixed public error frame. A peer can stop the broker as soon as it reads
-// that frame (the supervisor kills it after a failed initialization), so a
-// diagnostic written after the frame can be lost. The frame carries only the
+// failBroker writes the detailed diagnostic (stderr in the broker) before it
+// sends the fixed public error frame. A peer can stop the broker as soon as it
+// reads that frame (the supervisor kills it after a failed initialization), so
+// a diagnostic written after the frame can be lost. The frame carries only the
 // fixed public message.
 func failBroker(
 	diagnostics io.Writer,
