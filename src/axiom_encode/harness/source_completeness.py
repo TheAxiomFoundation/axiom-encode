@@ -13532,6 +13532,36 @@ def _without_flattened_pdf_alternative_list(body: str) -> str:
     )
 
 
+def _without_completed_chart_result_label(body: str, source_text: str) -> str:
+    """Keep a corroborated printed result label out of conditional predicates."""
+
+    result = re.search(
+        r"(?<=[.!?])\s*\x08\s*(?P<title>[A-Za-z][^\n=.;!?]{2,159}?)"
+        r"\s*=\s*[1-9]\d{0,2}\s*$",
+        body,
+    )
+    if result is None:
+        return body
+    title = result.group("title").strip()
+    headings = re.finditer(
+        rf"(?<![\w.])\d{{1,4}}\s+WORK CHART\s+[–—-]\s+{re.escape(title)}"
+        r"\s+(?:Amount|Total|Enter|Subtract|Add|Multiply|Divide|Contributions|Cost)\b",
+        source_text,
+    )
+    quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', source_text))
+    for heading in headings:
+        if any(q.start() <= heading.start() < q.end() for q in quoted):
+            continue
+        line_start = source_text.rfind("\n", 0, heading.start()) + 1
+        prefix = source_text[line_start : heading.start()].rstrip()
+        # A first chart may follow the publisher's introductory sentence.
+        # A mid-sentence reference such as "See 105 WORK CHART" is not a heading.
+        if prefix and prefix[-1] not in ".!?":
+            continue
+        return body[: result.start()]
+    return body
+
+
 def _source_conjunctive_fact_gates(
     text: str,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
@@ -13589,6 +13619,7 @@ def _source_conjunctive_fact_gates(
     # Parenthetical narrowing above reconstructs the body from the original
     # source, so flattened-list truncation must happen afterward.
     body = _without_flattened_pdf_alternative_list(body)
+    body = _without_completed_chart_result_label(body, text)
     segments = _source_gate_split_conjunctive_conditions(body)
     if len(segments) < 2:
         return ()
