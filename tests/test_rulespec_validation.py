@@ -13,7 +13,7 @@ import textwrap
 from decimal import Decimal
 from pathlib import Path
 from time import monotonic
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -6480,7 +6480,7 @@ def test_packaged_alabama_2026_schedule_registry_and_fallback_are_synchronized()
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6591,7 +6591,7 @@ def test_packaged_connecticut_2026_ordinary_tax_registry_is_exactly_synchronized
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6675,7 +6675,7 @@ def test_packaged_georgia_2026_annual_tax_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6770,7 +6770,7 @@ def test_packaged_mississippi_2026_schedule_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -6931,7 +6931,7 @@ def test_packaged_kansas_2026_k40es_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_section_47_1806_03_has_exact_bounded_slice():
 def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7239,7 +7239,7 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7515,7 +7515,7 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
 
     import axiom_oracles.bridges.registry as runtime_registry_module
 
-    durable_oracle_merge = "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    durable_oracle_merge = "d3419010d9c8de6a790220bf47912d85aadc2588"
     root = Path(__file__).parents[1]
     bundled_path = root / "src/axiom_encode/oracles/policyengine/mappings/us.yaml"
     runtime_path = (
@@ -7866,7 +7866,7 @@ def test_packaged_utah_2026_before_credit_registry_is_exactly_synchronized():
     )
     assert dependency_pin is not None
     pin = dependency_pin.group(0).removeprefix("axiom-oracles@")
-    assert pin == "e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
+    assert pin == "d3419010d9c8de6a790220bf47912d85aadc2588"
     assert f"?rev={pin}#{pin}" in (root / "uv.lock").read_text()
 
 
@@ -9066,6 +9066,98 @@ def test_policyengine_snap_net_income_annualizes_housing_cost(tmp_path):
 
     assert "'housing_cost': {'2026': 6000}" in script
     assert "'housing_cost': {'2026-01':" not in script
+
+
+def test_policyengine_snap_child_support_election_inverts_exclusion_parameter(
+    tmp_path, monkeypatch, capsys
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    child_support_parameter = SimpleNamespace(child_support={"TX": False, "CA": True})
+    params = SimpleNamespace(
+        gov=SimpleNamespace(
+            usda=SimpleNamespace(
+                snap=SimpleNamespace(
+                    income=SimpleNamespace(deductions=child_support_parameter)
+                )
+            )
+        )
+    )
+    policyengine_us = ModuleType("policyengine_us")
+    policyengine_us.CountryTaxBenefitSystem = lambda: SimpleNamespace(
+        parameters=lambda _period: params
+    )
+    policyengine_us.Simulation = lambda **_kwargs: SimpleNamespace(
+        calculate=lambda *_args: [100.0]
+    )
+    monkeypatch.setitem(sys.modules, "policyengine_us", policyengine_us)
+
+    election_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {"period": "2026-01", "snap_state_agency_chose_child_support_deduction": True},
+        "2026",
+    )
+    exec(election_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:1.0"
+
+    qualified_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {
+            "period": "2026-01",
+            "us:statutes/7/2014/e/4#input.snap_state_agency_chose_child_support_deduction": True,
+        },
+        "2026",
+    )
+    assert "child_support['TX']" in qualified_script
+    exec(qualified_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:1.0"
+
+    incompatible_election_script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "CA",
+            "snap_state_agency_chose_child_support_deduction": True,
+        },
+        "2026",
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        exec(incompatible_election_script, {})
+    assert exc_info.value.code == 86
+    assert pipeline._is_pe_unsupported_error(capsys.readouterr().out)
+
+    incompatible_script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_gross_income_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "CA",
+            "snap_state_agency_chose_child_support_deduction": True,
+            "snap_legally_obligated_child_support_payments_to_nonhousehold_members": 100,
+        },
+        "2026",
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        exec(incompatible_script, {})
+    assert exc_info.value.code == 86
+    unsupported = capsys.readouterr().out.strip()
+    assert unsupported.startswith("AXIOM_ORACLE_UNSUPPORTED:")
+    assert pipeline._is_pe_unsupported_error(unsupported)
+
+    compatible_script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_gross_income_deduction",
+        {
+            "period": "2026-01",
+            "state_name": "TX",
+            "snap_state_agency_chose_child_support_deduction": True,
+            "snap_legally_obligated_child_support_payments_to_nonhousehold_members": 100,
+        },
+        "2026",
+    )
+    exec(compatible_script, {})
+    assert capsys.readouterr().out.strip() == "RESULT:100.0"
 
 
 def test_policyengine_ma_tafdc_payment_standard_projects_household_rent_status(
