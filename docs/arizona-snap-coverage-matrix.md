@@ -37,7 +37,11 @@ intermediate as well as final outputs.
 One **partial financial-path comparison**, not household parity: at the pinned
 PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
 monthly earnings, $500 monthly rent, and separately paid heating/cooling gives
-SUA $323, SNAP net income $67, and SNAP allotment $277. The pinned RuleSpec
+SUA $323, SNAP net income $67, and SNAP allotment $277. The pinned
+PolicyEngine situation sets `state_name` to `AZ` for 2026, member age to 30,
+annual earnings to $12,036, annual rent to $6,000, heating/cooling expense to
+true, and weekly work hours to 25; the work-hours fact makes the member
+eligible under PolicyEngine's work rules. The pinned RuleSpec
 `one_person_sua_household_rides_the_whole_dollar_chain` case gives SUA $323,
 net income $68, and benefit $277. PolicyEngine keeps a $200.60 earned-income
 deduction and $526.30 excess-shelter deduction before its net-income rounding;
