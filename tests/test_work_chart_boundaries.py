@@ -152,6 +152,5 @@ def test_complete_105_condition_diagnostic_matches_its_isolated_chart():
         principal_rules={rule["name"]: rule},
         corpus_citation_path=citation,
     )
-    # Its own negative-result instruction still trips the existing fact-gate
-    # classifier. This boundary fix does not waive that separate diagnostic.
-    assert own_issues and combined == own_issues
+    # The completed printed result label is not another factual condition.
+    assert combined == own_issues == []
