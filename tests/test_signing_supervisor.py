@@ -2367,6 +2367,40 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
     assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
     assert 'select(.artifact_class == "provisions")' in release_command
+    provision_filter = release_command.split("provision_paths_json=", 1)[1].split(
+        "'", 2
+    )[1]
+    assert "\\" not in provision_filter
+    if jq_binary := shutil.which("jq"):
+        sample_release = {
+            "content": {
+                "artifacts": [
+                    {
+                        "artifact_class": "provisions",
+                        "path": "data/corpus/provisions/a",
+                    },
+                    {"artifact_class": "documents", "path": "data/corpus/documents/b"},
+                ]
+            }
+        }
+        selected = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert selected.returncode == 0, selected.stderr
+        assert json.loads(selected.stdout) == ["data/corpus/provisions/a"]
+        sample_release["content"]["artifacts"] = []
+        missing = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert missing.returncode != 0
     assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
     assert '--no-cache --verify "${fetch_args[@]}"' in release_command
     assert "test -d axiom-corpus/data/corpus/provisions" in release_command
