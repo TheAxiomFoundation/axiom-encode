@@ -157,6 +157,18 @@ FNS approval or binding determination, and it does not explain the contrary
 FNS first-quarter status entry. Keep October–February geography unencoded
 until the discrepancy is reconciled against approval-level authority.
 
+The [archived DES FAA2 ABAWD exemption policy preceding its H.R. 1
+implementation](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.M09B_ABAWD_Exemptions_09-22-2025_Revision53.pdf)
+also explicitly ends its listed geographic exemption on September 30, 2025.
+A [later archived DES policy](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.M09B_ABAWDExemptions_PS.pdf)
+states that its replacement exemption rules begin with the November 2025
+benefit month and refers earlier months to prior policy; it raises the upper
+ABAWD age boundary to 64 and changes the child-related exemption. These
+official PDFs were directly extracted into a local **unsigned** scope with
+complete coverage; their archive watermarks and effective-date text must be
+kept distinct. They strengthen the state-side October/November timeline but
+still do not resolve FNS's contrary first-quarter geographic-waiver entry.
+
 Separately, [DES's September 24, 2025 ABAWD look-back
 bulletin](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/Urgent%20Bulletin%20(09-24-2025)%20-%20ABAWD%20Three-Month%20Look%20Back.pdf)
 instructs staff to treat August–October 2025 as countable for participants
