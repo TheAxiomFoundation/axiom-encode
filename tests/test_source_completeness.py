@@ -21537,6 +21537,8 @@ def test_us_locator_masks_do_not_apply_outside_us_citation_paths(
             "policy 2",
         ),
         ("de/manual/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+        # The gate reads the leading jurisdiction, not any `us/` segment.
+        ("de/manual/us/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
     ),
 )
 def test_us_manual_locator_masks_do_not_apply_to_other_manuals(

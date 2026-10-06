@@ -208,6 +208,20 @@ def test_policy_and_form_references_mask_whole_identifiers_only(source, expected
             "us-il/manual/dhs/csmm/18929/block-4",
             {313, 75.38},
         ),
+        # The `$` line may also follow the row.
+        (
+            "44.50 Countable Earned Income\n$470.00 Supplemental Security Income (SSI)",
+            "us-il/manual/dhs/csmm/18929/block-4",
+            {44.5, 470},
+        ),
+        # Only a cents-shaped label is a budget row; a hyphenated heading
+        # beside a `$` line stays a locator.
+        (
+            "$470.00 Supplemental Security Income (SSI)\n770-1 Advance Notice "
+            "of Adverse Action",
+            "us-ut/manual/dws/snap/page-1",
+            {470},
+        ),
         # Consecutive cents-shaped section headings stay locators.
         (
             "101.03 Application Process\n101.04 Retroactive Applications",

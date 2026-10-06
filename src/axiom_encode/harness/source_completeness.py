@@ -2149,7 +2149,7 @@ _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
 # cents-shaped label next to a line that opens with a `$` amount (a flattened
 # budget table: `$470.00 Supplemental Security Income (SSI)` above `44.50
 # Countable Earned Income`). No title-case section heading in the US manual
-# corpus at 8f7d60aa has such a neighbor.
+# corpus at ba210f4b has such a neighbor.
 _MANUAL_CENTS_LABEL = re.compile(r"[ \t]*\d+\.\d{2}")
 _MANUAL_DOLLAR_AMOUNT_LINE = re.compile(r"[ \t]*\$[ \t]*\d")
 _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
