@@ -92,8 +92,10 @@ checkout; ambient environment and sibling checkout discovery are not used.
 Git probes for RuleSpec checkout identity and configuration use a 10-second
 timeout per attempt and retry once on timeout. On loaded hosts, set
 `AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
-to change that budget. Exhausted timeouts and Git launch failures still reject
-checkout admission; invalid timeout values are rejected before Git is launched.
+up to 300 to change that budget. Identity checks reject checkout admission after
+exhausted timeouts or Git launch failures. Configuration-discovery failures disable
+caching, so each inspection performs fresh identity checks. Invalid timeout
+values are rejected before Git is launched.
 
 `encode` resolves the requested citation to exactly one active
 `corpus.provisions` row before model generation. Each RuleSpec checkout must

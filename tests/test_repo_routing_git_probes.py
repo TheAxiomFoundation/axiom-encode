@@ -1,5 +1,8 @@
 """Git probe budgets and UK root admission under transient host load."""
 
+import math
+import random
+import struct
 import subprocess
 from pathlib import Path
 
@@ -114,7 +117,10 @@ def test_uk_compile_roots_reject_failed_git_probe_with_bounded_attempts(
     assert attempts == ([10.0, 10.0] if error == "timeout" else [10.0])
 
 
-@pytest.mark.parametrize("value", ["", "invalid", "0", "-1", "nan", "inf"])
+@pytest.mark.parametrize(
+    "value",
+    ["", "invalid", "0", "-1", "nan", "inf", "300.00000000000006", "301", "1e308"],
+)
 def test_git_probe_timeout_rejects_invalid_configuration(monkeypatch, tmp_path, value):
     checkout = tmp_path / "rulespec-uk"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-uk.git")
@@ -129,3 +135,55 @@ def test_git_probe_timeout_rejects_invalid_configuration(monkeypatch, tmp_path, 
         None,
         "git-top-level-probe-invalid-timeout",
     )
+
+
+def test_git_probe_timeout_categorizes_extreme_budget(monkeypatch, tmp_path):
+    """A real identity probe must categorize a budget subprocess cannot represent."""
+    checkout = tmp_path / "rulespec-uk"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-uk.git")
+    monkeypatch.setenv("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", "1e308")
+
+    assert inspect_canonical_rulespec_checkout(checkout) == (
+        None,
+        "git-top-level-probe-invalid-timeout",
+    )
+
+
+def test_accepted_git_probe_budgets_reach_a_real_probe_without_overflow(
+    monkeypatch, tmp_path
+):
+    """Generated positive float budgets through 300 seconds launch safely.
+
+    Tiny budgets may expire, but must reach Git and yield a categorized timeout
+    rather than an uncaught numeric error. Use the standard library because this
+    repository has no property-testing dependency.
+    """
+    checkout = tmp_path / "rulespec-uk"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-uk.git")
+    budgets = [math.ulp(0.0), math.ulp(1.0), 0.5, 10.0, 12.5, 300.0]
+    budgets.extend([math.nextafter(300.0, 0.0), math.ldexp(1.0, -1022)])
+    # Positive IEEE 754 bit patterns preserve numerical order. Sample throughout
+    # the domain, including subnormal and very small normal numbers.
+    randomizer = random.Random(1777)
+    maximum_bits = struct.unpack("!Q", struct.pack("!d", 300.0))[0]
+    budgets.extend(
+        struct.unpack("!d", struct.pack("!Q", randomizer.randint(1, maximum_bits)))[0]
+        for _ in range(64)
+    )
+    original_run = subprocess.run
+    attempts = []
+
+    def observed_git(command, **kwargs):
+        attempts.append(kwargs["timeout"])
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(repo_routing.subprocess, "run", observed_git)
+    for budget in budgets:
+        attempts.clear()
+        monkeypatch.setenv("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", repr(budget))
+        assert repo_routing._git_probe_timeout_seconds() == budget
+        try:
+            assert repo_routing._git_top_level(str(checkout)) == checkout.resolve()
+        except repo_routing._GitProbeError as exc:
+            assert exc.category == "timeout"
+        assert attempts in ([budget], [budget, budget])

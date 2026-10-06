@@ -752,15 +752,16 @@ def _nearest_git_boundary(path: Path) -> Path | None:
 
 
 def _git_probe_timeout_seconds() -> float:
-    """Use a finite per-attempt budget, configurable for loaded hosts."""
+    """Use a per-attempt budget of at most five minutes for loaded hosts."""
 
     try:
         timeout = float(os.environ.get("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", "10"))
     except ValueError:
         timeout = math.nan
-    if not math.isfinite(timeout) or timeout <= 0:
+    if not math.isfinite(timeout) or not 0 < timeout <= 300:
         raise _GitProbeError(
-            "AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS must be finite and positive",
+            "AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS must be finite, positive, "
+            "and at most 300 seconds",
             category="invalid-timeout",
         )
     return timeout
