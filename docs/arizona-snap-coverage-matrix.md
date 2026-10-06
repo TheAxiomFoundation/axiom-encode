@@ -42,11 +42,18 @@ elderly/disabled, so it is not a fully matched household record. Reconcile
 rounding and member facts against controlling authority before claiming parity.
 The pinned federal RuleSpec uses `floor()` for the earned-income deduction,
 while [7 CFR 273.10(e)(1)(ii)](https://www.govinfo.gov/content/pkg/CFR-2025-title7-vol4/pdf/CFR-2025-title7-vol4-part273.pdf)
-permits a nearest-dollar or state-TANF rounding procedure. [DES's current
-benefit example](https://des.az.gov/node/4875) retains cents through the
-earned-income deduction and net-income calculation, but that page now displays
-FFY 2027 values; obtain an authenticated FFY 2026 Arizona rounding source
-before deciding which implementation is legally correct for January 2026.
+permits a nearest-dollar or state-TANF rounding procedure. A
+[2025-12-19 archive capture of DES's FY 2026 benefit example](https://web.archive.org/web/20251219133658/https://des.az.gov/node/4875)
+shows $1,739.33 gross earnings, a $347.87 earned-income deduction, and $386.46
+net income, retaining cents through those steps. The Memento response preserves
+the DES origin and 2025-12-19 last-modified header; the decompressed HTML has
+SHA-256 `0a6b5ca9d952a3d2b9a7b748d16a3927f4ba6ff0b454fe0c1ef4f9779342e896`.
+The live DES FAQ now displays FFY 2027 values. This contemporaneous Arizona
+example contradicts assuming
+whole-dollar intermediate values for every FY 2026 case, but it is not the
+controlling rounding procedure. Locate the applicable DES calculation rule or
+approved state option, then resolve the RuleSpec/PolicyEngine difference through
+source-bound protected generation and matched household tests.
 
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
