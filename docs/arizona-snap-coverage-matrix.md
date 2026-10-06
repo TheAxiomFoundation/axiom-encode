@@ -18,6 +18,17 @@ test is **not** a matched PolicyEngine household comparison; these counts
 establish classification and local test presence only. In particular, the
 mapped ECE rate still has the documented 2026-03 temporal discrepancy.
 
+The registered Arizona Populace comparison bridge also projects PolicyEngine's
+`snap_net_income`, `is_snap_eligible`, `snap_max_allotment`, `snap_min_allotment`,
+and `snap_excess_shelter_expense_deduction` into RuleSpec inputs (see
+`axiom_oracles/bridges/snap_populace.py`,
+`project_jurisdiction_household_inputs`). Its allotment and eligibility
+comparisons therefore cannot establish independent end-to-end parity for
+those upstream calculations. First remove each oracle-derived input only
+after the corresponding source-grounded RuleSpec path is composed, then run
+matched households with the same member facts and compare intermediate as
+well as final outputs.
+
 One **partial financial-path comparison**, not household parity: at the pinned
 PolicyEngine commit, a one-person Arizona household in January 2026 with $1,003
 monthly earnings, $500 monthly rent, and separately paid heating/cooling gives
