@@ -925,6 +925,58 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   `implements`.
 """
 
+LIFETIME_FIXTURE_PROTOCOL = """Lifetime formula and companion-test protocol:
+- `sum_over_periods(value)`, `max_over_periods(value)`,
+  `count_over_periods(value)`, and `sum_top_n_over_periods(value, count)`
+  are engine builtins over one entity's supplied period history. Never invent
+  `#input.<builtin_name>` facts or feed a computed reduction back as an input.
+- `calendar_years_to_months(year_count)` is an engine calendar-unit conversion,
+  not an input or policy parameter. It accepts an integer or exactly integral
+  Decimal count of whole Gregorian calendar years and returns an Integer month
+  count; fractional values, Float columns, booleans and overflow fail. Use
+  Decimal arithmetic for computed counts. For complete annual observations,
+  convert the same source-grounded year count used by a top-N reduction. This
+  operation does not select eligible years, count months in partial years, or
+  apply month-specific exclusions. Those rules still require source-grounded
+  execution. Do not replace them with a calendar conversion.
+- A companion case that asserts a lifetime reduction uses top-level `name`,
+  optional `description`, `period`, `output`, and `lifetime`. The `lifetime`
+  mapping contains `entity`, optional `arithmetic: decimal`, `periods`, and
+  `batches`. A v2-capable pinned engine also accepts an explicit
+  `calculation_period` mapping. Do not add scalar `input`, `tables`, or
+  `oracle_inputs` to this case.
+- Supply 1 to 512 explicit period mappings in strictly ascending order, each
+  with `period_kind`, quoted ISO `start` and `end`, and `name` when custom.
+  Without `calculation_period`, the top-level output `period` must equal the
+  final supplied lifetime period (v1). With `calculation_period`, output
+  `period` must equal it and every observation must end strictly before it
+  starts (v2). The engine selects formula and whole parameter-table versions
+  at calculation start; date expressions within reductions keep observation
+  dates. Missing versions or table keys fail, with no older-table fallback.
+  Do not append a period, sort observations, or invent zero years to repair a
+  case. Represent a legally required zero year explicitly with its own facts.
+- Supply one batch per period. Each batch has `row_count`, `entity_ids` (unique
+  nonempty strings), and `inputs`. Preserve the same IDs and their exact order
+  in every batch. Each input key is the actual canonical `#input.<fact>` legal
+  reference, and its column is `{kind: decimal, values: ["123.45"]}` or the
+  corresponding integer, bool, text, or date column. Quote decimal and date
+  values; each column must contain exactly one value per entity row.
+- Each `output` uses a canonical executable output reference and asserts every
+  row, using a scalar for one row or a row-ordered list. Quote expected decimal
+  values. The engine executes all formulas; fixture inputs are facts, never
+  externally precomputed substitutes for those formulas.
+- Lifetime outputs must transitively contain an over-periods reduction. Assert
+  ordinary per-period helpers in separate scalar cases. An outside-reduction
+  input (including a person's computation-year count) must be invariant across
+  the supplied periods; reference-period parameters use the final period in
+  v1 or calculation start in v2. V2 does not imply knowledge-time or mixed-law
+  selection. Do not change legal version bounds to fit observation dates.
+- These lifetime cases are executed through the actual engine's `run-lifetime`
+  command. The scalar PolicyEngine oracle adapter cannot represent them and
+  reports unsupported coverage; do not flatten histories into scalar scenarios.
+"""
+
+
 _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when tests are requested.
 - Top-level `imports:` entries must be scalar strings, never map entries like
   `- target:` plus `symbols:`. Import a copied export as one exact string such
@@ -1628,6 +1680,7 @@ _PROMPT_BLOCKS = (
     _COMPOSITION_AND_DEFERRAL,
     _NAMING_PROTOCOL,
     _TESTS_PROTOCOL,
+    LIFETIME_FIXTURE_PROTOCOL,
     _FORMULA_PROTOCOL,
     US_TAX_PACK,
     _NUMERIC_GROUNDING,
@@ -1664,6 +1717,10 @@ Complete-source-unit mode is enabled for this request:
   mandate deriving one parameter from the other.
 - Never introduce calendar constants `12`, `52`, `365`, `4`, or `24` as module
   literals unless that literal appears in the authoritative source text.
+  When the source requires months in a count of whole Gregorian calendar years,
+  use the engine's `calendar_years_to_months` operation on the grounded count.
+  Never turn that operation into a fabricated fact or assume that it establishes
+  statutory year selection, partial-year coverage, or month-specific exclusions.
   Express a stated conversion through companion-test assertions on both
   parameter outputs; literals used only in companion tests do not require
   source grounding.

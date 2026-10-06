@@ -69,6 +69,70 @@ def require_engine_ref_sha(value: object, *, description: str) -> str:
     return value
 
 
+def engine_ref_arguments(engine_ref: str | None) -> dict[str, str]:
+    """Forward one explicit job pin without changing unpinned call contracts."""
+
+    if engine_ref is None:
+        return {}
+    return {
+        "axiom_rules_engine_ref": require_engine_ref_sha(
+            engine_ref, description="axiom_rules_engine_ref"
+        )
+    }
+
+
+def bind_clean_engine_checkout(
+    engine_checkout: Path,
+    engine_ref: str,
+    *,
+    allow_build: bool = True,
+) -> dict[str, str]:
+    """Bind an encode job to matching source and binary identities.
+
+    The apply manifest records the checkout commit. An explicit encode pin
+    must therefore match that clean checkout even when another commit already
+    has a valid local binary receipt there. This does not change the ordinary
+    receipt resolver's broader contract.
+    """
+
+    checkout = Path(engine_checkout).resolve(strict=True)
+    pin = EnginePin(
+        sha=require_engine_ref_sha(engine_ref, description="axiom_rules_engine_ref"),
+        source=Path("<encode>"),
+    )
+
+    def require_source() -> None:
+        marker = checkout / ".git"
+        if marker.is_symlink() or not (marker.is_dir() or marker.is_file()):
+            raise EngineBindingError(
+                "Explicit encode engine ref requires a Git checkout root"
+            )
+        top_level = _git_output(
+            checkout, "rev-parse", "--show-toplevel", pin=pin, statuses=()
+        )
+        if Path(top_level).resolve() != checkout:
+            raise EngineBindingError(
+                "Explicit encode engine ref requires a Git checkout root"
+            )
+        head = _git_output(checkout, "rev-parse", "HEAD", pin=pin, statuses=())
+        dirty = _git_output(checkout, "status", "--porcelain", pin=pin, statuses=())
+        if head != pin.sha or dirty:
+            raise EngineBindingError(
+                "Explicit encode engine ref requires a clean checkout with "
+                f"HEAD exactly {pin.sha}; found HEAD {head} (dirty={bool(dirty)})"
+            )
+
+    require_source()
+    binary = resolve_pinned_engine_binary(checkout, pin, allow_build=allow_build)
+    digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+    require_source()
+    return {
+        "engine_ref": pin.sha,
+        "binary": str(binary.resolve()),
+        "binary_sha256": digest,
+    }
+
+
 def _declared_toolchain_file(policy_repo_path: Path) -> Path | None:
     """Locate one ancestor .axiom/toolchain.toml, bounded at the first git root."""
 

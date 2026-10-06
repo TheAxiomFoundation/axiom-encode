@@ -153,15 +153,10 @@ from axiom_encode.harness.validator_pipeline import (
     ValidatorPipeline as _ValidatorPipeline,
 )
 from axiom_encode.repo_routing import find_policy_repo_root
+from tests.local_engine import local_engine_paths
 from tests.release_object_fixtures import bind_test_corpus_release
 
-AXIOM_RULES_PATH = Path(
-    "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-    "axiom-rules-engine-canonical-loader-hard-cut"
-)
-if not AXIOM_RULES_PATH.is_dir():
-    AXIOM_RULES_PATH = Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine")
-AXIOM_RULES_ENGINE_BINARY = AXIOM_RULES_PATH / "target" / "debug" / "axiom-rules-engine"
+AXIOM_RULES_PATH, AXIOM_RULES_ENGINE_BINARY = local_engine_paths()
 TEST_CORPUS_RELEASE_NAME = "test-release"
 TEST_CORPUS_VERSION = "test-version"
 
@@ -3867,7 +3862,7 @@ def test_imported_stub_dependency_rejects_unsafe_target(tmp_path, unsafe_kind):
 
 
 def test_rulespec_compile_ci_and_grounding(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
@@ -3933,7 +3928,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_output_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -3988,7 +3983,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_output_reference_path(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4043,7 +4038,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_input_reference_in_output_position(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4098,7 +4093,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4151,7 +4146,7 @@ rules:
 
 
 def test_rulespec_ci_executes_repo_backed_absolute_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4202,7 +4197,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_path(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4259,7 +4254,7 @@ rules:
 def test_rulespec_ci_rejects_repo_backed_unresolved_input_reference_fragment(
     tmp_path,
 ):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4313,7 +4308,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_friendly_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4371,7 +4366,7 @@ rules:
 
 
 def test_rulespec_ci_executes_repo_backed_absolute_relation_child_input_keys(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -4426,7 +4421,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_repo_backed_unresolved_relation_reference(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     rules_file = (
@@ -36320,7 +36315,7 @@ def test_extract_json_object_repairs_missing_terminal_object_brace():
 
 
 def test_rulespec_ci_executes_companion_test_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     citation_path = "us/guidance/example/sua"
@@ -36756,7 +36751,7 @@ def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
 
 
 def test_rulespec_ci_executes_relation_list_inputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -36802,7 +36797,7 @@ rules:
 
 
 def test_rulespec_ci_executes_table_entity_list_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -36851,7 +36846,7 @@ rules:
 
 
 def test_rulespec_ci_compares_parameter_only_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
@@ -36897,7 +36892,7 @@ rules:
 
 
 def test_rulespec_ci_executes_indexed_parameter_table_lookup(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
@@ -36967,7 +36962,7 @@ rules:
 
 
 def test_rulespec_ci_compares_indexed_parameter_outputs(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
@@ -37169,7 +37164,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_scale_tables_encoded_as_match_literals(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -37218,7 +37213,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_parameter_values_without_indexed_by(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48050,7 +48045,7 @@ rules:
 
 
 def test_rulespec_ci_accepts_source_relation_without_tests(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48078,7 +48073,7 @@ rules:
 
 
 def test_rulespec_ci_verifies_source_relation_values_against_target(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
@@ -48148,7 +48143,7 @@ rules:
 
 
 def test_rulespec_ci_verifies_source_relation_values_from_target_imports(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
@@ -48212,7 +48207,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_source_relation_value_mismatch(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     us_root = _canonical_rulespec_content_root(tmp_path, "us")
@@ -48280,7 +48275,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_source_relation_without_target(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48423,7 +48418,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_delegated_policy_setting_without_sets_relation(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     repo_root = tmp_path / "rulespec-us"
@@ -48527,7 +48522,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_scalar_kind_mismatches(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48598,7 +48593,7 @@ rules:
 
 
 def test_rulespec_ci_accepts_holds_for_boolean_scalar_outputs(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48640,7 +48635,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_malformed_period_mapping(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48684,7 +48679,7 @@ rules:
 
 
 def test_rulespec_ci_rejects_bare_year_periods(tmp_path):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
@@ -48781,7 +48776,7 @@ def test_coerce_rulespec_period_rejects_engine_invalid_year_kind(tmp_path):
 def test_rulespec_ci_rejects_ungrounded_generated_numeric_literal(
     tmp_path, monkeypatch
 ):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
@@ -48833,7 +48828,7 @@ rules:
 
 
 def test_rulespec_ci_accepts_unicode_fraction_percentage_rate(tmp_path, monkeypatch):
-    if not AXIOM_RULES_ENGINE_BINARY.exists():
+    if AXIOM_RULES_ENGINE_BINARY is None:
         pytest.skip("local axiom-rules-engine binary is not built")
 
     _mock_corpus_source_text(
