@@ -395,6 +395,7 @@ from .legacy_replacement_overlay import (
     stage_legacy_replacement_overlay as _stage_legacy_replacement_overlay,
 )
 from .live_run_telemetry import LiveRunTelemetry, telemetry_blocked_for_tests
+from .numeric_equality import rulespec_numeric_values_equal
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
     apply_pending_to_report,
@@ -6059,7 +6060,12 @@ def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
         and isinstance(expected, (int, float))
         and not isinstance(expected, bool)
     ):
-        return abs(Decimal(str(value)) - Decimal(str(expected))) <= Decimal("1e-18")
+        return rulespec_numeric_values_equal(
+            Decimal(str(value)),
+            Decimal(str(expected)),
+            actual_kind=kind,
+            expected_kind="integer" if isinstance(expected, int) else "decimal",
+        )
     if kind == "date" and isinstance(expected, date):
         return value == expected.isoformat()
     if isinstance(expected, date):
