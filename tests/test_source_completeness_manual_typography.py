@@ -127,8 +127,8 @@ def test_page_93_no_longer_asks_for_typography_formulas():
         "See oregon.gov/odhs/food/pages/snap-benefits.aspx for details.",
         # A capitalized word glued after a period is not a web address.
         "The net amount.Net income is listed on the notice.",
-        # The dash after a masked date or web address is not a subtraction
-        # (review of #1771: a space mask made it one).
+        # The dash after a masked date or web address is not a subtraction;
+        # a space in place of the sentinel would make it one.
         "Income 07/2026 – Deductions",
         "Period 10/2025 – Benefit year",
         "See www.oregon.gov/a - Notes apply",
@@ -265,13 +265,25 @@ def test_expressions_keep_their_operations(source: str, expected: set[str]):
     assert completeness_module._formula_operation_kinds(source) == expected
 
 
-def test_web_address_does_not_change_the_source_topology():
-    # The path of a web address parsed as a subtraction of divisions, so a
-    # correct rate formula did not match its own source branch.
-    source = (
-        "The earned income deduction is 20 percent of earned income. "
-        "Forms: www.oregon.gov/odhs/a-b"
-    )
+@pytest.mark.parametrize(
+    ("source", "leaf", "formula_environment"),
+    (
+        # The path of a web address parsed as a subtraction of divisions.
+        (
+            "The earned income deduction is 20 percent of earned income. "
+            "Forms: www.oregon.gov/odhs/a-b",
+            "earned_income * earned_income_deduction_rate",
+            {"earned_income_deduction_rate": 0.2},
+        ),
+        # A space mask joined `See` and the dash into a subtraction (review
+        # of #1771).
+        ("See www.oregon.gov/a –income * rate", "income * rate", {}),
+    ),
+)
+def test_web_address_does_not_change_the_source_topology(
+    source: str, leaf: str, formula_environment: dict[str, float]
+):
+    # Otherwise a correct formula does not match its own source branch.
     branch = completeness_module.SourceStructureBranch(
         ("1",), "paragraph", "(1)", source, 0, len(source)
     )
@@ -280,7 +292,7 @@ def test_web_address_does_not_change_the_source_topology():
     )
     execution = completeness_module._FormulaExecution(
         trace=(),
-        leaf="earned_income * earned_income_deduction_rate",
+        leaf=leaf,
         evaluated_value=None,
         evaluates_to_zero=False,
         constant_environment={},
@@ -292,7 +304,7 @@ def test_web_address_does_not_change_the_source_topology():
         interval=completeness_module._formula_branch_interval(
             branch, extract_numeric_occurrences=extract
         ),
-        formula_environment={"earned_income_deduction_rate": 0.2},
+        formula_environment=formula_environment,
         extract_numeric_occurrences=extract,
         numeric_value_is_grounded=numeric_value_is_grounded,
     )
