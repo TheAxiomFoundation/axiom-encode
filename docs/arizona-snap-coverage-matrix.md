@@ -88,6 +88,22 @@ household at this income qualifies: test the same facts against the
 source-repaired Arizona ECE module and independent eligibility chain after
 protected generation, including February/March benefit-month boundaries.
 
+A **matched medical-deduction amount boundary**, not end-to-end household
+parity: for January 2026 in Arizona, PolicyEngine US
+`d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
+and annual allowable medical expenses set to twelve times the stated monthly
+amount, and the signed RuleSpec US PR #1351 branch at `a384b342e4b2b8d61467e903e36141ec92068b8b`
+compiled with its declared engine `89571cc2a938707fd60a5489b951135345697296`,
+both produce medical deductions of $0, $0, $145, $145, $145, and $205 for
+monthly expenses of $0, $35, $36, $120, $180, and $240 respectively. The
+RuleSpec cases supplied the source-required elderly-expense eligibility and
+full-verification facts; PolicyEngine's annual expense input is converted to
+monthly and does not model that verification fact. At $120 incurred but $0
+verified, RuleSpec returns $0; no matched PolicyEngine scenario can express
+the same verification condition. These results establish six aligned atomic
+amount cases under explicit assumptions, not a validated composition or
+unqualified oracle parity.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). The federal 7 CFR 273.1 and 273.3–273.7, 273.10, and 273.24 modules are shared authority, not an Arizona-only gap. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
