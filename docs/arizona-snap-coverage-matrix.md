@@ -49,6 +49,12 @@ the RuleSpec case expects integer $200 and $526 at those steps. The existing
 RuleSpec case also sets age 60 while explicitly marking the member as not
 elderly/disabled, so it is not a fully matched household record. Reconcile
 rounding and member facts against controlling authority before claiming parity.
+Re-running the pinned PolicyEngine situation at ages 30 and 60, holding every
+other stated fact fixed, yields the same $323 allowance, $200.60 earned-income
+deduction, $526.30 excess-shelter deduction, $67 net income, and $277 benefit
+at both ages. The age mismatch therefore does not explain this particular
+one-dollar net-income difference, though it still prevents claiming a matched
+RuleSpec household comparison.
 The pinned federal RuleSpec uses `floor()` for the earned-income deduction,
 while [7 CFR 273.10(e)(1)(ii)](https://www.govinfo.gov/content/pkg/CFR-2025-title7-vol4/pdf/CFR-2025-title7-vol4-part273.pdf)
 permits a nearest-dollar or state-TANF rounding procedure. A
