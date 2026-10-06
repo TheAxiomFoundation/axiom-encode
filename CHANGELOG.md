@@ -2,6 +2,13 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Write the signing broker's detailed failure to stderr before it sends the
+  fixed public error frame. The supervisor kills the broker as soon as it reads
+  a failed initialization frame, so the detail (for example "external apply
+  signer challenge response is invalid") was lost when the supervisor won the
+  race, which made `test_invalid_external_signer_response_fails_closed` flaky
+  on macOS. The frame content and the fail-closed exit are unchanged.
+
 - Accept a federal regulation's `<title>-cfr` module root
   (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
   anchor alongside the corpus-shaped `us:regulations/42/457/800/...` root. The
