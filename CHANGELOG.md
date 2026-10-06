@@ -10,10 +10,13 @@ All notable changes to Axiom Encode will be documented here.
   pilot asked for a computation no encoding could provide. Those spans are
   now masked before matching; a `•` next to a number, a parenthesis or a
   one-letter variable stays multiplication (the § 32a EStG tariff), as does
-  an asterisk next to a number or one-letter variable. Across corpus
-  8f7d60aa this removes 9,006 of 277,488 computation clauses and adds none;
-  about 90 removed clauses state a real formula only in words or `$`
-  amounts, which the recognizer did not cover before either.
+  an asterisk next to a number or one-letter variable. The same typography
+  no longer adds a division or a multiplication to the source operations or
+  the source topology that the formula-output check compares with the
+  encoded formula. Across corpus 8f7d60aa this removes 9,105 of 277,800
+  computation clauses and adds none; about 90 removed clauses state a real
+  formula only in words or `$` amounts, which the recognizer did not cover
+  before either.
 
 - Accept a federal regulation's `<title>-cfr` module root
   (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
