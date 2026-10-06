@@ -164,6 +164,15 @@ def test_values_after_a_masked_page_header_stay_in_recall():
         # The whole hyphen chain is the identifier.
         ("POLICY 05-1-2024 update", set()),
         ("Use Form IL-482-0634 and Form FNS-380-1.", set()),
+        # Backtracking must not leave a negative remainder.
+        ("See policy 770-2.5 for the rate.", {770, 2.5}),
+        ("Under policy 770-2,500 applies.", {770, 2500}),
+        # A unit word after a range or identifier, even two words later.
+        ("Refer to policy 254, 10-15 business days apply.", {10, 15}),
+        # The extractor reads `10-15%` as 10 and 15 percent in any text.
+        ("Refer to policy 254, 10-15% applies.", {10, 0.15}),
+        ("See policy 770-2, 3-4 household members.", {3, 4}),
+        ("under this policy 30 days apply", {30}),
     ),
 )
 def test_policy_and_form_references_mask_whole_identifiers_only(source, expected):
@@ -176,6 +185,14 @@ def test_policy_and_form_references_mask_whole_identifiers_only(source, expected
         ("24-60 MONTH TIME LIMIT", "us-la/manual/dcfs/fitap/page-7", {24, 60}),
         ("0.3 PERCENT MAP INCREASE", "us-ca/manual/cdss/acl/page-3", {0.003}),
         ("75.38 AABD cash payment", "us-il/manual/dhs/csmm/18929", {75.38}),
+        (
+            "44.00 Countable Earned Income (earned income disregard and "
+            "recognized employment expenses were allowed)",
+            "us-il/manual/dhs/csmm/18929/block-4",
+            {44},
+        ),
+        ("1-2 Person Household", "us-xx/manual/agency/page-1", {1, 2}),
+        ("3-5 Business Days", "us-xx/manual/agency/page-1", {3, 5}),
         # Outside manuals, numbered-heading masking does not apply.
         ("214.3 Telephone Allowance", "us-ca/guidance/cdss/acl-2024-24-55", {214.3}),
     ),

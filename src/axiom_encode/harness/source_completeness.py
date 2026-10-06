@@ -2127,25 +2127,29 @@ _RECALL_UNIT_WORD = (
     r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
     r"people|dollars?|cents?)"
 )
+_RECALL_UNIT_FOLLOWS = rf"[ \t]*(?:%|(?:[A-Za-z]+[ \t]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
-    r"|\bpolic(?:y|ies)[ \t]+\d+(?:-\d+)*(?![.,]?\d)"
-    r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+(?:-\d+)*(?![.,]?\d)"
-    rf"(?![ \t]*{_RECALL_UNIT_WORD}\b))*",
+    r"|\bpolic(?:y|ies)[ \t]+\d+(?:-\d+)*(?![.,-]?\d)"
+    rf"(?!{_RECALL_UNIT_FOLLOWS})"
+    r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+(?:-\d+)*(?![.,-]?\d)"
+    rf"(?!{_RECALL_UNIT_FOLLOWS}))*",
     flags=re.IGNORECASE,
 )
 # Paginated US manuals repeat numbered section headings such as
 # `214.3 Telephone Allowance` or `770-1 Advance Notice of Adverse Action` on
 # their own line. Only a dotted or hyphenated label followed by a digit-free,
 # unpunctuated, title-case title of at least two words is a heading; a
-# flattened table row such as `7.65 Percent`, `24-60 MONTH TIME LIMIT` or
-# `75.38 AABD cash payment` keeps its value.
+# flattened table row such as `7.65 Percent`, `24-60 MONTH TIME LIMIT`,
+# `75.38 AABD cash payment`, `1-2 Person Household` or a whole-dollar amount
+# such as `44.00 Countable Earned Income` keeps its value.
 _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
-    r"(?m)^[ \t]*\d+(?:[.-]\d+)+"
+    r"(?m)^[ \t]*(?!\d+\.00(?![.-]\d))\d+(?:[.-]\d+)+"
     r"(?=[ \t]+"
     r"(?!(?i:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|"
-    r"Years?|Hours?)\b)"
+    r"Years?|Hours?|Persons?|People|Members?|Million|Billion|Thousand|"
+    r"Business|Calendar|Working)\b)"
     r"(?P<title>[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15})[ \t]*$)"
 )
 # Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
