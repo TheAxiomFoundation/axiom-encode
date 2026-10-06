@@ -443,11 +443,12 @@ _SLASH_CONJUNCTION = re.compile(r"\b(?:and\s*/\s*or|und\s*/\s*oder)\b", re.IGNOR
 # as operators: a month/year date (every page header of the Oregon eligibility
 # notebook reads "93 (07/2026)"; `1/2000 of income` stays a fraction), web
 # addresses, whose path slashes and hyphens are neither division nor
-# subtraction, and footnote asterisks attached to a word ("Application Status
-# *includes screenshots", "verification* is required"). An asterisk next to a
-# number or a one-letter variable (`rate* 12`, `2 *x`) stays multiplication.
+# subtraction, and footnote asterisks. An asterisk is masked only when it
+# stands between a word of two or more letters and whitespace or punctuation
+# ("Application Status *includes screenshots", "verification* is required"),
+# so `rate* 12`, `2 *x` and `a*b` stay multiplication.
 _SLASH_MONTH_YEAR = re.compile(
-    r"(?<![\w/.])(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}(?![\w/])(?![ \t]+of\b)"
+    r"(?<![\w/.])(?:0?[1-9]|1[0-2])/(?:19|20)\d{2}(?![\w/])(?!\s+of\b)"
 )
 _WEB_ADDRESS = re.compile(
     r"\bhttps?://\S+"
@@ -4511,18 +4512,18 @@ def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     return previous_token in {":", ";", ",", "."}
 
 
-def _without_manual_typography_operators(source_text: str) -> str:
+def _without_manual_typography_operators(
+    source_text: str, *, mask: str = _TYPOGRAPHY_MASK
+) -> str:
     """Blank manual typography that only looks like arithmetic, keeping offsets."""
 
     masked = list(source_text)
     for pattern in (_SLASH_MONTH_YEAR, _WEB_ADDRESS, _FOOTNOTE_ASTERISK):
         for match in pattern.finditer(source_text):
-            masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
-                match.end() - match.start()
-            )
+            masked[match.start() : match.end()] = mask * (match.end() - match.start())
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
-            masked[match.start()] = _TYPOGRAPHY_MASK
+            masked[match.start()] = mask
     return "".join(masked)
 
 
@@ -18604,7 +18605,9 @@ def _formula_execution_matches_source_branch(
         ):
             return False
     source_topology = _explicit_source_arithmetic_topology(
-        authoritative_numeric_recall_text(branch.text)
+        _without_manual_typography_operators(
+            authoritative_numeric_recall_text(branch.text), mask=" "
+        )
     )
     if source_topology is not None and source_topology != _formula_arithmetic_topology(
         operative_leaf,
@@ -18798,6 +18801,8 @@ def _formula_operation_kinds(text: str) -> set[str]:
     parsed_operations = _formula_ast_operation_kinds(text)
     if parsed_operations:
         return parsed_operations
+    # Manual typography is neither division nor multiplication here either.
+    text = _without_manual_typography_operators(text, mask=" ")
     operations: set[str] = set()
     lowered_text = text.lower()
     arithmetic_text = lowered_text

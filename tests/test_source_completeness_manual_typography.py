@@ -222,3 +222,72 @@ def test_bullet_check_stays_linear_on_long_bodies():
 
     assert time.perf_counter() - started < 2
     assert "•" not in masked
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "93 (07/2026) Chapter 2:Eligibility • Section 1: A household pays "
+            "20% of the income.",
+            {"multiply"},
+        ),
+        (
+            "See https://dhsoha.sharepoint.com/teams/SNAP.aspx for the "
+            "Application Status *includes screenshots.",
+            set(),
+        ),
+    ),
+)
+def test_typography_adds_no_source_operations(source: str, expected: set[str]):
+    # The formula-output check compares these source operations with the
+    # encoded formula, so a header date must not ask for a division.
+    assert completeness_module._formula_operation_kinds(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("The benefit is income * 0.2 for each month.", {"multiply"}),
+        ("The share is a/b of the total.", {"divide"}),
+    ),
+)
+def test_expressions_keep_their_operations(source: str, expected: set[str]):
+    assert completeness_module._formula_operation_kinds(source) == expected
+
+
+def test_web_address_does_not_change_the_source_topology():
+    # The path of a web address parsed as a subtraction of divisions, so a
+    # correct rate formula did not match its own source branch.
+    source = (
+        "The earned income deduction is 20 percent of earned income. "
+        "Forms: www.oregon.gov/odhs/a-b"
+    )
+    branch = completeness_module.SourceStructureBranch(
+        ("1",), "paragraph", "(1)", source, 0, len(source)
+    )
+    extract = functools.partial(
+        extract_typed_numeric_occurrences_from_text, profile="en-US"
+    )
+    execution = completeness_module._FormulaExecution(
+        trace=(),
+        leaf="earned_income * earned_income_deduction_rate",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={},
+    )
+
+    assert completeness_module._formula_execution_matches_source_branch(
+        execution,
+        branch,
+        interval=completeness_module._formula_branch_interval(
+            branch, extract_numeric_occurrences=extract
+        ),
+        formula_environment={"earned_income_deduction_rate": 0.2},
+        extract_numeric_occurrences=extract,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def test_a_line_break_before_of_keeps_a_fraction():
+    assert source_states_explicit_computation("A household pays 1/2000\nof income.")
