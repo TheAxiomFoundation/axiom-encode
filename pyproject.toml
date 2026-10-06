@@ -51,6 +51,7 @@ observability = [
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
 ]
 dev = [
+    "hypothesis>=6.100",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",

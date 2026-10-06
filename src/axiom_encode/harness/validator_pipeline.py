@@ -37,6 +37,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
@@ -11978,6 +11979,206 @@ def _iter_word_quantity_fraction_matches(
             yield match.span(group_name), values[normalized]
 
 
+# An equal split between exactly two named parties states the half each party
+# bears as plainly as "one half" would: "The employer and the employee shall
+# contribute equally to the pension scheme" (Rwanda Law No 05/2015, Art. 8)
+# and its French text "réparties à parts égales entre l'employeur et
+# l'employé". The half follows only from a binary split, so every guard keeps
+# the split binary and the parties singular:
+#   - each party is one noun phrase of at most four words under a singular
+#     determiner (English "the/a/an/his/her/its"; French "le/la/l'/un/une/
+#     son/sa/chaque"); an English second party may share the first one's
+#     article ("the employer and employee"). Distributive determiners ("each
+#     child", "every heir") and plural ones ("les", "des", "ses") never form
+#     a party, and an English head noun in a plural form ("the children",
+#     "the employees") disqualifies the match;
+#   - the coordination is exactly "X and Y" / "X et Y": a list item before
+#     the first party ("the State, the employer and the employee") or a third
+#     conjunct after the second ("... and the employee and the State") rejects
+#     the match, as does "equally with/among/between ..." after a subject;
+#   - English "equally" / "in equal shares" counts only as the manner of a
+#     contribution or sharing verb whose subjects or agents are the two
+#     parties; French "à/en parts égales" is distributive by itself.
+# Bare "equally" ("distributed equally among the children", "equal rights"),
+# "on an equal basis" and French "également" (ordinarily "also") ground
+# nothing. The value is a grounding candidate only, never a recall-inventory
+# obligation, and it claims no span from any other numeric reading.
+_TWO_PARTY_EQUAL_SPLIT_VALUE = 0.5
+_EN_EQUAL_SPLIT_DETERMINER = r"(?:the|a|an|his|her|its)"
+_EN_EQUAL_SPLIT_ACTIVE_VERB = r"(?:contribute|bear|pay|share|finance)"
+_EN_EQUAL_SPLIT_PARTICIPLE = (
+    r"(?:borne|shared|paid|payable|divided|split|apportioned|allocated|"
+    r"distributed|financed|funded|met|contributed)"
+)
+_EN_EQUAL_SPLIT_ADVERBIAL = (
+    r"(?:equally|in\s+equal\s+(?:shares|parts|portions|proportions|amounts))"
+)
+_EN_EQUAL_SPLIT_PARTY_STOPWORDS = (
+    r"and|or|nor|but|shall|must|will|may|should|would|can|could|do|does|is|"
+    r"are|be|been|to|of|in|on|at|by|for|from|with|between|among|amongst|than|"
+    r"equally|each|every|both|jointly|respectively|who|which|that|whose|the|a|"
+    r"an|his|her|its|their|contribute|contributes|bear|bears|pay|pays|share|"
+    r"shares|finance|finances|it|they|them|him|we|us|you|one|ones|other|"
+    r"others|all|any|some|such|these|those|this|either|neither|several|many"
+)
+_EN_EQUAL_SPLIT_PARTY_WORD = (
+    rf"(?!(?:{_EN_EQUAL_SPLIT_PARTY_STOPWORDS})\b)[^\W\d_][\w'’-]*"
+)
+# Atomic: a party is the whole noun phrase up to the next stopword, never a
+# shorter prefix that a backtracking engine could pick to dodge a guard.
+_EN_EQUAL_SPLIT_PARTY = (
+    rf"(?>(?:{_EN_EQUAL_SPLIT_PARTY_WORD}\s+){{0,3}}{_EN_EQUAL_SPLIT_PARTY_WORD})"
+)
+_EN_EQUAL_SPLIT_PARTIES = (
+    rf"{_EN_EQUAL_SPLIT_DETERMINER}\s+(?P<party1>{_EN_EQUAL_SPLIT_PARTY})"
+    rf"\s+and\s+(?:{_EN_EQUAL_SPLIT_DETERMINER}\s+)?"
+    rf"(?P<party2>{_EN_EQUAL_SPLIT_PARTY})"
+)
+_EN_EQUAL_SPLIT_OBJECT_WORD = (
+    r"(?!(?:and|or|nor|to|for|with|between|among|amongst|by|from|than|all|"
+    r"each|every)\b)[^\W\d_][\w'’-]*"
+)
+_EN_EQUAL_SPLIT_NO_THIRD_PARTY_AFTER = r"(?!\s*(?:,\s*)?(?:(?:and|or|nor)\b|&))"
+_FR_EQUAL_SPLIT_DETERMINER = r"(?:(?:le|la|un|une|son|sa|chaque)\s+|l['’]\s*)"
+_FR_EQUAL_SPLIT_VERB = (
+    r"(?:cotisent|contribuent|supportent|partagent|paient|payent|financent|"
+    r"versent|cotiser|contribuer|supporter|partager|payer|financer|verser)"
+)
+_FR_EQUAL_SPLIT_ADVERBIAL = r"(?:à|en|par)\s+parts?\s+égales?"
+_FR_EQUAL_SPLIT_PARTY_STOPWORDS = (
+    r"et|ou|ni|mais|à|a|en|par|pour|entre|avec|de|du|des|d|le|la|les|l|un|"
+    r"une|son|sa|ses|leur|leurs|chaque|aux|au|se|qui|que|dont|doit|doivent|"
+    r"est|sont|chacun|chacune|cotisent|contribuent|supportent|partagent|"
+    r"paient|payent|financent|versent|cotiser|contribuer|supporter|partager|"
+    r"payer|financer|verser"
+)
+_FR_EQUAL_SPLIT_PARTY_WORD = (
+    rf"(?!(?:{_FR_EQUAL_SPLIT_PARTY_STOPWORDS})\b)[^\W\d_][\w'’-]*"
+)
+_FR_EQUAL_SPLIT_PARTY = (
+    rf"(?>(?:{_FR_EQUAL_SPLIT_PARTY_WORD}\s+){{0,3}}{_FR_EQUAL_SPLIT_PARTY_WORD})"
+)
+_FR_EQUAL_SPLIT_PARTIES = (
+    rf"{_FR_EQUAL_SPLIT_DETERMINER}(?P<party1>{_FR_EQUAL_SPLIT_PARTY})"
+    rf"\s+et\s+{_FR_EQUAL_SPLIT_DETERMINER}(?P<party2>{_FR_EQUAL_SPLIT_PARTY})"
+)
+_FR_EQUAL_SPLIT_NO_THIRD_PARTY_AFTER = r"(?!\s*(?:,\s*)?(?:et|ou|ni)\b)"
+# (pattern, English?, subject form?) -- a subject form's first party must
+# not continue a list that began before the match.
+_TWO_PARTY_EQUAL_SPLIT_PATTERNS: tuple[tuple[re.Pattern[str], bool, bool], ...] = (
+    (
+        # "The employer and the employee shall contribute equally"
+        re.compile(
+            rf"\b(?:both\s+)?{_EN_EQUAL_SPLIT_PARTIES}\s+"
+            r"(?:(?:each|both|jointly)\s+)?"
+            r"(?:(?:shall|must|will|should|do|are\s+to)\s+)?"
+            r"(?:(?:each|both|jointly)\s+)?"
+            rf"{_EN_EQUAL_SPLIT_ACTIVE_VERB}\s+"
+            rf"(?:{_EN_EQUAL_SPLIT_OBJECT_WORD}\s+){{0,3}}"
+            rf"{_EN_EQUAL_SPLIT_ADVERBIAL}\b"
+            r"(?!\s+(?:with|among|amongst|between|and|than)\b)",
+            re.IGNORECASE,
+        ),
+        True,
+        True,
+    ),
+    (
+        # "shall be borne equally by the employer and the employee"
+        re.compile(
+            rf"\b(?:{_EN_EQUAL_SPLIT_PARTICIPLE}\s+{_EN_EQUAL_SPLIT_ADVERBIAL}|"
+            rf"equally\s+{_EN_EQUAL_SPLIT_PARTICIPLE})\s+(?:by|between)\s+"
+            rf"(?:both\s+)?{_EN_EQUAL_SPLIT_PARTIES}\b"
+            rf"{_EN_EQUAL_SPLIT_NO_THIRD_PARTY_AFTER}",
+            re.IGNORECASE,
+        ),
+        True,
+        False,
+    ),
+    (
+        # "shall be divided between the employer and the employee equally"
+        re.compile(
+            rf"\b{_EN_EQUAL_SPLIT_PARTICIPLE}\s+between\s+(?:both\s+)?"
+            rf"{_EN_EQUAL_SPLIT_PARTIES}\s+{_EN_EQUAL_SPLIT_ADVERBIAL}\b",
+            re.IGNORECASE,
+        ),
+        True,
+        False,
+    ),
+    (
+        # "réparties à parts égales entre l'employeur et l'employé"
+        re.compile(
+            rf"(?<!\w){_FR_EQUAL_SPLIT_ADVERBIAL}\s+entre\s+"
+            rf"{_FR_EQUAL_SPLIT_PARTIES}(?!\w)"
+            rf"{_FR_EQUAL_SPLIT_NO_THIRD_PARTY_AFTER}",
+            re.IGNORECASE,
+        ),
+        False,
+        False,
+    ),
+    (
+        # "partagées entre l'employeur et l'employé à parts égales"
+        re.compile(
+            rf"\bentre\s+{_FR_EQUAL_SPLIT_PARTIES}\s+"
+            rf"{_FR_EQUAL_SPLIT_ADVERBIAL}(?!\w)",
+            re.IGNORECASE,
+        ),
+        False,
+        False,
+    ),
+    (
+        # "L'employeur et l'employé cotisent à parts égales"
+        re.compile(
+            rf"(?<!\w){_FR_EQUAL_SPLIT_PARTIES}\s+"
+            r"(?:(?:doivent|vont)\s+)?(?:se\s+)?"
+            rf"{_FR_EQUAL_SPLIT_VERB}\s+"
+            rf"(?:{_FR_EQUAL_SPLIT_PARTY_WORD}\s+){{0,3}}"
+            rf"{_FR_EQUAL_SPLIT_ADVERBIAL}(?!\w)"
+            r"(?!\s+(?:avec|entre|et)\b)",
+            re.IGNORECASE,
+        ),
+        False,
+        True,
+    ),
+)
+# A list item before the first party, across at most a line wrap (a blank
+# line ends any list).
+_TWO_PARTY_LIST_CONTINUATION_BEFORE = re.compile(
+    r"(?:,|&|\b(?:and|or|nor|et|ou|ni))[ \t]*(?:\n[ \t]*)?\Z",
+    re.IGNORECASE,
+)
+_EN_IRREGULAR_PLURAL_HEADS = frozenset(
+    {"children", "people", "persons", "men", "women", "folk", "folks", "staff"}
+)
+
+
+def _english_equal_split_party_is_singular(party: str) -> bool:
+    head = party.split()[-1].casefold()
+    if head in _EN_IRREGULAR_PLURAL_HEADS:
+        return False
+    if head.endswith(("'s", "’s")):
+        return True
+    return not (head.endswith("s") and not head.endswith(("ss", "us", "is")))
+
+
+def _iter_two_party_equal_split_matches(text: str) -> Iterator[tuple[int, int]]:
+    """Yield spans that split an amount equally between exactly two parties."""
+    seen: set[tuple[int, int]] = set()
+    for pattern, english, subject_form in _TWO_PARTY_EQUAL_SPLIT_PATTERNS:
+        for match in pattern.finditer(text):
+            if english and not (
+                _english_equal_split_party_is_singular(match.group("party1"))
+                and _english_equal_split_party_is_singular(match.group("party2"))
+            ):
+                continue
+            if subject_form and _TWO_PARTY_LIST_CONTINUATION_BEFORE.search(
+                text[max(0, match.start() - 16) : match.start()]
+            ):
+                continue
+            if match.span() not in seen:
+                seen.add(match.span())
+                yield match.span()
+
+
 def _extract_percentage_context_values(text: str) -> set[float]:
     """Return decimal rate equivalents for numbers in percentage table contexts."""
     values: set[float] = set()
@@ -16511,6 +16712,24 @@ def _tokenize_numeric_occurrences_from_text(
         if not _span_overlaps(span, inventory_spans):
             collector.add_inventory(cleaned_view, span, value)
             inventory_spans.append(span)
+
+    # "The employer and the employee shall contribute equally" grounds the
+    # half each party bears. Grounding only: the split is no recall
+    # obligation, it claims no span (every other reading of the same text is
+    # emitted exactly as before), and it never carries rate context, so it
+    # cannot authorize a percentage rescaling of 0.5.
+    for span in _iter_two_party_equal_split_matches(cleaned):
+        collector.grounding.append(
+            dataclass_replace(
+                collector.occurrence(
+                    cleaned_view,
+                    span,
+                    _TWO_PARTY_EQUAL_SPLIT_VALUE,
+                ),
+                has_rate_context=False,
+                requires_rate_context=False,
+            )
+        )
 
     # A number a Hebrew statute writes as a word is as much a value the source
     # states as a digit is, so it joins the recall inventory as well as the
