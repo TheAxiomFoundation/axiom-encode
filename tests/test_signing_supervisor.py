@@ -2365,11 +2365,11 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
-    assert 'if [ -d axiom-corpus/.axiom/corpus-locks ]; then' in release_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
     assert 'select(.artifact_class == "provisions")' in release_command
-    assert 'axiom-corpus-ingest corpus fetch --repo axiom-corpus' in release_command
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
     assert '--no-cache --verify "${fetch_args[@]}"' in release_command
-    assert 'test -d axiom-corpus/data/corpus/provisions' in release_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in release_command
 
     repair_step = next(
         step
