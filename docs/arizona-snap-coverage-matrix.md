@@ -146,11 +146,18 @@ has no later Arizona entry. DES's [FAA4 change index](https://dbmefaapolicy.azde
 dates the new 55% deduction to 06/29/2026, and its current
 [income-eligibility policy](https://dbmefaapolicy.azdes.gov/FAA4/Income_Eligibility_Requirements.html)
 says AZTECS applies the standard 55% self-employment deduction. On that
-unchanged $12,000 gross amount, 55% would be $6,600, a $1,800 difference
-from PolicyEngine's observed output. This is source-based arithmetic, not an
-observed DES case determination: the dated state sources are not yet in the
-signed corpus release, no equivalent Arizona RuleSpec output was found, and
-the full SNAP household result has not been compared. Preserve this
+unchanged $12,000 gross amount, **assuming verified, budgeted nonfarming
+self-employment income**, 55% would be $6,600, a $1,800 difference from
+PolicyEngine's observed output. The directly extracted archived
+[FAA6 standard](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA6.J10_SelfEmploymentExpenseDeduction_Revision54.pdf)
+states that its 40% rule began 11/01/2012 and required verification of at
+least one allowable expense. The [current FAA6 standard](https://dbmefaapolicy.azdes.gov/FAA6/Self-Employment_Expense_Deduction.html)
+applies 55% when income is verified and budgeted and excludes farming from
+the standard deduction. Both pages are in a locally extracted, complete
+**unsigned** corpus scope. This is source-based arithmetic, not an observed
+DES case determination: the dated state sources are not yet in the signed
+corpus release, no equivalent Arizona RuleSpec output was found, and the full
+SNAP household result has not been compared. Preserve this
 source-versus-oracle discrepancy when encoding the 06/29/2026 boundary;
 do not force the source-grounded rule to match the stale oracle rate.
 
