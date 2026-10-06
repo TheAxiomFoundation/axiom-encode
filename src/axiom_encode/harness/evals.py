@@ -33,7 +33,9 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
     resolve_codex_cli,
+    validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
 )
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
@@ -777,6 +779,7 @@ class EvalRunnerSpec:
     name: str
     backend: str
     model: str
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
 
 
 @dataclass
@@ -1588,8 +1591,10 @@ def run_model_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
         raise ValueError(
@@ -1624,6 +1629,12 @@ def run_model_eval(
     )
     results: list[EvalResult] = []
     runners = [parse_runner_spec(spec) for spec in runner_specs]
+    runners = [
+        replace(runner, codex_reasoning_effort=codex_reasoning_effort)
+        if runner.backend == "codex"
+        else runner
+        for runner in runners
+    ]
     resolved_sources = [
         (citation, resolve_corpus_source_unit(citation, corpus_release))
         for citation in citations
@@ -14768,6 +14779,7 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
+    reasoning_effort = validate_codex_reasoning_effort(runner.codex_reasoning_effort)
     configured_timeout_seconds, codex_idle_timeout_seconds = _codex_prompt_timeouts(
         workspace
     )
@@ -14793,7 +14805,7 @@ def _run_codex_prompt_eval(
         "-m",
         runner.model,
         "-c",
-        'reasoning_effort="low"',
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         "-C",
         str(workspace.root),
         "-s",
@@ -14950,6 +14962,7 @@ def _run_codex_prompt_eval(
             "provider": "openai",
             "backend": "codex-exec",
             "model": runner.model,
+            "reasoning_effort": reasoning_effort,
             "timed_out": timed_out,
             "timeout_stage": timeout_stage,
             "timeout_reason": timeout_reason,

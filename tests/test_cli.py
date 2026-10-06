@@ -13864,6 +13864,7 @@ class TestCmdEncode:
         # escalation tests opt in explicitly so their gate sequences stay clear.
         args.escalation_enabled = overrides.get("escalation_enabled", False)
         args.backend = overrides.get("backend", "codex")
+        args.codex_reasoning_effort = overrides.get("codex_reasoning_effort", "low")
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
@@ -14590,13 +14591,15 @@ class TestCmdEncode:
             == expected
         )
 
-    def test_encode_escalates_after_n_validator_failures(self, tmp_path):
+    @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
+    def test_encode_escalates_after_n_validator_failures(self, tmp_path, reasoning_effort):
         args = self._make_args(
             tmp_path,
             model=None,
             apply=True,
             sync=False,
             escalation_enabled=True,
+            codex_reasoning_effort=reasoning_effort,
         )
 
         exit_code, generated, validated, mock_run, mock_validate, mock_apply = (
@@ -14620,6 +14623,9 @@ class TestCmdEncode:
         ]
         assert validated == generated
         assert mock_run.call_count == 4
+        assert [
+            call.kwargs["codex_reasoning_effort"] for call in mock_run.call_args_list
+        ] == [reasoning_effort] * 4
         assert [
             call.kwargs["validation_retry_feedback"] for call in mock_run.call_args_list
         ] == [

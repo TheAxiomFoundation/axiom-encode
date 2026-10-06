@@ -101,7 +101,11 @@ from axiom_encode import __version__
 from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
-from .codex_cli import codex_auth_error
+from .codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
+    validate_codex_reasoning_effort,
+)
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -2913,6 +2917,16 @@ def main():
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
+        ),
+    )
+    encode_parser.add_argument(
+        "--codex-reasoning-effort",
+        type=validate_codex_reasoning_effort,
+        default=DEFAULT_CODEX_REASONING_EFFORT,
+        help=(
+            "Reasoning effort for Codex encoding, including retries "
+            f"(e.g., low, medium, high; default: {DEFAULT_CODEX_REASONING_EFFORT}). "
+            "Other backends ignore this option."
         ),
     )
     encode_parser.add_argument(
@@ -31456,6 +31470,9 @@ def _run_encode_attempt(
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
+        codex_reasoning_effort=getattr(
+            args, "codex_reasoning_effort", DEFAULT_CODEX_REASONING_EFFORT
+        ),
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
