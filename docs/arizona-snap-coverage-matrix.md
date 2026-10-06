@@ -57,9 +57,11 @@ shows $1,739.33 gross earnings, a $347.87 earned-income deduction, and $386.46
 net income, retaining cents through those steps. The Memento response preserves
 the DES origin and 2025-12-19 last-modified header; the decompressed HTML has
 SHA-256 `0a6b5ca9d952a3d2b9a7b748d16a3927f4ba6ff0b454fe0c1ef4f9779342e896`.
-The live DES FAQ now displays FFY 2027 values. This contemporaneous Arizona
-example contradicts assuming
-whole-dollar intermediate values for every FY 2026 case, but it is not the
+The [live DES FAQ](https://des.az.gov/node/4875) now displays FFY 2027 values
+and again keeps cents through the earned-income deduction and net income:
+$1,739.33 gross earnings yield a $347.87 deduction and $354.46 net income.
+The contemporaneous FY 2026 example, corroborated by the later one, contradicts
+assuming whole-dollar intermediate values for every FY 2026 case, but it is not the
 controlling intermediate rounding procedure. [DES FAA6's current Thrifty Food
 Plan table](https://dbmefaapolicy.azdes.gov/FAA6/Thrifty_Food_Plan_(NA).html)
 instructs manual calculation to round 30% of net income **up** to the next
@@ -73,6 +75,19 @@ does not establish when Arizona rounds earned-income or shelter deductions or
 net income. Locate the applicable DES intermediate calculation rule or approved
 state option, then resolve the RuleSpec/PolicyEngine difference through
 source-bound protected generation and matched household tests.
+
+The 922/922 FY 2024 matches reported by the
+[az-snap-qc suite](https://github.com/TheAxiomFoundation/axiom-oracles/blob/main/comparisons/az-snap-qc.yaml)
+do not settle this
+rounding election or establish FY 2026 parity. That comparison rewrites FY 2026
+RuleSpec module IDs to FY 2024 sources through a compile-time overlay and runs
+at a nominal January 2026 period. The [FY 2024 SNAP QC technical
+documentation](https://snapqcdata.net/sites/default/files/2026-08/FY-2024-Tech-Doc.pdf)
+describes edited, constructed public-use values: its consistency-edit narrative
+says the earned-income deduction is rounded down, while its `FSERNDED` codebook
+says the constructed deduction is rounded to the nearest integer. Neither is
+Arizona's election under 7 CFR 273.10(e)(1)(ii), and a transformed-QC match
+cannot substitute for source-grounded, matched-household behavior comparisons.
 
 An **ECE temporal oracle target**, not a RuleSpec parity result: at the pinned
 PolicyEngine commit, one Arizona member aged 30 with $30,000 annual employment
