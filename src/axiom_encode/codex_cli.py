@@ -6,6 +6,17 @@ import os
 import shutil
 from pathlib import Path
 
+DEFAULT_CODEX_REASONING_EFFORT = "low"
+
+
+def validate_codex_reasoning_effort(effort: str) -> str:
+    """Validate Codex's extensible, nonempty reasoning-effort string."""
+    if not isinstance(effort, str) or not effort or effort != effort.strip():
+        raise ValueError(
+            "Codex reasoning effort must be a nonempty string without surrounding whitespace"
+        )
+    return effort
+
 
 def resolve_codex_cli() -> str:
     """Return the Codex executable, preferring the Desktop-bundled CLI."""
