@@ -3709,8 +3709,12 @@ def test_repair_witness_routing_is_rechecked_in_protected_steps() -> None:
     assert verify["env"]["REPAIR_TESTS_ONLY"] == (
         "${{ steps.repair_candidate.outputs.tests_only }}"
     )
-    assert 'if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
-    assert 'if [ "$REPAIR_TESTS_ONLY" = "true" ]; then' in encode["run"]
+    assert 'if [ -n "${REPAIR_RUN_ID:-}" ] ||' in verify["run"]
+    assert '[ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
+    assert (
+        'if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then'
+        in encode["run"]
+    )
     for step in (validate, verify, encode):
         assert '"$canonical_refresh_primary_required_test_cases_json"' in step["run"]
 
