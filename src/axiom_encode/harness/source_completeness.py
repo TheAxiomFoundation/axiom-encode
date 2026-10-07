@@ -13816,6 +13816,55 @@ def _without_completed_chart_result_label(body: str, source_text: str) -> str:
     return body
 
 
+def _closed_monetary_consequence_antecedents(body: str) -> str | None:
+    """Keep facts from two complete monetary instructions, never partial tails.
+
+    This selector-only view joins physical wraps inside recognized references.
+    It does not change source spans, formula evidence, or alternative-path checks.
+    The caller has already rejected unbalanced delimiters and quotes.
+    """
+
+    text = " ".join(body.split())
+    number = r"[1-9][0-9]{0,4}"
+    form = r"[A-Z]{1,6}[0-9]{1,5}[A-Z]{0,3}"
+    credit = (
+        r"(?:federal|provincial or territorial) foreign non-business income tax credit"
+    )
+    equality = re.fullmatch(
+        rf"(?P<facts>the amount of the {credit} you are entitled to deduct "
+        r"is equal to the foreign non-business tax you paid), your "
+        r"(?:provincial or territorial|federal) foreign tax credit would be zero\."
+        r"(?: As a result, you do not have to complete this form\.)?",
+        text,
+    )
+    if equality is not None:
+        return equality.group("facts")
+
+    result_name = (
+        r"(?:provincial or territorial tax otherwise payable|tax otherwise payable|"
+        r"tax payable|credit|refund|balance due)"
+    )
+    operation = (
+        r'calculate this amount by entering (?:"0"|0) on lines '
+        rf"{number} and {number} "
+        rf"(?:of Form {form}|in Part {number} of Section {form} of Form {form}) "
+        r"and continue the calculation\. "
+        rf"The (?:result|amount) from line {number} is your {result_name}\."
+    )
+    sequence = re.fullmatch(
+        r"(?P<first>you were a resident of [A-Z][a-z]+(?: [A-Z][a-z]+){0,2}), "
+        + operation
+        + r" If (?P<second>you paid tax to more than one jurisdiction in "
+        r"(?:19|20)[0-9]{2}), " + operation,
+        text,
+    )
+    if sequence is None:
+        return None
+    # Retain both conditions; this does not make them interchangeable or grant
+    # an ordinary path the conditions of a different source branch.
+    return sequence.group("first") + "\nIf " + sequence.group("second")
+
+
 def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
     """Recognize closed monetary instructions without erasing operand qualifiers.
 
@@ -13867,6 +13916,9 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
             commas.append(index)
     if quote is not None or stack:
         return None
+    closed_antecedents = _closed_monetary_consequence_antecedents(body)
+    if closed_antecedents is not None:
+        return closed_antecedents
     for index in commas:
         consequent = " ".join(body[index + 1 :].split())
         for pattern in patterns:
@@ -16699,7 +16751,10 @@ def _source_formula_branches(
     """Return every explicit computation clause with its structural owner."""
 
     worksheet_labels = tuple(
-        row.span("label") for row in _worksheet_arithmetic_rows(source_text)
+        sorted(
+            {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
+            | set(_corroborated_form_output_label_spans(source_text))
+        )
     )
     obligations: list[SourceStructureBranch] = []
     for clause_index, (start, end, clause) in enumerate(
