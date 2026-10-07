@@ -57888,6 +57888,20 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                     validator_name=validator_name,
                 ):
                     issues.append(issue)
+        # Report the exact contract against the same final overlay bytes even
+        # when unrelated validators fail. The success-path admission gate above
+        # remains mandatory; this only makes missing obligations visible to retry.
+        issues.extend(
+            f"{relative_output}: {issue}"
+            for issue in _required_deferred_output_contract_issues(
+                overlay_target,
+                deferred_output_review_contract,
+                citation=str(getattr(result, "citation", "") or ""),
+                rulespec_path=policy_content_root.name
+                + "/"
+                + relative_output.as_posix(),
+            )
+        )
         return False, issues, {}
 
 
