@@ -19,6 +19,7 @@ import itertools
 import math
 import re
 import textwrap
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -13036,6 +13037,10 @@ _RECALL_ENGLISH_REFERENCE_CONTINUATION = re.compile(
     + r")",
     re.IGNORECASE,
 )
+_RECALL_REFERENCE_INSTRUMENT_YEAR = re.compile(
+    r"\s+of\s+(?:the\s+)?Act\s+of\s+(?P<target>(?:18|19|20)\d{2})\b(?![.,]\d)",
+    re.IGNORECASE,
+)
 # Preserve amounts carrying known currency tokens even where the numeric
 # extractor currently records only a scalar rather than typed money evidence.
 _RECALL_CURRENCY_MARKER_FRAGMENT = (
@@ -13156,6 +13161,14 @@ def _additional_numeric_recall_spans(
             if is_quantity(continuation, check_prefix=False):
                 break
             end = continuation.end()
+        # An instrument year belongs to the introduced citation too. Include
+        # its own digits explicitly: removing the section must not cause the
+        # extractor's title-year cleanup to erase an outside occurrence.
+        instrument_year = _RECALL_REFERENCE_INSTRUMENT_YEAR.match(text, end)
+        if instrument_year is not None and not is_quantity(
+            instrument_year, check_prefix=False
+        ):
+            spans.append(instrument_year.span("target"))
         # A citation's comma/en/em dash is outside the retained numeric
         # envelope. Mask it too so every profile sees a clean token boundary;
         # commas inside the quantity stay intact. Keep punctuation before a
@@ -13193,7 +13206,79 @@ def _additional_numeric_recall_spans(
             for match in pattern.finditer(text)
             if not is_quantity(match)
         )
-    return tuple(spans)
+    proposed = tuple(spans)
+    if not proposed:
+        return ()
+    # An equal-length blank preserves coordinates, but can still turn a
+    # binary operator into a unary sign. Check the reference view before
+    # accepting numeric target masks in any recall profile.
+    # This is deliberately independent of citation/operand grammar: a new
+    # citation form cannot silently weaken a neighbouring numeric obligation.
+    if _numeric_recall_masks_preserve_outside_tokens(text, proposed):
+        return proposed
+    # Keep safe introducer removal even when a target cannot be masked. This
+    # prevents the old extractor from clipping a different adjacent amount.
+    # Add target spans only while the combined mask preserves every outside
+    # token; one unsafe citation must not disable independent safe exclusions.
+    accepted = _numeric_recall_introducer_spans(text, proposed)
+    for span in proposed:
+        candidate = (*accepted, span)
+        if _numeric_recall_masks_preserve_outside_tokens(text, candidate):
+            accepted = candidate
+    return tuple(sorted(set(accepted)))
+
+
+def _numeric_recall_introducer_spans(
+    text: str, spans: tuple[tuple[int, int], ...]
+) -> tuple[tuple[int, int], ...]:
+    introducers = []
+    for start, end in spans:
+        first_digit = re.search(r"\d", text[start:end])
+        end = start + first_digit.start() if first_digit is not None else end
+        if start < end:
+            introducers.append((start, end))
+    return tuple(introducers)
+
+
+def _numeric_recall_masks_preserve_outside_tokens(
+    text: str, spans: tuple[tuple[int, int], ...]
+) -> bool:
+    """Every outside token retains its span, value, sign and exact source text.
+
+    Neutralize citation introducers before reading either view. The extractor's
+    old citation cleaner otherwise clips adjacent decimals (17.5 becomes .5),
+    or exposes a citation year only while its section introducer is present.
+    This reference view retains every digit, target suffix and operator, so
+    their original arithmetic context still authenticates each outside token.
+    Check multiplicity as well as identity: an equal amount elsewhere cannot
+    conceal a changed token.
+    """
+
+    # validator_pipeline imports this module; defer the shared extractor until
+    # cleanup is called, after both modules have finished initializing.
+    from axiom_encode.harness.validator_pipeline import (
+        extract_typed_numeric_inventory_occurrences_from_text,
+    )
+
+    reference = _mask_numeric_spans(text, _numeric_recall_introducer_spans(text, spans))
+    masked = _mask_numeric_spans(reference, spans)
+    for profile in ("legacy", "en-US", "en-GB"):
+        before = Counter(
+            (item.start, item.end, item.value, item.raw)
+            for item in extract_typed_numeric_inventory_occurrences_from_text(
+                reference, profile=profile
+            )
+            if not any(item.start < end and start < item.end for start, end in spans)
+        )
+        after = Counter(
+            (item.start, item.end, item.value, item.raw)
+            for item in extract_typed_numeric_inventory_occurrences_from_text(
+                masked, profile=profile
+            )
+        )
+        if not before <= after:
+            return False
+    return True
 
 
 def authoritative_numeric_recall_text(
@@ -13201,6 +13286,24 @@ def authoritative_numeric_recall_text(
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    return _authoritative_numeric_recall_text(
+        source_text,
+        corpus_citation_path=corpus_citation_path,
+        additional_citation_masks=True,
+    )
+
+
+def _source_boundary_numeric_recall_text(source_text: str) -> str:
+    """Keep boundary/glossary analysis on the original citation cleanup path."""
+
+    return _authoritative_numeric_recall_text(
+        source_text, corpus_citation_path="", additional_citation_masks=False
+    )
+
+
+def _authoritative_numeric_recall_text(
+    source_text: str, *, corpus_citation_path: str, additional_citation_masks: bool
+) -> str:
     source_text = _mask_numeric_spans(
         source_text, _corroborated_form_output_label_spans(source_text)
     )
@@ -13371,14 +13474,17 @@ def authoritative_numeric_recall_text(
     # Footnote authentication, manual heading checks and specialized citation
     # cleaners need the complete references intact. Masking them first can
     # create a fresh title-case amount row or clip an authenticated identifier.
-    cleaned = _mask_numeric_spans(
-        cleaned,
-        _additional_numeric_recall_spans(
-            cleaned, corpus_citation_path=corpus_citation_path
-        ),
-    )
-    # Do not run the older English list regex here: it would reconsume any
-    # operative numerals deliberately left intact by the conservative mask.
+    if additional_citation_masks:
+        cleaned = _mask_numeric_spans(
+            cleaned,
+            _additional_numeric_recall_spans(
+                cleaned, corpus_citation_path=corpus_citation_path
+            ),
+        )
+        # Do not run the older English list regex here: it would reconsume any
+        # operative numerals deliberately left intact by the conservative mask.
+    else:
+        cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
     cleaned = _STRUCTURAL_REFERENCE.sub("", cleaned)
     cleaned = re.sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
@@ -31567,15 +31673,17 @@ def _source_boundary_obligations(
             "source-unit",
         }:
             continue
-        direct_text = authoritative_numeric_recall_text(
+        # Boundary and glossary recognition retain the main cleaner and its
+        # partial citation residue; numeric recall masking has separate scope.
+        direct_text = _source_boundary_numeric_recall_text(
             _source_branch_direct_text(branch, branches=branches)
         )
         direct_inventory = tuple(extract_numeric_occurrences(direct_text))
         for fragment_start, fragment in _source_boundary_fragments(direct_text):
             range_fragment = fragment.split(":", 1)[0]
-            # A glossary heading cannot discard an operative chapeau merely
-            # because it precedes a sentence split or a long heading prefix.
-            boundary_context = direct_text[: fragment_start + len(range_fragment)]
+            boundary_context = direct_text[
+                max(0, fragment_start - 160) : fragment_start + len(range_fragment)
+            ]
             if _source_boundary_is_nonoperative_guidance_definition(
                 range_fragment,
                 context=boundary_context,
@@ -31612,8 +31720,11 @@ def _source_boundary_obligations(
                 )
             )
     for branch in narrative_formula_branches:
-        interval = _formula_branch_interval(
-            branch,
+        # Preserve the same first-line input main used for narrative bounds.
+        first_line = branch.text.splitlines()[0] if branch.text.splitlines() else ""
+        range_text = _source_boundary_numeric_recall_text(first_line)
+        interval = _formula_interval_from_text(
+            range_text,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if interval is None:
@@ -31651,26 +31762,20 @@ def _source_boundary_is_nonoperative_guidance_definition(
     """Exclude a glossary-only admission-duration definition from case bounds."""
 
     collapsed = _collapse_text(text)
-    complete_context = _collapse_text(context)
     return bool(
-        re.fullmatch(
-            # Authenticate the row or its explicit glossary container. A line
-            # break after an eligibility chapeau cannot create a glossary row.
-            r"(?:Alien\s+Group\s+Descriptions?\s*[:.]?\s+)?"
-            r"Parolees\s+Paroled\s+into\s+the\s+U\.?S\.?",
-            (context[: -len(text)] if text else context).strip(),
+        re.search(
+            r"\bParolees\s+Paroled\s+into\s+the\s+U\.?S\.?\s*$",
+            _collapse_text(context[: -len(text)] if text else context),
             flags=re.IGNORECASE,
         )
         and re.search(
-            # Complete citation masking leaves no subdivision residue; the
-            # older partial cleaner left `(d)(5)`. Accept either rendering.
-            r"\bunder\s+(?:\([a-z]\)\(\d+\)\s+)?of\s+the\s+INA\s+for\s+a\s+"
+            r"\bunder\s+\([a-z]\)\(\d+\)\s+of\s+the\s+INA\s+for\s+a\s+"
             r"period\s+of\s+at\s+least\s+\d+(?:\.\d+)?\s+years?\b",
             collapsed,
             flags=re.IGNORECASE,
         )
-        and not _source_has_operative_policy_effect(complete_context)
-        and not _source_has_joined_operative_segment(complete_context)
+        and not _source_has_operative_policy_effect(collapsed)
+        and not _source_has_joined_operative_segment(collapsed)
     )
 
 
