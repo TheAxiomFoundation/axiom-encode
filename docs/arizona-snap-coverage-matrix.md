@@ -279,6 +279,14 @@ contain table text, but the locked source snapshot does not establish that
 text's provenance. Repair and sign the corpus source/inventory binding, then
 revalidate dependent generated modules and proofs against the corrected release;
 do not infer source authentication from the provision text alone.
+An accessible, primary [USDA seven-page FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf)
+provides row-aligned shelter and homeless deductions on page 6 and resource
+limits on page 7. Its actual PDF bytes (SHA-256
+`91c75d30be5e79781f6a424c9202ef86e58b1728c37e60dec5270013fe52ee80`)
+were directly extracted into a separate local corpus scope with complete
+coverage and 142 focused document/provenance tests passing. This scope is
+**unsigned and unreleased**; it is a candidate source repair, not a citation
+that the current protected RuleSpec run can use.
 
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
