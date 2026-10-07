@@ -7,16 +7,20 @@ the oracle mappings nor the pending file still fails the gate.
 
 from __future__ import annotations
 
+import copy
 import datetime
 import json
 import stat
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
 from axiom_oracles.bridges.coverage import (
     build_policyengine_coverage_report,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode.oracles.policyengine.pending import (
     PENDING_STATUS,
@@ -946,3 +950,315 @@ def test_pending_sync_targets_nested_actions_checkout(tmp_path):
 
     assert Path(result["path"]) == nested / "oracle-coverage-pending.yaml"
     assert not (outer / "oracle-coverage-pending.yaml").exists()
+
+
+# --- status aggregates after reclassification ----------------------------
+#
+# Invariant: the report's per-repo breakdown partitions its items, so after
+# ``apply_pending_to_report`` the sum over ``repos[].status_counts`` equals the
+# top-level ``status_counts``, each row's ``total_outputs`` equals its own
+# status sum, and the rows' totals sum to ``total_outputs``. Reclassification
+# moves outputs from ``unmapped`` to ``pending_classification`` and changes no
+# other aggregate.
+
+_REPO_AGGREGATE_KEYS = (
+    "total_outputs",
+    "status_counts",
+    "untested_comparable",
+    "program_counts",
+    "repos",
+)
+
+
+def _builder_shaped_report(items: list[dict]) -> dict:
+    """Aggregate ``items`` the way ``build_policyengine_coverage_report`` does.
+
+    ``test_builder_shaped_report_matches_real_builder`` pins this helper to the
+    real builder, so the property test runs on report shapes it can produce.
+    """
+    items = sorted((dict(item) for item in items), key=lambda it: it["legal_id"])
+    repo_counts: dict[str, Counter] = {}
+    for item in items:
+        repo_counts.setdefault(item["repo"], Counter())[item["status"]] += 1
+    return {
+        "total_outputs": len(items),
+        "status_counts": dict(sorted(Counter(it["status"] for it in items).items())),
+        "untested_comparable": sum(
+            1 for it in items if it["status"] == "comparable" and not it["tested"]
+        ),
+        "program_counts": dict(sorted(Counter(it["program"] for it in items).items())),
+        "repos": [
+            {
+                "repo": repo,
+                "total_outputs": sum(counter.values()),
+                "status_counts": dict(sorted(counter.items())),
+            }
+            for repo, counter in sorted(repo_counts.items())
+        ],
+        "items": items,
+    }
+
+
+def _assert_repo_rows_partition_report(report: dict) -> None:
+    rows = report["repos"]
+    summed = Counter()
+    for row in rows:
+        summed.update(row["status_counts"])
+        assert row["total_outputs"] == sum(row["status_counts"].values()), row
+    assert dict(summed) == report["status_counts"]
+    assert sum(row["total_outputs"] for row in rows) == report["total_outputs"]
+    assert report["status_counts"] == dict(
+        Counter(item["status"] for item in report["items"])
+    )
+    assert [row["repo"] for row in rows] == sorted(row["repo"] for row in rows)
+
+
+def _item(legal_id: str, repo: str, status: str, **extra) -> dict:
+    return {
+        "legal_id": legal_id,
+        "repo": repo,
+        "status": status,
+        "program": extra.pop("program", "tax"),
+        "tested": extra.pop("tested", False),
+        "file": f"{repo}/x.yaml",
+        **extra,
+    }
+
+
+def test_apply_recounts_repo_rows_for_declared_outputs():
+    """Regression: per-repo rows used to keep the pre-reclassification counts.
+
+    rulespec-et on 2026-09-28 reported top-level
+    ``{pending_classification: 49, unmapped: 5}`` beside the row
+    ``rulespec-et {unmapped: 54}``.
+    """
+    report = _builder_shaped_report(
+        [
+            _item("et:a#one", "rulespec-et", "unmapped"),
+            _item("et:a#two", "rulespec-et", "unmapped"),
+            _item("et:a#three", "rulespec-et", "comparable", tested=True),
+            _item("et-aa:b#four", "rulespec-et-aa", "unmapped"),
+        ]
+    )
+    declared = declarations_from_files(
+        [_pending_file(Path("."), _entry("et:a#one"), _entry("et-aa:b#four"), repo="x")]
+    )
+
+    apply_pending_to_report(report, declared)
+
+    assert report["status_counts"] == {
+        "comparable": 1,
+        PENDING_STATUS: 2,
+        "unmapped": 1,
+    }
+    assert report["repos"] == [
+        {
+            "repo": "rulespec-et",
+            "total_outputs": 3,
+            "status_counts": {"comparable": 1, PENDING_STATUS: 1, "unmapped": 1},
+        },
+        {
+            "repo": "rulespec-et-aa",
+            "total_outputs": 1,
+            "status_counts": {PENDING_STATUS: 1},
+        },
+    ]
+    _assert_repo_rows_partition_report(report)
+
+
+_FEDERAL_UNMAPPED = "us:statutes/26/9999#brand_new_federal_helper_xyz"
+_FEDERAL_UNDECLARED = "us:statutes/26/9998#brand_new_federal_other_xyz"
+
+
+def _us_checkout_with_outputs_in_three_repos(tmp_path: Path) -> Path:
+    """A rulespec-us checkout whose items land in three ``repos`` rows."""
+    checkout = tmp_path / "rulespec-us"
+    for relative, name in [
+        ("us/statutes/26/9999.yaml", "brand_new_federal_helper_xyz"),
+        ("us/statutes/26/9998.yaml", "brand_new_federal_other_xyz"),
+        ("us-al/statutes/40/18/9999.yaml", "brand_new_state_helper_xyz"),
+        ("us-ks/statutes/79/9999.yaml", "brand_new_ks_helper_xyz"),
+    ]:
+        _write(
+            checkout / relative,
+            f"""format: rulespec/v1
+rules:
+  - name: {name}
+    kind: derived
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input
+""",
+        )
+    return checkout
+
+
+def _declare(checkout: Path, *legal_ids: str) -> None:
+    _write(
+        checkout / "oracle-coverage-pending.yaml",
+        "version: 1\nentries:\n"
+        + "".join(
+            f"  - legal_id: '{legal_id}'\n    source: bulk\n    since: 2026-09-28\n"
+            for legal_id in legal_ids
+        ),
+    )
+
+
+def test_builder_shaped_report_matches_real_builder(tmp_path):
+    """Differential: the test helper aggregates exactly as axiom-oracles does."""
+    report = build_policyengine_coverage_report(
+        _us_checkout_with_outputs_in_three_repos(tmp_path)
+    )
+    assert len(report["repos"]) == 3
+    rebuilt = _builder_shaped_report(report["items"])
+    for key in _REPO_AGGREGATE_KEYS:
+        assert rebuilt[key] == report[key], key
+
+
+def test_apply_without_declarations_is_identity_on_builder_report(tmp_path):
+    """Differential: the recount reproduces every builder aggregate exactly.
+
+    If axiom-oracles adds a per-repo field, this fails on the pin bump instead
+    of the recount silently dropping it.
+    """
+    report = build_policyengine_coverage_report(
+        _us_checkout_with_outputs_in_three_repos(tmp_path)
+    )
+    before = copy.deepcopy(report)
+
+    apply_pending_to_report(report, {})
+
+    assert report.pop("pending")["applied"] == []
+    assert report == before
+
+
+def test_integration_declared_output_recounts_repo_rows(tmp_path):
+    checkout = _us_checkout_with_outputs_in_three_repos(tmp_path)
+    _declare(checkout, _FEDERAL_UNMAPPED)
+    report = build_policyengine_coverage_report(checkout)
+    federal_before = next(r for r in report["repos"] if r["repo"] == "rulespec-us")
+    assert federal_before["status_counts"] == {"unmapped": 2}
+    state_rows_before = [r for r in report["repos"] if r["repo"] != "rulespec-us"]
+
+    apply_pending_to_report(
+        report, declarations_from_files(load_pending_files(checkout))
+    )
+
+    rows = {row["repo"]: row for row in report["repos"]}
+    assert rows["rulespec-us"] == {
+        "repo": "rulespec-us",
+        "total_outputs": 2,
+        "status_counts": {PENDING_STATUS: 1, "unmapped": 1},
+    }
+    assert [r for r in report["repos"] if r["repo"] != "rulespec-us"] == (
+        state_rows_before
+    )
+    _assert_repo_rows_partition_report(report)
+
+
+def test_cli_text_repo_line_matches_top_level_status(tmp_path, monkeypatch, capsys):
+    """The printed per-repo line no longer contradicts the ``Status:`` line."""
+    checkout = _us_checkout_with_outputs_in_three_repos(tmp_path)
+    _declare(checkout, _FEDERAL_UNMAPPED)
+
+    code = _run_cli(monkeypatch, "oracle-coverage", "--root", str(checkout))
+
+    assert code == 0
+    lines = capsys.readouterr().out.splitlines()
+    status_line = next(line for line in lines if line.startswith("Status: "))
+    federal_line = next(line for line in lines if line.startswith("rulespec-us: "))
+    assert f"{PENDING_STATUS}=1" in status_line
+    assert federal_line == (
+        f"rulespec-us: outputs=2 status={PENDING_STATUS}=1, unmapped=1"
+    )
+
+
+def test_cli_json_repo_rows_sum_to_top_level_status(tmp_path, monkeypatch, capsys):
+    checkout = _us_checkout_with_outputs_in_three_repos(tmp_path)
+    _declare(checkout, _FEDERAL_UNMAPPED, _FEDERAL_UNDECLARED)
+
+    code = _run_cli(monkeypatch, "oracle-coverage", "--root", str(checkout), "--json")
+
+    assert code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status_counts"][PENDING_STATUS] == 2
+    assert "unmapped" not in report["status_counts"]
+    _assert_repo_rows_partition_report(report)
+
+
+_PROPERTY_REPOS = ("rulespec-et", "rulespec-et-aa", "rulespec-us", "rulespec-us-al")
+_PROPERTY_STATUSES = (
+    "unmapped",
+    "comparable",
+    "incomplete_comparable",
+    "known_not_comparable",
+    PENDING_STATUS,
+)
+
+
+@st.composite
+def _items_and_declarations(draw):
+    count = draw(st.integers(min_value=0, max_value=30))
+    items = [
+        _item(
+            f"x:statutes/{index}#output_{index}",
+            draw(st.sampled_from(_PROPERTY_REPOS)),
+            draw(st.sampled_from(_PROPERTY_STATUSES)),
+            program=draw(st.sampled_from(("tax", "snap", "medicaid"))),
+            tested=draw(st.booleans()),
+        )
+        for index in range(count)
+    ]
+    present = [item["legal_id"] for item in items]
+    absent = [f"x:statutes/absent#output_{n}" for n in range(5)]
+    declared_ids = draw(
+        st.lists(st.sampled_from(present + absent), unique=True, max_size=35)
+    )
+    entries = [
+        _entry(
+            legal_id,
+            source=draw(st.sampled_from(("bulk", "manual", "migration", "backfill"))),
+        )
+        for legal_id in declared_ids
+    ]
+    return items, entries
+
+
+@settings(max_examples=300, deadline=None)
+@given(_items_and_declarations())
+def test_property_repo_rows_partition_top_level_after_apply(case):
+    items, entries = case
+    report = _builder_shaped_report(items)
+    before = copy.deepcopy(report)
+    declared = declarations_from_files([_pending_file(Path("."), *entries)])
+
+    summary = apply_pending_to_report(report, declared)
+
+    _assert_repo_rows_partition_report(report)
+    # Only unmapped -> pending_classification moves; every other aggregate holds.
+    applied = set(summary["applied"])
+    moved = Counter(
+        item["repo"] for item in before["items"] if item["legal_id"] in applied
+    )
+    before_status = Counter(before["status_counts"])
+    after_status = Counter(report["status_counts"])
+    assert after_status[PENDING_STATUS] - before_status[PENDING_STATUS] == len(applied)
+    assert before_status["unmapped"] - after_status["unmapped"] == len(applied)
+    for status in set(before_status) | set(after_status):
+        if status not in {PENDING_STATUS, "unmapped"}:
+            assert after_status[status] == before_status[status], status
+    before_rows = {row["repo"]: row for row in before["repos"]}
+    after_rows = {row["repo"]: row for row in report["repos"]}
+    assert after_rows.keys() == before_rows.keys()
+    for repo, row in after_rows.items():
+        assert row["total_outputs"] == before_rows[repo]["total_outputs"]
+        row_before = Counter(before_rows[repo]["status_counts"])
+        row_after = Counter(row["status_counts"])
+        assert row_after[PENDING_STATUS] - row_before[PENDING_STATUS] == moved[repo]
+        assert row_before["unmapped"] - row_after["unmapped"] == moved[repo]
+    for key in ("total_outputs", "untested_comparable", "program_counts"):
+        assert report[key] == before[key], key
+    # The recount agrees with a from-scratch aggregation of the new items.
+    rebuilt = _builder_shaped_report(report["items"])
+    for key in _REPO_AGGREGATE_KEYS:
+        assert report[key] == rebuilt[key], key
