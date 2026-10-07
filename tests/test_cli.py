@@ -46284,13 +46284,14 @@ inputs:
 """
         )
 
-        repaired = _repair_scalar_relation_rows(
-            rules_file=rules_file,
-            test_file=test_file,
-            policy_repo_path=policy_repo,
-            parsed_issues=[("new_household_case", relation_ref, 1)],
-            generated_anchor="us:statutes/7/2012/j",
-        )
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_household_case", relation_ref, 1)],
+                generated_anchor="us:statutes/7/2012/j",
+            )
 
         assert repaired == [f"new_household_case:{relation_ref}[1]"]
         [case] = yaml.safe_load(test_file.read_text())
