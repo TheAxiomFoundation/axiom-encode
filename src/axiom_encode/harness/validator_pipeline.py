@@ -35178,6 +35178,7 @@ class ValidatorPipeline:
         validation_source_texts: Mapping[str, str] | None,
         test_cases: Sequence[object] | None,
         rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -35237,6 +35238,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             corpus_citation_path=corpus_citation_path,
+            source_context=proof_source_texts,
             test_cases=test_cases,
             extract_numeric_occurrences=numeric_occurrence_extractor,
             extract_numeric_grounding_occurrences=(
@@ -37555,6 +37557,7 @@ class ValidatorPipeline:
             self._complete_source_unit_issues(
                 content,
                 validation_source_texts=validation_source_texts,
+                proof_source_texts=proof_source_texts,
                 test_cases=complete_source_unit_test_cases,
                 rules_file=rules_file,
             )

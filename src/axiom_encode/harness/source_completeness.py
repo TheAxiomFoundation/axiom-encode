@@ -4731,6 +4731,7 @@ def analyze_complete_source_unit(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
     imported_symbol_contents: Sequence[tuple[str, str]] = (),
+    source_context: Mapping[str, str | None] | None = None,
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
@@ -4762,6 +4763,7 @@ def analyze_complete_source_unit(
                 artifact_numeric_bindings=artifact_numeric_bindings,
                 authenticated_same_act_aliases=authenticated_same_act_aliases,
                 imported_symbol_contents=imported_symbol_contents,
+                source_context=source_context,
             )
 
     return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
@@ -4861,6 +4863,7 @@ def _analyze_rulespec_payload(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None,
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
+    source_context: Mapping[str, str | None] | None = None,
 ) -> CompleteSourceUnitAnalysis:
     payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(source_text)
@@ -4892,25 +4895,67 @@ def _analyze_rulespec_payload(
     # Optional closed source-path evidence is independent of the legacy
     # names-only gate approximation. Unsupported sources retain that route.
     from axiom_encode.harness.source_path_evidence import certify_worksheet_paths
+    from axiom_encode.harness.worksheet_transfer_evidence import (
+        certify_worksheet_transfers,
+    )
 
-    certified_paths = certify_worksheet_paths(
+    transfer_bundle = certify_worksheet_transfers(
         payload,
         source_text=source_text,
         corpus_citation_path=corpus_citation_path,
+        source_context=source_context,
         test_cases=test_cases,
         numeric_value_is_grounded=numeric_value_is_grounded,
         extract_numeric_occurrences=extract_numeric_grounding_occurrences,
     )
-    issues: list[str] = []
-    issues.extend(imprecise_deferrals)
-    issues.extend(
-        _opaque_same_source_condition_input_issues(
+    certified_transfers = (
+        transfer_bundle
+        if transfer_bundle.matches(payload, test_cases, source_text, source_context)
+        else None
+    )
+    # Master cases stay intact. Only a completely certified nested bundle may
+    # lend its separately scoped scalar evidence for these same payload bytes.
+    certified_paths = (
+        certified_transfers.scalar_paths
+        if certified_transfers is not None
+        else certify_worksheet_paths(
             payload,
             source_text=source_text,
-            branches=branches,
-            principal_rules=principal_rules,
             corpus_citation_path=corpus_citation_path,
-            certified_paths=certified_paths,
+            test_cases=test_cases,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+            extract_numeric_occurrences=extract_numeric_grounding_occurrences,
+        )
+    )
+    issues: list[str] = []
+    issues.extend(imprecise_deferrals)
+    source_condition_issues = _opaque_same_source_condition_input_issues(
+        payload,
+        source_text=source_text,
+        branches=branches,
+        principal_rules=principal_rules,
+        corpus_citation_path=corpus_citation_path,
+        certified_paths=certified_paths,
+        certified_transfers=certified_transfers,
+    )
+    issues.extend(source_condition_issues)
+    from axiom_encode.harness.worksheet_operation_evidence import (
+        WorksheetOperationCoverage,
+        certify_worksheet_operations,
+    )
+
+    certified_operations = (
+        WorksheetOperationCoverage()
+        if source_condition_issues
+        else certified_transfers.scalar_operations
+        if certified_transfers is not None
+        else certify_worksheet_operations(
+            payload,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
+            source_context=source_context,
+            test_cases=test_cases,
+            paths_evidence=certified_paths,
         )
     )
 
@@ -5073,7 +5118,9 @@ def _analyze_rulespec_payload(
             "parameter-only representation is invalid."
         )
 
-    represented_annual_spans: set[tuple[int, int]] = set()
+    represented_annual_spans: set[tuple[int, int]] = set(
+        certified_operations.annual_spans
+    )
     companion_issues: list[str] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
@@ -5102,6 +5149,8 @@ def _analyze_rulespec_payload(
                 principal_rules,
                 represented_annual_spans=represented_annual_spans,
                 certified_paths=certified_paths,
+                certified_operations=certified_operations,
+                certified_transfers=certified_transfers,
                 parameter_rules={
                     **imported_parameters,
                     **{
@@ -15237,6 +15286,7 @@ def _opaque_same_source_condition_input_issues(
     branches: Sequence[SourceStructureBranch],
     principal_rules: Mapping[str, dict[str, Any]],
     corpus_citation_path: str,
+    certified_transfers: Any = None,
     certified_paths: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
@@ -15649,6 +15699,20 @@ def _opaque_same_source_condition_input_issues(
                         and not ambiguous
                         and certified_paths.owns_condition(
                             rule_name, clause.start, clause.end, start, end
+                        )
+                    ):
+                        continue
+                    if (
+                        certified_transfers is not None
+                        and not ambiguous
+                        and certified_transfers.owns_condition(
+                            rule_name,
+                            rule,
+                            clause.start,
+                            clause.end,
+                            start,
+                            end,
+                            source_text=source_text,
                         )
                     ):
                         continue
@@ -16563,7 +16627,9 @@ def _companion_test_issues(
     represented_annual_spans: set[tuple[int, int]] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
+    certified_transfers: Any = None,
     certified_paths: Any = None,
+    certified_operations: Any = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -16615,7 +16681,10 @@ def _companion_test_issues(
         )
     )
     for name, asserted_cases in asserted_by_rule.items():
-        if not asserted_cases:
+        if not asserted_cases and not (
+            certified_transfers is not None
+            and certified_transfers.owns_output(name, principal_rules[name])
+        ):
             issues.append(
                 "[complete-source-unit:tests] Principal output "
                 f"`{name}` is never asserted by a companion test."
@@ -16804,6 +16873,8 @@ def _companion_test_issues(
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
             certified_paths=certified_paths,
+            certified_operations=certified_operations,
+            certified_transfers=certified_transfers,
             source_text=source_text,
             input_declarations=input_declarations,
             formula_environment=formula_environment,
@@ -26030,7 +26101,9 @@ def _unwitnessed_exception_branches(
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     toggled_exception_selectors: set[_ExceptionWitness],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    certified_transfers: Any = None,
     certified_paths: Any = None,
+    certified_operations: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
     candidate_witnesses = {
         branch: _exception_witnesses_for_branch(
@@ -26079,6 +26152,32 @@ def _unwitnessed_exception_branches(
                 principal_rules=principal_rules,
             )
         )
+    if certified_operations is not None:
+        missing = tuple(
+            remaining
+            for branch in missing
+            if (
+                remaining := certified_operations.remaining_exception(
+                    branch,
+                    source_text=source_text,
+                    principal_rules=principal_rules,
+                    corpus_citation_path=corpus_citation_path,
+                )
+            )
+            is not None
+        )
+    if certified_transfers is not None:
+        missing = tuple(
+            branch
+            for branch in missing
+            if not certified_transfers.owns_exception(
+                branch,
+                source_text=source_text,
+                principal_rules=principal_rules,
+                corpus_citation_path=corpus_citation_path,
+            )
+        )
+
     return missing
 
 
