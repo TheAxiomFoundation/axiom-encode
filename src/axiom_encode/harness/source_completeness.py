@@ -4579,6 +4579,47 @@ def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     return previous_token in {":", ";", ",", "."}
 
 
+def _worksheet_referral_typography_spans(
+    source_text: str,
+) -> tuple[tuple[int, int], ...]:
+    """Identify punctuation in corroborated referrals, not worksheet arithmetic."""
+
+    spans: list[tuple[int, int]] = []
+    heading = re.match(
+        r"\s*(?P<line>[1-9]\d{0,3})\s+WORK CHART\s+(?P<dash>[–—-])\s+"
+        r"[^.;\n\"“”]{3,160}?\s+Read the instructions for line (?P=line) "
+        r"in the guide before completing this work chart\b",
+        source_text,
+    )
+    if heading is not None and not re.search(
+        r"[+*/=×%]|\b(?:add|subtract|multiply|divide|plus|minus|maximum|minimum|"
+        r"less|greater|equal|exceed|negative|positive|percent)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        spans.append(heading.span("dash"))
+
+    # A complete unqualified carry instruction followed by a printed output
+    # caption names a destination and row. Qualified or compound instructions
+    # remain untouched; e.g. a maximum amount must still require computation.
+    carry = re.fullmatch(
+        r"\s*Carry (?:the result|the amount|this amount) to line [1-9]\d{0,3} "
+        r"of your return\.\s*\x08\s*"
+        r"(?P<caption>[A-Za-z][A-Za-z ’'–—-]{2,160}?)\s*(?P<equals>=)\s*[1-9]\d{0,2}"
+        r"(?:\s+(?:T[ \t]+)?[A-Z]{2,}(?:[-.][A-Z0-9]+)+[ \t]+"
+        r"\(\d{4}-\d{2}\)[ \t]+[1-9]\d?[ \t]+of[ \t]+[1-9]\d?"
+        r"[ \t]+Keep these pages for your files\.)?\s*",
+        source_text,
+    )
+    if carry is not None and not re.search(
+        r"\b(?:plus|minus|maximum|minimum|less|greater|equal|percent)\b",
+        carry.group("caption"),
+        flags=re.IGNORECASE,
+    ):
+        spans.append(carry.span("equals"))
+    return tuple(spans)
+
+
 def _without_manual_typography_operators(source_text: str) -> str:
     """Blank manual typography that only looks like arithmetic, keeping offsets."""
 
@@ -4588,6 +4629,8 @@ def _without_manual_typography_operators(source_text: str) -> str:
             masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
                 match.end() - match.start()
             )
+    for start, end in _worksheet_referral_typography_spans(source_text):
+        masked[start:end] = _TYPOGRAPHY_MASK * (end - start)
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
             masked[match.start()] = _TYPOGRAPHY_MASK
