@@ -2141,6 +2141,16 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     flags=re.IGNORECASE,
 )
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+# Some US statutes abbreviate a list of U.S. Code references after the first
+# title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
+# numbers locate other statutes; they are not operative amounts to encode.
+# Require the bracket, U.S.C. marker, and repeated `et seq.` syntax so a nearby
+# substantive number remains subject to numeric recall.
+_BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
+    r"\[\s*\d+\s+U\.?\s*S\.?\s*C\.?\s+\d+[a-z]?\s+et\s+seq\."
+    r"(?:\s*,\s*\d+[a-z]?\s+et\s+seq\.)+\s*\]",
+    flags=re.IGNORECASE,
+)
 # US state eligibility manuals cite administrative-code sections such as
 # `WAC 388-450-0015` and sibling manual policies such as `policy 770-2`. Both
 # are locators. A reference never crosses a line, never stops inside a dotted
@@ -5712,6 +5722,17 @@ def _authoritative_source_unit_aliases(
     ):
         title, part, section = parts[2:]
         aliases.append(f"{title} CFR {part}.{section}")
+    if (
+        len(parts) >= 4
+        and parts[:2] == ["us", "statute"]
+        and parts[2].isdigit()
+        and all(re.fullmatch(r"[A-Za-z0-9-]+", part) for part in parts[3:])
+    ):
+        title, section, *scope = parts[2:]
+        statute_section = section + "".join(f"({part})" for part in scope)
+        aliases.extend(
+            (f"{title} USC {statute_section}", f"{title} U.S.C. {statute_section}")
+        )
     return tuple(dict.fromkeys(alias for alias in aliases if alias))
 
 
@@ -13127,6 +13148,7 @@ def authoritative_numeric_recall_text(
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
         # otherwise read as a numbered heading.
+        cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
         if "/manual/" in corpus_citation_path:
