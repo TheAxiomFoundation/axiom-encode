@@ -6,6 +6,8 @@ families/callers return empty evidence and retain existing validator behavior.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
@@ -45,6 +47,7 @@ class CertifiedPathCoverage:
     # Only a complete closed frame can replace its old names-only attribution.
     condition_spans: tuple[tuple[str, int, int, str, str], ...] = ()
     unresolved: tuple[str, ...] = ()
+    input_identity: str = ""
 
     def owns_condition(
         self,
@@ -190,6 +193,23 @@ def _covered_operation(
         char.isspace() or i in labels or any(a <= i < b for a, b in ranges)
         for i, char in enumerate(source[span.start : span.end], span.start)
     )
+
+
+def path_input_identity(
+    payload: Mapping[str, Any], cases: Sequence[object] | None
+) -> str:
+    """Bind an internal certificate to its exact typed candidate and cases."""
+    rules = paths._index(payload.get("rules")) or {}
+    normalized = sc._typed_numeric_expected_cases(cases, rules)
+    encoded = json.dumps(
+        {"payload": payload, "cases": normalized},
+        sort_keys=True,
+        default=lambda value: {
+            "python_type": type(value).__name__,
+            "value": str(value),
+        },
+    )
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def certify_worksheet_paths(
@@ -471,4 +491,9 @@ def certify_worksheet_paths(
                     while end < len(source_text) and source_text[end].isspace():
                         end += 1
                     coverage.append((owner, start, end, lo, hi))
-    return CertifiedPathCoverage(tuple(records), tuple(coverage), tuple(global_errors))
+    return CertifiedPathCoverage(
+        tuple(records),
+        tuple(coverage),
+        tuple(global_errors),
+        path_input_identity(payload, test_cases),
+    )
