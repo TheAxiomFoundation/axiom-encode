@@ -26084,6 +26084,224 @@ def _worksheet_notice_selector_is_relevant(
     )
 
 
+@dataclass(frozen=True)
+class _ResidenceApplicabilityContext:
+    """Source-owned recipient polarity, separate from applicability action."""
+
+    citation: str
+    exception_span: tuple[int, int]
+    intro_span: tuple[int, int] | None
+    rule_name: str
+    version_index: int
+    case_pair_identity: tuple[int, ...]
+    active_value: bool
+
+
+# Lexical identities only, not an input enum, corpus admission or eligibility rule.
+# CRA province/territory names (page details 2026-08-24), reviewed 2026-10-07:
+# https://www.canada.ca/en/revenue-agency/services/tax/businesses/related-provincial-territorial-government-sites.html
+_CANADIAN_RESIDENCE_PLACE_NAMES = frozenset(
+    {
+        "Alberta",
+        "British Columbia",
+        "Manitoba",
+        "New Brunswick",
+        "Newfoundland and Labrador",
+        "Northwest Territories",
+        "Nova Scotia",
+        "Nunavut",
+        "Ontario",
+        "Prince Edward Island",
+        "Quebec",
+        "Saskatchewan",
+        "Yukon",
+    }
+)
+
+
+def _is_residence_applicability_candidate(text: str) -> bool:
+    return bool(
+        re.search(r"\b(?:apply|applies)\b", text, re.IGNORECASE)
+        and re.search(r"\bresidents?\b", text, re.IGNORECASE)
+    )
+
+
+def _source_owned_residence_applicability_context(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    rule: dict[str, Any],
+    asserted_cases: Sequence[dict[str, Any]],
+) -> _ResidenceApplicabilityContext | None:
+    """Resolve only a complete residence recipient and its owned annual scope.
+
+    This is not a generic source-context fallback. Unknown tails, geography,
+    temporal attachment or pair provenance keep the obligation unresolved.
+    """
+
+    if (
+        witness.numeric_transition is not None
+        or witness.calendar_attainment_age is not None
+        or bool(witness.relational_transitions)
+        or not corpus_citation_path.startswith("ca/")
+        or not 0 <= branch.start < branch.end <= len(source_text)
+        or _collapse_text(source_text[branch.start : branch.end])
+        != _collapse_text(branch.text)
+    ):
+        return None
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None or any(a < branch.end and b > branch.start for a, b in quoted):
+        return None
+    text = _collapse_text(branch.text).strip()
+    recipient = re.fullmatch(
+        r"(?:This form )?(?:does not apply|applies) to "
+        r"(?P<negative>non-)?residents of (?P<place>[A-Za-z]+(?: [A-Za-z]+){0,5}?)"
+        r"(?P<year_end> at the end of the (?:tax )?year)?\.",
+        text,
+        re.IGNORECASE,
+    )
+    selector = re.fullmatch(
+        r"(?P<negative>not_|non_)?resident_of_(?P<place>[a-z]+(?:_[a-z]+){0,5}?)"
+        r"(?P<year_end>_at_year_end)?",
+        _normalized_selector_name(witness.selector_name),
+    )
+    if recipient is None or selector is None or not selector["year_end"]:
+        return None
+    place = recipient["place"]
+    if place not in _CANADIAN_RESIDENCE_PLACE_NAMES:
+        return None
+    if recipient["place"].casefold().replace(" ", "_") != selector["place"]:
+        return None
+    # A broader selector cannot stand for an explicitly qualified source fact.
+    if bool(recipient["year_end"]) and not selector["year_end"]:
+        return None
+    pairs = {id(case): case for case in asserted_cases}
+    if len(witness.case_pair_identity) != 2 or any(
+        identity not in pairs for identity in witness.case_pair_identity
+    ):
+        return None
+    cases = [pairs[identity] for identity in witness.case_pair_identity]
+    if (
+        cases[0] is cases[1]
+        or any("period" not in case for case in cases)
+        or cases[0]["period"] != cases[1]["period"]
+        or any(
+            not _is_iso_calendar_date(_normalized_case_period(case)) for case in cases
+        )
+    ):
+        return None
+    if not any(
+        _direct_boolean_intervention_matches_case(
+            ordinary,
+            exception,
+            selector_name=witness.selector_name,
+            active_value=witness.active_value,
+            ordinary_dependencies={},
+            exception_dependencies={},
+        )
+        for ordinary, exception in (cases, list(reversed(cases)))
+    ):
+        return None
+    selected = _selected_rule_formula_version_index(rule, cases[0])
+    if selected is None or any(
+        _selected_rule_formula_version_index(rule, case) != selected for case in cases
+    ):
+        return None
+    citation = corpus_citation_path.strip("/").casefold()
+    atoms = tuple(_rule_source_excerpt_atoms(rule))
+    if not any(
+        _formula_proof_version_index(path) == selected
+        and atom_citation.strip("/").casefold() == citation
+        and _collapse_text(excerpt).strip() == text
+        for path, atom_citation, excerpt in atoms
+    ):
+        return None
+    if _collapse_text(source_text).count(_collapse_text(branch.text)) != 1:
+        return None
+    intro_span = None
+    # Inherited scope is permitted only across whitespace from the exact
+    # annual form-purpose sentence, never arbitrary supporting excerpts.
+    intro_pattern = re.compile(
+        r"^Use this form to calculate the [A-Za-z -]{1,100} (?:credit|tax|refund) "
+        r"for (?P<year>(?:19|20)[0-9]{2}) that you can deduct from the income tax\s+"
+        r"payable to the province or territory you resided in at the end of the tax year\.",
+        re.MULTILINE,
+    )
+    intros = tuple(intro_pattern.finditer(source_text))
+    if len(intros) != 1:
+        return None
+    intro = intros[0]
+    if (
+        intro.end() > branch.start
+        or source_text[intro.end() : branch.start].strip()
+        or any(a < intro.end() and b > intro.start() for a, b in quoted)
+        or not text.startswith("This form ")
+    ):
+        return None
+    year = intro["year"]
+    # The source's own form header, not a foreign-form reference, fixes
+    # document identity before the immediate This form chain.
+    headers = tuple(
+        re.finditer(
+            r"^(?:[A-Z][A-Za-z]* )?Form (?P<form>[A-Z]*[1-9]\d*) "
+            r"(?P<year>(?:19|20)[0-9]{2}) (?P<title>[A-Za-z -]{1,120})$",
+            source_text[: intro.start()],
+            re.MULTILINE,
+        )
+    )
+    if len(headers) != 1 or headers[0]["year"] != year:
+        return None
+    header = headers[0]
+    if source_text[: header.start()].strip() or not re.fullmatch(
+        r"\s*(?:Protected [A-Z] when completed\s+)?"
+        + re.escape(header["title"])
+        + r"\s*",
+        source_text[header.end() : intro.start()],
+    ):
+        return None
+    if any(a < headers[0].end() and b > headers[0].start() for a, b in quoted):
+        return None
+    if not any(
+        index == selected and start == f"{year}-01-01" and end == f"{year}-12-31"
+        for index, _formula, start, end in _effective_formula_version_intervals(rule)
+    ) or any(
+        case["period"] != year
+        and case["period"]
+        != {
+            "period_kind": "tax_year",
+            "start": f"{year}-01-01",
+            "end": f"{year}-12-31",
+        }
+        for case in cases
+    ):
+        return None
+    intro_text = _collapse_text(intro.group())
+    annual_header = intro_text.split(" that you can deduct", 1)[0]
+    for field in ("effective_from", "effective_to"):
+        if not any(
+            re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+            and atom_citation.strip("/").casefold() == citation
+            and (excerpt_text := _collapse_text(excerpt))
+            and excerpt_text in intro_text
+            and annual_header in excerpt_text
+            and _collapse_text(source_text).count(_collapse_text(excerpt)) == 1
+            for path, atom_citation, excerpt in atoms
+        ):
+            return None
+    intro_span = intro.span()
+    return _ResidenceApplicabilityContext(
+        citation,
+        (branch.start, branch.end),
+        intro_span,
+        witness.rule_name,
+        selected,
+        witness.case_pair_identity,
+        bool(recipient["negative"]) == bool(selector["negative"]),
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -26111,9 +26329,37 @@ def _exception_witnesses_for_branch(
         authoritative_numeric_recall_text(condition_text),
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
-    return {
+    residence_candidates = {
         witness
         for witness in toggled_exception_selectors
+        if corpus_citation_path.startswith("ca/")
+        and _is_residence_applicability_candidate(branch.text)
+    }
+    residence_witnesses = set()
+    for witness in residence_candidates:
+        if witness.rule_name not in affecting_rules:
+            continue
+        context = _source_owned_residence_applicability_context(
+            branch,
+            witness,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
+            rule=principal_rules[witness.rule_name],
+            asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+        )
+        if (
+            context is not None
+            and witness.active_value == context.active_value
+            and _exception_witness_satisfies_requirement(
+                witness, requirement, rule=principal_rules[witness.rule_name]
+            )
+        ):
+            residence_witnesses.add(witness)
+    # Recognized but unresolved residence statements cannot escape through a
+    # generic/composite semantic shortcut below.
+    return residence_witnesses | {
+        witness
+        for witness in toggled_exception_selectors - residence_candidates
         if witness.rule_name in affecting_rules
         and (
             _calendar_age_witness_matches_source(condition_text, witness)
