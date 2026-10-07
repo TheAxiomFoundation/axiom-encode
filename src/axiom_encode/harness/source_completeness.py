@@ -26595,6 +26595,166 @@ def _source_qualified_cardinality_evidence(
     )
 
 
+def _source_owned_equality_witness(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    rule: dict[str, Any],
+    principal_rules: dict[str, dict[str, Any]],
+    asserted_cases: Sequence[dict[str, Any]],
+    input_declarations: Mapping[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+) -> bool:
+    """A reached monetary Eq and its selected proof own a positive zero clause."""
+    relations = witness.relational_transitions
+    if (
+        len(relations) != 1
+        or relations[0][1] != "=="
+        or not witness.zeroes
+        or witness.calendar_attainment_age is not None
+        or not 0 <= branch.start < branch.end <= len(source_text)
+    ):
+        return False
+    raw = source_text[branch.start : branch.end]
+    text = _collapse_text(raw)
+    if text != _collapse_text(branch.text):
+        return False
+    quotes = _annual_source_quoted_spans(source_text)
+    if quotes is None or any(a < branch.end and b > branch.start for a, b in quotes):
+        return False
+    clause = re.fullmatch(
+        r"If (?P<left>[^,;:.]+?) (?P<relation>is equal to|equals) "
+        r"(?P<right>[^,;:.]+), "
+        r"(?:your|the) (?:(?:provincial or territorial|federal) )?"
+        r"(?:foreign )?(?:non-business )?(?:income )?tax credit "
+        r"(?:would be|will be|is) zero\.",
+        text,
+        re.IGNORECASE,
+    )
+    if clause is None:
+        return False
+    left, _, right = relations[0]
+    aliases = {
+        "t2209_federal_non_business_foreign_tax_credit_line_3": 3,
+        "t2209_non_business_income_tax_paid_to_foreign_country_line_1": 1,
+    }
+    for name in (left, right):
+        if name in aliases and not re.search(
+            rf"\bEnter the amount from line {aliases[name]} of Form T2209(?=[.,])",
+            _collapse_text(source_text),
+        ):
+            return False
+
+    def owns(operand: str, name: str) -> bool:
+        matches = _source_equality_operand_matches(operand, name)
+        return len(matches) == 1 and matches[0].span() == (0, len(operand))
+
+    if not (
+        (owns(clause["left"], left) and owns(clause["right"], right))
+        or (owns(clause["left"], right) and owns(clause["right"], left))
+    ):
+        return False
+    for name in (left, right):
+        declaration = input_declarations.get(name)
+        if (
+            declaration is None
+            or declaration.get("name") != name
+            or declaration.get("dtype") not in {"Money", "Decimal", "Integer"}
+            or not rule.get("entity")
+            or declaration.get("entity") != rule.get("entity")
+        ):
+            return False
+    indexed = {id(case): case for case in asserted_cases}
+    if len(witness.case_pair_identity) != 2 or any(
+        identity not in indexed for identity in witness.case_pair_identity
+    ):
+        return False
+    cases = [indexed[identity] for identity in witness.case_pair_identity]
+    if (
+        cases[0] is cases[1]
+        or any("period" not in case for case in cases)
+        or cases[0]["period"] != cases[1]["period"]
+        or not _cases_differ_by_one_input(*cases)
+        or not _cases_have_same_output_keys(*cases)
+    ):
+        return False
+    selected = _selected_rule_formula_version_index(rule, cases[0])
+    if selected is None or any(
+        _selected_rule_formula_version_index(rule, case) != selected for case in cases
+    ):
+        return False
+    citation = corpus_citation_path.strip("/").casefold()
+    if not citation or not any(
+        _formula_proof_version_index(path) == selected
+        and atom_citation.strip("/").casefold() == citation
+        and (excerpt_text := _collapse_text(excerpt))
+        and excerpt_text in _collapse_text(source_text)
+        and text in excerpt_text
+        for path, atom_citation, excerpt in _rule_source_excerpt_atoms(rule)
+    ):
+        return False
+    equality_values = []
+    for case in cases:
+        dependencies = _case_asserted_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+        )
+        environment = _formula_case_runtime_environment(
+            case,
+            dependency_environment=dependencies,
+            formula_environment=formula_environment,
+        )
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=dependencies,
+        )
+        if environment is None or execution is None:
+            return False
+        values = [environment.get(name) for name in (left, right)]
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float, Decimal))
+            or not math.isfinite(value)
+            for value in values
+        ):
+            return False
+        expected = _test_case_asserted_output_value(case, str(rule["name"]))
+        if not _asserted_formula_runtime_values_equal(
+            rule,
+            _formula_execution_runtime_value(execution),
+            expected,
+        ):
+            return False
+        reached = []
+        for step in execution.trace:
+            if step.kind != "if" or len(step.selectors) != 1:
+                continue
+            expression = _parse_formula_expression(step.selectors[0])
+            if expression is None:
+                continue
+            descriptors = tuple(
+                (a.id, op, b.id)
+                for a, op, b in _formula_relational_expressions(expression)
+                if op == "==" and isinstance(a, ast.Name) and isinstance(b, ast.Name)
+            )
+            if descriptors == relations:
+                reached.append(step.choice)
+        if len(reached) != 1:
+            return False
+        equal = values[0] == values[1]
+        if reached[0] != (0 if equal else 1):
+            return False
+        if equal and not execution.evaluates_to_zero:
+            return False
+        equality_values.append(equal)
+    return set(equality_values) == {False, True}
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -26624,6 +26784,32 @@ def _exception_witnesses_for_branch(
         authoritative_numeric_recall_text(condition_text),
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
+    equality_candidates = {
+        witness
+        for witness in toggled_exception_selectors
+        if any(relation == "==" for _, relation, _ in witness.relational_transitions)
+    }
+    equality_witnesses = {
+        witness
+        for witness in equality_candidates
+        if witness.rule_name in affecting_rules
+        and _source_owned_equality_witness(
+            branch,
+            witness,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
+            rule=principal_rules[witness.rule_name],
+            principal_rules=principal_rules,
+            asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+            input_declarations=input_declarations or {},
+            formula_environment=formula_environment or {},
+        )
+        and _numeric_exception_witness_matches_source(
+            branch,
+            witness,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
+    }
     residence_candidates = {
         witness
         for witness in toggled_exception_selectors
@@ -26652,82 +26838,88 @@ def _exception_witnesses_for_branch(
             residence_witnesses.add(witness)
     # Recognized but unresolved residence statements cannot escape through a
     # generic/composite semantic shortcut below.
-    return residence_witnesses | {
-        witness
-        for witness in toggled_exception_selectors - residence_candidates
-        if witness.rule_name in affecting_rules
-        and (
-            _calendar_age_witness_matches_source(condition_text, witness)
-            if witness.calendar_attainment_age is not None
-            else (
-                _numeric_exception_witness_matches_source(
-                    branch,
-                    witness,
-                    extract_numeric_occurrences=extract_numeric_occurrences,
-                )
-                if witness.numeric_transition is not None
+    return (
+        equality_witnesses
+        | residence_witnesses
+        | {
+            witness
+            for witness in toggled_exception_selectors
+            - residence_candidates
+            - equality_candidates
+            if witness.rule_name in affecting_rules
+            and (
+                _calendar_age_witness_matches_source(condition_text, witness)
+                if witness.calendar_attainment_age is not None
                 else (
-                    (
-                        numeric_interval is None
-                        or not _selector_targets_numeric_condition(
+                    _numeric_exception_witness_matches_source(
+                        branch,
+                        witness,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    )
+                    if witness.numeric_transition is not None
+                    else (
+                        (
+                            numeric_interval is None
+                            or not _selector_targets_numeric_condition(
+                                condition_text,
+                                witness.selector_name,
+                                numeric_interval=numeric_interval,
+                            )
+                        )
+                        and witness.active_value
+                        == _source_exception_selector_active_value(
                             condition_text,
                             witness.selector_name,
-                            numeric_interval=numeric_interval,
                         )
-                    )
-                    and witness.active_value
-                    == _source_exception_selector_active_value(
-                        condition_text,
-                        witness.selector_name,
                     )
                 )
             )
-        )
-        and (
-            witness.calendar_attainment_age is not None
-            or _source_exception_selector_is_relevant(
-                condition_text,
-                witness.selector_name,
-                supporting_texts=tuple(
-                    excerpt
-                    for _citation_path, excerpt in _rule_source_excerpts(
-                        principal_rules[witness.rule_name]
-                    )
-                ),
+            and (
+                witness.calendar_attainment_age is not None
+                or _source_exception_selector_is_relevant(
+                    condition_text,
+                    witness.selector_name,
+                    supporting_texts=tuple(
+                        excerpt
+                        for _citation_path, excerpt in _rule_source_excerpts(
+                            principal_rules[witness.rule_name]
+                        )
+                    ),
+                )
+                or _source_qualified_cardinality_evidence(
+                    branch,
+                    witness,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    rule=principal_rules[witness.rule_name],
+                    asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                    input_declarations=input_declarations or {},
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                )
+                is not None
+                or _worksheet_notice_selector_is_relevant(
+                    branch,
+                    witness,
+                    principal_rules=principal_rules,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    numeric_interval=numeric_interval,
+                )
+                or _source_exception_composite_witness_is_relevant(
+                    condition_text,
+                    witness,
+                    rule=principal_rules[witness.rule_name],
+                    asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                )
             )
-            or _source_qualified_cardinality_evidence(
-                branch,
+            and _exception_witness_satisfies_requirement(
                 witness,
-                source_text=source_text,
-                corpus_citation_path=corpus_citation_path,
+                requirement,
                 rule=principal_rules[witness.rule_name],
-                asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
-                input_declarations=input_declarations or {},
-                principal_rules=principal_rules,
-                formula_environment=formula_environment,
             )
-            is not None
-            or _worksheet_notice_selector_is_relevant(
-                branch,
-                witness,
-                principal_rules=principal_rules,
-                source_text=source_text,
-                corpus_citation_path=corpus_citation_path,
-                numeric_interval=numeric_interval,
-            )
-            or _source_exception_composite_witness_is_relevant(
-                condition_text,
-                witness,
-                rule=principal_rules[witness.rule_name],
-                asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
-            )
-        )
-        and _exception_witness_satisfies_requirement(
-            witness,
-            requirement,
-            rule=principal_rules[witness.rule_name],
-        )
-    }
+        }
+    )
 
 
 def _selector_targets_numeric_condition(
@@ -27815,6 +28007,43 @@ def _source_relational_exception_matches(
     )
 
 
+def _source_relation_tokens(text: str) -> tuple[re.Match[str], ...]:
+    """One token sequence for relation ownership and every effect scanner."""
+    return tuple(
+        re.finditer(
+            r"\b(?P<unsupported>(?:is\s+not\s+equal\s+to|does\s+not\s+equal|"
+            r"not\s+equals?)|(?:is\s+equal\s+to|equals?)\s+or\s+"
+            r"(?:greater\s+than|less\s+than|more\s+than|exceeds?))\b|"
+            r"\b(?P<inclusive>exceeds?\s+or\s+equals?|"
+            r"is\s+(?:greater|more)\s+than\s+or\s+equal\s+to)\b|"
+            r"\b(?P<strict>exceeds?|is\s+(?:greater|more)\s+than|übersteigt)\b|"
+            r"\b(?P<equality>is\s+equal\s+to|equals)\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _source_equality_operand_matches(text: str, name: str) -> tuple[re.Match[str], ...]:
+    """Closed monetary identities; never borrow generic credit/tax aliases."""
+    normalized = _normalized_selector_name(name)
+    normalized = {
+        "t2209_federal_non_business_foreign_tax_credit_line_3": "federal_non_business_foreign_tax_credit",
+        "t2209_non_business_income_tax_paid_to_foreign_country_line_1": "non_business_income_tax_paid_to_foreign_country",
+    }.get(normalized, normalized)
+    patterns = {
+        "federal_non_business_foreign_tax_credit": r"(?:the\s+amount\s+of\s+)?(?:the\s+)?federal\s+"
+        r"(?:foreign\s+non-business|non-business\s+foreign)\s+"
+        r"(?:income\s+)?tax\s+credit(?:\s+you\s+are\s+entitled\s+to\s+deduct)?",
+        "non_business_income_tax_paid_to_foreign_country": r"(?:the\s+)?foreign\s+non-business\s+(?:income\s+)?tax(?:es)?\s+"
+        r"(?:you\s+)?paid",
+    }
+    pattern = patterns.get(normalized)
+    if pattern is None:
+        return ()
+    return tuple(re.finditer(r"\b" + pattern + r"\b", text, re.IGNORECASE))
+
+
 def _source_relational_exception_match_indices(
     text: str,
     *,
@@ -27831,17 +28060,21 @@ def _source_relational_exception_match_indices(
     collapsed = _collapse_text(text).lower()
     left_matches = _source_relational_operand_matches(collapsed, left_name)
     right_matches = _source_relational_operand_matches(collapsed, right_name)
-    relation_matches = tuple(
-        re.finditer(
-            r"\b(?P<inclusive>exceeds?\s+or\s+equals?|"
-            r"is\s+(?:greater|more)\s+than\s+or\s+equal\s+to)\b|"
-            r"\b(?P<strict>exceeds?|is\s+(?:greater|more)\s+than|übersteigt)\b",
-            collapsed,
-        )
-    )
+    relation_matches = _source_relation_tokens(collapsed)
+    if relation == "==":
+        left_matches = _source_equality_operand_matches(collapsed, left_name)
+        right_matches = _source_equality_operand_matches(collapsed, right_name)
     matched_indices: list[int] = []
     for index, relation_match in enumerate(relation_matches):
-        source_relation = ">=" if relation_match.group("inclusive") else ">"
+        source_relation = (
+            None
+            if relation_match.group("unsupported")
+            else "=="
+            if relation_match.group("equality")
+            else ">="
+            if relation_match.group("inclusive")
+            else ">"
+        )
         if source_relation != relation:
             continue
         left_bound, right_bound = _source_relation_operand_bounds(
@@ -27856,8 +28089,13 @@ def _source_relational_exception_match_indices(
             and right.end() <= right_bound
             and relation_match.start() - left.end() <= 240
             and right.start() - relation_match.end() <= 240
-            for left in left_matches
-            for right in right_matches
+            for lefts, rights in (
+                ((left_matches, right_matches), (right_matches, left_matches))
+                if relation == "=="
+                else ((left_matches, right_matches),)
+            )
+            for left in lefts
+            for right in rights
         ):
             matched_indices.append(index)
     return tuple(matched_indices)
@@ -27930,6 +28168,17 @@ def _relational_exception_witness_has_source_effect(
     """Require the relation-active side to have the source-directed effect."""
 
     effect_text = _source_relational_effect_text(text, relation_index=relation_index)
+    tokens = _source_relation_tokens(text)
+    if 0 <= relation_index < len(tokens) and tokens[relation_index].group("equality"):
+        return witness.zeroes and bool(
+            re.fullmatch(
+                r"\s*(?:your|the) (?:(?:provincial or territorial|federal) )?"
+                r"(?:foreign )?(?:non-business )?(?:income )?tax credit "
+                r"(?:would be|will be|is) zero\.\s*",
+                effect_text,
+                re.IGNORECASE,
+            )
+        )
     if _source_relational_exception_reverses_negative_refund(
         text,
         relation_index=relation_index,
@@ -27963,15 +28212,7 @@ def _source_relational_exception_reverses_negative_refund(
 ) -> bool:
     """Recognize an exception condition that lifts a stated refund prohibition."""
 
-    relation_matches = tuple(
-        re.finditer(
-            r"\b(?:exceeds?\s+or\s+equals?|"
-            r"is\s+(?:greater|more)\s+than(?:\s+or\s+equal\s+to)?|"
-            r"exceeds?|übersteigt)\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-    )
+    relation_matches = _source_relation_tokens(text)
     if not 0 <= relation_index < len(relation_matches):
         return False
     condition_prefix = text[: relation_matches[relation_index].start()]
@@ -27992,18 +28233,20 @@ def _source_relational_exception_reverses_negative_refund(
 def _source_relational_effect_text(text: str, *, relation_index: int) -> str:
     """Return the effect associated with one matched relational condition."""
 
-    relation_matches = tuple(
-        re.finditer(
-            r"\b(?:exceeds?\s+or\s+equals?|"
-            r"is\s+(?:greater|more)\s+than(?:\s+or\s+equal\s+to)?|"
-            r"exceeds?|übersteigt)\b",
-            text,
-            flags=re.IGNORECASE,
-        )
-    )
+    relation_matches = _source_relation_tokens(text)
     if not 0 <= relation_index < len(relation_matches):
         return text
     relation_match = relation_matches[relation_index]
+    if relation_match.group("equality"):
+        # Equality currently owns only an explicit post-comma monetary-zero
+        # sentence. Never borrow an effect from a following conditional clause.
+        tail = text[relation_match.end() :]
+        consequence = re.search(r",", tail)
+        if consequence is None:
+            return ""
+        effect = tail[consequence.end() :]
+        end = re.search(r"[.;:]", effect)
+        return effect[: end.end()] if end is not None else effect
     condition_cues = tuple(
         re.finditer(
             r"\b(?:except\s+(?:if|when)|unless|falls|if|sofern|soweit|wenn|when)\b",
@@ -29070,6 +29313,7 @@ def _formula_execution_relational_values(
                 left=left,
                 ops=[
                     {
+                        "==": ast.Eq(),
                         ">": ast.Gt(),
                         ">=": ast.GtE(),
                         "<": ast.Lt(),
@@ -29087,6 +29331,18 @@ def _formula_execution_relational_values(
 def _formula_relational_expressions(
     expression: ast.AST,
 ) -> Iterable[tuple[ast.expr, str, ast.expr]]:
+    if (
+        isinstance(expression, ast.Compare)
+        and len(expression.ops) == len(expression.comparators) == 1
+        and isinstance(expression.ops[0], ast.Eq)
+        and isinstance(expression.left, ast.Name)
+        and isinstance(expression.comparators[0], ast.Name)
+        and expression.left.id != expression.comparators[0].id
+    ):
+        left, right = sorted(
+            (expression.left, expression.comparators[0]), key=lambda n: n.id
+        )
+        yield left, "==", right
     for node in ast.walk(expression):
         if isinstance(node, ast.Compare):
             operands = (node.left, *node.comparators)
