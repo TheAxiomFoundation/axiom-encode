@@ -3606,6 +3606,9 @@ def test_fresh_v2_required_test_cases_do_not_require_a_repair_run(
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
+            "RULESPEC_REF": subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
             "SECOND_DEPENDENT_CITATION": "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },

@@ -859,6 +859,97 @@ def _validate_wrapped_review_contract_size(
         )
 
 
+def validate_fresh_primary_test_target(
+    repo: Path,
+    citation: str,
+    rulespec_path: str,
+    requested_ref: str,
+    required_test_cases_json: str,
+) -> dict[str, object]:
+    """Bind a fresh ordinary replacement without claiming predecessor admission."""
+
+    from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
+    citation = require_canonical_corpus_citation_path(citation)
+    path = _safe_relative_path(rulespec_path, label="fresh primary RuleSpec")
+    if path != citation_rulespec_path(citation):
+        raise ValueError("fresh primary path must match its canonical citation")
+    repo = repo.resolve(strict=True)
+    if repo.name != f"rulespec-{path.parts[0].partition('-')[0]}":
+        raise ValueError("fresh primary repository must match citation country")
+    if (
+        COMMIT_PATTERN.fullmatch(requested_ref) is None
+        or _git(repo, "rev-parse", "HEAD").decode().strip() != requested_ref
+    ):
+        raise ValueError(
+            "fresh primary checkout must match the immutable requested ref"
+        )
+    if not isinstance(required_test_cases_json, str):
+        raise ValueError("fresh primary required tests must be JSON text")
+    if (
+        len(required_test_cases_json.encode())
+        > MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES
+    ):
+        raise ValueError("fresh primary required tests exceed maximum input size")
+    cases = _normalize_required_test_cases(
+        _load_unambiguous_json(
+            required_test_cases_json, label="fresh primary required tests"
+        ),
+        label="fresh primary required tests",
+    )
+    if not cases:
+        raise ValueError("fresh primary required tests must not be empty")
+    _validate_wrapped_review_contract_size(
+        citation=citation,
+        path=path,
+        deferred_output_contracts=(),
+        required_test_cases=cases,
+        label="fresh primary",
+    )
+    inventory: dict[str, str | None] = {}
+    companion = path.with_name(f"{path.stem}.test.yaml")
+    index_entries = _git(repo, "ls-files", "--stage", "-z").split(b"\0")
+    for target in (path, companion):
+        label = f"fresh primary file {target}"
+        stage = [
+            entry
+            for entry in index_entries
+            if entry.rpartition(b"\t")[2] == target.as_posix().encode()
+        ]
+        tree = _git(
+            repo, "ls-tree", "-z", "--full-tree", "HEAD", "--", target.as_posix()
+        )
+        absolute = repo.joinpath(*target.parts)
+        if target == companion and not stage and not tree:
+            if absolute.exists() or absolute.is_symlink():
+                raise ValueError(f"{label} is untracked")
+            inventory[target.as_posix()] = None
+            continue
+        tree_entry = re.fullmatch(
+            rb"100644 blob ([0-9a-f]{40})\t"
+            + re.escape(target.as_posix().encode())
+            + rb"\x00",
+            tree,
+        )
+        expected_blob = tree_entry.group(1).decode() if tree_entry else ""
+        if (
+            stage != [f"100644 {expected_blob} 0\t{target}".encode()]
+            or tree != f"100644 blob {expected_blob}\t{target}\0".encode()
+        ):
+            raise ValueError(f"{label} must be unchanged tracked 100644 at HEAD")
+        raw = _read_bounded_regular(
+            repo, target, label=label, max_bytes=10 * 1024 * 1024
+        )
+        if raw != _git(repo, "show", f"HEAD:{target}"):
+            raise ValueError(f"{label} differs from HEAD")
+        inventory[target.as_posix()] = hashlib.sha256(raw).hexdigest()
+    return {
+        "base": requested_ref,
+        "files": inventory,
+        "required_test_cases": list(cases),
+    }
+
+
 def parse_canonical_refresh_bundle(
     repo: Path,
     refresh_bundle_json: str,
@@ -4334,6 +4425,12 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
+    fresh_parser.add_argument("repo", type=Path)
+    fresh_parser.add_argument("citation")
+    fresh_parser.add_argument("rulespec_path")
+    fresh_parser.add_argument("requested_ref")
+    fresh_parser.add_argument("required_test_cases_json")
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     stage_parser.add_argument("--corpus-path", dest="corpus_root", type=Path)
@@ -4476,6 +4573,18 @@ def main() -> None:
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
                     pr_base_branch=args.pr_base_branch,
+                )
+            )
+        elif args.command == "validate-fresh-primary-test-target":
+            print(
+                json.dumps(
+                    validate_fresh_primary_test_target(
+                        args.repo,
+                        args.citation,
+                        args.rulespec_path,
+                        args.requested_ref,
+                        args.required_test_cases_json,
+                    )
                 )
             )
         elif args.command == "validate-dependent-cascade":
