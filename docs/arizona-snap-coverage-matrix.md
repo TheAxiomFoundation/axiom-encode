@@ -272,16 +272,19 @@ provenance defect. Its locked source object (SHA-256
 `891dce6a0abdd3dcdac7eb5438827b5e986bc35c6ce550325e522da096b7c955`)
 is the FNS FY 2026 landing-page **HTML**, while the scope inventory labels that
 same object `source_format: pdf` and assigns it to the PDF-derived page-1 and
-page-2 provisions. The locked HTML links to a different USDA memorandum PDF
-through an iframe and does not contain the maximum-allotment or deduction
-tables. The provisions do
-contain table text, but the locked source snapshot does not establish that
-text's provenance. Repair and sign the corpus source/inventory binding, then
-revalidate dependent generated modules and proofs against the corrected release;
-do not infer source authentication from the provision text alone.
+page-2 provisions. The separately locked FY 2026 income-eligibility-standards
+scope assigns the **same HTML bytes** to its own PDF-labeled page-1 and page-2
+provisions. The HTML links to a different USDA memorandum PDF through an
+iframe and does not contain the income, maximum-allotment, or deduction
+tables. The provisions contain table text, but neither locked source snapshot
+establishes that text's provenance. Repair and sign both corpus
+source/inventory bindings, then revalidate dependent generated modules and
+proofs against the corrected release; do not infer source authentication from
+the provision text alone.
 An accessible, primary [USDA seven-page FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf)
-provides row-aligned shelter and homeless deductions on page 6 and resource
-limits on page 7. Its actual PDF bytes (SHA-256
+provides row-aligned income eligibility standards on page 3, maximum
+allotments on pages 4-5, shelter and homeless deductions on page 6, and
+resource limits on page 7. Its actual PDF bytes (SHA-256
 `91c75d30be5e79781f6a424c9202ef86e58b1728c37e60dec5270013fe52ee80`)
 were directly extracted into a separate local corpus scope with complete
 coverage and 142 focused document/provenance tests passing. This scope is
