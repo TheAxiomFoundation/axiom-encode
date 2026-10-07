@@ -444,10 +444,11 @@ def _screen_policy(args: argparse.Namespace):
     from . import statutory_fidelity_screen as sfs
 
     try:
-        policy = sfs.ScreenPolicy.from_env()
+        environ = dict(os.environ)
         mode = getattr(args, "screen_mode", None)
         if mode:
-            policy = policy.with_mode(mode)
+            environ[sfs.SCREEN_MODE_ENV] = mode
+        policy = sfs.ScreenPolicy.from_env(environ)
     except ValueError as exc:
         print(f"invalid screen policy: {exc}", file=sys.stderr)
         return None

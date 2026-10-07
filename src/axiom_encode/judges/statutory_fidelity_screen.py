@@ -442,7 +442,7 @@ def run(
         return finish(
             error_event(
                 JudgeStage.STATUTORY_FIDELITY_SCREEN,
-                f"unrecognized verdict {raw_verdict!r} from screen",
+                "unrecognized verdict from screen",
                 error_type="unrecognized_verdict",
                 model=call.model,
                 generator_model=client.generator_model,

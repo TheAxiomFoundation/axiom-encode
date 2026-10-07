@@ -25,9 +25,11 @@ The cross-family rule (`model_family` and `cross_family_problem` in
 `judges/client.py`) refuses a judge whose model family matches the generator's
 and refuses any model whose family it cannot classify. Families are
 `anthropic`, `openai`, `google` and, for the screen, `typesafe` (model ids
-starting with `jev`). Every successful event records the judge model, the
-generator model and token spend. An error event always records its cause and
-records the model only when one responded.
+starting with `jev`). Successful model calls record the judge model, the
+generator model and token spend. Deterministic outcomes, such as the heuristic
+pre-classifier and an insufficient-record disposition, have no judge model.
+An error event always records its cause and records the model only when one
+responded.
 
 ## Statutory-fidelity screen
 
@@ -136,6 +138,12 @@ to the run log when `--run-id` is given; the referee event also carries the
 cascade decision under `attrs.screen_cascade`. `--screen-mode` overrides the
 environment for one run.
 
+Invalid policy settings make the CLI return exit status 2 before running either
+judge. The library entry point `statutory_fidelity_screen.run()` instead handles
+an invalid policy from the environment by returning a `judge_error` event whose
+cascade decision requests the referee. That decision does not itself run the
+referee.
+
 ### Placeholder threshold and the evidence behind it
 
 The default threshold of 0.25 is a placeholder, marked as such in
@@ -162,9 +170,11 @@ boundary probability alone, to show what the boundary question by itself sees.
 | 0.30 | 25 of 90 | 30 of 30 | 28 of 30 | 28 of 30 |
 | 0.50 | 10 of 90 | 30 of 30 | 22 of 30 | 22 of 30 |
 
-0.25 is the lowest value at which the cascade still skips most clean artifacts
-while sending every planted amount and boundary defect to the referee. The
-boundary probability alone misses one flip (scored 0.16); the cascade still
+0.25 is the selected placeholder operating point: the cascade skips 58 of 90
+clean artifacts while sending every planted amount and boundary defect to the
+referee. The displayed 0.20 operating point also skips most clean artifacts
+(47 of 90) and sends every planted amount and boundary defect. The boundary
+probability alone misses one flip (scored 0.16); the cascade still
 sends that artifact on its amount probability (0.29). The value is
 deliberately low because a skipped referee on a real defect costs far more
 than a referee call.

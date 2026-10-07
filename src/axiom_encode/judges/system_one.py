@@ -19,8 +19,9 @@ contract:
   responding model's family after it. Both must be known and must differ,
   and the responding model must be TypeSafe's (``typesafe``).
 * Secrets never reach a run log: SDK exceptions are mapped by class name
-  only (their text, which may echo request context, is dropped) and the key
-  is never placed on the call result or the event.
+  only (their text, which may echo request context, is dropped). Response
+  strings are validated before retention, and model ids containing the
+  configured credential are rejected without recording them.
 * Model id, latency and token usage are recorded on every call.
 
 The SDK is imported lazily so the package works without the optional
@@ -34,6 +35,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -47,6 +49,10 @@ from .run_log import JudgeError, TokenCounts
 TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY"
 SYSTEM_ONE_FAMILY = "typesafe"
 SDK_DISTRIBUTION = "typesafe-sdk"
+
+# Model ids are identifiers, never arbitrary response/request text. Permit
+# other providers' ids too so a safe id can still be recorded on a guard error.
+_MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}")
 
 # Per-request HTTP timeout and SDK-side retry budget. The SDK's own default
 # timeout is 10 s; the pilot's median latency was 0.19 s, so 30 s is generous.
@@ -342,16 +348,32 @@ class SystemOneClient:
 
         model_id = getattr(response, "model", None)
         model_id = str(model_id) if model_id else None
-        family = model_family(model_id or "")
         usage = getattr(response, "usage", None)
         tokens = TokenCounts(
             input=int(getattr(usage, "input_tokens", 0) or 0),
             output=int(getattr(usage, "output_tokens", 0) or 0),
         )
+        if (
+            not model_id
+            or _MODEL_ID.fullmatch(model_id) is None
+            or (self.api_key and self.api_key.casefold() in model_id.casefold())
+        ):
+            return failed(
+                JudgeError(
+                    type="schema_error",
+                    message="System One response carried an invalid model id",
+                ),
+                tokens=tokens,
+            )
+        family = model_family(model_id)
         problem = self.cross_family_problem(model_id or "")
         if problem:
             return failed(
-                JudgeError(type="cross_family_guard", message=problem),
+                JudgeError(
+                    type="cross_family_guard",
+                    message="responding screen model violates the cross-family "
+                    "TypeSafe requirement",
+                ),
                 model=model_id,
                 family=family,
                 tokens=tokens,
@@ -399,7 +421,10 @@ def _finite_probability(value: Any) -> Optional[float]:
         return None
     if not math.isfinite(prob) or prob < 0.0 or prob > 1.0:
         return None
-    return round(prob, 4)
+    # Thresholds may have more than four decimal places. Preserve precision
+    # for recorded probabilities, findings and cascade decisions; only their
+    # human-readable explanations and canonical evidence are rounded.
+    return prob
 
 
 def _close_quietly(sdk_client: Any) -> None:
@@ -450,21 +475,43 @@ def _map_answers(
                     type="schema_error",
                     message=f"System One answer {name!r} is not a choice answer",
                 )
+            if name == "verdict":
+                choice = choice.strip().lower()
+            if choice not in question.criteria:
+                return None, JudgeError(
+                    type="unrecognized_verdict"
+                    if name == "verdict"
+                    else "schema_error",
+                    message="System One choice is not a requested label",
+                )
+            if set(probabilities) != set(question.criteria):
+                return None, JudgeError(
+                    type="schema_error",
+                    message=f"System One answer {name!r} does not match the "
+                    "requested probability labels",
+                )
+            # The pinned SDK's Choice response requires a confidence float;
+            # missing, non-finite or out-of-range confidence is incomplete.
+            confidence = _finite_probability(getattr(answer, "confidence", None))
+            if confidence is None:
+                return None, JudgeError(
+                    type="schema_error",
+                    message=f"System One answer {name!r} has an invalid confidence",
+                )
             clean: dict[str, float] = {}
-            for label, value in probabilities.items():
-                prob = _finite_probability(value)
+            for label in question.criteria:
+                prob = _finite_probability(probabilities[label])
                 if prob is None:
                     return None, JudgeError(
                         type="schema_error",
                         message=(
-                            f"System One answer {name!r} has a non-numeric "
-                            f"probability for {label!r}"
+                            f"System One answer {name!r} has an invalid probability"
                         ),
                     )
-                clean[str(label)] = prob
+                clean[label] = prob
             mapped[name] = ChoiceAnswer(
                 choice=choice,
-                confidence=_finite_probability(getattr(answer, "confidence", None)),
+                confidence=confidence,
                 probabilities=clean,
             )
         else:
