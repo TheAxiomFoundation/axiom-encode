@@ -2907,8 +2907,8 @@ def main():
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
             f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
-            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
-            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "OPENAI_API_KEY; use --model/--escalation-model to override, "
+            "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "

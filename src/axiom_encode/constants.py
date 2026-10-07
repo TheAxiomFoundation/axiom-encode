@@ -16,9 +16,8 @@ REVIEWER_CLI_MODEL = "opus"
 # below): same-model self-review correlates errors (the 9/9 identical
 # hardcoded-600,000 incident is the cautionary tale).
 # GPT-6 Luna generates; GPT-6 Sol takes the bounded validator-failure retry.
-# On 2026-09-24 ChatGPT-account Codex (codex-cli 0.153.3) rejected both with
-# "not supported when using Codex with a ChatGPT account"; on that auth path
-# pass --model/--escalation-model explicitly until they are served there.
+# Explicit --model/--escalation-model overrides also accept gpt-6.1-sol.
+# Codex model availability is determined by the signed-in account and CLI.
 DEFAULT_OPENAI_MODEL = "gpt-6-luna"
 DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-6-sol"
 DEFAULT_OPENAI_ESCALATE_AFTER = 2

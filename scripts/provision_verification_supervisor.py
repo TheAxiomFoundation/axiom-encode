@@ -788,12 +788,13 @@ _RUNTIME_ATTESTATION_SCHEMA = "axiom-encode/trusted-runtime-attestation/v1"
 
 # Moving either pin is a reviewed repository change.  The installer never asks
 # npm for "latest" and the runtime disables update checks below.
-_CODEX_CLI_VERSION = "0.144.0"
+_CODEX_CLI_VERSION = "0.159.0"
 _CODEX_CLI_PINS = {
     ("darwin", "arm64"): {
-        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.0-darwin-arm64.tgz",
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-darwin-arm64.tgz",
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
-        "sha256": "978740e6bcbd9af2f850823b723fb74f16d8d1e44de05f7dd6737ae631f72017",
+        "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
+        "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
     },
 }
 
@@ -839,6 +840,12 @@ def _install_pinned_codex_cli(
             raise SystemExit(f"could not fetch pinned Codex CLI: {exc}") from exc
         archive = downloaded
     try:
+        actual_archive = _sha256_file(archive)
+        if actual_archive != pin["archive_sha256"]:
+            raise SystemExit(
+                "refusing to provision: pinned Codex CLI archive sha256 mismatch "
+                f"(expected {pin['archive_sha256']}, got {actual_archive})"
+            )
         try:
             with tarfile.open(archive, "r:gz") as bundle:
                 member = bundle.getmember(pin["member"])
