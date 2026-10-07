@@ -1,0 +1,1 @@
+Flush encoder stdout at every line: the signing supervisor starts Python with `-I`, which ignores `PYTHONUNBUFFERED`, so on a CI pipe the encode output arrived in 8 KiB bursts and several tries' results shared one job-log timestamp.
