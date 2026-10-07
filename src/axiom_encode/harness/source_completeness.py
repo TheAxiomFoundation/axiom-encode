@@ -5050,43 +5050,8 @@ def _analyze_rulespec_payload(
             "parameter-only representation is invalid."
         )
 
-    numeric_recall_text = authoritative_numeric_recall_text(
-        source_text, corpus_citation_path=corpus_citation_path
-    )
-    source_occurrences = tuple(
-        occurrence
-        for occurrence in extract_numeric_occurrences(numeric_recall_text)
-        if not _temporal_occurrence_is_formula_applicability_preface(
-            occurrence,
-            numeric_recall_text,
-        )
-    )
-    named_values = (
-        tuple(float(value) for value in artifact_numeric_values)
-        if artifact_numeric_values is not None
-        else tuple(
-            float(item.value)
-            for item in extract_named_scalars(content)
-            if hasattr(item, "value")
-        )
-    )
-    covered_source_values = 0
-    missing_source_values: list[float] = []
-    for occurrence in source_occurrences:
-        if any(
-            numeric_value_is_grounded(named_value, (occurrence,))
-            for named_value in named_values
-        ):
-            covered_source_values += 1
-        else:
-            missing_source_values.append(float(occurrence.value))
-    for value in sorted(set(missing_source_values)):
-        issues.append(
-            "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
-            f"value {value:g} has no named scalar representation. "
-            "`module.summary` is not consulted."
-        )
-
+    represented_annual_spans: set[tuple[int, int]] = set()
+    companion_issues: list[str] = []
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
             payload, imported_symbol_contents=imported_symbol_contents
@@ -5109,9 +5074,10 @@ def _analyze_rulespec_payload(
                 formula_environment,
                 artifact_numeric_bindings,
             )
-        issues.extend(
+        companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                represented_annual_spans=represented_annual_spans,
                 parameter_rules={
                     **imported_parameters,
                     **{
@@ -5146,6 +5112,59 @@ def _analyze_rulespec_payload(
                 },
             )
         )
+
+    numeric_recall_text = authoritative_numeric_recall_text(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
+    source_occurrences = tuple(
+        occurrence
+        for occurrence in extract_numeric_occurrences(numeric_recall_text)
+        if not _temporal_occurrence_is_formula_applicability_preface(
+            occurrence,
+            numeric_recall_text,
+        )
+    )
+    unrepresented_occurrences = source_occurrences
+    if represented_annual_spans:
+        unrepresented_recall_text = authoritative_numeric_recall_text(
+            _mask_numeric_spans(source_text, represented_annual_spans),
+            corpus_citation_path=corpus_citation_path,
+        )
+        unrepresented_occurrences = tuple(
+            occurrence
+            for occurrence in extract_numeric_occurrences(unrepresented_recall_text)
+            if not _temporal_occurrence_is_formula_applicability_preface(
+                occurrence,
+                unrepresented_recall_text,
+            )
+        )
+    named_values = (
+        tuple(float(value) for value in artifact_numeric_values)
+        if artifact_numeric_values is not None
+        else tuple(
+            float(item.value)
+            for item in extract_named_scalars(content)
+            if hasattr(item, "value")
+        )
+    )
+    covered_source_values = len(source_occurrences) - len(unrepresented_occurrences)
+    missing_source_values: list[float] = []
+    for occurrence in unrepresented_occurrences:
+        if any(
+            numeric_value_is_grounded(named_value, (occurrence,))
+            for named_value in named_values
+        ):
+            covered_source_values += 1
+        else:
+            missing_source_values.append(float(occurrence.value))
+    for value in sorted(set(missing_source_values)):
+        issues.append(
+            "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+            f"value {value:g} has no named scalar representation. "
+            "`module.summary` is not consulted."
+        )
+
+    issues.extend(companion_issues)
 
     return CompleteSourceUnitAnalysis(
         tuple(dict.fromkeys(issues)),
@@ -16318,6 +16337,7 @@ def _companion_test_issues(
     formula_environment: dict[str, Any],
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
+    represented_annual_spans: set[tuple[int, int]] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> list[str]:
     issues: list[str] = []
@@ -16387,6 +16407,8 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        source_text=source_text,
+        represented_annual_spans=represented_annual_spans,
         corpus_citation_path=corpus_citation_path,
         principal_rules=principal_rules,
         principal_formula_clause_rules=principal_formula_clause_rules,
@@ -17249,6 +17271,8 @@ def _most_specific_containing_branch(
 def _unwitnessed_formula_branches(
     branches: Sequence[SourceStructureBranch],
     *,
+    source_text: str = "",
+    represented_annual_spans: set[tuple[int, int]] | None = None,
     corpus_citation_path: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_formula_clause_rules: dict[SourceStructureBranch, set[str]],
@@ -17264,6 +17288,8 @@ def _unwitnessed_formula_branches(
     candidate_witnesses = {
         branch: _formula_branch_test_witnesses(
             branch,
+            source_text=source_text,
+            represented_annual_spans=represented_annual_spans,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             rule_names=principal_formula_clause_rules[branch],
@@ -17307,6 +17333,168 @@ def _unmatched_evidence_obligations(
     return tuple(missing)
 
 
+@dataclass(frozen=True)
+class _AnnualSourceEvidence:
+    """One source-owned annual operand represented by an executed version."""
+
+    start: int
+    end: int
+    year: int
+    rule_name: str
+    version_index: int
+
+
+@functools.lru_cache(maxsize=256)
+def _annual_source_quoted_spans(text: str) -> tuple[tuple[int, int], ...] | None:
+    """Require balanced source context before inferring a temporal role.
+
+    Word apostrophes and unquoted possessives are punctuation, not delimiters.
+    Unknown mixed quotes or mismatched brackets conservatively reject evidence.
+    """
+
+    open_quotes = {'"': '"', "'": "'", "“": "”", "‘": "’", "«": "»"}
+    close_quotes = set(open_quotes.values())
+    closing = {")": "(", "]": "[", "}": "{"}
+    stack: list[str] = []
+    quote: str | None = None
+    quote_start = 0
+    spans: list[tuple[int, int]] = []
+    for index, character in enumerate(text):
+        previous = text[index - 1] if index else ""
+        following = text[index + 1] if index + 1 < len(text) else ""
+        apostrophe = (
+            character in {"'", "’"}
+            and previous.isalpha()
+            and (following.isalpha() or quote is None)
+        )
+        if apostrophe:
+            continue
+        if quote is not None:
+            if character == quote:
+                spans.append((quote_start, index + 1))
+                quote = None
+            elif character in open_quotes or character in close_quotes:
+                return None
+            continue
+        if character in open_quotes:
+            quote = open_quotes[character]
+            quote_start = index
+        elif character in close_quotes:
+            return None
+        elif character in "([{":
+            stack.append(character)
+        elif character in closing:
+            if not stack or stack.pop() != closing[character]:
+                return None
+    return None if quote is not None or stack else tuple(spans)
+
+
+def _annual_source_evidence(
+    rule: dict[str, Any],
+    *,
+    case: dict[str, Any],
+    execution: _FormulaExecution | None,
+    branch: SourceStructureBranch,
+    source_text: str,
+    corpus_citation_path: str,
+) -> tuple[_AnnualSourceEvidence, ...]:
+    """Tentative in-clause evidence; caller commits it only after a full witness.
+
+    This first closed role covers total taxes paid for an annual form's year.
+    Header and out-of-clause measurement occurrences remain obligations.
+    """
+
+    if not source_text or source_text[branch.start : branch.end] != branch.text:
+        return ()
+    qualifications = tuple(
+        re.finditer(
+            r"\btotal (?:foreign )?taxes paid for (?P<year>(?:19|20)[0-9]{2})"
+            r"(?=\s*(?:[.,;:()]|divided\s+by\b|$))",
+            branch.text,
+        )
+    )
+    if not qualifications:
+        return ()
+    headers = tuple(
+        re.finditer(
+            r"^Use this form to calculate the [A-Za-z -]{1,100} (?:credit|tax|refund) "
+            r"for (?P<year>(?:19|20)[0-9]{2})\b",
+            source_text,
+            re.MULTILINE,
+        )
+    )
+    if len(headers) != 1:
+        return ()
+    header = headers[0]
+    year = int(header["year"])
+    if {int(y) for y in re.findall(r"\b(?:19|20)[0-9]{2}\b", source_text)} != {year}:
+        return ()
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    if any(a <= header.start() < b for a, b in quoted):
+        return ()
+    selected = _selected_rule_formula_version_index(rule, case)
+    if selected is None or "period" not in case:
+        return ()
+    version = rule["versions"][selected]
+    if (version.get("effective_from"), version.get("effective_to")) != (
+        f"{year}-01-01",
+        f"{year}-12-31",
+    ):
+        return ()
+    if not any(
+        index == selected and start == f"{year}-01-01" and end == f"{year}-12-31"
+        for index, _formula, start, end in _effective_formula_version_intervals(rule)
+    ):
+        return ()
+    if execution is None or not _asserted_formula_runtime_values_equal(
+        rule,
+        _formula_execution_runtime_value(execution),
+        _test_case_asserted_output_value(case, str(rule.get("name") or "")),
+    ):
+        return ()
+    citation = corpus_citation_path.strip("/").casefold()
+    atoms = tuple(_rule_source_excerpt_atoms(rule))
+    source_collapsed = _collapse_text(source_text)
+    header_collapsed = _collapse_text(header.group())
+    for field in ("effective_from", "effective_to"):
+        if not any(
+            re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+            and atom_citation.strip("/").casefold() == citation
+            and (excerpt_text := _collapse_text(excerpt))
+            and excerpt_text in source_collapsed
+            and header_collapsed in excerpt_text
+            for path, atom_citation, excerpt in atoms
+        ):
+            return ()
+    evidence = []
+    for match in qualifications:
+        start, end = (branch.start + i for i in match.span("year"))
+        if int(match["year"]) != year or any(a <= start < b for a, b in quoted):
+            continue
+        if not any(
+            _formula_proof_version_index(path) == selected
+            and atom_citation.strip("/").casefold() == citation
+            and (excerpt_text := _collapse_text(excerpt))
+            and excerpt_text in source_collapsed
+            and _collapse_text(match.group()) in excerpt_text
+            and (
+                _normalized_formula_clause_text(excerpt)
+                in _normalized_formula_clause_text(branch.text)
+                or _normalized_formula_clause_text(branch.text)
+                in _normalized_formula_clause_text(excerpt)
+            )
+            and source_states_explicit_computation(excerpt)
+            for path, atom_citation, excerpt in atoms
+        ):
+            continue
+        evidence.append(
+            _AnnualSourceEvidence(start, end, year, str(rule["name"]), selected)
+        )
+    return tuple(evidence)
+
+
 def _formula_branch_test_witnesses(
     branch: SourceStructureBranch,
     *,
@@ -17319,6 +17507,8 @@ def _formula_branch_test_witnesses(
     formula_environment: dict[str, Any],
     dependency_cache: dict[int, dict[str, Any]],
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    source_text: str = "",
+    represented_annual_spans: set[tuple[int, int]] | None = None,
     max_cases_per_rule: int | None = None,
 ) -> set[tuple[str, str]]:
     interval = _formula_branch_interval(
@@ -17357,6 +17547,14 @@ def _formula_branch_test_witnesses(
                     dependency_environment=dependency_environment,
                 )
             execution = execution_cache[execution_key]
+            annual_evidence = _annual_source_evidence(
+                rule,
+                case=case,
+                execution=execution,
+                branch=branch,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
             if not _formula_execution_is_source_branch_witness(
                 execution,
                 branch,
@@ -17366,6 +17564,7 @@ def _formula_branch_test_witnesses(
                 interval=interval,
                 dependency_environment=dependency_environment,
                 require_corroborated_dependencies=True,
+                annual_evidence=annual_evidence,
                 formula_environment=formula_environment,
                 extract_numeric_occurrences=extract_numeric_occurrences,
                 numeric_value_is_grounded=numeric_value_is_grounded,
@@ -17402,8 +17601,16 @@ def _formula_branch_test_witnesses(
                     if has_branching_formula
                     else f"case:{id(case)}"
                 )
+                if represented_annual_spans is not None:
+                    represented_annual_spans.update(
+                        (e.start, e.end) for e in annual_evidence
+                    )
                 witnesses.add((rule_name, witness))
                 continue
+            if represented_annual_spans is not None:
+                represented_annual_spans.update(
+                    (e.start, e.end) for e in annual_evidence
+                )
             witnesses.add((rule_name, f"case:{id(case)}"))
     return witnesses
 
@@ -17836,11 +18043,21 @@ def _temporal_name_changes_formula_value(
 def _formula_branch_computation_occurrences(
     branch: SourceStructureBranch,
     *,
+    annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
+    represented_years = tuple(
+        (e.start - branch.start, e.end - branch.start)
+        for e in annual_evidence
+        if branch.start <= e.start < e.end <= branch.end
+        and branch.text[e.start - branch.start : e.end - branch.start] == str(e.year)
+    )
     recall_text = authoritative_numeric_recall_text(
-        _mask_numeric_spans(branch.text, branch.structural_numeric_spans)
+        _mask_numeric_spans(
+            _mask_numeric_spans(branch.text, represented_years),
+            branch.structural_numeric_spans,
+        )
     )
     fractional_percentages = _source_fractional_percentage_occurrences(recall_text)
     fractional_spans = tuple(
@@ -17924,6 +18141,7 @@ def _formula_execution_is_source_branch_witness(
     rule: dict[str, Any],
     case: dict[str, Any],
     principal_rules: dict[str, dict[str, Any]],
+    annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     dependency_environment: dict[str, Any],
     require_corroborated_dependencies: bool,
@@ -17962,6 +18180,7 @@ def _formula_execution_is_source_branch_witness(
             binding_execution,
             branch,
             interval=interval,
+            annual_evidence=annual_evidence,
             formula_environment=formula_environment,
             execution_environment=execution_environment,
             extract_numeric_occurrences=extract_numeric_occurrences,
@@ -19167,6 +19386,7 @@ def _formula_execution_matches_source_branch(
     execution: _FormulaExecution,
     branch: SourceStructureBranch,
     *,
+    annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     formula_environment: dict[str, Any],
     execution_environment: dict[str, Any] | None = None,
@@ -19276,6 +19496,7 @@ def _formula_execution_matches_source_branch(
             return False
     computation_occurrences = _formula_branch_computation_occurrences(
         branch,
+        annual_evidence=annual_evidence,
         interval=interval,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
@@ -28306,13 +28527,23 @@ def _exception_witness_for_case_pair(
         formula_environment=formula_environment,
         dependency_environment=exception_dependencies,
     )
+    counterfactual_dependencies = ordinary_dependencies
+    if _direct_boolean_intervention_matches_case(
+        ordinary_case,
+        exception_case,
+        selector_name=selector_name,
+        active_value=active_value,
+        ordinary_dependencies=ordinary_dependencies,
+        exception_dependencies=exception_dependencies,
+    ):
+        counterfactual_dependencies = exception_dependencies
     counterfactual_execution = _case_formula_execution_with_boolean_selector(
         rule,
         ordinary_case,
         selector_name=selector_name,
         selector_value=active_value,
         formula_environment=formula_environment,
-        dependency_environment=ordinary_dependencies,
+        dependency_environment=counterfactual_dependencies,
     )
     if (
         ordinary_execution is None
@@ -28423,6 +28654,54 @@ def _cases_have_same_output_keys(
 def _exception_effect_is_zero(value: Any) -> bool:
     number = _rulespec_runtime_decimal(value)
     return number is not None and math.isclose(float(number), 0.0, abs_tol=1e-12)
+
+
+def _direct_boolean_intervention_matches_case(
+    ordinary_case: dict[str, Any],
+    exception_case: dict[str, Any],
+    *,
+    selector_name: str,
+    active_value: bool,
+    ordinary_dependencies: dict[str, Any],
+    exception_dependencies: dict[str, Any],
+) -> bool:
+    """Reuse a corroborated closure only for the identical factual world.
+
+    A derived-selector intervention must keep its ordinary dependencies: changing
+    an upstream input may also affect other amounts independently of that selector.
+    """
+
+    if (
+        selector_name in ordinary_dependencies
+        or selector_name in exception_dependencies
+    ):
+        return False
+    period = _normalized_case_period(ordinary_case)
+    if not _is_iso_calendar_date(period) or period != _normalized_case_period(
+        exception_case
+    ):
+        return False
+    if ordinary_case.get("period") != exception_case.get("period"):
+        return False
+    if not _cases_differ_by_one_input(ordinary_case, exception_case):
+        return False
+    ordinary_inputs = ordinary_case["input"]
+    exception_inputs = exception_case["input"]
+    keys = [key for key in ordinary_inputs if selector_name in _input_key_names(key)]
+    if len(keys) != 1:
+        return False
+    key = keys[0]
+    if (
+        _boolean_value(ordinary_inputs[key]) is not (not active_value)
+        or _boolean_value(exception_inputs[key]) is not active_value
+    ):
+        return False
+    overridden = dict(ordinary_inputs)
+    overridden[key] = active_value
+    return all(
+        _formula_runtime_values_equal(value, exception_inputs[name])
+        for name, value in overridden.items()
+    )
 
 
 def _case_formula_execution_with_boolean_selector(
