@@ -29305,9 +29305,8 @@ def _expand_reached_formula_dependencies(
 ) -> str:
     """Inline reached, assertion-corroborated intermediates for source matching."""
 
-    try:
-        expression = ast.parse(expression_text.strip(), mode="eval").body
-    except SyntaxError:
+    expression = _parse_formula_expression(expression_text)
+    if expression is None:
         return expression_text
 
     resolving: set[str] = set()
@@ -29326,12 +29325,8 @@ def _expand_reached_formula_dependencies(
             )
             if execution is None or execution.currency_rounding is not None:
                 return node
-            try:
-                replacement = ast.parse(
-                    execution.leaf.strip(),
-                    mode="eval",
-                ).body
-            except SyntaxError:
+            replacement = _parse_formula_expression(execution.leaf)
+            if replacement is None:
                 return node
             resolving.add(name)
             expanded = self.visit(replacement)

@@ -45148,3 +45148,77 @@ def test_income_table_amounts_still_require_numeric_coverage():
         ),
     )
     assert _has_issue(result, "numeric")
+
+
+@pytest.mark.parametrize("principal", ["net * rate", "net *\nrate"])
+@pytest.mark.parametrize("leaf", ["base - deduction", "base -\ndeduction"])
+def test_reached_witness_expands_supported_multiline_arithmetic(principal, leaf):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"effective_from": "2025-01-01", "formula": leaf}],
+        }
+    }
+    case = {
+        "period": "2025-01-01",
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": {"net": 80},
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert dependencies == {"net": 80}
+    expanded = completeness_module._expand_reached_formula_dependencies(
+        principal,
+        principal_rules=rules,
+        case=case,
+        formula_environment={},
+        dependency_environment=dependencies,
+    )
+    assert expanded == "(base - deduction) * rate"
+
+
+@pytest.mark.parametrize("assertions", [{}, {"net": 81}])
+def test_multiline_witness_does_not_inline_uncorroborated_dependency(assertions):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"formula": "base -\ndeduction"}],
+        }
+    }
+    case = {
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": assertions,
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert "net" not in dependencies
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            "net *\nrate",
+            principal_rules=rules,
+            case=case,
+            formula_environment={},
+            dependency_environment=dependencies,
+        )
+        == "net * rate"
+    )
+
+
+@pytest.mark.parametrize("formula", ["net +", "net; other", "net = other"])
+def test_multiline_dependency_expansion_preserves_invalid_expression(formula):
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            formula,
+            principal_rules={},
+            case={"input": {}},
+            formula_environment={},
+            dependency_environment={},
+        )
+        == formula
+    )
