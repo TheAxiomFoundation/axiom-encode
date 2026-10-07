@@ -5,6 +5,7 @@ import pytest
 from axiom_encode.harness.source_completeness import (
     _corroborated_form_output_label_spans,
     _mask_numeric_spans,
+    _source_formula_branches,
     authoritative_numeric_recall_text,
 )
 
@@ -92,3 +93,44 @@ def test_matching_heading_does_not_make_limit_a_label(limit):
         "Foreign Tax Credit\n", f"Foreign Tax Credit {limit}\n"
     ).replace("foreign tax credit 5", f"foreign tax credit {limit} 5")
     assert not _corroborated_form_output_label_spans(source)
+
+
+def test_formula_clauses_retain_full_source_coordinate_corroboration():
+    source = "Threshold $200; year 2025.\n" + FORM
+    labels = set(_corroborated_form_output_label_spans(source))
+    clauses = _source_formula_branches(
+        source, branches=(), active_branches=(), deferred_paths=set()
+    )
+    attached = set()
+    for clause in clauses:
+        assert clause.text == source[clause.start : clause.end]
+        for start, end in clause.structural_numeric_spans:
+            absolute = (clause.start + start, clause.start + end)
+            assert absolute in labels
+            assert source[absolute[0] : absolute[1]] in {"1", "2", "3", "4", "5"}
+            attached.add(absolute)
+    expected = {
+        (start, end)
+        for start, end in labels
+        if any(clause.start <= start < end <= clause.end for clause in clauses)
+    }
+    assert attached == expected
+    assert {source[a:b] for a, b in attached} == {"1", "2", "3", "4"}
+    assert "200" in source and "2025" in source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        FORM.replace("Enter the total from line 5", "Enter the total from line 6"),
+        FORM.replace("Provincial or Territorial Foreign Tax Credit\n", ""),
+        '"' + FORM + '"',
+    ],
+)
+def test_formula_clauses_do_not_infer_labels_from_partial_layout(source):
+    assert not _corroborated_form_output_label_spans(source)
+    clauses = _source_formula_branches(
+        source, branches=(), active_branches=(), deferred_paths=set()
+    )
+    assert clauses
+    assert all(not clause.structural_numeric_spans for clause in clauses)
