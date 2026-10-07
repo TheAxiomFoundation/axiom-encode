@@ -13014,7 +13014,9 @@ _RECALL_ENGLISH_REFERENCE_TARGET = (
     # implicit bare range continuations (e.g. Alabama Section 40-18-2).
     r"(?:\d+(?:\.\d+)*(?:-\d+(?:\.\d+)*){2,}|\d+(?:\.\d+)*)"
     r"[A-Za-z]*(?:\([A-Za-z0-9]+\))*"
-    r"(?![\w]|\.\d)"
+    # A target must consume every subdivision. An unmatched parenthesis can
+    # introduce an operative expression, such as `100(1 + rate) dollars`.
+    r"(?![\w(]|\.\d)"
 )
 _RECALL_COMPLETE_ENGLISH_REFERENCE = re.compile(
     r"\b(?:articles?|sections?|secs?\.?|subsections?|sub-paragraphs?|"
@@ -31571,9 +31573,9 @@ def _source_boundary_obligations(
         direct_inventory = tuple(extract_numeric_occurrences(direct_text))
         for fragment_start, fragment in _source_boundary_fragments(direct_text):
             range_fragment = fragment.split(":", 1)[0]
-            boundary_context = direct_text[
-                max(0, fragment_start - 160) : fragment_start + len(range_fragment)
-            ]
+            # A glossary heading cannot discard an operative chapeau merely
+            # because it precedes a sentence split or a long heading prefix.
+            boundary_context = direct_text[: fragment_start + len(range_fragment)]
             if _source_boundary_is_nonoperative_guidance_definition(
                 range_fragment,
                 context=boundary_context,
@@ -31649,10 +31651,14 @@ def _source_boundary_is_nonoperative_guidance_definition(
     """Exclude a glossary-only admission-duration definition from case bounds."""
 
     collapsed = _collapse_text(text)
+    complete_context = _collapse_text(context)
     return bool(
-        re.search(
-            r"\bParolees\s+Paroled\s+into\s+the\s+U\.?S\.?\s*$",
-            _collapse_text(context[: -len(text)] if text else context),
+        re.fullmatch(
+            # Authenticate the row or its explicit glossary container. A line
+            # break after an eligibility chapeau cannot create a glossary row.
+            r"(?:Alien\s+Group\s+Descriptions?\s*[:.]?\s+)?"
+            r"Parolees\s+Paroled\s+into\s+the\s+U\.?S\.?",
+            (context[: -len(text)] if text else context).strip(),
             flags=re.IGNORECASE,
         )
         and re.search(
@@ -31663,8 +31669,8 @@ def _source_boundary_is_nonoperative_guidance_definition(
             collapsed,
             flags=re.IGNORECASE,
         )
-        and not _source_has_operative_policy_effect(collapsed)
-        and not _source_has_joined_operative_segment(collapsed)
+        and not _source_has_operative_policy_effect(complete_context)
+        and not _source_has_joined_operative_segment(complete_context)
     )
 
 
