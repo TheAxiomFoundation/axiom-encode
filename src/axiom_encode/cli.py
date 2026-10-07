@@ -39575,7 +39575,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
     ]
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
@@ -39593,6 +39595,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
+        generated_anchor=_relative_output_to_anchor(
+            relative_output, policy_repo_path=policy_repo_path
+        ),
     )
 
 
@@ -39894,6 +39899,7 @@ def _repair_scalar_relation_rows(
     test_file: Path,
     policy_repo_path: Path,
     parsed_issues: list[tuple[str, str, int]],
+    generated_anchor: str | None = None,
 ) -> list[str]:
     if not test_file.exists():
         return []
@@ -39928,17 +39934,34 @@ def _repair_scalar_relation_rows(
                 scalar_value = rows[list_index]
                 if isinstance(scalar_value, dict):
                     continue
-                replacement = _relation_row_replacement_from_companion_tests(
+                companion_replacement = _relation_row_replacement_from_companion_tests(
                     relation_key,
                     scalar_value,
                     policy_repo_path=policy_repo_path,
                 )
-                if replacement is None:
-                    replacement = _relation_row_replacement_from_generated_rules(
-                        relation_key,
-                        scalar_value,
-                        rules_file=rules_file,
-                    )
+                generated_replacement = _relation_row_replacement_from_generated_rules(
+                    relation_key,
+                    scalar_value,
+                    rules_file=rules_file,
+                )
+                generated_owns_relation = _generated_file_defines_relation(
+                    rules_file,
+                    relation_key,
+                    generated_anchor=generated_anchor,
+                )
+                # A protected replacement can rename the relation's child input.
+                # An older companion test then has a plausible row shape whose
+                # input is no longer declared by the generated module. Prefer
+                # the generated formula's single child fact in that case.
+                if (
+                    companion_replacement is not None
+                    and generated_replacement is not None
+                    and generated_owns_relation
+                    and not generated_replacement.keys() <= companion_replacement.keys()
+                ):
+                    replacement = generated_replacement
+                else:
+                    replacement = companion_replacement or generated_replacement
                 if replacement is None:
                     continue
                 rows[list_index] = replacement
@@ -40170,6 +40193,34 @@ def _relation_row_replacement_from_generated_rules(
     relation_base = relation_ref.split("#", 1)[0].strip()
     child_ref = f"{relation_base}#input.{next(iter(child_names))}"
     return {child_ref: copy.deepcopy(scalar_value)}
+
+
+def _generated_file_defines_relation(
+    rules_file: Path | None,
+    relation_ref: str,
+    *,
+    generated_anchor: str | None,
+) -> bool:
+    """Whether the generated module owns the relation being repaired."""
+    if rules_file is None or not rules_file.exists():
+        return False
+    module_ref = relation_ref.split("#", 1)[0].strip()
+    if generated_anchor != module_ref:
+        return False
+    relation_name = _relation_name_from_relation_ref(relation_ref)
+    if not relation_name:
+        return False
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    return isinstance(rules, list) and any(
+        isinstance(rule, dict)
+        and rule.get("name") == relation_name
+        and rule.get("kind") == "data_relation"
+        for rule in rules
+    )
 
 
 def _relation_name_from_relation_ref(relation_ref: str) -> str:
