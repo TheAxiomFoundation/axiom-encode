@@ -13816,8 +13816,75 @@ def _without_completed_chart_result_label(body: str, source_text: str) -> str:
     return body
 
 
+def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
+    """Recognize closed monetary instructions without erasing operand qualifiers.
+
+    Only the factual-selector view consumes this prefix. Proof, formula and
+    numeric analysis retain the complete original operation and source offsets.
+    Unknown relative clauses or any additional instruction fail the full match.
+    """
+
+    number = r"[1-9][0-9]{0,4}"
+    form = r"[A-Z]{1,6}[0-9]{1,5}[A-Z]{0,3}"
+    patterns = (
+        r"include the income for the part of the year you were a resident of "
+        r"(?P<country>[A-Z][a-z]+(?: [A-Z][a-z]+){0,2})"
+        r" plus any income and losses referred to in paragraphs "
+        rf"{number}\({number}\)\((?P<first>[a-z])\) to \((?P<last>[a-z])\)"
+        r" of the Income Tax Act as reported on your Canadian tax return, "
+        r"for the part of the year you were not a resident of (?P=country)\.",
+        r"enter the part of special foreign tax credit "
+        rf"\(line {number} of Part {number} of Form {form}\) "
+        r"that relates to non-business income taxes you paid to a foreign country "
+        rf"for (?:19|20)[0-9]{{2}} on line {number}\.",
+        r'calculate this amount by entering (?:"0"|0) on lines '
+        rf"{number} and {number} of Form {form} and continue the calculation\. "
+        rf"The result from line {number} is your "
+        r"(?:provincial or territorial tax otherwise payable|tax otherwise payable|"
+        r"tax payable|credit|refund|balance due)\.",
+    )
+    # Validate the entire input before trying a comma. An unmatched delimiter
+    # cannot turn a quoted command or parenthetical condition into a boundary.
+    stack: list[str] = []
+    quote: str | None = None
+    commas: list[int] = []
+    closing = {")": "(", "]": "[", "}": "{"}
+    for index, character in enumerate(body):
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in {'"', "“"}:
+            quote = '"' if character == '"' else "”"
+        elif character == "”":
+            return None
+        elif character in "([{":
+            stack.append(character)
+        elif character in closing:
+            if not stack or stack.pop() != closing[character]:
+                return None
+        elif character == "," and not stack and body[:index].strip():
+            commas.append(index)
+    if quote is not None or stack:
+        return None
+    for index in commas:
+        consequent = " ".join(body[index + 1 :].split())
+        for pattern in patterns:
+            match = re.fullmatch(pattern, consequent)
+            if match is None:
+                continue
+            if "first" in match.groupdict() and match["first"] > match["last"]:
+                continue
+            return body[:index]
+    return None
+
+
 def _without_worksheet_imperative_consequent(body: str) -> str:
     """Separate a bounded worksheet command from its factual antecedent."""
+
+    monetary_antecedent = _worksheet_monetary_operation_antecedent(body)
+    if monetary_antecedent is not None:
+        return monetary_antecedent
 
     command = r"(?:do the calculation|perform the calculation|calculate|enter|carry|add|subtract|multiply|divide|complete)\b"
     quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', body))
