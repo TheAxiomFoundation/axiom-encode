@@ -813,6 +813,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
           SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
         run: |
@@ -856,6 +857,36 @@ jobs:
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           if [ -n "${REPAIR_RUN_ID:-}" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -1258,6 +1289,36 @@ jobs:
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" -I "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -1835,6 +1896,36 @@ jobs:
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
