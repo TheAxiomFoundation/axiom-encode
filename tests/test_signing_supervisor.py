@@ -2169,9 +2169,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
-            "transaction"
+            "Atomic source input: legacy citation array/refresh object, v2-v5 contract, "
+            "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
+            "for an authenticated failed ordinary single-target repair"
         ),
         "required": False,
         "default": "[]",
@@ -2430,8 +2430,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
     assert "repair replay is limited to one non-legacy target" in repair_command
-    assert "repair_tests_only=false" in repair_command
-    assert "repair_tests_only=true" in repair_command
+    assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
+    assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
@@ -2758,6 +2758,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "REPAIR_CANDIDATE_RULESPEC_SHA256",
         "REPAIR_CANDIDATE_TESTS_SHA256",
         "REPAIR_RUN_ID",
+        "REPAIR_EXECUTION_JSON",
         "PROVISION_SIGNING_SUPERVISOR_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_OUTCOME",
@@ -3243,9 +3244,20 @@ def test_repair_preflight_splits_atomic_source(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\nus-ri/statutes/44-30-2.6.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        f"tests_only={expected_tests_only}\n"
+    mode = "tests_only" if expected_tests_only == "true" else "full_artifact"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == expected_tests_only
+    assert outputs["mode"] == mode
+    assert json.loads(outputs["execution"]) == {
+        "mode": mode,
+        "requested_mode": "legacy_inference",
+        "tests_only": expected_tests_only == "true",
+    }
 
 
 def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
@@ -3422,9 +3434,19 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "dependent\nus/statutes/42/1437c-1.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 @pytest.mark.parametrize("second_without_first", [False, True])
@@ -3479,9 +3501,19 @@ def test_repair_preflight_accepts_new_source_target(
         return
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\n\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 def test_repair_preflight_rejects_tests_only_new_source(tmp_path: Path) -> None:
@@ -3677,6 +3709,8 @@ def test_repair_required_test_cases_do_not_enable_canonical_refresh(
             "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
             "QUEUE_ID": "",
             "REPAIR_RUN_ID": "100",
+            "REPAIR_MODE": "tests_only",
+            "REPAIR_TESTS_ONLY": "true",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
@@ -6515,8 +6549,9 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
 
 
 @pytest.mark.parametrize("repair_lane", ["target", "source-only"])
+@pytest.mark.parametrize("selected_mode", ["full_artifact", "tests_only", ""])
 def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation(
-    tmp_path: Path, repair_lane: str
+    tmp_path: Path, repair_lane: str, selected_mode: str
 ) -> None:
     script = _targeted_metadata_script()
     heads: dict[str, str] = {}
@@ -6590,15 +6625,33 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
             "REPAIR_CANDIDATE_TESTS_SHA256": (
                 "" if repair_lane == "source-only" else "e" * 64
             ),
-            "REPAIR_RUN_ID": "1234",
+            "REPAIR_RUN_ID": "1234" if selected_mode else "",
+            "REPAIR_MODE": selected_mode,
+            "REPAIR_TESTS_ONLY": ("true" if selected_mode == "tests_only" else "false")
+            if selected_mode
+            else "",
+            "PYTHONPATH": str(ROOT / "src"),
             "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
             "RULESPEC_REF": heads["rulespec-us"],
             "RUNNER_TEMP": str(runner_temp),
         },
     )
 
+    if selected_mode == "tests_only":
+        assert completed.returncode != 0
+        assert "repair execution mode differs" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not selected_mode:
+        assert payload["repair_execution"] is None
+        assert payload["repair_candidate"] is None
+        return
+    assert payload["repair_execution"] == {
+        "requested_mode": "legacy_inference",
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
     expected = {
         "lane": repair_lane,
         "run_id": "1234",
