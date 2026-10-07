@@ -33183,6 +33183,9 @@ rules:
         applied_file = args.policy_repo_path / "statutes/26/151.yaml"
 
         with (
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
@@ -33280,6 +33283,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("statutes/26/3241/b.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us:statutes/26/3241/b#average_account_benefits_ratio_bracket` "
@@ -33339,6 +33343,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("regulations/1240-01/04/27/block-1.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance_state_value` "

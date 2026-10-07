@@ -8166,10 +8166,12 @@ def _apply_generated_eval_repairs(
         )
     repairs.extend(
         f"derived_output:{name}"
-        for name in cli_helpers._append_generated_derived_output_tests_if_missing(
+        for name in cli_helpers._append_generated_derived_output_tests_in_overlay(
             rules_file=rulespec_file,
             test_file=test_file,
-            repo_path=policy_repo_root,
+            policy_repo_path=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             relative_output=relative_output,
             issues=companion_issues,
         )
