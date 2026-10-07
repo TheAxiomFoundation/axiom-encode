@@ -15551,6 +15551,21 @@ def _opaque_same_source_condition_input_issues(
                     corpus_citation_path=corpus_citation_path,
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
+                factual_parent = _source_owned_residence_parent_clause(
+                    excerpt,
+                    rule=rule,
+                    version_index=version_index,
+                    source_text=source_text,
+                    branches=branches,
+                    corpus_citation_path=corpus_citation_path,
+                    input_declarations={
+                        str(item.get("name")): item
+                        for item in inputs or ()
+                        if isinstance(item, dict)
+                    },
+                )
+                if factual_parent is not None and not ambiguous:
+                    owned_clauses = (factual_parent,)
                 excerpt_has_gates = False
                 condition_clauses = tuple(
                     part
@@ -26159,6 +26174,304 @@ def _is_residence_applicability_candidate(text: str) -> bool:
     )
 
 
+@dataclass(frozen=True)
+class _ResidenceDefinitionEvidence:
+    input_name: str
+    helper_name: str
+    version_index: int
+    place: str
+
+
+def _source_owned_residence_definition(
+    helper: dict[str, Any],
+    *,
+    selected: int,
+    place: str,
+    year: str,
+    source_text: str,
+    predicate_text: str,
+    annual_header: str,
+    intro_text: str,
+    citation: str,
+    input_declarations: Mapping[str, dict[str, Any]],
+) -> _ResidenceDefinitionEvidence | None:
+    """Certify one factual residence equality, never a benefit entitlement."""
+    name = helper.get("name")
+    if (
+        place not in _CANADIAN_RESIDENCE_PLACE_NAMES
+        or name != "resident_of_" + place.casefold().replace(" ", "_") + "_at_year_end"
+        or name in input_declarations
+        or helper.get("kind") != "derived"
+        or helper.get("dtype") != "Judgment"
+        or helper.get("period") != "Year"
+        or not helper.get("entity")
+        or not any(
+            index == selected and start == f"{year}-01-01" and end == f"{year}-12-31"
+            for index, _formula, start, end in _effective_formula_version_intervals(
+                helper
+            )
+        )
+    ):
+        return None
+    expression = _parse_formula_expression(
+        str(helper["versions"][selected].get("formula") or "")
+    )
+    if (
+        not isinstance(expression, ast.Compare)
+        or len(expression.ops) != 1
+        or not isinstance(expression.ops[0], ast.Eq)
+    ):
+        return None
+    left, right = expression.left, expression.comparators[0]
+    if isinstance(left, ast.Constant):
+        left, right = right, left
+    if (
+        not isinstance(left, ast.Name)
+        or not isinstance(right, ast.Constant)
+        or right.value != place
+    ):
+        return None
+    declaration = input_declarations.get(left.id)
+    if (
+        declaration is None
+        or declaration.get("name") != left.id
+        or declaration.get("dtype") != "Text"
+        or declaration.get("period") != "Year"
+        or declaration.get("entity") != helper.get("entity")
+    ):
+        return None
+    # The helper cannot lend residence meaning to an arbitrary Text fact.
+    # This bounded route supports the explicit proposed annual residence
+    # contract; it does not create a canonical input alias or an enum.
+    if left.id != "province_or_territory_of_residence_at_year_end":
+        return None
+    description = declaration.get("description")
+    if description is not None and (
+        not isinstance(description, str)
+        or _collapse_text(description).strip().rstrip(".").casefold()
+        not in {
+            "province or territory of residence at year end",
+            "province or territory you resided in at the end of the tax year",
+        }
+    ):
+        return None
+    atoms = tuple(_rule_source_excerpt_atoms(helper))
+    if not any(
+        _formula_proof_version_index(path) == selected
+        and atom_citation.strip("/").casefold() == citation
+        and _collapse_text(excerpt) == predicate_text
+        for path, atom_citation, excerpt in atoms
+    ):
+        return None
+    for field in ("effective_from", "effective_to"):
+        if not any(
+            re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+            and atom_citation.strip("/").casefold() == citation
+            and (text := _collapse_text(excerpt)) in intro_text
+            and annual_header in text
+            and _collapse_text(source_text).count(text) == 1
+            for path, atom_citation, excerpt in atoms
+        ):
+            return None
+    return _ResidenceDefinitionEvidence(left.id, str(name), selected, place)
+
+
+def _source_owned_residence_parent_clause(
+    excerpt: str,
+    *,
+    rule: dict[str, Any],
+    version_index: int,
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+    input_declarations: Mapping[str, dict[str, Any]],
+) -> _SourceConditionClause | None:
+    """Bind only a factual residence definition to its exact referral parent."""
+    if not corpus_citation_path.startswith("ca/"):
+        return None
+    text = _collapse_text(excerpt)
+    parent = re.fullmatch(
+        r"If you were a resident of (?P<place>[A-Za-z]+(?: [A-Za-z]+){0,5}) "
+        r"at the end of the year, follow the instructions that apply to your situation:",
+        text,
+    )
+    if parent is None or parent["place"] not in _CANADIAN_RESIDENCE_PLACE_NAMES:
+        return None
+    matches = tuple(
+        re.finditer(r"\s+".join(re.escape(x) for x in text.split()), source_text)
+    )
+    quoted = _annual_source_quoted_spans(source_text)
+    if len(matches) != 1 or quoted is None:
+        return None
+    match = matches[0]
+    if any(a < match.end() and b > match.start() for a, b in quoted):
+        return None
+    # A publisher bullet begins a child condition. No arbitrary colon cut.
+    child = re.match(r"\s*\n[ \t]*– If [^\n]+", source_text[match.end() :])
+    if child is None:
+        return None
+    prefix = source_text[: match.start()].rsplit("\n", 1)[-1]
+    if prefix.strip() not in {"", "(cid:129)"}:
+        return None
+    owners = [
+        b
+        for b in branches
+        if b.path and b.start <= match.start() and match.end() <= b.end
+    ]
+    if not owners:
+        return None
+    owner = min(owners, key=lambda b: b.end - b.start)
+    if sum(b.start == owner.start and b.end == owner.end for b in owners) != 1:
+        return None
+    if match.end() + child.end() > owner.end:
+        return None
+    # The annual purpose must belong to the first complete form header.
+    intro_pattern = re.compile(
+        r"^Use this form to calculate the [A-Za-z -]{1,100} (?:credit|tax|refund) "
+        r"for (?P<year>(?:19|20)[0-9]{2}) that you can deduct from the income tax\s+"
+        r"payable to the province or territory you resided in at the end of the tax year\.",
+        re.MULTILINE,
+    )
+    intros = tuple(intro_pattern.finditer(source_text))
+    if len(intros) != 1 or intros[0].end() >= owner.start:
+        return None
+    intro = intros[0]
+    header = re.fullmatch(
+        r"(?:[A-Z][A-Za-z]* )?Form [A-Z]*[1-9]\d* "
+        + re.escape(intro["year"])
+        + r" (?P<title>[A-Za-z -]{1,120})\n\s*(?:Protected [A-Z] when completed\s+)?(?P=title)\s*",
+        source_text[: intro.start()],
+    )
+    if header is None or any(a < intro.end() and b > 0 for a, b in quoted):
+        return None
+    intro_text = _collapse_text(intro.group())
+    evidence = _source_owned_residence_definition(
+        rule,
+        selected=version_index,
+        place=parent["place"],
+        year=intro["year"],
+        source_text=source_text,
+        predicate_text=text,
+        annual_header=intro_text.split(" that you can deduct", 1)[0],
+        intro_text=intro_text,
+        citation=corpus_citation_path.strip("/").casefold(),
+        input_declarations=input_declarations,
+    )
+    if evidence is None:
+        return None
+    return _SourceConditionClause(owner.path, match.start(), match.end(), match.group())
+
+
+def _source_owned_residence_text_intervention(
+    witness: _ExceptionWitness,
+    *,
+    cases: Sequence[dict[str, Any]],
+    rule: dict[str, Any],
+    place: str,
+    year: str,
+    source_text: str,
+    predicate_text: str,
+    annual_header: str,
+    intro_text: str,
+    citation: str,
+    principal_rules: Mapping[str, dict[str, Any]],
+    input_declarations: Mapping[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+) -> bool:
+    """Corroborate only one direct, source-owned Text equality intervention."""
+    helper = principal_rules.get(witness.selector_name)
+    if (
+        witness.selector_name
+        != "resident_of_" + place.casefold().replace(" ", "_") + "_at_year_end"
+        or helper is None
+        or witness.selector_name in input_declarations
+        or helper.get("kind") != "derived"
+        or helper.get("dtype") != "Judgment"
+        or helper.get("period") != "Year"
+        or not rule.get("entity")
+        or helper.get("entity") != rule.get("entity")
+        or not _cases_differ_by_one_input(cases[0], cases[1])
+        or not _cases_have_same_output_keys(cases[0], cases[1])
+    ):
+        return False
+    selected = _selected_rule_formula_version_index(helper, cases[0])
+    if (
+        selected is None
+        or any(
+            _selected_rule_formula_version_index(helper, case) != selected
+            for case in cases
+        )
+        or not any(
+            index == selected and start == f"{year}-01-01" and end == f"{year}-12-31"
+            for index, _formula, start, end in _effective_formula_version_intervals(
+                helper
+            )
+        )
+    ):
+        return False
+    definition = _source_owned_residence_definition(
+        helper,
+        selected=selected,
+        place=place,
+        year=year,
+        source_text=source_text,
+        predicate_text=predicate_text,
+        annual_header=annual_header,
+        intro_text=intro_text,
+        citation=citation,
+        input_declarations=input_declarations,
+    )
+    if definition is None:
+        return False
+    input_values = []
+    helper_values = []
+    for case in cases:
+        inputs = _case_input_formula_environment(case)
+        if (
+            inputs is None
+            or witness.selector_name in inputs
+            or inputs.get(definition.input_name) not in _CANADIAN_RESIDENCE_PLACE_NAMES
+        ):
+            return False
+        input_values.append(inputs[definition.input_name])
+        dependencies = _case_asserted_dependency_environment(
+            dict(principal_rules),
+            case,
+            formula_environment=formula_environment,
+        )
+        execution = _case_formula_execution(
+            helper, case, formula_environment=formula_environment
+        )
+        principal = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=dependencies,
+        )
+        if (
+            execution is None
+            or principal is None
+            or not _formula_execution_reaches_selector(principal, witness.selector_name)
+        ):
+            return False
+        value = _boolean_value(_formula_execution_runtime_value(execution))
+        if (
+            value is None
+            or value != (inputs[definition.input_name] == place)
+            or _boolean_value(
+                _test_case_asserted_output_value(case, witness.selector_name)
+            )
+            != value
+            or not _formula_runtime_values_equal(
+                _formula_execution_runtime_value(principal),
+                _test_case_asserted_output_value(case, witness.rule_name),
+            )
+        ):
+            return False
+        helper_values.append(value)
+    return input_values[0] != input_values[1] and set(helper_values) == {False, True}
+
+
 def _source_owned_residence_applicability_context(
     branch: SourceStructureBranch,
     witness: _ExceptionWitness,
@@ -26167,6 +26480,9 @@ def _source_owned_residence_applicability_context(
     corpus_citation_path: str,
     rule: dict[str, Any],
     asserted_cases: Sequence[dict[str, Any]],
+    principal_rules: Mapping[str, dict[str, Any]] | None = None,
+    input_declarations: Mapping[str, dict[str, Any]] | None = None,
+    formula_environment: dict[str, Any] | None = None,
 ) -> _ResidenceApplicabilityContext | None:
     """Resolve only a complete residence recipient and its owned annual scope.
 
@@ -26225,7 +26541,7 @@ def _source_owned_residence_applicability_context(
         )
     ):
         return None
-    if not any(
+    direct_intervention = any(
         _direct_boolean_intervention_matches_case(
             ordinary,
             exception,
@@ -26235,8 +26551,7 @@ def _source_owned_residence_applicability_context(
             exception_dependencies={},
         )
         for ordinary, exception in (cases, list(reversed(cases)))
-    ):
-        return None
+    )
     selected = _selected_rule_formula_version_index(rule, cases[0])
     if selected is None or any(
         _selected_rule_formula_version_index(rule, case) != selected for case in cases
@@ -26323,6 +26638,22 @@ def _source_owned_residence_applicability_context(
             for path, atom_citation, excerpt in atoms
         ):
             return None
+    if not direct_intervention and not _source_owned_residence_text_intervention(
+        witness,
+        cases=cases,
+        rule=rule,
+        place=place,
+        year=year,
+        source_text=source_text,
+        predicate_text=text,
+        annual_header=annual_header,
+        intro_text=intro_text,
+        citation=citation,
+        principal_rules=principal_rules or {},
+        input_declarations=input_declarations or {},
+        formula_environment=formula_environment or {},
+    ):
+        return None
     intro_span = intro.span()
     return _ResidenceApplicabilityContext(
         citation,
@@ -26827,6 +27158,9 @@ def _exception_witnesses_for_branch(
             corpus_citation_path=corpus_citation_path,
             rule=principal_rules[witness.rule_name],
             asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+            principal_rules=principal_rules,
+            input_declarations=input_declarations,
+            formula_environment=formula_environment,
         )
         if (
             context is not None
