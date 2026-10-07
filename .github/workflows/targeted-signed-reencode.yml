@@ -1288,7 +1288,8 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || \
+             [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           # Required cases on a standalone fresh replacement are a signing
@@ -1895,7 +1896,7 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           # Required cases on a standalone fresh replacement are a signing

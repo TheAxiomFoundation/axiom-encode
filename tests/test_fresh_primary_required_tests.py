@@ -272,7 +272,7 @@ def test_actual_three_stage_routing_preserves_contract_and_modes(
             assert refresh_cases == [
                 CASE
             ]  # Existing canonical admission remains mandatory.
-        elif conflict is None:
+        elif conflict is None or conflict == "REPAIR_RUN_ID":
             assert refresh_cases == []
 
 
