@@ -5673,6 +5673,17 @@ def _authoritative_source_unit_aliases(
     ):
         title, part, section = parts[2:]
         aliases.append(f"{title} CFR {part}.{section}")
+    if (
+        len(parts) >= 4
+        and parts[:2] == ["us", "statute"]
+        and parts[2].isdigit()
+        and all(re.fullmatch(r"[A-Za-z0-9-]+", part) for part in parts[3:])
+    ):
+        title, section, *scope = parts[2:]
+        statute_section = section + "".join(f"({part})" for part in scope)
+        aliases.extend(
+            (f"{title} USC {statute_section}", f"{title} U.S.C. {statute_section}")
+        )
     return tuple(dict.fromkeys(alias for alias in aliases if alias))
 
 
