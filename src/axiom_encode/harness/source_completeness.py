@@ -4879,6 +4879,18 @@ def _analyze_rulespec_payload(
         branches=branches,
         authenticated_same_act_aliases=authenticated_same_act_aliases,
     )
+    # Optional closed source-path evidence is independent of the legacy
+    # names-only gate approximation. Unsupported sources retain that route.
+    from axiom_encode.harness.source_path_evidence import certify_worksheet_paths
+
+    certified_paths = certify_worksheet_paths(
+        payload,
+        source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
+        test_cases=test_cases,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        extract_numeric_occurrences=extract_numeric_grounding_occurrences,
+    )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
     issues.extend(
@@ -4888,6 +4900,7 @@ def _analyze_rulespec_payload(
             branches=branches,
             principal_rules=principal_rules,
             corpus_citation_path=corpus_citation_path,
+            certified_paths=certified_paths,
         )
     )
 
@@ -5078,6 +5091,7 @@ def _analyze_rulespec_payload(
             _companion_test_issues(
                 principal_rules,
                 represented_annual_spans=represented_annual_spans,
+                certified_paths=certified_paths,
                 parameter_rules={
                     **imported_parameters,
                     **{
@@ -12867,17 +12881,47 @@ def _partition_condition_clause_at_rows(
     if re.fullmatch(calculation, source_text[cuts[1] : matching[0][-1][1]]) is None:
         return (clause,)
     final_start, final_end = matching[0][-1]
-    if final_end >= clause.end:
-        return (clause,)
     label = re.escape(source_text[final_start:final_end])
-    transfer = re.fullmatch(
+    transfer_pattern = (
         r"\s*Enter the total from line "
         + label
         + r" \(for each country if applicable\) on the line for the "
         r"(?P<title>[A-Za-z][A-Za-z \t-]{1,100}) of\s+"
-        r"Form [A-Z]*[1-9]\d*\.\s*",
-        source_text[final_end : clause.end],
+        r"Form [A-Z]*[1-9]\d*\.\s*"
     )
+    if clause.end <= final_end:
+        # A formula atom may own only an early complete operation. The source
+        # still must contain the SAME complete closed worksheet and transfer.
+        # Never use a fragment itself as evidence that the layout is complete.
+        transfer = re.match(transfer_pattern, source_text[final_end:])
+        calculation_text = source_text[cuts[1] : final_end]
+        operation_ends = {
+            cuts[1] + calculation_text.index("\nNet foreign"),
+            cuts[1] + calculation_text.index("\nEnter whichever"),
+            cuts[1] + calculation_text.index("\nThe amount"),
+            final_end,
+        }
+        trimmed_end = clause.end
+        while trimmed_end > cuts[1] and source_text[trimmed_end - 1].isspace():
+            trimmed_end -= 1
+        first_coordinate = matching[0][0][0]
+        earliest_start = first_coordinate
+        while earliest_start > 0 and source_text[earliest_start - 1].isspace():
+            earliest_start -= 1
+        instruction_start = matching[0][0][1]
+        while instruction_start < cuts[1] and source_text[instruction_start].isspace():
+            instruction_start += 1
+        admissible_starts = set(range(earliest_start, first_coordinate + 1)) | set(
+            range(matching[0][0][1], instruction_start + 1)
+        )
+        if (
+            len(groups) != 1
+            or clause.start not in admissible_starts
+            or trimmed_end not in operation_ends
+        ):
+            return (clause,)
+    else:
+        transfer = re.fullmatch(transfer_pattern, source_text[final_end : clause.end])
     if transfer is None:
         return (clause,)
     # Match this calculation's output, not an arbitrary earlier heading that
@@ -15171,6 +15215,7 @@ def _opaque_same_source_condition_input_issues(
     branches: Sequence[SourceStructureBranch],
     principal_rules: Mapping[str, dict[str, Any]],
     corpus_citation_path: str,
+    certified_paths: Any = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -15577,6 +15622,14 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        certified_paths is not None
+                        and not ambiguous
+                        and certified_paths.owns_condition(
+                            rule_name, clause.start, clause.end, start, end
+                        )
+                    ):
+                        continue
                     gates = source_clause_gates(clause)
                     if len(gates) < 2:
                         continue
@@ -16488,6 +16541,7 @@ def _companion_test_issues(
     represented_annual_spans: set[tuple[int, int]] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
+    certified_paths: Any = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -16727,6 +16781,7 @@ def _companion_test_issues(
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
+            certified_paths=certified_paths,
             source_text=source_text,
             input_declarations=input_declarations,
             formula_environment=formula_environment,
@@ -25953,6 +26008,7 @@ def _unwitnessed_exception_branches(
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     toggled_exception_selectors: set[_ExceptionWitness],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    certified_paths: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
     candidate_witnesses = {
         branch: _exception_witnesses_for_branch(
@@ -25988,6 +26044,19 @@ def _unwitnessed_exception_branches(
                 )
                 if evidence is not None and evidence.annual_span is not None:
                     represented_annual_spans.add(evidence.annual_span)
+    # New operation evidence cannot retroactively authorize annual evidence
+    # from an otherwise unmatched legacy witness. Annual activation is separate.
+    if certified_paths is not None:
+        missing = tuple(
+            branch
+            for branch in missing
+            if not certified_paths.owns_exception(
+                branch.start,
+                branch.end,
+                source_text=source_text,
+                principal_rules=principal_rules,
+            )
+        )
     return missing
 
 
