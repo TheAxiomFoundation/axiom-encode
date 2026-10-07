@@ -8,11 +8,24 @@ from pathlib import Path
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
+from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import validator_pipeline as vp
 
 FIXTURE = Path(__file__).parent / "fixtures/source_completeness/irs_rev_proc_2025_32"
 CITATION = "us/guidance/irs/rev-proc-2025-32/page-14"
+DOCUMENT = "policies/irs/rev-proc-2025-32"
+THRESHOLD_EXPORTS = (
+    f"us:{DOCUMENT}/page-15#earned_income_credit_phaseout_threshold_joint_amount",
+    f"us:{DOCUMENT}/page-15#earned_income_credit_phaseout_threshold_other_amount",
+)
+BEHAVIOR_EXPORTS = (
+    "us:statutes/26/32#eitc_phase_out_income",
+    "us:statutes/26/32#eitc_phase_out_start",
+    "us:statutes/26/32#eitc_reduction",
+)
 
 
 def _candidate():
@@ -224,3 +237,120 @@ def test_unrelated_condition_within_a_definition_sentence_is_not_deferred(evalua
 def test_conflicting_explicit_major_section_is_not_deferred(evaluate, heading):
     _, _, source = _candidate()
     assert _paired(evaluate(source_text=heading + " " + source))
+
+
+def test_threshold_only_exports_cannot_defer_maximum_income_definitions(tmp_path):
+    """Replay the review's canonical checkout with the real static resolver."""
+    payload, cases, source = _candidate()
+    root = tmp_path / "rulespec-us" / "us"
+    page = root / DOCUMENT / "page-15.yaml"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "rules": [
+                    {
+                        "name": name,
+                        "kind": "parameter",
+                        "dtype": "Money",
+                        "unit": "USD",
+                        "versions": [
+                            {"effective_from": "2026-01-01", "formula": "20000"}
+                        ],
+                    }
+                    for name in (
+                        "earned_income_credit_earned_income_amount",
+                        *(target.partition("#")[2] for target in THRESHOLD_EXPORTS),
+                    )
+                ],
+            }
+        )
+    )
+    statute = root / "statutes" / "26" / "32.yaml"
+    statute.parent.mkdir(parents=True)
+    statute.write_text(
+        yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "rules": [{"name": "eitc_phased_in", "kind": "derived"}],
+            }
+        )
+    )
+    for record in payload["module"]["deferred_outputs"]:
+        if record["output"].partition("#")[2] in {
+            "threshold_phaseout_amount_definition",
+            "completed_phaseout_amount_definition",
+        }:
+            record["blocked_by"] = list(THRESHOLD_EXPORTS)
+    content = yaml.safe_dump(payload)
+    candidate_file = root / DOCUMENT / "child-tax-credit.yaml"
+    candidate_file.write_text(content)
+    pipeline = vp.ValidatorPipeline(
+        axiom_rules_path=root,
+        policy_repo_path=root,
+        local_corpus_release=None,
+        enable_oracles=False,
+        source_citation_path=CITATION,
+        require_complete_source_unit=True,
+    )
+    resolved = pipeline._complete_source_unit_deferred_outputs(content, candidate_file)
+    assert set(THRESHOLD_EXPORTS) <= set(resolved)
+    assert not set(BEHAVIOR_EXPORTS) & set(resolved)
+    issues = " ".join(
+        _paired(
+            pipeline._complete_source_unit_issues(
+                content,
+                validation_source_texts={CITATION: source},
+                test_cases=cases,
+                rules_file=candidate_file,
+            )
+        )
+    )
+    assert '"threshold phaseout amount"' in issues
+    assert '"completed phaseout amount"' in issues
+
+
+def test_resolved_behavior_exports_cannot_be_parameters(evaluate):
+    def replace_behavior_with_constant(content):
+        provider = json.loads(content)
+        rule = provider["rules"][0]
+        if rule["name"].startswith("eitc_"):
+            rule["kind"] = "parameter"
+        return json.dumps(provider)
+
+    issues = " ".join(
+        _paired(evaluate(provider_content=replace_behavior_with_constant))
+    )
+    assert '"threshold phaseout amount"' in issues
+    assert '"completed phaseout amount"' in issues
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    definition=st.sampled_from(["threshold", "completed"]),
+    targets=st.sets(
+        st.sampled_from((*BEHAVIOR_EXPORTS, *THRESHOLD_EXPORTS)), min_size=1
+    ),
+)
+def test_definition_deferral_requires_all_its_specific_exports(definition, targets):
+    payload, _, source = _candidate()
+    record = next(
+        record
+        for record in payload["module"]["deferred_outputs"]
+        if record["output"].endswith(f"#{definition}_phaseout_amount_definition")
+    )
+    record["blocked_by"] = sorted(targets)
+    clauses = sc._resolved_definition_deferral_clauses(
+        record,
+        payload=payload,
+        corpus_citation_path=CITATION,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=CITATION),
+        resolved_dependency_outputs=sorted(targets),
+    )
+    required = {
+        BEHAVIOR_EXPORTS[0],
+        BEHAVIOR_EXPORTS[1 if definition == "threshold" else 2],
+    }
+    assert bool(clauses) == (required <= targets)

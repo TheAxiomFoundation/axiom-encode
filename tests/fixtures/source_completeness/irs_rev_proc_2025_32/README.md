@@ -5,9 +5,9 @@ These fixtures preserve the supervised encoder's final rejected candidates for
 The RuleSpec YAML, test YAML, and `issues.json` files are copied verbatim from the
 supplied run artifacts; they are regression evidence, not hand-authored modules.
 
-- `precise_deferral/`: artifact `36174590343`, encoder `0.2.2049`, from
+- `precise_deferral/`: [workflow run `36174590343`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36174590343), encoder `0.2.2049`, from
   `generated/target/final-rejected-candidate/policies/irs/rev-proc-2025-32/child-tax-credit{,.test}.yaml`.
-- `max_formula/`: artifact `36072174559`, encoder `0.2.2046`, from the same relative paths.
+- `max_formula/`: [workflow run `36072174559`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36072174559), encoder `0.2.2046`, from the same relative paths.
 - `page-14.json`: the complete corpus record with citation path
   `us/guidance/irs/rev-proc-2025-32/page-14`, extracted from
   `data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl`.

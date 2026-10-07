@@ -5815,10 +5815,28 @@ def _deferred_coverage(
     return covered, issues
 
 
-def _definition_words(text: str) -> set[str]:
-    normalized = re.sub(r"[^a-z0-9]+", " ", text.lower())
-    normalized = re.sub(r"\bphase out\b", "phaseout", normalized)
-    return set(normalized.split()) - {"the", "amount", "definition", "income", "credit"}
+# The resolver authenticates these exact known interfaces. Shared words in an
+# export name cannot establish that it implements a particular definition.
+_IRS_REV_PROC_2025_32_DEFINITION_EXPORTS = {
+    "earned_income_amount_definition": (
+        "us:statutes/26/32#eitc_phased_in",
+        "us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_earned_income_amount",
+    ),
+    "threshold_phaseout_amount_definition": (
+        "us:statutes/26/32#eitc_phase_out_income",
+        "us:statutes/26/32#eitc_phase_out_start",
+    ),
+    "completed_phaseout_amount_definition": (
+        "us:statutes/26/32#eitc_phase_out_income",
+        "us:statutes/26/32#eitc_reduction",
+    ),
+}
+_IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS = frozenset(
+    target
+    for targets in _IRS_REV_PROC_2025_32_DEFINITION_EXPORTS.values()
+    for target in targets
+    if target.startswith("us:statutes/")
+)
 
 
 def _resolved_definition_deferral_clauses(
@@ -5934,12 +5952,17 @@ def _resolved_definition_deferral_clauses(
             rf"\bdefines\s+the\s+{re.escape(term)}\s+term\b", reason, re.I
         ):
             continue
-        # Sharing a statute number alone does not connect an unrelated upstream
-        # output to this definition. At least one exact export must name its term.
-        if not any(
-            _definition_words(term) & _definition_words(target.partition("#")[2])
-            for target in targets
-        ):
+        # This mapping belongs to the authenticated page/paragraph, not to
+        # candidate metadata. Both the income base and the definition's own
+        # start/reduction export are required; table constants cannot substitute
+        # for those derived interfaces.
+        required_exports = (
+            _IRS_REV_PROC_2025_32_DEFINITION_EXPORTS.get(symbol)
+            if corpus_citation_path == "us/guidance/irs/rev-proc-2025-32/page-14"
+            and owner.path == ("06", "1")
+            else None
+        )
+        if not required_exports or not set(required_exports) <= set(targets):
             continue
         clauses.append(
             SourceStructureBranch(
@@ -25147,6 +25170,12 @@ def _exception_witnesses_for_branch(
     toggled_exception_selectors: set[_ExceptionWitness],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> set[_ExceptionWitness]:
+    # Neither a numeric operand switch nor a named Judgment selector proves
+    # an independent condition combined with the greater-alternative clause.
+    if re.search(r"\(\s*or\s*,\s*if\s+greater\s*,", branch.text, re.I) and not (
+        _source_has_greater_alternative_condition(branch.text)
+    ):
+        return set()
     affecting_rules = {
         rule_name
         for rule_name, paths in principal_rule_paths.items()
@@ -26262,6 +26291,10 @@ def _numeric_exception_witness_matches_source(
 ) -> bool:
     source_text = _collapse_text(_strip_source_clause_marker(branch.text)).lower()
     if re.search(r"\(\s*or\s*,\s*if\s+greater\s*,", source_text):
+        # Maximum evidence accounts only for its isolated operand comparison;
+        # an independent source condition must retain its witness obligation.
+        if not _source_has_greater_alternative_condition(source_text):
+            return False
         # This condition compares the two income operands, not either income
         # with the phaseout threshold.  Ordinary threshold crossings cannot
         # demonstrate which operand of max() controls the principal output.

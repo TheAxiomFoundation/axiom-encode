@@ -138,6 +138,7 @@ from .proof_validator import (
     validate_rulespec_proofs,
 )
 from .source_completeness import (
+    _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     source_states_stated_conversion_result,
@@ -35009,12 +35010,15 @@ class ValidatorPipeline:
                     for rule in rules
                     if isinstance(rule, dict) and rule.get("name") == symbol
                 ]
-                if len(exports) == 1 and exports[0].get("kind") in {
-                    "parameter",
-                    "derived",
-                    "relation",
-                    "derived_relation",
-                }:
+                # Known behavioral interfaces must remain derived outputs:
+                # a same-name parameter cannot implement income selection or
+                # phaseout behavior. Table amount exports may be parameters.
+                allowed_kinds = (
+                    {"derived"}
+                    if target in _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS
+                    else {"parameter", "derived", "relation", "derived_relation"}
+                )
+                if len(exports) == 1 and exports[0].get("kind") in allowed_kinds:
                     resolved.append(target)
             except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
                 continue

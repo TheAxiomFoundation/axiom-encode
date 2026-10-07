@@ -80,10 +80,10 @@ def _binding_pair(rule_name, threshold_name, threshold, *, named=False):
     return [ordinary, alternative]
 
 
-def _paired_issues(payload, cases):
+def _paired_issues(payload, cases, *, source=None):
     result = sc.analyze_complete_source_unit(
         yaml.safe_dump(payload),
-        json.loads((FIXTURE / "page-14.json").read_text())["body"],
+        source or json.loads((FIXTURE / "page-14.json").read_text())["body"],
         corpus_citation_path=CITATION,
         test_cases=cases,
         extract_numeric_occurrences=EXTRACT,
@@ -123,6 +123,75 @@ def test_real_candidate_accepts_pairs_switching_the_max_operand(
     assert not _paired_issues(payload, cases)
 
 
+def test_max_operand_pairs_do_not_cover_an_independent_residency_condition():
+    payload, cases = _candidate()
+    for name, threshold_name, threshold, _ in OUTPUTS:
+        cases.extend(_binding_pair(name, threshold_name, threshold))
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    assert not _paired_issues(payload, cases, source=source)
+    source = source.replace(
+        "above which the maximum amount of the credit begins to phase out.",
+        "above which the maximum amount of the credit begins to phase out, "
+        "and only when the applicant is resident.",
+    )
+    assert "resident" not in yaml.safe_dump(payload)
+    assert "resident" not in yaml.safe_dump(cases)
+    assert _paired_issues(payload, cases, source=source)
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    threshold=st.integers(min_value=10, max_value=1_000_000),
+    reverse_arguments=st.booleans(),
+    condition=st.sampled_from(
+        [
+            ", and only when the applicant is resident",
+            ", but only if the applicant is resident",
+            ", unless the applicant is nonresident",
+        ]
+    ),
+)
+def test_max_witness_credit_is_limited_to_its_isolated_condition(
+    threshold, reverse_arguments, condition
+):
+    payload, _ = _candidate()
+    name, threshold_name, _, _ = OUTPUTS[0]
+    rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+    if reverse_arguments:
+        rule["versions"][0]["formula"] = rule["versions"][0]["formula"].replace(
+            "max(adjusted_gross_income, earned_income)",
+            "max(earned_income, adjusted_gross_income)",
+        )
+    pair = _binding_pair(name, threshold_name, threshold)
+    source = next(
+        atom["source"]["excerpt"]
+        for atom in rule["metadata"]["proof"]["atoms"]
+        if atom["path"] == "versions[0].formula"
+    )
+    witnesses = sc._toggled_formula_boolean_selectors(
+        {name: rule}, asserted_by_rule={name: pair}, formula_environment={}
+    )
+    branch = sc.SourceStructureBranch(
+        (), "exception-clause", "source unit", source, 0, len(source)
+    )
+    assert any(
+        sc._numeric_exception_witness_matches_source(
+            branch, witness, extract_numeric_occurrences=EXTRACT
+        )
+        for witness in witnesses
+    )
+    mixed_source = source.rstrip(".") + condition + "."
+    mixed = sc.SourceStructureBranch(
+        (), "exception-clause", "source unit", mixed_source, 0, len(mixed_source)
+    )
+    assert not any(
+        sc._numeric_exception_witness_matches_source(
+            mixed, witness, extract_numeric_occurrences=EXTRACT
+        )
+        for witness in witnesses
+    )
+
+
 def test_real_candidate_named_judgment_selector_survives_auto_repair(tmp_path):
     payload, cases = _candidate()
     payload["inputs"].append(
@@ -143,6 +212,37 @@ def test_real_candidate_named_judgment_selector_survives_auto_repair(tmp_path):
     }
     repaired = yaml.safe_load(rules_file.read_text())
     assert not _paired_issues(repaired, cases)
+
+
+def test_named_max_selector_cannot_cover_an_independent_condition(tmp_path):
+    payload, cases = _candidate()
+    payload["inputs"].append(
+        {"name": SELECTOR, "entity": "TaxUnit", "dtype": "Judgment", "period": "Year"}
+    )
+    for name, threshold_name, threshold, comparison in OUTPUTS:
+        rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+        rule["versions"][0]["formula"] = (
+            f"if {SELECTOR}: earned_income {comparison} {threshold_name} "
+            f"else: adjusted_gross_income {comparison} {threshold_name}"
+        )
+        cases = [case for case in cases if REFERENCE + name not in case["output"]]
+        cases.extend(_binding_pair(name, threshold_name, threshold, named=True))
+    rules_file = tmp_path / "candidate.yaml"
+    rules_file.write_text(yaml.safe_dump(payload))
+    assert set(_rewrite_judgment_conditional_formulas(rules_file)) == {
+        item[0] for item in OUTPUTS
+    }
+    repaired = yaml.safe_load(rules_file.read_text())
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    assert not _paired_issues(repaired, cases, source=source)
+    source = source.replace(
+        "above which the maximum amount of the credit begins to phase out.",
+        "above which the maximum amount of the credit begins to phase out, "
+        "and only when the applicant is resident.",
+    )
+    assert "resident" not in yaml.safe_dump(repaired)
+    assert "resident" not in yaml.safe_dump(cases)
+    assert _paired_issues(repaired, cases, source=source)
 
 
 @pytest.mark.parametrize(
