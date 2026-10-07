@@ -13683,6 +13683,49 @@ def _without_completed_chart_result_label(body: str, source_text: str) -> str:
     return body
 
 
+def _without_worksheet_imperative_consequent(body: str) -> str:
+    """Separate a bounded worksheet command from its factual antecedent."""
+
+    command = r"(?:do the calculation|perform the calculation|calculate|enter|carry|add|subtract|multiply|divide|complete)\b"
+    quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', body))
+    depth = 0
+    for index, character in enumerate(body):
+        if any(q.start() <= index < q.end() for q in quoted):
+            continue
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth = max(0, depth - 1)
+        elif character == "," and depth == 0 and body[:index].strip():
+            consequent = body[index + 1 :].strip()
+            if not re.match(command, consequent, re.IGNORECASE):
+                continue
+            # Unresolved nested conditions and declarative continuations still
+            # belong to the conservative scan. Commands do not establish facts.
+            if re.search(
+                r"\b(?:if|when|whenever|while|where|wherever|until|unless|except|"
+                r"provided|who|whose|which|that|before|after|once|because|only|"
+                r"assuming|subject|contingent|conditional|dependent|"
+                r"as\s+(?:long|soon)\s+as|on\s+condition|"
+                r"is|are|was|were|has|have|had|"
+                r"must|shall|eligible|entitled)\b|[\"“”]|[.!?].*\S",
+                consequent,
+                re.IGNORECASE | re.DOTALL,
+            ):
+                continue
+            if _source_gate_semantic_tokens(consequent) & (
+                _SOURCE_GATE_NOMINAL_PREDICATES
+                | _SOURCE_GATE_POLARITY_PREDICATES
+                | _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES
+                | {"disabled", "employed", "citizen"}
+            ):
+                continue
+            parts = re.split(r"\b(?:and|or)\b", consequent, flags=re.IGNORECASE)
+            if all(re.match(command, part.strip(), re.IGNORECASE) for part in parts):
+                return body[:index]
+    return body
+
+
 def _source_conjunctive_fact_gates(
     text: str,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
@@ -13741,6 +13784,7 @@ def _source_conjunctive_fact_gates(
     # source, so flattened-list truncation must happen afterward.
     body = _without_flattened_pdf_alternative_list(body)
     body = _without_completed_chart_result_label(body, text)
+    body = _without_worksheet_imperative_consequent(body)
     segments = _source_gate_split_conjunctive_conditions(body)
     if len(segments) < 2:
         return ()
@@ -13879,9 +13923,27 @@ def _work_chart_heading_starts(text: str) -> tuple[int, ...]:
     return tuple(starts)
 
 
+def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
+    """Separate complete prose from a structured PDF publication header."""
+
+    headers = re.finditer(
+        r"[.!?](?P<gap>[ \t]*\r?\n[ \t]*\r?\n[ \t]*)"
+        r"[1-9]\d{0,3}[ \t]+\d{4}[ \t]+[–—-][ \t]+"
+        r"[A-Z]{2,}(?:-[A-Z0-9]+)+(?=[ \t]|\r?\n|$)",
+        text,
+    )
+    quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', text))
+    return tuple(
+        match.start("gap")
+        for match in headers
+        if not any(q.start() <= match.start() < q.end() for q in quoted)
+    )
+
+
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
+    boundaries.extend(_printed_page_header_boundaries(text))
     boundaries.extend(
         match.end()
         for match in re.finditer(
@@ -16728,6 +16790,7 @@ def _source_clause_spans(
         0,
         len(source_text),
         *_work_chart_heading_starts(source_text),
+        *_printed_page_header_boundaries(source_text),
         *(
             point
             for span in _spaced_german_sentence_label_spans(source_text)
