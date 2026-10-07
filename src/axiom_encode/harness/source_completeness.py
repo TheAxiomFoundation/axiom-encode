@@ -13010,15 +13010,28 @@ def _partition_condition_clause_at_rows(
 
 
 _RECALL_ENGLISH_REFERENCE_TARGET = (
-    r"\d+(?:\.\d+)*[A-Za-z]*(?:\([A-Za-z0-9]+\))*"
+    # Three-part US section identifiers are complete locators, rather than
+    # implicit bare range continuations (e.g. Alabama Section 40-18-2).
+    r"(?:\d+(?:\.\d+)*(?:-\d+(?:\.\d+)*){2,}|\d+(?:\.\d+)*)"
+    r"[A-Za-z]*(?:\([A-Za-z0-9]+\))*"
     r"(?![\w]|\.\d)"
 )
 _RECALL_COMPLETE_ENGLISH_REFERENCE = re.compile(
-    r"\b(?:sections?|subsections?|sub-paragraphs?|paragraphs?|regulations?)\s+"
+    r"\b(?:articles?|sections?|secs?\.?|subsections?|sub-paragraphs?|"
+    r"paragraphs?|regulations?)\s+(?P<target>"
     + _RECALL_ENGLISH_REFERENCE_TARGET
-    + r"(?:\s*(?:through|to|and|,|[-–—])\s*"
+    + r")",
+    re.IGNORECASE,
+)
+# An unintroduced bare numeral after a reference can be an operative quantity,
+# with or without a unit. Only an integer with a single-letter suffix or
+# subdivision authenticates an implicit sibling. Bare, dotted and word-like
+# targets are ambiguous quantities and stay in recall.
+_RECALL_ENGLISH_REFERENCE_CONTINUATION = re.compile(
+    r"\s*(?:through|to|and|or|,|[-–—])\s*"
+    r"(?=\d+(?:[A-Za-z](?![A-Za-z])|\())(?P<target>"
     + _RECALL_ENGLISH_REFERENCE_TARGET
-    + r")*",
+    + r")",
     re.IGNORECASE,
 )
 # Preserve amounts carrying known currency tokens even where the numeric
@@ -13028,10 +13041,11 @@ _RECALL_CURRENCY_MARKER_FRAGMENT = (
 )
 _RECALL_QUANTITY_SUFFIX = re.compile(
     rf"\s*(?:%|{_RECALL_CURRENCY_MARKER_FRAGMENT}|percent\b|percentage\b|"
-    r"days?\b|weeks?\b|months?\b|years?\b|people\b|persons?\b|children\b|"
-    r"[-–]year\b|[.,]\d)",
+    r"pence\b|days?\b|weeks?\b|months?\b|years?\b|people\b|persons?\b|children\b|"
+    r"[-–]year\b)",
     re.IGNORECASE,
 )
+_RECALL_NUMERIC_ENVELOPE_SUFFIX = re.compile(r",\d{3}(?![\w(])|\.\d")
 _RECALL_QUANTITY_PREFIX = re.compile(
     rf"(?:{_RECALL_CURRENCY_MARKER_FRAGMENT}|[₪₩₽₺₴₦₵¢￠]|"
     r"(?-i:\b[A-Z]{3})|\d[\s.,_]*|[+\-−*/×÷^])\s*$",
@@ -13093,20 +13107,61 @@ def _additional_numeric_recall_spans(
     encoding. Mask only their own spans so equal operative amounts survive.
     """
 
-    def is_quantity(match: re.Match[str]) -> bool:
+    def is_quantity(match: re.Match[str], *, check_prefix: bool = True) -> bool:
+        target = match.groupdict().get("target")
         return bool(
             _RECALL_QUANTITY_SUFFIX.match(text, match.end())
-            or _RECALL_QUANTITY_PREFIX.search(text[: match.start()])
-            # A citation recognizer must never take the suffix of a decimal,
-            # grouped amount, signed amount or larger identifier.
-            or (match.start() > 0 and text[match.start() - 1] in ".,0123456789_+-−")
+            # Letter suffixes can be units inside the apparent target, even
+            # before an annotation: `100EUR(1)` is still an amount.
+            or (
+                target is not None
+                and any(
+                    _RECALL_QUANTITY_SUFFIX.match(target, number.end())
+                    for number in re.finditer(r"\d+(?:\.\d+)*", target)
+                )
+            )
+            # A comma after `7C` or `2(1)` starts a new token, even without
+            # whitespace. After a digit it can continue the numeric envelope.
+            or (
+                text[match.end() - 1].isdigit()
+                and (target is None or re.fullmatch(r"\d+(?:\.\d+)?", target))
+                and _RECALL_NUMERIC_ENVELOPE_SUFFIX.match(text, match.end())
+            )
+            or (
+                check_prefix
+                and (
+                    _RECALL_QUANTITY_PREFIX.search(text[: match.start()])
+                    # Never take the suffix of a numeric envelope/identifier.
+                    or (
+                        match.start() > 0
+                        and text[match.start() - 1] in ".,0123456789_+-−"
+                    )
+                )
+            )
         )
 
-    spans = [
-        match.span()
-        for match in _RECALL_COMPLETE_ENGLISH_REFERENCE.finditer(text)
-        if not is_quantity(match)
-    ]
+    spans: list[tuple[int, int]] = []
+    for match in _RECALL_COMPLETE_ENGLISH_REFERENCE.finditer(text):
+        if is_quantity(match):
+            # Keep the entire quantity, but remove its apparent introducer so
+            # the extractor's own structural-reference pass cannot erase it.
+            spans.append((match.start(), match.start("target")))
+            continue
+        end = match.end()
+        while continuation := _RECALL_ENGLISH_REFERENCE_CONTINUATION.match(text, end):
+            # Its separator and target morphology authenticate the prefix;
+            # a preceding citation number is not an operative numeric prefix.
+            if is_quantity(continuation, check_prefix=False):
+                break
+            end = continuation.end()
+        # A citation's comma/en/em dash is outside the retained numeric
+        # envelope. Mask it too so every profile sees a clean token boundary;
+        # commas inside the quantity stay intact. Keep punctuation before a
+        # signed amount: it authenticates the sign as unary in strict profiles.
+        separator = re.match(r"[ \t]*[,–—][ \t]*(?=\d|\.\d)", text[end:])
+        if separator is not None:
+            end += separator.end()
+        spans.append((match.start(), end))
     if corpus_citation_path.startswith(("uk/statute/", "uk/regulation/")):
         for match in _RECALL_UK_LEGAL_YEAR.finditer(text):
             if not is_quantity(match):
@@ -13269,15 +13324,6 @@ def authoritative_numeric_recall_text(
         ),
         cleaned,
     )
-    # Footnote authentication above needs its section citations intact. Only
-    # mask complete references after those linked definitions are recognized,
-    # and before the older partial-reference cleanup can leave numeric tails.
-    cleaned = _mask_numeric_spans(
-        cleaned,
-        _additional_numeric_recall_spans(
-            cleaned, corpus_citation_path=corpus_citation_path
-        ),
-    )
     cleaned = re.sub(
         r"\b\d{1,6}\s+[A-Z][A-Za-z.'’-]*(?:\s+[A-Z][A-Za-z.'’-]*){0,4}\s+"
         r"(?:Avenue|Boulevard|Center|Drive|Lane|Place|Plaza|Road|Street|Way)\b"
@@ -13320,7 +13366,17 @@ def authoritative_numeric_recall_text(
     cleaned = _BFH_DECISION_NUMERIC_RECALL_CITATION.sub("", cleaned)
     cleaned = _GERMAN_LEGAL_CITATION.sub("", cleaned)
     cleaned = _TITLE_SUFFIX_LEGAL_CITATION.sub("", cleaned)
-    cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
+    # Footnote authentication, manual heading checks and specialized citation
+    # cleaners need the complete references intact. Masking them first can
+    # create a fresh title-case amount row or clip an authenticated identifier.
+    cleaned = _mask_numeric_spans(
+        cleaned,
+        _additional_numeric_recall_spans(
+            cleaned, corpus_citation_path=corpus_citation_path
+        ),
+    )
+    # Do not run the older English list regex here: it would reconsume any
+    # operative numerals deliberately left intact by the conservative mask.
     cleaned = _STRUCTURAL_REFERENCE.sub("", cleaned)
     cleaned = re.sub(
         r"(?m)^[ \t]*\((?:\d+[a-z]?|[a-z])\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?",
@@ -31600,7 +31656,9 @@ def _source_boundary_is_nonoperative_guidance_definition(
             flags=re.IGNORECASE,
         )
         and re.search(
-            r"\bunder\s+\([a-z]\)\(\d+\)\s+of\s+the\s+INA\s+for\s+a\s+"
+            # Complete citation masking leaves no subdivision residue; the
+            # older partial cleaner left `(d)(5)`. Accept either rendering.
+            r"\bunder\s+(?:\([a-z]\)\(\d+\)\s+)?of\s+the\s+INA\s+for\s+a\s+"
             r"period\s+of\s+at\s+least\s+\d+(?:\.\d+)?\s+years?\b",
             collapsed,
             flags=re.IGNORECASE,

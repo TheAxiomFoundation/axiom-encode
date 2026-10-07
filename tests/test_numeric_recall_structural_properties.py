@@ -13,8 +13,10 @@ import random
 import pytest
 
 from axiom_encode.harness.source_completeness import (
+    SourceStructureBranch,
     _additional_numeric_recall_spans,
     _analyze_rulespec_payload,
+    _source_boundary_obligations,
     authoritative_numeric_recall_text,
 )
 from axiom_encode.harness.validator_pipeline import (
@@ -26,6 +28,57 @@ from axiom_encode.harness.validator_pipeline import (
 UK = "uk/regulation/uksi/2002/1792/schedule/IIA"
 US = "us/statute/26/7701"
 PROFILES = ("legacy", "en-US", "en-GB")
+GLUED_RECALL_QUANTITIES = (
+    "100EUR",
+    "100eur",
+    "100pence",
+    "100PENCE",
+    "100EUR(1)",
+    "100eur(1)",
+    "100.5pence",
+    "1.100EUR",
+    "1.100pence",
+    "100.5ha",
+    "100.5km",
+    "100.5m",
+    "100.5h",
+    "100.5x",
+    "100.5C",
+)
+# The citation recognizer must stop before each operative amount, including
+# unfamiliar units and a bare threshold that has no unit to whitelist.
+ADJACENT_QUANTITIES = (
+    ("section 7C", "35 per cent of earnings is disregarded.", (0.35,), (35,)),
+    ("subsection 7", "35 per centum of earnings is disregarded.", (0.35,), (35,)),
+    ("section 7C", "100 pence is the maximum weekly payment.", (1,), (100,)),
+    ("paragraph 2(1)", "100 pence is the maximum weekly payment.", (1,), (100,)),
+    ("section 7C", "100,000 is the maximum annual income.", (100000,), (100000,)),
+    (
+        "section 7C",
+        "100,000 or 150,000 is the annual income limit.",
+        (100000, 150000),
+        (100000, 150000),
+    ),
+    (
+        "paragraph 2(1)",
+        "250 basis points is the maximum adjustment.",
+        (250,),
+        (250,),
+    ),
+    ("section 7C", "18 hours is the maximum permitted duration.", (18,), (18,)),
+    ("section 7C", "60 minutes is the minimum required duration.", (60,), (60,)),
+    ("section 7C", "100 cents is the maximum weekly payment.", (100,), (100,)),
+    ("section 7C", "100 households may participate in the pilot.", (100,), (100,)),
+    ("section 7C", "17.5 metres is the maximum permitted height.", (17.5,), (17.5,)),
+    ("section 7C", "1,000 people may participate in the pilot.", (1000,), (1000,)),
+    (
+        "sections 7C and 8C",
+        "35 per cent of earnings is disregarded.",
+        (0.35,),
+        (35,),
+    ),
+    ("section 7", "100,000 is the maximum annual income.", (100000,), (100000,)),
+)
 STRUCTURES = (
     (UK, "General {n} This Schedule applies."),
     (UK, "{n}) An individual is eligible."),
@@ -74,6 +127,319 @@ def _recall_issues(source: str, citation: str, profile: str, values=(), module=N
         imported_symbol_contents=(),
     )
     return [issue for issue in analysis.issues if ":numeric-recall]" in issue]
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize(
+    "quantity,value", (("1 year", 1), ("2 years", 2), ("1.5 years", 1.5))
+)
+def test_citation_then_duration_distinguishes_glossary_from_operative_sentence(
+    profile, quantity, value
+):
+    tail = (
+        "into the U.S. under section 212(d)(5) of the INA "
+        f"for a period of at least {quantity}"
+    )
+    for source, expected in (
+        (f"Parolees Paroled {tail}.", []),
+        (f"A parolee is eligible if paroled {tail}.", [(value, str(value))]),
+        (
+            f"Parolees Paroled {tail} and applicants receive SNAP benefits "
+            "if they are citizens.",
+            [(value, str(value))],
+        ),
+    ):
+        assert [(item.value, item.raw) for item in _inventory(source, US, profile)] == [
+            (value, str(value))
+        ], source
+        root = SourceStructureBranch(
+            (), "source-unit", "source unit", source, 0, len(source)
+        )
+        obligations = _source_boundary_obligations(
+            (root,),
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+            ),
+        )
+        assert [
+            (occurrence.value, occurrence.raw) for _branch, occurrence in obligations
+        ] == expected, source
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("gate", ("missing", "present"))
+@pytest.mark.parametrize(
+    "reference,quantity,legacy_values,locale_values,separator",
+    [
+        (*case, separator)
+        for case in ADJACENT_QUANTITIES
+        for separator in (", ", ",")
+        # A suffix/subdivision separates the citation from a following
+        # no-space comma quantity. A bare target could itself be grouped.
+        if separator != "," or not case[0][-1].isdigit()
+    ],
+)
+def test_adjacent_citation_quantities_keep_their_production_recall_gate(
+    reference, quantity, legacy_values, locale_values, profile, gate, separator
+):
+    source = f"Under {reference}{separator}{quantity}"
+    values = legacy_values if profile == "legacy" else locale_values
+    occurrences = _inventory(source, UK, profile)
+    assert tuple(item.value for item in occurrences) == values, (source, occurrences)
+    if gate == "present":
+        assert not _recall_issues(source, UK, profile, values), source
+    else:
+        # Each alternative threshold has its own obligation. Recalling only
+        # the other alternatives cannot satisfy the omitted source amount.
+        for missing_index in range(len(values)):
+            recalled = values[:missing_index] + values[missing_index + 1 :]
+            assert _recall_issues(source, UK, profile, recalled), (source, recalled)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (UK, US))
+def test_generated_adjacent_citations_preserve_every_operative_numeric_envelope(
+    citation, profile
+):
+    """Structural labels never waive an adjacent or equal-valued quantity."""
+
+    generator = random.Random(1779)
+    values = (7, 35, 100, *generator.sample(range(2, 999), 8))
+    separators = (", ", ",", " and ", " to ", " through ", "–")
+    units = ("", "widgets", "basis points", "furlongs", "households", "metres")
+    references = ("section {n}", "section {n}C", "paragraph {n}(1)")
+    for index, value in enumerate(values):
+        reference = references[index % len(references)].format(n=value)
+        for amount, scalar in (
+            (str(value), float(value)),
+            (f"{value},000", float(value * 1000)),
+            (f"{value}.5", value + 0.5),
+        ):
+            unit = units[index % len(units)]
+            quantity = f"{amount} {unit} is the required limit."
+            for separator in separators:
+                if separator == "," and reference[-1].isdigit():
+                    continue
+                source = f"Under {reference}{separator}{quantity}"
+                occurrences = _inventory(source, citation, profile)
+                assert [(item.value, item.raw) for item in occurrences] == [
+                    (scalar, amount)
+                ], (source, occurrences)
+                assert _recall_issues(source, citation, profile), source
+                assert not _recall_issues(source, citation, profile, (scalar,)), source
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (UK, US))
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Under sections 7C and 8C the claimant must qualify.",
+        "Under sections 7C(1), 8C(2) and 9C(3) the claimant must qualify.",
+        "Under sections 7, 8C(2) and 9C(3) the claimant must qualify.",
+        "Under sections 7,100C(2) and 9C(3) the claimant must qualify.",
+        "Under sections 7,100(2) the claimant must qualify.",
+    ),
+)
+def test_complete_multi_target_citations_remain_structural(source, citation, profile):
+    assert not _inventory(source, citation, profile)
+    assert not _recall_issues(source, citation, profile)
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (UK, US))
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Under section\n7C(1)(a) the claimant must qualify.",
+        "Under section\r\n7C(1)(a) the claimant must qualify.",
+        "Under sections\n7C(1)(a) and 8C(2)(b) the claimant must qualify.",
+        "Under sections 7C(1)(a)\nand 8C(2)(b) the claimant must qualify.",
+        "Under sections 7C(1)(a) and\n8C(2)(b) the claimant must qualify.",
+        "Under sections 7C(1)(a),\n8C(2)(b) the claimant must qualify.",
+        "Under sections 7C(1)(a),\r\n8C(2)(b) the claimant must qualify.",
+    ),
+)
+def test_wrapped_qualified_citations_preserve_structural_and_operative_obligations(
+    source, citation, profile
+):
+    assert not _inventory(source, citation, profile)
+    assert not _recall_issues(source, citation, profile)
+    source += "\nThe maximum annual income is 100,000."
+    assert [item.value for item in _inventory(source, citation, profile)] == [100000]
+    assert _recall_issues(source, citation, profile)
+    assert not _recall_issues(source, citation, profile, (100000,))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (UK, US))
+@pytest.mark.parametrize("reference", ("Section 40-18-2", "Section 40-18-2(a)"))
+def test_hyphenated_section_identifier_keeps_its_entire_structural_target(
+    reference, citation, profile
+):
+    structure = f"Under {reference} the claimant must qualify."
+    assert not _inventory(structure, citation, profile)
+    assert not _recall_issues(structure, citation, profile)
+    source = f"Under {reference}, £40 is the required payment."
+    assert [item.value for item in _inventory(source, citation, profile)] == [40]
+    assert _recall_issues(source, citation, profile)
+    assert not _recall_issues(source, citation, profile, (40,))
+    for quantity, value in (("40", 40), ("100,000", 100000)):
+        source = f"Under {reference},{quantity} is the required payment."
+        assert [item.value for item in _inventory(source, citation, profile)] == [value]
+        assert _recall_issues(source, citation, profile)
+        assert not _recall_issues(source, citation, profile, (value,))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("gate", ("missing", "present"))
+def test_grouped_first_target_near_miss_keeps_its_complete_threshold(profile, gate):
+    source = "The section 100,000 is the annual income limit."
+    assert [item.value for item in _inventory(source, UK, profile)] == [100000]
+    if gate == "missing":
+        assert _recall_issues(source, UK, profile)
+    else:
+        assert not _recall_issues(source, UK, profile, (100000,))
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("reference", ("section 7C", "paragraph 2(1)"))
+@pytest.mark.parametrize("separator", (", ", ","))
+@pytest.mark.parametrize("sign", ("-", "−"))
+@pytest.mark.parametrize(
+    "quantity,legacy_value,locale_value",
+    (
+        ("100 pence is the required payment.", -1, -100),
+        ("100,000 is the annual income threshold.", -100000, -100000),
+    ),
+)
+def test_signed_adjacent_quantities_keep_their_profile_recall_obligation(
+    quantity, legacy_value, locale_value, sign, separator, reference, profile
+):
+    source = f"Under {reference}{separator}{sign}{quantity}"
+    value = legacy_value if profile == "legacy" else locale_value
+    # Legacy already normalizes signed pence and mathematical-minus grouped
+    # amounts as positive at the original PR head. Preserve that profile's
+    # existing obligation; citation masking must not introduce another change.
+    if profile == "legacy" and ("pence" in quantity or sign == "−"):
+        value = abs(value)
+    assert [item.value for item in _inventory(f"{sign}{quantity}", UK, profile)] == [
+        value
+    ]
+    assert [item.value for item in _inventory(source, UK, profile)] == [value], source
+    assert _recall_issues(source, UK, profile), source
+    assert _recall_issues(source, UK, profile, (-value,)), source
+    assert not _recall_issues(source, UK, profile, (value,)), source
+
+
+@pytest.mark.parametrize("token", GLUED_RECALL_QUANTITIES)
+@pytest.mark.parametrize("reference", ("section 7C", "paragraph 2(1)"))
+@pytest.mark.parametrize("separator", (", ", ","))
+@pytest.mark.parametrize("gate", ("missing", "present"))
+def test_glued_quantity_units_keep_every_existing_legacy_recall_obligation(
+    token, reference, separator, gate
+):
+    quantity = f"{token} is the limit."
+    baseline = _inventory(f"Under this provision, {quantity}", UK, "legacy")
+    assert baseline, quantity
+    source = f"Under {reference}{separator}{quantity}"
+    actual = _inventory(source, UK, "legacy")
+    assert [(item.value, item.raw) for item in actual] == [
+        (item.value, item.raw) for item in baseline
+    ], source
+    values = tuple(dict.fromkeys(item.value for item in baseline))
+    if gate == "present":
+        assert not _recall_issues(source, UK, "legacy", values), source
+    else:
+        for missing_index in range(len(values)):
+            recalled = values[:missing_index] + values[missing_index + 1 :]
+            assert _recall_issues(source, UK, "legacy", recalled), source
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("token", (*GLUED_RECALL_QUANTITIES, "100pence(1)"))
+@pytest.mark.parametrize("reference", ("section 7C", "paragraph 2(1)"))
+@pytest.mark.parametrize("separator", (", ", ","))
+def test_glued_quantity_units_are_outside_citation_spans(
+    token, reference, separator, profile
+):
+    # Strict profiles and annotated pence do not yet promise extraction of
+    # glued units. The citation mask must still leave the source token intact.
+    prefix = f"Under {reference}{separator}"
+    source = f"{prefix}{token} is the limit."
+    start, end = len(prefix), len(prefix) + len(token)
+    assert all(
+        span_end <= start or end <= span_start
+        for span_start, span_end in _additional_numeric_recall_spans(
+            source, corpus_citation_path=UK
+        )
+    ), source
+    cleaned = authoritative_numeric_recall_text(source, corpus_citation_path=UK)
+    baseline_source = f"Under this provision, {token} is the limit."
+    baseline_text = authoritative_numeric_recall_text(
+        baseline_source, corpus_citation_path=UK
+    )
+    if token in baseline_text:
+        assert token in cleaned, source
+    # Compare with this profile's existing quantity inventory, including an
+    # empty inventory when it does not support this glued lexical form.
+    assert [(item.value, item.raw) for item in _inventory(source, UK, profile)] == [
+        (item.value, item.raw) for item in _inventory(baseline_source, UK, profile)
+    ], source
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+@pytest.mark.parametrize("citation", (UK, US))
+def test_generated_glued_units_cannot_become_implicit_citation_targets(
+    citation, profile
+):
+    generator = random.Random(1779100)
+    values = (7, 35, 100, *generator.sample(range(2, 999), 4))
+    for index, value in enumerate(values):
+        reference = f"section {value}C" if index % 2 else f"paragraph {value}(1)"
+        for unit in ("EUR", "eur", "pence", "PENCE", "ha", "km", "m", "h", "x", "C"):
+            if unit in ("ha", "km", "m", "h", "x", "C"):
+                amounts = (f"{value}.5",)
+            else:
+                amounts = (
+                    str(value),
+                    f"1.{value:03d}" if unit.lower() == "eur" else f"{value}.5",
+                )
+            for amount in amounts:
+                token = f"{amount}{unit}"
+                quantity = f"{token} is the limit."
+                baseline_source = f"Under this provision, {quantity}"
+                baseline = _inventory(baseline_source, citation, profile)
+                baseline_text = authoritative_numeric_recall_text(
+                    baseline_source, corpus_citation_path=citation
+                )
+                for separator in (", ", ","):
+                    prefix = f"Under {reference}{separator}"
+                    source = f"{prefix}{quantity}"
+                    start, end = len(prefix), len(prefix) + len(token)
+                    assert all(
+                        span_end <= start or end <= span_start
+                        for span_start, span_end in _additional_numeric_recall_spans(
+                            source, corpus_citation_path=citation
+                        )
+                    ), source
+                    cleaned = authoritative_numeric_recall_text(
+                        source, corpus_citation_path=citation
+                    )
+                    # Keep the baseline inline too: existing sentence-marker
+                    # cleaning changes some line-initial glued uppercase forms.
+                    if quantity in baseline_text:
+                        assert quantity in cleaned, source
+                    assert [
+                        (item.value, item.raw)
+                        for item in _inventory(source, citation, profile)
+                    ] == [(item.value, item.raw) for item in baseline], source
+                    if profile == "legacy" and baseline:
+                        scalars = tuple(dict.fromkeys(item.value for item in baseline))
+                        assert _recall_issues(source, citation, profile), source
+                        assert not _recall_issues(source, citation, profile, scalars), (
+                            source
+                        )
 
 
 @pytest.mark.parametrize("profile", PROFILES)
