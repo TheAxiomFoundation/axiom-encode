@@ -12771,6 +12771,124 @@ def _corroborated_form_output_label_spans(
     return tuple(spans)
 
 
+def _corroborated_unless_row_ends(source_text: str) -> tuple[int, ...]:
+    """Bound a conditional input row only inside a proven complete worksheet.
+
+    This supplies condition-only partitions, never changes proof ownership or
+    the source used by arithmetic/numeric checks. Unknown or restrictive row
+    tails keep the original conservative condition scan.
+    """
+
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    labels = _corroborated_form_output_label_spans(source_text)
+    ends: list[int] = []
+    for index in range(1, len(labels), 5):
+        start, end = labels[index]
+        row_start = source_text.rfind("\n", 0, start) + 1
+        row = source_text[row_start:end]
+        match = re.fullmatch(
+            r"Enter the amount from line [1-9]\d* of Form [A-Z][A-Z0-9]*, "
+            r"unless (?P<condition>[A-Za-z][A-Za-z \t-]{1,200})\."
+            r"(?:\([1-9]\d?\))?[ \t]+[−–-][ \t]+[1-9]\d?",
+            row,
+        )
+        if match is None or any(a < end and b > row_start for a, b in quoted):
+            continue
+        if re.search(
+            r"\b(?:if|when|whenever|while|where|wherever|until|unless|except|"
+            r"provided|who|whose|which|that|before|after|once|because|only|"
+            r"assuming|subject|contingent|conditional|dependent|"
+            r"as\s+(?:long|soon)\s+as|on\s+condition)\b",
+            match.group("condition"),
+            re.IGNORECASE,
+        ):
+            continue
+        ends.append(end)
+    return tuple(ends)
+
+
+def _partition_condition_clause_at_rows(
+    clause: _SourceConditionClause,
+    *,
+    source_text: str,
+    row_ends: Sequence[int],
+) -> tuple[_SourceConditionClause, ...]:
+    """Retain each side of a proven row boundary as an independent obligation."""
+
+    cuts = [
+        clause.start,
+        *(x for x in row_ends if clause.start < x < clause.end),
+        clause.end,
+    ]
+    if len(cuts) == 2:
+        return (clause,)
+    # The full-layout recognizer owns rows through the final output coordinate,
+    # but not arbitrary prose following that coordinate. Admit only a complete
+    # transfer of that output to the same named monetary field. Any added or
+    # incomplete text keeps the original conservative condition scan.
+    labels = _corroborated_form_output_label_spans(source_text)
+    groups = [labels[index : index + 5] for index in range(0, len(labels), 5)]
+    matching = [group for group in groups if group[1][1] == cuts[1]]
+    if len(cuts) != 3 or len(matching) != 1:
+        return (clause,)
+    # Numeric row recognition intentionally allows broad captions. It cannot
+    # certify that a caption is not a factual restriction. This condition-only
+    # grammar therefore admits the closed monetary operands and operations,
+    # with no arbitrary caption text between the proved row coordinates.
+    a, b, c, d, e = (re.escape(source_text[start:end]) for start, end in matching[0])
+    calculation = (
+        r"\nLine "
+        + a
+        + r" minus line "
+        + b
+        + r" = "
+        + c
+        + r"\nNet foreign\nnon-business income \([1-9]\d?\) "
+        r"Provincial or territorial\n× = "
+        + d
+        + r"\nNet income \([1-9]\d?\) tax otherwise payable \([1-9]\d?\)"
+        r"\nEnter whichever amount is less: line "
+        + c
+        + r" or line "
+        + d
+        + r"\.\nThe amount on line "
+        + e
+        + r" should not be more than the amount entered Provincial or territorial"
+        r"\non the line for provincial or territorial tax otherwise payable\. "
+        r"foreign tax credit " + e
+    )
+    if re.fullmatch(calculation, source_text[cuts[1] : matching[0][-1][1]]) is None:
+        return (clause,)
+    final_start, final_end = matching[0][-1]
+    if final_end >= clause.end:
+        return (clause,)
+    label = re.escape(source_text[final_start:final_end])
+    transfer = re.fullmatch(
+        r"\s*Enter the total from line "
+        + label
+        + r" \(for each country if applicable\) on the line for the "
+        r"(?P<title>[A-Za-z][A-Za-z \t-]{1,100}) of\s+"
+        r"Form [A-Z]*[1-9]\d*\.\s*",
+        source_text[final_end : clause.end],
+    )
+    if transfer is None:
+        return (clause,)
+    # Match this calculation's output, not an arbitrary earlier heading that
+    # could introduce a different or claimant-restricted monetary field.
+    if transfer.group("title").casefold() != (
+        "provincial or territorial foreign tax credit"
+    ):
+        return (clause,)
+    return tuple(
+        _SourceConditionClause(
+            clause.branch_path, start, end, source_text[start:end].strip(" ;,")
+        )
+        for start, end in zip(cuts, cuts[1:])
+    )
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
@@ -15403,6 +15521,7 @@ def _opaque_same_source_condition_input_issues(
             for index, excerpts in by_version.items()
         }
 
+    condition_row_ends = _corroborated_unless_row_ends(source_text)
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
@@ -15428,7 +15547,16 @@ def _opaque_same_source_condition_input_issues(
                     narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
                 excerpt_has_gates = False
-                for clause in owned_clauses:
+                condition_clauses = tuple(
+                    part
+                    for owned_clause in owned_clauses
+                    for part in _partition_condition_clause_at_rows(
+                        owned_clause,
+                        source_text=source_text,
+                        row_ends=condition_row_ends,
+                    )
+                )
+                for clause in condition_clauses:
                     gates = source_clause_gates(clause)
                     if len(gates) < 2:
                         continue
