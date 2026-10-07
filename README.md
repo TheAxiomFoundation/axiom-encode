@@ -136,6 +136,12 @@ the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
 
+Use `encode --codex-reasoning-effort high` to select Codex's reasoning effort
+for every generation and retry. The default is `low`; the value is passed as
+Codex's `model_reasoning_effort` config setting and recorded in the generation
+trace. Other backends ignore this option. Available effort values depend on
+the selected Codex model.
+
 `proof-validate` checks explicit RuleSpec proof trees without reviewers or
 oracles. Proof atoms must cite immutable release-bound corpus text or an
 explicit hashed RuleSpec import; mutable source-claim references are rejected.
