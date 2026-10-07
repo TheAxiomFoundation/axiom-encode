@@ -86,6 +86,7 @@ from axiom_encode.toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 
+from .coverage_index import format_coverage_index
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
     ResolvedDefinedTerm,
@@ -11844,8 +11845,41 @@ rules:
 ```
 
 """
+    coverage_index_section = ""
+    if require_complete_source_unit and not repair_candidate_tests_only:
+        existing_targets = [
+            item for item in context_files if item.kind == "existing_target"
+        ]
+        if len(existing_targets) > 1 or (
+            existing_targets
+            and (
+                not target_ref_prefix
+                or existing_targets[0].import_path != target_ref_prefix
+            )
+        ):
+            raise ValueError(
+                "Complete-source index has ambiguous existing-target context"
+            )
+        baseline_content = None
+        if existing_targets:
+            baseline_content = _corpus_resolver.read_bounded_regular_file(
+                workspace.root,
+                workspace.root / existing_targets[0].workspace_path,
+                label="complete-source existing-target context",
+                max_bytes=VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
+            ).decode("utf-8")
+        coverage_index_section = format_coverage_index(
+            source_text,
+            corpus_citation_path or citation,
+            candidate=(
+                validation_retry_candidate.rulespec
+                if validation_retry_candidate
+                else None
+            ),
+            baseline=baseline_content,
+        )
     dynamic_suffix = f"""\
-{validation_retry_feedback_section}{validation_retry_candidate_section}
+{coverage_index_section}{validation_retry_feedback_section}{validation_retry_candidate_section}
 {output_rules}
 Do not respond with summaries, markdown prose, or file-write confirmations.
 """
