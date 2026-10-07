@@ -23947,6 +23947,29 @@ def test_evidence_whitespace_collapses_in_linear_time():
         assert time.perf_counter() - started < 0.5, width
 
 
+def test_proof_excerpt_accepts_one_money_cell_before_the_next_currency_prefix():
+    from axiom_encode.harness.proof_validator import _source_contains_proof_evidence
+
+    # USDA's FY2026 COLA PDF flattens these adjacent table cells into one
+    # line. The next dollar sign is a prefix on a different amount, not a
+    # trailing currency suffix on the quoted amount.
+    source = (
+        "Maximum Excess Shelter Deductions $744 $1,189 $873 $1,003 "
+        "Maximum Asset Limits $4,500 $3,000"
+    )
+    for excerpt in ("$744", "$1,189", "$873", "$1,003", "$4,500"):
+        assert _source_contains_proof_evidence(
+            source_text=source, evidence_text=excerpt
+        )
+
+    # A true trailing marker remains part of the numeric token, as does a
+    # percentage suffix. Neither may be dropped by an excerpt.
+    for source, excerpt in (("744 $", "744"), ("744 %", "744")):
+        assert not _source_contains_proof_evidence(
+            source_text=source, evidence_text=excerpt
+        )
+
+
 def test_raw_percent_readers_read_wrap_space_after_a_maqaf_as_the_bound_readers_do():
     # Gate round 6 on #1615: the direct-percentage reader runs on the raw
     # text, where a bare carriage return was no wrap space to the fractional
@@ -26251,6 +26274,23 @@ def test_rulespec_proof_validator_checks_direct_source_evidence_text():
     result = validate_rulespec_proofs(
         content,
         source_texts={"us/guidance/example/page-1": "The official amount is $298."},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_rulespec_proof_validator_accepts_adjacent_money_table_cells():
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", "$744")
+        .replace("$298", "$744")
+        .replace("formula: '298'", "formula: '744'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": "Shelter limits $744 $1,189"},
     )
 
     assert result.passed is True
