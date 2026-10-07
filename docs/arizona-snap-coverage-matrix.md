@@ -250,6 +250,23 @@ and page-2 descendants. The corpus resolver composes a bodyless parent's active
 descendants under the singular requested citation, so the protected replacement
 should target that parent rather than one page or a removed plural field.
 
+The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
+passed its attempt-budget check and provisioned the protected signing
+supervisor, but failed source and compile
+validation on 2026-10-07; it created no RuleSpec PR. Its generated candidate
+still imports `us:statutes/7/2012/j`, whose legacy `member_of_household`
+relation declares arity two without the tuple-slot entity kinds required by
+the pinned engine. The candidate also reintroduces the operative
+`snap_household_has_elderly_or_disabled_member` condition as a local input;
+simply deleting the statute import would make the dependency error disappear
+without establishing the source-grounded elderly/disabled household condition.
+Separately, five proof excerpts for shelter and asset-limit values synthesize
+adjacent prose
+that does not occur in the release-bound page-2 table extraction. Repair the
+upstream statute through protected source-bound generation and resolve the
+table evidence in protected generation or signed corpus extraction before
+replacing deductions. Do not treat the rejected candidate as a signed module.
+
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
 eligibility, FAA6 allowance amounts). This narrow citation set is **not** a
