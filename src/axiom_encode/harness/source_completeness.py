@@ -5105,6 +5105,11 @@ def _analyze_rulespec_payload(
                     )
                 ),
                 calendar_date_declarations=_calendar_date_declarations(payload),
+                input_declarations={
+                    str(item["name"]): item
+                    for item in payload.get("inputs", [])
+                    if isinstance(item, dict) and item.get("name")
+                },
                 declared_input_names={
                     str(item.get("name") or "").strip()
                     for item in payload.get("inputs", [])
@@ -16467,6 +16472,7 @@ def _companion_test_issues(
     declared_input_names: set[str],
     represented_annual_spans: set[tuple[int, int]] | None = None,
     calendar_date_declarations: Mapping[str, bool] | None = None,
+    input_declarations: Mapping[str, dict[str, Any]] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -16707,6 +16713,9 @@ def _companion_test_issues(
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
             source_text=source_text,
+            input_declarations=input_declarations,
+            formula_environment=formula_environment,
+            represented_annual_spans=represented_annual_spans,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
@@ -25920,6 +25929,9 @@ def _unwitnessed_exception_branches(
     exception_branches: Sequence[SourceStructureBranch],
     *,
     source_text: str = "",
+    input_declarations: Mapping[str, dict[str, Any]] | None = None,
+    formula_environment: dict[str, Any] | None = None,
+    represented_annual_spans: set[tuple[int, int]] | None = None,
     corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
@@ -25931,6 +25943,8 @@ def _unwitnessed_exception_branches(
         branch: _exception_witnesses_for_branch(
             branch,
             source_text=source_text,
+            input_declarations=input_declarations,
+            formula_environment=formula_environment,
             corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
@@ -25940,7 +25954,26 @@ def _unwitnessed_exception_branches(
         )
         for branch in exception_branches
     }
-    return _unmatched_evidence_obligations(candidate_witnesses)
+    missing = _unmatched_evidence_obligations(candidate_witnesses)
+    if represented_annual_spans is not None:
+        for branch, witnesses in candidate_witnesses.items():
+            if branch in missing:
+                continue
+            for witness in witnesses:
+                evidence = _source_qualified_cardinality_evidence(
+                    branch,
+                    witness,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    rule=principal_rules[witness.rule_name],
+                    asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                    input_declarations=input_declarations or {},
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                )
+                if evidence is not None and evidence.annual_span is not None:
+                    represented_annual_spans.add(evidence.annual_span)
+    return missing
 
 
 def _unconditional_nonapplicability_witnesses(
@@ -26302,10 +26335,272 @@ def _source_owned_residence_applicability_context(
     )
 
 
+@dataclass(frozen=True)
+class _SourceQualifiedOperandEvidence:
+    """One exact source operand, not a value-wide numeric exemption."""
+
+    role: str
+    input_name: str
+    rule_name: str
+    version_index: int
+    source_span: tuple[int, int]
+    annual_span: tuple[int, int] | None = None
+
+
+def _source_qualified_cardinality_evidence(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    source_text: str,
+    corpus_citation_path: str,
+    rule: dict[str, Any],
+    asserted_cases: Sequence[dict[str, Any]],
+    input_declarations: Mapping[str, dict[str, Any]],
+    principal_rules: dict[str, dict[str, Any]] | None = None,
+    formula_environment: dict[str, Any] | None = None,
+) -> _SourceQualifiedOperandEvidence | None:
+    """Bind a complete paid/payable jurisdiction-count instruction.
+
+    The closed consequence owns no additional factual restriction. Other
+    instruction shapes remain unresolved; this does not ignore a count token
+    in generic selector relevance or alter arithmetic/source obligations.
+    """
+    if not 0 <= branch.start < branch.end <= len(source_text):
+        return None
+    raw = source_text[branch.start : branch.end]
+    if _collapse_text(raw) != _collapse_text(branch.text):
+        return None
+    match = re.fullmatch(
+        r"If you (?P<event>paid|have to pay) tax to more than one jurisdiction"
+        r"(?: in (?P<year>(?:19|20)[0-9]{2}))?,\s*"
+        r"calculate this amount according to note \([1-9][0-9]*\) "
+        r"of Form [A-Z][0-9]+\.",
+        raw,
+    )
+    if match is None:
+        return None
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None or any(a < branch.end and b > branch.start for a, b in quoted):
+        return None
+    event = "paid" if match["event"] == "paid" else "payable"
+    name = f"jurisdictions_tax_{event}_count"
+    if (
+        witness.selector_name != name
+        or witness.numeric_transition is None
+        or witness.calendar_attainment_age is not None
+    ):
+        return None
+    declaration = input_declarations.get(name)
+    if (
+        declaration is None
+        or declaration.get("name") != name
+        or declaration.get("dtype") != "Integer"
+        or not rule.get("entity")
+        or declaration.get("entity") != rule.get("entity")
+    ):
+        return None
+    pairs = {id(case): case for case in asserted_cases}
+    if len(witness.case_pair_identity) != 2 or any(
+        identity not in pairs for identity in witness.case_pair_identity
+    ):
+        return None
+    cases = [pairs[identity] for identity in witness.case_pair_identity]
+    if (
+        cases[0] is cases[1]
+        or any("period" not in case for case in cases)
+        or cases[0]["period"] != cases[1]["period"]
+        or not _cases_differ_by_one_input(*cases)
+        or not _cases_have_same_output_keys(*cases)
+    ):
+        return None
+    inputs = [case.get("input") for case in cases]
+    if not all(isinstance(values, dict) for values in inputs):
+        return None
+    changed = [
+        key
+        for key in inputs[0]
+        if not _formula_runtime_values_equal(inputs[0][key], inputs[1][key])
+    ]
+    if len(changed) != 1 or name not in _input_key_names(changed[0]):
+        return None
+    if any(
+        sum(name in _input_key_names(key) for key in values) != 1 for values in inputs
+    ):
+        return None
+    values = tuple(values[changed[0]] for values in inputs)
+    if any(type(value) is not int or value < 0 for value in values):
+        return None
+    ordinary, active = witness.numeric_transition
+    if sorted(values) != sorted((ordinary, active)) or not ordinary <= 1 < active:
+        return None
+    # A broad 1->3 transition also crosses an incorrect >2 formula boundary.
+    # Require the exact source comparison on both actually reached paths.
+    choices = []
+    reached_relations = []
+    for case in cases:
+        dependencies = _case_asserted_dependency_environment(
+            principal_rules or {str(rule["name"]): rule},
+            case,
+            formula_environment=formula_environment or {},
+        )
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment or {},
+            dependency_environment=dependencies,
+        )
+        if execution is None or not _asserted_formula_runtime_values_equal(
+            rule,
+            _formula_execution_runtime_value(execution),
+            _test_case_asserted_output_value(case, str(rule["name"])),
+        ):
+            return None
+        reached = []
+        relations = set()
+        for step in execution.trace:
+            if step.kind != "if" or len(step.selectors) != 1:
+                continue
+            expression = _parse_formula_expression(step.selectors[0])
+            if not (
+                isinstance(expression, ast.Compare)
+                and isinstance(expression.left, ast.Name)
+                and expression.left.id == name
+                and len(expression.ops) == len(expression.comparators) == 1
+                and isinstance(expression.ops[0], ast.Gt)
+            ):
+                continue
+            right = expression.comparators[0]
+            if isinstance(right, ast.Constant) and type(right.value) in (int, float):
+                boundary = right.value
+            elif isinstance(right, ast.Name):
+                boundary = execution.constant_environment.get(right.id)
+            else:
+                continue
+            if not isinstance(boundary, bool) and boundary == 1:
+                reached.append(step.choice)
+                if isinstance(right, ast.Name):
+                    relations.add((name, ">", right.id))
+        if len(reached) != 1:
+            return None
+        choices.append(reached[0])
+        reached_relations.append(relations)
+    if set(choices) != {0, 1} or not set(witness.relational_transitions).issubset(
+        reached_relations[0] & reached_relations[1]
+    ):
+        return None
+    selected = _selected_rule_formula_version_index(rule, cases[0])
+    if selected is None or any(
+        _selected_rule_formula_version_index(rule, case) != selected for case in cases
+    ):
+        return None
+    citation = corpus_citation_path.strip("/").casefold()
+    atoms = tuple(_rule_source_excerpt_atoms(rule))
+    collapsed_source = _collapse_text(source_text)
+    if not citation or not any(
+        _formula_proof_version_index(path) == selected
+        and atom_citation.strip("/").casefold() == citation
+        and (excerpt_text := _collapse_text(excerpt))
+        and excerpt_text in collapsed_source
+        and _collapse_text(raw) in excerpt_text
+        for path, atom_citation, excerpt in atoms
+    ):
+        return None
+    annual_span = None
+    year = match["year"]
+    if year is not None:
+        if declaration.get("period") != "Year" or rule.get("period") != "Year":
+            return None
+        if any(
+            case["period"] != year
+            and case["period"]
+            != {
+                "period_kind": "tax_year",
+                "start": f"{year}-01-01",
+                "end": f"{year}-12-31",
+            }
+            for case in cases
+        ):
+            return None
+        if not any(
+            index == selected and start == f"{year}-01-01" and end == f"{year}-12-31"
+            for index, _formula, start, end in _effective_formula_version_intervals(
+                rule
+            )
+        ):
+            return None
+        headers = tuple(
+            re.finditer(
+                r"^Use this form to calculate the [A-Za-z -]{1,100} (?:credit|tax|refund) "
+                r"for (?P<year>(?:19|20)[0-9]{2})\b",
+                source_text,
+                re.MULTILINE,
+            )
+        )
+        if (
+            len(headers) != 1
+            or headers[0]["year"] != year
+            or any(a <= headers[0].start() < b for a, b in quoted)
+        ):
+            return None
+        # The same source-owned header/preamble identity as annual residence:
+        # no later foreign form-purpose sentence can lend this clause its year.
+        form_headers = tuple(
+            re.finditer(
+                r"^(?:[A-Z][A-Za-z]* )?Form (?P<form>[A-Z]*[1-9]\d*) "
+                r"(?P<year>(?:19|20)[0-9]{2}) (?P<title>[A-Za-z -]{1,120})$",
+                source_text[: branch.start],
+                re.MULTILINE,
+            )
+        )
+        if len(form_headers) != 1:
+            return None
+        form_header = form_headers[0]
+        if (
+            form_header["year"] != year
+            or form_header.end() > headers[0].start()
+            or source_text[: form_header.start()].strip()
+            or not re.fullmatch(
+                r"\s*(?:Protected [A-Z] when completed\s+)?"
+                + re.escape(form_header["title"])
+                + r"\s*",
+                source_text[form_header.end() : headers[0].start()],
+            )
+            or any(a < form_header.end() and b > form_header.start() for a, b in quoted)
+            or re.search(
+                r"^[ \t]*(?:[A-Z][A-Za-z]* )?Form [A-Z]*[1-9]\d* "
+                r"[A-Za-z][A-Za-z -]*$",
+                source_text[headers[0].end() : branch.start],
+                re.MULTILINE,
+            )
+        ):
+            return None
+        for field in ("effective_from", "effective_to"):
+            if not any(
+                re.sub(r"\s+", "", path) == f"versions[{selected}].{field}"
+                and atom_citation.strip("/").casefold() == citation
+                and (excerpt_text := _collapse_text(excerpt))
+                and excerpt_text in collapsed_source
+                and _collapse_text(headers[0].group()) in excerpt_text
+                for path, atom_citation, excerpt in atoms
+            ):
+                return None
+        annual_span = tuple(branch.start + n for n in match.span("year"))
+    return _SourceQualifiedOperandEvidence(
+        "jurisdiction-tax-cardinality",
+        name,
+        witness.rule_name,
+        selected,
+        (branch.start, branch.end),
+        annual_span,
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
     source_text: str = "",
+    input_declarations: Mapping[str, dict[str, Any]] | None = None,
+    formula_environment: dict[str, Any] | None = None,
     corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
@@ -26400,6 +26695,18 @@ def _exception_witnesses_for_branch(
                     )
                 ),
             )
+            or _source_qualified_cardinality_evidence(
+                branch,
+                witness,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                rule=principal_rules[witness.rule_name],
+                asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                input_declarations=input_declarations or {},
+                principal_rules=principal_rules,
+                formula_environment=formula_environment,
+            )
+            is not None
             or _worksheet_notice_selector_is_relevant(
                 branch,
                 witness,
