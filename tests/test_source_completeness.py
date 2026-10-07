@@ -8315,6 +8315,24 @@ def test_cfr_source_reference_alias_matches_canonical_source_paths():
     ) == {("a", "3")}
 
 
+def test_usc_source_reference_alias_matches_scoped_statute_paths():
+    assert completeness_module._paths_from_source_reference(
+        "7 USC 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert completeness_module._paths_from_source_reference(
+        "7 U.S.C. 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert (
+        completeness_module._paths_from_source_reference(
+            "7 USC 2012(k)(5)(A)",
+            corpus_citation_path="us/statute/7/2012/j",
+        )
+        == set()
+    )
+
+
 def test_cfr_parent_and_child_source_aliases_cover_complete_structure():
     source = """\
 (a) A person is eligible only if one of the following applies:
