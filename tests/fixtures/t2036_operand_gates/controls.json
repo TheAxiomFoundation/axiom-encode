@@ -1,0 +1,187 @@
+[
+  {
+    "name": "part_year",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada.",
+    "accepted": true
+  },
+  {
+    "name": "part_year_if",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada if you are disabled.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_unless",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada unless you are nonresident.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_who",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada for a person who is disabled.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_only",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada only for eligible spouses.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_relative",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada that is payable when income is low.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_sentence",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada. You must be a citizen and employed.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_quoted",
+    "input": "\u201cIf you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada.\u201d",
+    "accepted": false
+  },
+  {
+    "name": "part_year_compound",
+    "input": "If you were a resident of Canada for part of the year and you are disabled, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada.",
+    "accepted": true
+  },
+  {
+    "name": "ontario",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable.",
+    "accepted": true
+  },
+  {
+    "name": "ontario_if",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable if you are disabled.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_unless",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable unless you are nonresident.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_who",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable for a person who is disabled.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_only",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable only for eligible spouses.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_relative",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable that is payable when income is low.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_sentence",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable. You must be a citizen and employed.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_quoted",
+    "input": "\u201cIf you were a resident of Ontario, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable.\u201d",
+    "accepted": false
+  },
+  {
+    "name": "ontario_compound",
+    "input": "If you were a resident of Ontario and you are disabled, calculate this amount by entering \"0\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable.",
+    "accepted": true
+  },
+  {
+    "name": "amt_other",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2.\n",
+    "accepted": true
+  },
+  {
+    "name": "amt_other_if",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2 if you are disabled.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_unless",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2 unless you are nonresident.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_who",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2 for a person who is disabled.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_only",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2 only for eligible spouses.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_relative",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2 that is payable when income is low.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_sentence",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2. You must be a citizen and employed.",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_quoted",
+    "input": "\u201cIf you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2.\n\u201d",
+    "accepted": false
+  },
+  {
+    "name": "amt_other_compound",
+    "input": "If you were a resident of another province or territory at the end of the year and you are disabled, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2.\n",
+    "accepted": true
+  },
+  {
+    "name": "part_year_missing_nonresident_limit",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were a resident of Canada.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_income_replaced_person",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and dependent persons referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada.",
+    "accepted": false
+  },
+  {
+    "name": "part_year_different_place",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 115(1)(a) to (c) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Ontario.",
+    "accepted": false
+  },
+  {
+    "name": "amt_person_qualifier",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that relates to disabled persons you paid to a foreign country for 2025 on\nline 2.\n",
+    "accepted": false
+  },
+  {
+    "name": "amt_eligibility_relative",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T691) that is eligible and relates to non-business income taxes you paid to a foreign country for 2025 on\nline 2.\n",
+    "accepted": false
+  },
+  {
+    "name": "ontario_nonzero",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0.5\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable.",
+    "accepted": false
+  },
+  {
+    "name": "ontario_quote_extra",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0 if disabled\" on lines 70 and 72 of Form ON428 and continue the\ncalculation. The result from line 81 is your provincial or territorial tax otherwise payable.",
+    "accepted": false
+  },
+  {
+    "name": "different_reference_numbers",
+    "input": "If you were a resident of Canada for part of the year, include the income for the part of the year you were a resident of\nCanada plus any income and losses referred to in paragraphs 200(2)(b) to (d) of the Income Tax Act as reported on your\nCanadian tax return, for the part of the year you were not a resident of Canada.",
+    "accepted": true
+  },
+  {
+    "name": "different_form_year",
+    "input": "If you were a resident of another province or territory at the end of the year, enter the part of special foreign tax credit\n(line 11 of Part 4 of Form T900) that relates to non-business income taxes you paid to a foreign country for 2024 on\nline 2.\n",
+    "accepted": true
+  },
+  {
+    "name": "different_result_line",
+    "input": "If you were a resident of Ontario, calculate this amount by entering \"0\" on lines 10 and 12 of Form AB900 and continue the\ncalculation. The result from line 15 is your provincial or territorial tax otherwise payable.",
+    "accepted": true
+  }
+]
