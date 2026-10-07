@@ -3291,6 +3291,49 @@ class TestRunnerOverrides:
 
 
 class TestMain:
+    def test_encode_help_describes_explicit_gpt61_model_selection(self, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", "encode", "--help"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 0
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert "gpt-6.1-sol" in help_text
+        assert "--model/--escalation-model" in help_text
+        assert "ChatGPT-account Codex rejected" not in help_text
+        assert "2026-09-24" not in help_text
+
+    def test_encode_accepts_explicit_gpt61_models(self):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "encode",
+                    "26 USC 1",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                    "--model",
+                    "gpt-6.1-sol",
+                    "--escalation-model",
+                    "gpt-6.1-sol",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_encode") as mock_cmd,
+        ):
+            main()
+
+        args = mock_cmd.call_args.args[0]
+        assert args.backend == "codex"
+        assert args.model == "gpt-6.1-sol"
+        assert args.escalation_model == "gpt-6.1-sol"
+
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
         with patch("sys.argv", ["axiom_encode"]):

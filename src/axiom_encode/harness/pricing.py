@@ -176,6 +176,10 @@ def estimate_usage_cost_breakdown(
     pricing = get_model_pricing(model)
     if pricing is None:
         return None
+    if pricing.source_url and pricing.source_url.startswith("UNVERIFIED:"):
+        # Keep provisional rates inspectable without promoting an unverified
+        # proxy into cost telemetry. Aggregate usage does not verify pricing.
+        return None
     if (
         enforce_context_tier
         and pricing.max_input_tokens is not None

@@ -22557,9 +22557,11 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
 
         assert response.error is not None
         assert response.error.startswith(rejection)
-        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+        assert "The signed-in Codex account rejected the requested model." in (
             response.error
         )
+        assert "`encode --model MODEL --escalation-model MODEL`" in response.error
+        assert "`eval --runner claude:opus --runner codex:MODEL`" in response.error
 
 
 class TestUnexpectedAccessDetection:
