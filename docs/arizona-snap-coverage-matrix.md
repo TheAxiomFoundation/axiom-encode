@@ -267,6 +267,19 @@ upstream statute through protected source-bound generation and resolve the
 table evidence in protected generation or signed corpus extraction before
 replacing deductions. Do not treat the rejected candidate as a signed module.
 
+The signed corpus scope behind both FY 2026 COLA pages has a separate source
+provenance defect. Its locked source object (SHA-256
+`891dce6a0abdd3dcdac7eb5438827b5e986bc35c6ce550325e522da096b7c955`)
+is the FNS FY 2026 landing-page **HTML**, while the scope inventory labels that
+same object `source_format: pdf` and assigns it to the PDF-derived page-1 and
+page-2 provisions. The locked HTML links to a different USDA memorandum PDF
+through an iframe and does not contain the maximum-allotment or deduction
+tables. The provisions do
+contain table text, but the locked source snapshot does not establish that
+text's provenance. Repair and sign the corpus source/inventory binding, then
+revalidate dependent generated modules and proofs against the corrected release;
+do not infer source authentication from the provision text alone.
+
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
 eligibility, FAA6 allowance amounts). This narrow citation set is **not** a
