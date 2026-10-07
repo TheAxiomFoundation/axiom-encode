@@ -12666,11 +12666,100 @@ def _is_manual_amount_row(label: re.Match[str]) -> bool:
     return any(_MANUAL_DOLLAR_AMOUNT_LINE.match(line) for line in neighbors)
 
 
+def _corroborated_form_output_label_spans(
+    source_text: str,
+) -> tuple[tuple[int, int], ...]:
+    """Recognize a complete five-row form calculation, not isolated equations.
+
+    Input rows, subtraction, a printed fraction/product, the minimum/cap and
+    the final transfer instruction must all agree on consecutive row IDs.
+    Only terminal output labels are masked; operands and prose stay intact.
+    This is a numeric-recall view, never a source-clause boundary rule.
+    """
+
+    caption = r"[A-Za-z][A-Za-z \t-]{1,100}"
+    footnoted_caption = (
+        r"[A-Za-z][A-Za-z \t()-]{1,100}(?:\([1-9]\d?\)[A-Za-z \t()-]{0,100})*"
+    )
+    pattern = re.compile(
+        r"^Enter the amount from line [1-9]\d* of Form [A-Z][A-Z0-9]*"
+        r"[^\n]{0,300}?[.!?](?:\([1-9]\d?\))?[ \t]+(?P<a>[1-9]\d?)\n"
+        r"Enter the amount from line [1-9]\d* of Form [A-Z][A-Z0-9]*"
+        r"[^\n]{0,300}?[.!?](?:\([1-9]\d?\))?[ \t]+[−–-][ \t]+(?P<b>[1-9]\d?)\n"
+        r"Line (?P=a) minus line (?P=b) = (?P<c>[1-9]\d?)\n"
+        + caption
+        + r"\n"
+        + footnoted_caption
+        + r"\n× = (?P<d>[1-9]\d?)\n"
+        + footnoted_caption
+        + r"\nEnter whichever amount is less: line (?P=c) or line (?P=d)\.\n"
+        r"The amount on line (?P<e>[1-9]\d?) should not be more than the amount entered "
+        + r"(?P<title_start>"
+        + caption
+        + r")"
+        + r"\non the line for "
+        + caption
+        + r"\. "
+        + r"(?P<title_end>"
+        + caption
+        + r")"
+        + r" (?P<caption_id>[1-9]\d?)\n"
+        r"Enter the total from line (?P=e)\b",
+        re.MULTILINE,
+    )
+    quoted = tuple(
+        match.span()
+        for match in re.finditer(
+            r'"[^"]*"|“[^”]*”|«[^»]*»|\'[^\']*\'|‘[^’]*’', source_text
+        )
+    )
+    spans: list[tuple[int, int]] = []
+    for match in pattern.finditer(source_text):
+        labels = [int(match.group(name)) for name in ("a", "b", "c", "d", "e")]
+        if labels != list(range(labels[0], labels[0] + 5)):
+            continue
+        if match.group("caption_id") != match.group("e"):
+            continue
+        title = " ".join((match.group("title_start"), match.group("title_end")))
+        if not re.search(
+            r"\b(?:credit|tax|amount|balance|total|payment|refund|deduction)$",
+            match.group("title_end"),
+            re.IGNORECASE,
+        ):
+            continue
+        if re.search(
+            r"\b(?:at most|at least|up to|limited|limit|exceed\w*|capped|maximum|minimum|"
+            r"not|no|rate|percent|dollars?|euros?|CAD|USD|times|plus|minus)\b",
+            title,
+            re.IGNORECASE,
+        ):
+            continue
+        headings = tuple(
+            re.finditer(
+                r"^[ \t]*" + re.escape(title) + r"[ \t]*$",
+                source_text[: match.start()],
+                re.MULTILINE | re.IGNORECASE,
+            )
+        )
+        if not any(
+            not any(a < heading.end() and b > heading.start() for a, b in quoted)
+            for heading in headings
+        ):
+            continue
+        if any(start < match.end() and end > match.start() for start, end in quoted):
+            continue
+        spans.extend(match.span(name) for name in ("a", "b", "c", "d", "caption_id"))
+    return tuple(spans)
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _mask_numeric_spans(
+        source_text, _corroborated_form_output_label_spans(source_text)
+    )
     source_text = _mask_numeric_spans(
         source_text,
         (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
