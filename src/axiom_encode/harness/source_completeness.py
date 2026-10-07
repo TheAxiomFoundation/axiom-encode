@@ -398,6 +398,7 @@ _INLINE_OUTLINE_EXPLICIT_REFERENCE_COMMAND = re.compile(
 )
 _GLUED_SENTENCE_MARKER = re.compile(
     r"(?<![\w])(?P<label>[1-9]\d?)"
+    r"(?![A-ZÄÖÜ](?:\d+)?\b)"
     r"(?!(?i:st|nd|rd|th)\b)"
     r"(?=[A-ZÄÖÜ](?!:)(?![ \t]*[.:/\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]"
     r"[ \t]*\d))"
@@ -4578,6 +4579,47 @@ def _is_list_bullet(source_text: str, start: int, end: int) -> bool:
     return previous_token in {":", ";", ",", "."}
 
 
+def _worksheet_referral_typography_spans(
+    source_text: str,
+) -> tuple[tuple[int, int], ...]:
+    """Identify punctuation in corroborated referrals, not worksheet arithmetic."""
+
+    spans: list[tuple[int, int]] = []
+    heading = re.match(
+        r"\s*(?P<line>[1-9]\d{0,3})\s+WORK CHART\s+(?P<dash>[–—-])\s+"
+        r"[^.;\n\"“”]{3,160}?\s+Read the instructions for line (?P=line) "
+        r"in the guide before completing this work chart\b",
+        source_text,
+    )
+    if heading is not None and not re.search(
+        r"[+*/=×%]|\b(?:add|subtract|multiply|divide|plus|minus|maximum|minimum|"
+        r"less|greater|equal|exceed|negative|positive|percent)\b",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        spans.append(heading.span("dash"))
+
+    # A complete unqualified carry instruction followed by a printed output
+    # caption names a destination and row. Qualified or compound instructions
+    # remain untouched; e.g. a maximum amount must still require computation.
+    carry = re.fullmatch(
+        r"\s*Carry (?:the result|the amount|this amount) to line [1-9]\d{0,3} "
+        r"of your return\.\s*\x08\s*"
+        r"(?P<caption>[A-Za-z][A-Za-z ’'–—-]{2,160}?)\s*(?P<equals>=)\s*[1-9]\d{0,2}"
+        r"(?:\s+(?:T[ \t]+)?[A-Z]{2,}(?:[-.][A-Z0-9]+)+[ \t]+"
+        r"\(\d{4}-\d{2}\)[ \t]+[1-9]\d?[ \t]+of[ \t]+[1-9]\d?"
+        r"[ \t]+Keep these pages for your files\.)?\s*",
+        source_text,
+    )
+    if carry is not None and not re.search(
+        r"\b(?:plus|minus|maximum|minimum|less|greater|equal|percent)\b",
+        carry.group("caption"),
+        flags=re.IGNORECASE,
+    ):
+        spans.append(carry.span("equals"))
+    return tuple(spans)
+
+
 def _without_manual_typography_operators(source_text: str) -> str:
     """Blank manual typography that only looks like arithmetic, keeping offsets."""
 
@@ -4587,6 +4629,8 @@ def _without_manual_typography_operators(source_text: str) -> str:
             masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
                 match.end() - match.start()
             )
+    for start, end in _worksheet_referral_typography_spans(source_text):
+        masked[start:end] = _TYPOGRAPHY_MASK * (end - start)
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
             masked[match.start()] = _TYPOGRAPHY_MASK
@@ -13886,18 +13930,24 @@ def _rule_cited_source_paths(
 def _work_chart_heading_starts(text: str) -> tuple[int, ...]:
     """Recognize printed chart boundaries without treating references as headings."""
     headings = tuple(
-        re.finditer(r"(?<![\w.])\d{1,4}\s+WORK CHART\s+[–—-]\s+(?=\w)", text)
+        re.finditer(r"(?<![\w.])\d{1,4}\s+WORK CHART\s+[–—-]\s+\x07?(?=\w)", text)
     )
     quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', text))
     instruction = (
-        r"(?:Amount|Total|Enter|Subtract|Add|Multiply|Divide|Contributions|Cost)"
+        r"(?:Amounts?|Total|Enter|Subtract|Add|Multiply|Divide|Contributions|Cost|"
+        r"Complete|(?:Taxable|Employment|Copyright) income|Eligible work income)"
     )
     starts: list[int] = []
     previous_title: str | None = None
     for index, match in enumerate(headings):
         stop = headings[index + 1].start() if index + 1 < len(headings) else len(text)
-        following = text[match.end() : min(stop, match.end() + 600)]
+        following = text[match.end() : min(stop, match.end() + 1800)]
         title_match = re.match(rf"([^.;\n]{{3,160}}?)\s+{instruction}\b", following)
+        constant_first_row = re.match(
+            r"([^.;\n]{3,160}?)\s+1\s+\d[\d,]*\s+\d{2}(?=\s)", following
+        )
+        if constant_first_row is not None:
+            title_match = constant_first_row
         title = title_match.group(1).strip() if title_match else None
         inside_quote = any(q.start() <= match.start() < q.end() for q in quoted)
         prefix = text[max(0, match.start() - 256) : match.start()]
@@ -13908,7 +13958,7 @@ def _work_chart_heading_starts(text: str) -> tuple[int, ...]:
         printed_result = (
             previous_title is not None
             and re.search(
-                rf"\x08\s*{re.escape(previous_title)}\s*=\s*[1-9]\d{{0,2}}\s*$",
+                rf"\x08\s*{re.escape(previous_title)}\s*(?:=\s*)?[1-9]\d{{0,2}}\s*$",
                 prefix,
             )
             is not None
@@ -13920,6 +13970,75 @@ def _work_chart_heading_starts(text: str) -> tuple[int, ...]:
         if not inside_quote and (physical_heading or printed_result) and rows:
             starts.append(match.start())
         previous_title = title if rows and not inside_quote else None
+    return tuple(starts)
+
+
+def _printed_chart_arithmetic_starts(text: str) -> tuple[int, ...]:
+    """Recognize a printed operand row followed by an operation on that row."""
+
+    headings = _work_chart_heading_starts(text)
+    if not headings:
+        return ()
+    quoted = tuple(re.finditer(r'“[^”]*(?:”|$)|"[^"]*(?:"|$)', text))
+    footer = re.compile(
+        r"\b(?:T[ \t]+)?[A-Z]{2,}(?:[-.][A-Z0-9]+)+[ \t]+"
+        r"\(\d{4}-\d{2}\)[ \t]+[1-9]\d?[ \t]+of[ \t]+[1-9]\d?"
+        r"[ \t]+Keep these pages for your files\."
+    )
+    row = re.compile(
+        r"(?P<context>[×*]\s*\d+(?:[.,]\d+)?\s*%|[.!?]|[–−-])"
+        r"\s*(?:=\s*)?(?P<row>[1-9]\d{0,2})\s+"
+        r"(?P<operation>Add|Subtract)\s+"
+        r"(?P<refs>lines?\s+\d+(?:\s*(?:,|and|through|from\s+line)\s*\d+)*)[.!?]"
+    )
+    starts: list[int] = []
+    for index, heading in enumerate(headings):
+        end = min(
+            headings[index + 1] if index + 1 < len(headings) else len(text),
+            heading + 4096,
+        )
+        page_footer = footer.search(text, heading, end)
+        if page_footer is not None:
+            end = page_footer.start()
+        for match in row.finditer(text, heading, end):
+            if any(q.start() <= match.start() < q.end() for q in quoted):
+                continue
+            references = re.findall(r"\d+", match.group("refs"))
+            if match.group("row") not in (
+                references[:1] if match.group("operation") == "Subtract" else references
+            ):
+                continue
+            # Do not detach an instruction from an active conditional antecedent.
+            before = text[heading : match.end("context")]
+            # A punctuation dot alone may be an abbreviation or reference.
+            # Reset only after a complete, source-stated worksheet operation.
+            completed = [
+                operation
+                for operation in re.finditer(
+                    r"\b(?:enter\s+0|(?:Add|Subtract|Multiply|Divide)\s+lines?\s+\d+"
+                    r"(?:\s*(?:,|and|through|from\s+line|by)\s*\d+(?:[.,]\d+)?%?)*)[.!?]",
+                    before,
+                    re.I,
+                )
+                if not any(
+                    q.start() <= heading + operation.start() < q.end() for q in quoted
+                )
+            ]
+            if match.group("context") in ".!?" and not any(
+                operation.end() == len(before) for operation in completed
+            ):
+                continue
+            prefix = before[completed[-1].end() :] if completed else before
+            if re.search(
+                r"\b(?:if|when|whenever|while|where|wherever|until|unless|except|"
+                r"provided|who|whose|which|that|before|after|once|because|only|"
+                r"assuming|subject|contingent|conditional|dependent|"
+                r"as\s+(?:long|soon)\s+as|on\s+condition)\b",
+                prefix,
+                re.I,
+            ):
+                continue
+            starts.append(match.start("operation"))
     return tuple(starts)
 
 
@@ -13943,6 +14062,7 @@ def _printed_page_header_boundaries(text: str) -> tuple[int, ...]:
 def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, int]:
     boundaries = [0, len(text)]
     boundaries.extend(_work_chart_heading_starts(text))
+    boundaries.extend(_printed_chart_arithmetic_starts(text))
     boundaries.extend(_printed_page_header_boundaries(text))
     boundaries.extend(
         match.end()
@@ -16790,6 +16910,7 @@ def _source_clause_spans(
         0,
         len(source_text),
         *_work_chart_heading_starts(source_text),
+        *_printed_chart_arithmetic_starts(source_text),
         *_printed_page_header_boundaries(source_text),
         *(
             point
