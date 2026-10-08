@@ -2356,9 +2356,15 @@ jobs:
                 "$primary_required_test_cases_json" \
                 "$target_require_complete_source_unit" \
                 "$scheduled_dependent_paths_json"
-              dependent_target_only=false
-              if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
-                dependent_target_only=true
+              # Validate the first dependent against its full importer closure.
+              # In a proof chain only the scheduled second dependent may retain
+              # a stale proof hash until its own signed re-encode below.
+              first_dependent_scheduled_paths_json="[]"
+              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
+                first_dependent_scheduled_paths_json="$(
+                  jq -cn --arg second "$second_dependent_rulespec_path" \
+                    '[$second]'
+                )"
               fi
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
@@ -2367,8 +2373,9 @@ jobs:
               fi
               run_signed_encode \
                 "$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \
-                "$dependent_target_only" dependent \
-                "$dependent_replacement_path" "" false
+                false dependent \
+                "$dependent_replacement_path" "" false "[]" "[]" true \
+                "$first_dependent_scheduled_paths_json"
               if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
                 second_replacement_path=""
                 canonical_second_path="$("$workflow_python" "$backfill_helper" \
