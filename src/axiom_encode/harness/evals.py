@@ -10289,7 +10289,10 @@ companion test file required by the task and deterministic validation.
             "obsolete named input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
-            "accepted only after no repaired rule or companion case references it. "
+            "accepted only after no repaired rule or companion case references "
+            "it as an input. A same-named derived or parameter rule is not an "
+            "input reference, but companion `#input.<name>` assignments must "
+            "still be replaced with factual inputs. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -17395,11 +17398,20 @@ def _merge_named_yaml_items(
 def _repair_overlay_removed_input_references(
     payload: object,
     removed_inputs: Sequence[str],
+    *,
+    computed_rule_names: set[str] | None = None,
 ) -> list[str]:
     """Return removed input names still referenced by the repaired artifact."""
 
+    computed_rule_names = computed_rule_names or set()
     patterns = {
-        name: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        name: re.compile(
+            (
+                rf"#input\.{re.escape(name)}(?![A-Za-z0-9_])"
+                if name in computed_rule_names
+                else rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])"
+            )
+        )
         for name in removed_inputs
     }
     referenced: set[str] = set()
@@ -17724,6 +17736,13 @@ def _overlay_validation_retry_candidate(
         referenced_removed_inputs = _repair_overlay_removed_input_references(
             reference_payload,
             removed_inputs,
+            computed_rule_names={
+                str(rule.get("name"))
+                for rule in rules
+                if isinstance(rule, dict)
+                and rule.get("kind") in {"derived", "parameter"}
+                and isinstance(rule.get("name"), str)
+            },
         )
         if referenced_removed_inputs:
             raise ValueError(
