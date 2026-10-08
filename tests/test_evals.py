@@ -9949,6 +9949,76 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
+    def test_generated_eval_repairs_local_scalar_relation_from_formula(self, tmp_path):
+        repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_members
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_has_eligible_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(household_members, member_is_eligible) > 0
+"""
+        )
+        test_file = rulespec_file.with_name("example.test.yaml")
+        test_file.write_text(
+            """- name: eligible_case
+  period: 2026-01
+  input:
+    us-co:regulations/example#relation.household_members:
+      - true
+  output:
+    us-co:regulations/example#household_has_eligible_member: holds
+"""
+        )
+        relation_issue = (
+            "Test case `eligible_case` input invalid: relation "
+            "`us-co:regulations/example#relation.household_members` item #1 "
+            "must be a mapping"
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[relation_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="A household with an eligible member qualifies.",
+                skip_reviewers=True,
+            )
+
+        [case] = yaml.safe_load(test_file.read_text())
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert case["input"][
+            "us-co:regulations/example#relation.household_members"
+        ] == [{"us-co:regulations/example#input.member_is_eligible": True}]
+
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
         rulespec_file = repo / "regulations" / "example.yaml"

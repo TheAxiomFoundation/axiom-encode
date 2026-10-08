@@ -8151,6 +8151,9 @@ def _apply_generated_eval_repairs(
                 test_file=test_file,
                 policy_repo_path=policy_repo_root,
                 parsed_issues=scalar_relation_issues,
+                generated_anchor=cli_helpers._relative_output_to_anchor(
+                    relative_output, policy_repo_path=policy_repo_root
+                ),
             )
         )
 
