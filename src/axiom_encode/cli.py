@@ -60964,7 +60964,9 @@ def _copy_case_facts_to_single_empty_relation_row(
                 }
                 if f"{anchor}#input.{assignment['input']}" not in child_facts:
                     continue
-                inputs[relation_ref][0] = child_facts
+                # YAML anchors may share both the input mapping and relation
+                # list across cases. Replace them for this case alone.
+                case["input"] = {**inputs, relation_ref: [child_facts]}
                 changed = True
     if changed:
         test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=True))
