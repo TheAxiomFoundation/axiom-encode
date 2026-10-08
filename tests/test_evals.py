@@ -4931,6 +4931,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
+    assert "cannot have the same name as a local derived rule" in prompt
+    assert "never put a fabricated" in prompt
     assert "never assign prohibited derived" in prompt
     assert (
         "classifications such as any imported or local `#input.filing_status`" in prompt

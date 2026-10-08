@@ -11763,6 +11763,11 @@ RuleSpec requirements:
      may assert every canonical parameter output directly in one source-period
      snapshot case. For other artifacts, do not assert raw `kind: parameter`
      rules directly; assert derived outputs that consume the parameters instead.
+     A local `#input.<fact>` cannot have the same name as a local derived rule:
+     that name resolves to the computed rule, not an independently assignable
+     fact. In a `#relation.<name>` row, assign source-grounded factual child
+     inputs needed by the derived member rule; never put a fabricated
+     `#input.<derived_rule_name>` in the row or declare a duplicate input slot.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
