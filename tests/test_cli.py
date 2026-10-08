@@ -33183,6 +33183,9 @@ rules:
         applied_file = args.policy_repo_path / "statutes/26/151.yaml"
 
         with (
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
@@ -33280,6 +33283,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("statutes/26/3241/b.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us:statutes/26/3241/b#average_account_benefits_ratio_bracket` "
@@ -33339,6 +33343,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("regulations/1240-01/04/27/block-1.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance_state_value` "
@@ -47906,6 +47911,104 @@ rules:
             "target: statutes/42/new.yaml"
         ]
         assert supplemental == {}
+
+    @pytest.mark.parametrize(
+        "variant",
+        ["missing_case", "missing_output", "complete", "binding", "overlay_only"],
+    )
+    def test_failed_overlay_also_reports_exact_case_contract(self, tmp_path, variant):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-la"
+        target = policy_repo / "statutes/47/294.yaml"
+        generated = output_root / "codex-test-model/statutes/47/294.yaml"
+        target.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+        target.write_text(content)
+        generated.write_text(content)
+        output = "us-la:statutes/47/294#amount"
+        period = {"period_kind": "tax_year", "start": "2025-01-01", "end": "2025-12-31"}
+        required = _RequiredTestCaseContract(
+            name="required", period=period, input={}, required_output={output: 0}
+        )
+        contract = _DeferredOutputReviewContract(
+            citation="us-la/statute/47:294",
+            rulespec_path="us-la/statutes/47/294.yaml",
+            required_deferred_outputs=(),
+            required_test_cases=(required,),
+        )
+        cases = (
+            []
+            if variant == "missing_case"
+            else [
+                dict(
+                    name="required",
+                    period=period,
+                    input={},
+                    output={} if variant == "missing_output" else {output: 0},
+                )
+            ]
+        )
+        companion = generated.with_suffix(".test.yaml")
+        companion.write_text(yaml.safe_dump(cases))
+        original = companion.read_bytes()
+        result = SimpleNamespace(
+            output_file=str(generated),
+            runner="codex-test-model",
+            backend="codex",
+            citation="wrong/citation" if variant == "binding" else contract.citation,
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, _path, *, skip_reviewers):
+                if variant == "overlay_only":
+                    _path.with_suffix(".test.yaml").write_text("[]\n")
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            validator_name="ci",
+                            issues=["Independent source failure"],
+                            error="Independent source failure",
+                            passed=False,
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._record_successful_apply_validation") as snapshot,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                deferred_output_review_contract=contract,
+            )
+        assert not ok and supplemental == {}
+        assert issues[0] == "statutes/47/294.yaml: ci: Independent source failure"
+        assert companion.read_bytes() == original
+        snapshot.assert_not_called()
+        if variant == "complete":
+            assert issues == ["statutes/47/294.yaml: ci: Independent source failure"]
+        elif variant == "binding":
+            assert any("generated citation does not match" in issue for issue in issues)
+        elif variant in {"missing_case", "overlay_only"}:
+            assert any(
+                "required-test-case-contract" in issue and "required" in issue
+                for issue in issues
+            )
+        else:
+            assert any(
+                "missing or changes required output" in issue for issue in issues
+            )
 
     def test_apply_overlay_checks_review_contract_before_success_snapshot(
         self, tmp_path

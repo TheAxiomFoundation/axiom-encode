@@ -18543,8 +18543,11 @@ def _append_generated_derived_output_tests_if_missing(
     repo_path: Path,
     relative_output: Path,
     issues: list[str],
+    test_failure_checker=None,
 ) -> list[str]:
     """Append deterministic companion cases for local derived outputs."""
+    if test_failure_checker is None:
+        return []
     if not issues or not test_file.exists() or not rules_file.exists():
         return []
     output_targets = _missing_derived_output_targets_from_issues(issues)
@@ -18586,13 +18589,15 @@ def _append_generated_derived_output_tests_if_missing(
         for input_name in sorted(factual_inputs)
     }
 
+    original_bytes = test_file.read_bytes()
+    generated_cases: list[dict] = []
     repaired: list[str] = []
     existing_case_names = {
         str(test_case.get("name") or "").strip()
         for test_case in test_payload
         if isinstance(test_case, dict)
     }
-    for target in output_targets:
+    for target in output_targets[:50]:
         if target in existing_outputs:
             continue
         rule = derived_rules_by_target.get(target)
@@ -18602,7 +18607,7 @@ def _append_generated_derived_output_tests_if_missing(
         case_name = f"auto_output_{_safe_test_name(output_name)}"
         if case_name in existing_case_names:
             continue
-        test_payload.append(
+        generated_cases.append(
             {
                 "name": case_name,
                 "period": _generated_test_period_for_rule(rule),
@@ -18620,8 +18625,26 @@ def _append_generated_derived_output_tests_if_missing(
 
     if not repaired:
         return []
+    # Screen only new worlds: an existing failure cannot mask a new failure.
+    # One bounded batch, with no trial writes to the caller's companion file.
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate_file = Path(tmpdir) / test_file.name
+            candidate_file.write_text(
+                yaml.safe_dump(generated_cases, sort_keys=False, allow_unicode=True)
+            )
+            failures = test_failure_checker(candidate_file)
+            if not isinstance(failures, list) or failures:
+                return []
+    except Exception:
+        # Unavailable engines, compilation and setup errors leave coverage pending.
+        return []
+    if test_file.read_bytes() != original_bytes:
+        return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(
+            test_payload + generated_cases, sort_keys=False, allow_unicode=True
+        )
     )
     return repaired
 
@@ -33564,6 +33587,8 @@ def _run_encode_attempt(
                             result,
                             output_root=args.output,
                             policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
                             issues=apply_issues,
                         )
                     )
@@ -48117,6 +48142,8 @@ def _try_repair_generated_derived_output_tests_for_apply(
     output_root: Path,
     policy_repo_path: Path,
     issues: list[str],
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Append deterministic coverage tests for unasserted local derived outputs."""
     if not _only_pending_missing_derived_output_coverage_issues(issues):
@@ -48131,10 +48158,12 @@ def _try_repair_generated_derived_output_tests_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _append_generated_derived_output_tests_if_missing(
+    return _append_generated_derived_output_tests_in_overlay(
         rules_file=rules_file,
         test_file=test_file,
-        repo_path=policy_repo_path,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        rulespec_dependency_roots=rulespec_dependency_roots,
         relative_output=relative_output,
         issues=issues,
     )
@@ -48178,6 +48207,61 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
         relative_output=relative_output,
         issues=issues,
     )
+
+
+def _append_generated_derived_output_tests_in_overlay(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[str]:
+    """Screen one generated-only batch in a canonical temporary checkout."""
+    if not _missing_derived_output_targets_from_issues(issues):
+        return []
+    try:
+        content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
+        checkout = _rulespec_apply_checkout_root(policy_repo_path, relative_output)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir).resolve(strict=True)
+            overlay = parent / checkout.name
+            dependencies = _stage_apply_overlay_dependency_roots(
+                overlay_parent=parent,
+                policy_repo_path=checkout,
+                overlay_repo_name=checkout.name,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+            )
+            _stage_apply_overlay_dependency_root(source=checkout, target=overlay)
+            root = overlay / content_root.name
+            if canonical_rulespec_root_identity(root) is None:
+                return []
+            policy = root / relative_output
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(rules_file, policy)
+            companion = _rulespec_test_path(policy)
+
+            def check(candidate: Path):
+                shutil.copy2(candidate, companion)
+                return _rulespec_companion_test_failures(
+                    companion,
+                    root=root,
+                    axiom_rules_path=axiom_rules_path,
+                    rulespec_dependency_roots=dependencies,
+                )
+
+            return _append_generated_derived_output_tests_if_missing(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=policy_repo_path,
+                relative_output=relative_output,
+                issues=issues,
+                test_failure_checker=check,
+            )
+    except Exception:
+        return []
 
 
 def _append_generated_judgment_positive_tests_in_overlay(
@@ -57855,6 +57939,20 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                     validator_name=validator_name,
                 ):
                     issues.append(issue)
+        # Report the exact contract against the same final overlay bytes even
+        # when unrelated validators fail. The success-path admission gate above
+        # remains mandatory; this only makes missing obligations visible to retry.
+        issues.extend(
+            f"{relative_output}: {issue}"
+            for issue in _required_deferred_output_contract_issues(
+                overlay_target,
+                deferred_output_review_contract,
+                citation=str(getattr(result, "citation", "") or ""),
+                rulespec_path=policy_content_root.name
+                + "/"
+                + relative_output.as_posix(),
+            )
+        )
         return False, issues, {}
 
 
