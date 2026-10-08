@@ -72,6 +72,8 @@ DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
 REVIEWED_RULESPEC_REFS = frozenset(
     {
+        # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         (
             "dk",
             "06489d04e7d4b8d424d1711d99df883c6411248a",
@@ -145,6 +147,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
         ),
         (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -181,6 +187,11 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
+        ),
+        (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
         ),
     }
 )
@@ -373,6 +384,33 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if len(atomic_source_json.encode("utf-8")) > MAX_SOURCE_BUNDLE_JSON_BYTES:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v6"
+    ):
+        if set(payload) != {"schema", "transaction", "repair_mode"}:
+            raise ValueError("v6 requires exactly transaction and repair_mode")
+        mode = payload["repair_mode"]
+        if not isinstance(mode, str) or mode not in {"full_artifact", "tests_only"}:
+            raise ValueError("v6 repair_mode must be full_artifact or tests_only")
+        inner = payload["transaction"]
+        if not isinstance(inner, dict) or inner.get("schema") not in {
+            f"axiom-encode/atomic-source-transaction/v{version}"
+            for version in (2, 3, 4, 5)
+        }:
+            raise ValueError("v6 transaction must be an exact v2-v5 object")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if (
+            normalized["require_complete_source_unit"] is not True
+            or not normalized["primary_required_test_cases"]
+            or normalized["source_bundle"]
+            or normalized["canonical_refresh_bundle"]
+            or normalized.get("manifest_only_refresh", False)
+            or normalized.get("reviewed_candidate_promotion", False)
+        ):
+            raise ValueError(
+                "v6 requires full-source required cases without other modes"
+            )
+        return {**normalized, "repair_mode": mode}
     if isinstance(payload, list):
         return {
             "canonical_refresh_bundle": [],
@@ -493,6 +531,90 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if payload["schema"] == "axiom-encode/atomic-source-transaction/v5":
         normalized["reviewed_candidate_promotion"] = reviewed_candidate_promotion
     return normalized
+
+
+def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, object]:
+    """Project only a validated v6 envelope onto its exact older transaction.
+
+    In particular, absent historical v4/v5 flags are not invented or discarded.
+    Unknown keys and nested wrappers fail before this projection is available.
+    """
+    normalized = split_atomic_source_input(atomic_source_json)
+    if "repair_mode" not in normalized:
+        return normalized
+    payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    return split_atomic_source_input(
+        json.dumps(payload["transaction"], allow_nan=False)
+    )
+
+
+def resolve_atomic_repair_mode(
+    atomic_source_json: str, dispatch: dict[str, str]
+) -> dict[str, object]:
+    """Select execution mode; old envelopes retain historical inference."""
+    normalized = split_atomic_source_input(atomic_source_json)
+    explicit = normalized.get("repair_mode")
+    mode = explicit or (
+        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+    )
+    if explicit is not None:
+        run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if not re.fullmatch(r"[0-9]+", run_id) or run_id == dispatch.get(
+            "GITHUB_RUN_ID"
+        ):
+            raise ValueError("v6 requires a distinct authenticated prior repair run")
+        if run_id == "35160240952":
+            raise ValueError("v6 cannot select the signed-success tests-only pilot")
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "QUEUE_ID",
+                "DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_CITATION",
+                "REPLACE_LEGACY_RULESPEC_PATH",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("v6 supports only an ordinary single-target repair")
+        for field in (
+            "EXISTING_SIGNED_IMPORTS_JSON",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+        ):
+            if _load_unambiguous_json(dispatch.get(field) or "[]", label=field) != []:
+                raise ValueError("v6 cannot include imports or retained successors")
+        citation = dispatch.get("CITATION", "")
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        if not target or citation_rulespec_path(citation).as_posix() != target:
+            raise ValueError("v6 requires the exact ordinary replacement citation/path")
+    return {"mode": mode, "tests_only": mode == "tests_only"}
+
+
+def repair_execution_metadata(
+    atomic_source_json: str,
+    repair_run_id: str,
+    mode: str,
+    tests_only: str,
+) -> dict[str, object] | None:
+    """Bind recorded execution selection to the request; never infer execution."""
+    if not repair_run_id:
+        if mode or tests_only:
+            raise ValueError("repair execution selection without a repair run")
+        return None
+    normalized = split_atomic_source_input(atomic_source_json)
+    requested = normalized.get("repair_mode")
+    expected = requested or (
+        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+    )
+    if mode != expected or tests_only != (
+        "true" if expected == "tests_only" else "false"
+    ):
+        raise ValueError("repair execution mode differs from the selected request")
+    return {
+        "requested_mode": requested or "legacy_inference",
+        "mode": mode,
+        "tests_only": expected == "tests_only",
+    }
 
 
 def parse_source_bundle(
@@ -846,6 +968,97 @@ def _validate_wrapped_review_contract_size(
         raise ValueError(
             f"{label} wrapped review contract exceeds the maximum input size"
         )
+
+
+def validate_fresh_primary_test_target(
+    repo: Path,
+    citation: str,
+    rulespec_path: str,
+    requested_ref: str,
+    required_test_cases_json: str,
+) -> dict[str, object]:
+    """Bind a fresh ordinary replacement without claiming predecessor admission."""
+
+    from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
+    citation = require_canonical_corpus_citation_path(citation)
+    path = _safe_relative_path(rulespec_path, label="fresh primary RuleSpec")
+    if path != citation_rulespec_path(citation):
+        raise ValueError("fresh primary path must match its canonical citation")
+    repo = repo.resolve(strict=True)
+    if repo.name != f"rulespec-{path.parts[0].partition('-')[0]}":
+        raise ValueError("fresh primary repository must match citation country")
+    if (
+        COMMIT_PATTERN.fullmatch(requested_ref) is None
+        or _git(repo, "rev-parse", "HEAD").decode().strip() != requested_ref
+    ):
+        raise ValueError(
+            "fresh primary checkout must match the immutable requested ref"
+        )
+    if not isinstance(required_test_cases_json, str):
+        raise ValueError("fresh primary required tests must be JSON text")
+    if (
+        len(required_test_cases_json.encode())
+        > MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES
+    ):
+        raise ValueError("fresh primary required tests exceed maximum input size")
+    cases = _normalize_required_test_cases(
+        _load_unambiguous_json(
+            required_test_cases_json, label="fresh primary required tests"
+        ),
+        label="fresh primary required tests",
+    )
+    if not cases:
+        raise ValueError("fresh primary required tests must not be empty")
+    _validate_wrapped_review_contract_size(
+        citation=citation,
+        path=path,
+        deferred_output_contracts=(),
+        required_test_cases=cases,
+        label="fresh primary",
+    )
+    inventory: dict[str, str | None] = {}
+    companion = path.with_name(f"{path.stem}.test.yaml")
+    index_entries = _git(repo, "ls-files", "--stage", "-z").split(b"\0")
+    for target in (path, companion):
+        label = f"fresh primary file {target}"
+        stage = [
+            entry
+            for entry in index_entries
+            if entry.rpartition(b"\t")[2] == target.as_posix().encode()
+        ]
+        tree = _git(
+            repo, "ls-tree", "-z", "--full-tree", "HEAD", "--", target.as_posix()
+        )
+        absolute = repo.joinpath(*target.parts)
+        if target == companion and not stage and not tree:
+            if absolute.exists() or absolute.is_symlink():
+                raise ValueError(f"{label} is untracked")
+            inventory[target.as_posix()] = None
+            continue
+        tree_entry = re.fullmatch(
+            rb"100644 blob ([0-9a-f]{40})\t"
+            + re.escape(target.as_posix().encode())
+            + rb"\x00",
+            tree,
+        )
+        expected_blob = tree_entry.group(1).decode() if tree_entry else ""
+        if (
+            stage != [f"100644 {expected_blob} 0\t{target}".encode()]
+            or tree != f"100644 blob {expected_blob}\t{target}\0".encode()
+        ):
+            raise ValueError(f"{label} must be unchanged tracked 100644 at HEAD")
+        raw = _read_bounded_regular(
+            repo, target, label=label, max_bytes=10 * 1024 * 1024
+        )
+        if raw != _git(repo, "show", f"HEAD:{target}"):
+            raise ValueError(f"{label} differs from HEAD")
+        inventory[target.as_posix()] = hashlib.sha256(raw).hexdigest()
+    return {
+        "base": requested_ref,
+        "files": inventory,
+        "required_test_cases": list(cases),
+    }
 
 
 def parse_canonical_refresh_bundle(
@@ -4323,6 +4536,12 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
+    fresh_parser.add_argument("repo", type=Path)
+    fresh_parser.add_argument("citation")
+    fresh_parser.add_argument("rulespec_path")
+    fresh_parser.add_argument("requested_ref")
+    fresh_parser.add_argument("required_test_cases_json")
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     stage_parser.add_argument("--corpus-path", dest="corpus_root", type=Path)
@@ -4382,10 +4601,17 @@ def main() -> None:
     atomic_source_parser.add_argument(
         "atomic_source_json",
         help=(
-            "legacy source citation array or exact "
-            '{"canonical_refresh_bundle":[...]} object'
+            "legacy source citation array, canonical refresh object, v2-v5 "
+            "transaction, or v6 {transaction: exact v2-v5, repair_mode: "
+            "full_artifact|tests_only} authenticated failed-repair wrapper"
         ),
     )
+    repair_mode_parser = subparsers.add_parser(
+        "resolve-atomic-repair-mode",
+        help="validate explicit failed-repair scope or retain legacy mode inference",
+    )
+    repair_mode_parser.add_argument("atomic_source_json")
+    repair_mode_parser.add_argument("--check-selected", action="store_true")
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4467,6 +4693,18 @@ def main() -> None:
                     pr_base_branch=args.pr_base_branch,
                 )
             )
+        elif args.command == "validate-fresh-primary-test-target":
+            print(
+                json.dumps(
+                    validate_fresh_primary_test_target(
+                        args.repo,
+                        args.citation,
+                        args.rulespec_path,
+                        args.requested_ref,
+                        args.required_test_cases_json,
+                    )
+                )
+            )
         elif args.command == "validate-dependent-cascade":
             _dependents, mode = _classify_dependent_cascade(
                 args.repo,
@@ -4515,6 +4753,25 @@ def main() -> None:
                     sort_keys=True,
                 )
             )
+        elif args.command == "resolve-atomic-repair-mode":
+            resolved = resolve_atomic_repair_mode(
+                args.atomic_source_json, dict(os.environ)
+            )
+            if args.check_selected and os.environ.get("REPAIR_RUN_ID"):
+                repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    os.environ.get("REPAIR_MODE", ""),
+                    os.environ.get("REPAIR_TESTS_ONLY", ""),
+                )
+            if os.environ.get("REPAIR_RUN_ID"):
+                resolved["execution"] = repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    str(resolved["mode"]),
+                    "true" if resolved["tests_only"] else "false",
+                )
+            print(json.dumps(resolved, separators=(",", ":"), sort_keys=True))
         elif args.command == "validate-source-add-targets":
             print(
                 json.dumps(

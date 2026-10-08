@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh transaction
+        description: 'Atomic source input: legacy citation array/refresh object, v2-v5 contract, or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} for an authenticated failed ordinary single-target repair'
         required: false
         default: "[]"
         type: string
@@ -545,16 +545,17 @@ jobs:
             <<< "$atomic_source_payload")"
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
-          repair_tests_only=false
-          if jq -e 'type == "array" and length > 0' \
-            <<< "$primary_required_test_cases_json" > /dev/null; then
-            repair_tests_only=true
-          elif ! jq -e 'type == "array" and length == 0' \
-            <<< "$primary_required_test_cases_json" > /dev/null; then
-            echo "primary required test cases must be a JSON array" >&2
-            exit 1
-          fi
+          repair_mode_json="$(
+            axiom-encode/.venv/bin/python \
+              axiom-encode/scripts/prepare_signed_backfill.py \
+              resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"
+          )"
+          repair_tests_only="$(jq -r '.tests_only' <<< "$repair_mode_json")"
+          repair_mode="$(jq -er '.mode' <<< "$repair_mode_json")"
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
+          echo "mode=$repair_mode" >> "$GITHUB_OUTPUT"
+          echo "execution=$(jq -c '.execution' <<< "$repair_mode_json")" \
+            >> "$GITHUB_OUTPUT"
           if [ "$REPAIR_RUN_ID" = "35160240952" ]; then
             # Pilot only: the immutable, independently reviewed signed memo head.
             # The encoder's tests-only contract rejects any changed RuleSpec body.
@@ -802,6 +803,8 @@ jobs:
 
       - name: Validate atomic source inputs
         env:
+          REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -813,6 +816,7 @@ jobs:
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
           SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
         run: |
@@ -822,6 +826,9 @@ jobs:
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -856,6 +863,36 @@ jobs:
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           if [ -n "${REPAIR_RUN_ID:-}" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            axiom-encode/.venv/bin/python axiom-encode/scripts/prepare_signed_backfill.py \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -972,6 +1009,8 @@ jobs:
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           QUEUE_ID: ${{ inputs.queue_id }}
           QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
           materializer=axiom-encode/scripts/materialize_corpus_release.py
@@ -1015,6 +1054,29 @@ jobs:
             echo "Pinned corpus checkout predates signed release provenance" >&2
             exit 1
           }
+          if [ -d axiom-corpus/.axiom/corpus-locks ]; then
+            release_object="axiom-corpus/releases/${release_name}/${release_sha}.json"
+            provision_paths_json="$(jq -e \
+              '[.content.artifacts[] | select(.artifact_class == "provisions") | .path]
+               | if length > 0 then . else error("no provision artifacts") end' \
+              "$release_object")"
+            mapfile -t provision_paths < <(jq -r '.[]' <<< "$provision_paths_json")
+            fetch_args=()
+            for path in "${provision_paths[@]}"; do
+              case "$path" in
+                data/corpus/provisions/*) fetch_args+=(--path "$path") ;;
+                *) echo "Unsafe corpus provision artifact path: $path" >&2; exit 1 ;;
+              esac
+            done
+            uv run --project axiom-corpus --locked --python 3.14 \
+              axiom-corpus-ingest corpus fetch --repo axiom-corpus \
+              --no-cache --verify "${fetch_args[@]}"
+          else
+            test -d axiom-corpus/data/corpus/provisions || {
+              echo "Pinned corpus checkout has neither locks nor provisions" >&2
+              exit 1
+            }
+          fi
 
       - name: Provision protected signing supervisor
         id: provision_signing_supervisor
@@ -1033,6 +1095,8 @@ jobs:
             ./cmd/axiom-encode-apply-signer
           sudo chown 0:0 /opt
           sudo chmod go-w /opt
+          test "$(stat -c '%u' /opt)" = "0"
+          test -z "$(find /opt -maxdepth 0 -perm /022)"
           sudo rm -rf /opt/axiom-verification
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \
@@ -1174,6 +1238,7 @@ jobs:
 
       - name: Verify existing signed imports
         env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -1197,6 +1262,9 @@ jobs:
             "$workflow_python" -I "$backfill_helper" \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          "$workflow_python" -I "$backfill_helper" \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -1230,7 +1298,38 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || \
+             [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" -I "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -1349,6 +1448,7 @@ jobs:
       - name: Encode, review, validate, and apply
         id: encode_apply
         env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
           # Flush encoder output as it is produced so a timeout or crash
           # still leaves attempt records in the job log.
           PYTHONUNBUFFERED: "1"
@@ -1753,6 +1853,9 @@ jobs:
             "$workflow_python" "$backfill_helper" split-atomic-source-input \
               "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          "$workflow_python" "$backfill_helper" \
+            resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}" \
+            --check-selected > /dev/null
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -1807,7 +1910,37 @@ jobs:
             fi
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
-          if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
+          # Required cases on a standalone fresh replacement are a signing
+          # contract, not a request to trust or refresh a predecessor manifest.
+          if [ -z "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ -z "${REPAIR_RUN_ID:-}" ] && \
+             [ -n "${REPLACE_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ] && \
+             jq -e '
+               .canonical_refresh_bundle == [] and
+               .require_complete_source_unit == true and
+               (.manifest_only_refresh // false) == false and
+               (.reviewed_candidate_promotion // false) == false
+             ' <<< "$atomic_source_payload" > /dev/null; then
+            if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '.source_bundle == []' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh ordinary replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            "$workflow_python" "$backfill_helper" \
+              validate-fresh-primary-test-target "$RULESPEC_CHECKOUT" \
+              "$CITATION" "$REPLACE_RULESPEC_PATH" "$RULESPEC_REF" \
+              "$primary_required_test_cases_json" > /dev/null
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -2336,6 +2469,8 @@ jobs:
       - name: Package exact generated changes
         id: package_exact_generated_changes
         env:
+          REPAIR_MODE: ${{ steps.repair_candidate.outputs.mode }}
+          REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
@@ -2415,6 +2550,9 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
+          from axiom_encode.prepare_signed_backfill import (
+              immutable_atomic_source_contract,
+          )
 
           from axiom_encode.corpus_resolver import (
               UnsafeCorpusPathError,
@@ -2506,20 +2644,23 @@ jobs:
               os.environ.get("SECOND_DEPENDENT_CITATION") or ""
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
-          atomic_source = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          atomic_source_raw = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          atomic_source = immutable_atomic_source_contract(
+              os.environ.get("ATOMIC_SOURCE_JSON") or "[]"
+          )
           manifest_only_refresh = (
-              isinstance(atomic_source, dict)
-              and atomic_source.get("schema") in {
+              isinstance(atomic_source_raw, dict)
+              and atomic_source_raw.get("schema") in {
                   "axiom-encode/atomic-source-transaction/v4",
                   "axiom-encode/atomic-source-transaction/v5",
               }
-              and atomic_source.get("manifest_only_refresh") is True
+              and atomic_source_raw.get("manifest_only_refresh") is True
           )
           reviewed_candidate_promotion = (
-              isinstance(atomic_source, dict)
-              and atomic_source.get("schema")
+              isinstance(atomic_source_raw, dict)
+              and atomic_source_raw.get("schema")
               == "axiom-encode/atomic-source-transaction/v5"
-              and atomic_source.get("reviewed_candidate_promotion") is True
+              and atomic_source_raw.get("reviewed_candidate_promotion") is True
           )
           legacy_source_path = (
               os.environ.get("REPLACE_LEGACY_RULESPEC_PATH") or ""
@@ -3659,6 +3800,7 @@ jobs:
           import subprocess
           import sys
           from pathlib import Path
+          from axiom_encode.prepare_signed_backfill import repair_execution_metadata
 
           def rev(path):
               return subprocess.check_output(
@@ -3779,6 +3921,13 @@ jobs:
               ),
               "pr_base_branch": os.environ["PR_BASE_BRANCH"],
               "repair_candidate": repair_candidate,
+              "atomic_source_input": os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
+              "repair_execution": repair_execution_metadata(
+                  os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
+                  os.environ.get("REPAIR_RUN_ID") or "",
+                  os.environ.get("REPAIR_MODE") or "",
+                  os.environ.get("REPAIR_TESTS_ONLY") or "",
+              ),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "queue_id": os.environ.get("QUEUE_ID") or None,
               "queue_item_id": os.environ.get("QUEUE_ITEM_ID") or None,
@@ -3963,6 +4112,7 @@ jobs:
         id: package_failed_reencode_diagnostics
         if: ${{ failure() && !cancelled() }}
         env:
+          REPAIR_EXECUTION_JSON: ${{ steps.repair_candidate.outputs.execution }}
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
@@ -4031,6 +4181,30 @@ jobs:
           import stat
           import sys
           from pathlib import Path
+
+          def recorded_repair_selection():
+              # Resolve emits this only after validating the request. Keep setup
+              # failure packaging stdlib-only, including rejected requests that
+              # never produced a selection. This is not execution success.
+              raw = os.environ.get("REPAIR_EXECUTION_JSON") or ""
+              if not raw:
+                  return None
+              if len(raw) > 256:
+                  return None
+              try:
+                  selected = json.loads(raw)
+              except (ValueError, TypeError):
+                  return None
+              if not isinstance(selected, dict) or set(selected) != {
+                  "requested_mode", "mode", "tests_only"
+              }:
+                  return None
+              mode = selected["mode"]
+              if mode not in ("full_artifact", "tests_only") or (
+                  selected["requested_mode"] not in (mode, "legacy_inference")
+              ) or selected["tests_only"] is not (mode == "tests_only"):
+                  return None
+              return selected
 
           class UnsafeDiagnosticPathError(Exception):
               pass
@@ -4401,6 +4575,7 @@ jobs:
               "replace_rulespec_path": os.environ.get("REPLACE_RULESPEC_PATH")
               or None,
               "repair_candidate": repair_candidate,
+              "repair_execution": recorded_repair_selection(),
               "repair_run_id": os.environ.get("REPAIR_RUN_ID") or None,
               "rules_engine_ref": os.environ["RULES_ENGINE_REF"],
               "rulespec_ref": os.environ["RULESPEC_REF"],

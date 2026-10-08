@@ -2169,9 +2169,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
-            "transaction"
+            "Atomic source input: legacy citation array/refresh object, v2-v5 contract, "
+            "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
+            "for an authenticated failed ordinary single-target repair"
         ),
         "required": False,
         "default": "[]",
@@ -2343,6 +2343,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
@@ -2363,6 +2365,45 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
+    assert 'select(.artifact_class == "provisions")' in release_command
+    provision_filter = release_command.split("provision_paths_json=", 1)[1].split(
+        "'", 2
+    )[1]
+    assert "\\" not in provision_filter
+    if jq_binary := shutil.which("jq"):
+        sample_release = {
+            "content": {
+                "artifacts": [
+                    {
+                        "artifact_class": "provisions",
+                        "path": "data/corpus/provisions/a",
+                    },
+                    {"artifact_class": "documents", "path": "data/corpus/documents/b"},
+                ]
+            }
+        }
+        selected = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert selected.returncode == 0, selected.stderr
+        assert json.loads(selected.stdout) == ["data/corpus/provisions/a"]
+        sample_release["content"]["artifacts"] = []
+        missing = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert missing.returncode != 0
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
+    assert '--no-cache --verify "${fetch_args[@]}"' in release_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in release_command
 
     repair_step = next(
         step
@@ -2389,8 +2430,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
     assert "repair replay is limited to one non-legacy target" in repair_command
-    assert "repair_tests_only=false" in repair_command
-    assert "repair_tests_only=true" in repair_command
+    assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
+    assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
@@ -2717,6 +2758,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "REPAIR_CANDIDATE_RULESPEC_SHA256",
         "REPAIR_CANDIDATE_TESTS_SHA256",
         "REPAIR_RUN_ID",
+        "REPAIR_EXECUTION_JSON",
         "PROVISION_SIGNING_SUPERVISOR_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_OUTCOME",
@@ -3202,9 +3244,20 @@ def test_repair_preflight_splits_atomic_source(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\nus-ri/statutes/44-30-2.6.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        f"tests_only={expected_tests_only}\n"
+    mode = "tests_only" if expected_tests_only == "true" else "full_artifact"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == expected_tests_only
+    assert outputs["mode"] == mode
+    assert json.loads(outputs["execution"]) == {
+        "mode": mode,
+        "requested_mode": "legacy_inference",
+        "tests_only": expected_tests_only == "true",
+    }
 
 
 def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
@@ -3381,9 +3434,19 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "dependent\nus/statutes/42/1437c-1.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 @pytest.mark.parametrize("second_without_first", [False, True])
@@ -3438,9 +3501,19 @@ def test_repair_preflight_accepts_new_source_target(
         return
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\n\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 def test_repair_preflight_rejects_tests_only_new_source(tmp_path: Path) -> None:
@@ -3565,6 +3638,9 @@ def test_fresh_v2_required_test_cases_do_not_require_a_repair_run(
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
+            "RULESPEC_REF": subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
             "SECOND_DEPENDENT_CITATION": "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },
@@ -3633,6 +3709,8 @@ def test_repair_required_test_cases_do_not_enable_canonical_refresh(
             "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
             "QUEUE_ID": "",
             "REPAIR_RUN_ID": "100",
+            "REPAIR_MODE": "tests_only",
+            "REPAIR_TESTS_ONLY": "true",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
@@ -3665,8 +3743,12 @@ def test_repair_witness_routing_is_rechecked_in_protected_steps() -> None:
     assert verify["env"]["REPAIR_TESTS_ONLY"] == (
         "${{ steps.repair_candidate.outputs.tests_only }}"
     )
-    assert 'if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
-    assert 'if [ "$REPAIR_TESTS_ONLY" = "true" ]; then' in encode["run"]
+    assert 'if [ -n "${REPAIR_RUN_ID:-}" ] ||' in verify["run"]
+    assert '[ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
+    assert (
+        'if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then'
+        in encode["run"]
+    )
     for step in (validate, verify, encode):
         assert '"$canonical_refresh_primary_required_test_cases_json"' in step["run"]
 
@@ -4447,7 +4529,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     )
     command = evidence["run"]
     assert 'test "$(jq -r \'.state\' "$queue")" = "paused"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert "commits/$NEW_RULESPEC_REF/check-runs?per_page=100" in command
     assert '.status == "completed"' in command
     assert 'IN("success", "neutral", "skipped")' in command
@@ -4514,7 +4596,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "verify-activation-commit" in validate_command
     assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in validate_command
     assert "snap-queue-finalization-$run_id" in validate_command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in validate_command
+    assert "git/ref/heads/$pr_base_branch" in validate_command
     assert 'echo "initial=$authenticate_queue" >> "$GITHUB_OUTPUT"' in validate_command
     assert ".dispatch != $previous[0].dispatch" in validate_command
     assert ".release != $previous[0].release" in validate_command
@@ -4554,8 +4636,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "unsupported initial SNAP queue" in provenance_command
     assert "--state paused" in provenance_command
     assert "cmp --silent" in provenance_command
-    assert "rulespec-us/git/ref/heads/hard-cut/canonical-layout-us" in (
-        provenance_command
+    assert "rulespec-us/git/ref/heads/$PR_BASE_BRANCH" in provenance_command
+    assert provenance["env"]["PR_BASE_BRANCH"] == (
+        "${{ steps.transition.outputs.pr_base_branch }}"
     )
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in (provenance_command)
     assert "rules-engine-check-runs.json" in provenance_command
@@ -4595,7 +4678,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "commits/$rulespec_ref/check-runs?per_page=100" in command
     assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
     assert '--expected-base-sha "$BASE_SHA"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert '--match-head-commit "$HEAD_SHA"' in command
     assert "git log --first-parent" in command
     upload = next(
@@ -6466,8 +6549,9 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
 
 
 @pytest.mark.parametrize("repair_lane", ["target", "source-only"])
+@pytest.mark.parametrize("selected_mode", ["full_artifact", "tests_only", ""])
 def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation(
-    tmp_path: Path, repair_lane: str
+    tmp_path: Path, repair_lane: str, selected_mode: str
 ) -> None:
     script = _targeted_metadata_script()
     heads: dict[str, str] = {}
@@ -6541,15 +6625,33 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
             "REPAIR_CANDIDATE_TESTS_SHA256": (
                 "" if repair_lane == "source-only" else "e" * 64
             ),
-            "REPAIR_RUN_ID": "1234",
+            "REPAIR_RUN_ID": "1234" if selected_mode else "",
+            "REPAIR_MODE": selected_mode,
+            "REPAIR_TESTS_ONLY": ("true" if selected_mode == "tests_only" else "false")
+            if selected_mode
+            else "",
+            "PYTHONPATH": str(ROOT / "src"),
             "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
             "RULESPEC_REF": heads["rulespec-us"],
             "RUNNER_TEMP": str(runner_temp),
         },
     )
 
+    if selected_mode == "tests_only":
+        assert completed.returncode != 0
+        assert "repair execution mode differs" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not selected_mode:
+        assert payload["repair_execution"] is None
+        assert payload["repair_candidate"] is None
+        return
+    assert payload["repair_execution"] == {
+        "requested_mode": "legacy_inference",
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
     expected = {
         "lane": repair_lane,
         "run_id": "1234",

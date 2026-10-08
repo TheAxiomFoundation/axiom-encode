@@ -98,9 +98,14 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
-from .codex_cli import codex_auth_error
+from .codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
+    validate_codex_reasoning_effort,
+)
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -248,6 +253,7 @@ from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
+    ExistingTargetOracleContract,
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
@@ -265,6 +271,7 @@ from .harness.validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
+    _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_payload_from_file,
@@ -392,6 +399,7 @@ from .legacy_replacement_overlay import (
     stage_legacy_replacement_overlay as _stage_legacy_replacement_overlay,
 )
 from .live_run_telemetry import LiveRunTelemetry, telemetry_blocked_for_tests
+from .numeric_equality import rulespec_numeric_values_equal
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
     apply_pending_to_report,
@@ -2903,12 +2911,22 @@ def main():
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
             f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
-            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
-            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "OPENAI_API_KEY; use --model/--escalation-model to override, "
+            "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
+        ),
+    )
+    encode_parser.add_argument(
+        "--codex-reasoning-effort",
+        type=validate_codex_reasoning_effort,
+        default=DEFAULT_CODEX_REASONING_EFFORT,
+        help=(
+            "Reasoning effort for Codex encoding, including retries "
+            f"(e.g., low, medium, high; default: {DEFAULT_CODEX_REASONING_EFFORT}). "
+            "Other backends ignore this option."
         ),
     )
     encode_parser.add_argument(
@@ -4413,9 +4431,11 @@ def _fingerprint_validation_waiver_modules_parallel(
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over a contiguous slice of
-    the sorted module list with its own pipelines, temporary directory, and
-    compile cache; fingerprints are stable across the split because outcome
+    Each worker runs the unchanged serial executor over an interleaved slice
+    of the sorted module list with its own pipelines, temporary directory, and
+    compile cache. Interleaving prevents adjacent expensive modules from
+    landing on the same worker (for example tariff chapters in a validation
+    shard). Fingerprints are stable across the split because outcome
     canonicalization replaces every process-specific path. A worker failure
     fails the whole audit; results are re-sorted so output order matches the
     serial code path exactly.
@@ -4441,11 +4461,7 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
-    chunks = [
-        ordered[start : start + chunk_size]
-        for start in range(0, len(ordered), chunk_size)
-    ]
+    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
@@ -5428,6 +5444,7 @@ def _execute_rulespec_test_file(
         for relation in artifact.get("program", {}).get("relations", [])
         if isinstance(relation, dict) and relation.get("name")
     }
+    declared_relation_slots = _rulespec_declared_relation_slots(artifact)
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -5445,6 +5462,8 @@ def _execute_rulespec_test_file(
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
+                    declared_relation_slots=declared_relation_slots,
+                    compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
                 )
             )
@@ -5483,12 +5502,31 @@ def _execute_rulespec_test_case(
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
+    declared_relation_slots: dict[str, tuple[str, ...]],
+    compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
+    expected = case.get("output") or {}
+    query_entity = next(
+        (
+            str(derived_by_id[str(output)].get("entity") or "Case")
+            for output in expected
+            if str(output) in derived_by_id
+        ),
+        "Case",
+    )
+    executable_directions = executable_relation_directions(
+        derived_by_id,
+        list(expected),
+        period,
+        query_entity,
+        declared_relation_slots,
+        compiled_relations,
+    )
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
@@ -5510,15 +5548,52 @@ def _execute_rulespec_test_case(
                     and unqualified_name not in relation_names
                 ):
                     relation_names.append(unqualified_name)
+            slots = declared_relation_slots.get(
+                relation_name
+            ) or declared_relation_slots.get(
+                unqualified_name if "#relation." in relation_name else relation_name
+            )
+            current_slot = None
+            if slots is not None:
+                matching_slots = [
+                    slot for slot, entity in enumerate(slots) if entity == query_entity
+                ]
+                if not matching_slots:
+                    raise ValueError(
+                        f"relation `{key}` has declared slots {slots!r}, "
+                        f"neither of which matches query entity `{query_entity}`"
+                    )
+                if len(matching_slots) == 1:
+                    current_slot = matching_slots[0]
+            related_entity = (
+                slots[1 - current_slot]
+                if slots is not None and current_slot is not None
+                else query_entity
+                if slots is not None
+                else "Entity"
+            )
+            matches = {
+                executable_directions[name]
+                for name in relation_names
+                if name in executable_directions
+            }
+            if len(matches) > 1:
+                raise ValueError(f"conflicting executable relation aliases for {key}")
+            direction = next(iter(matches), None)
+            if direction is not None:
+                current_slot, executable_entity = direction
+                if executable_entity is not None:
+                    related_entity = executable_entity
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
-                # The current relation slot convention is related entity first,
-                # enclosing entity second.
+                relation_tuple = [related_id, root_entity_id]
+                if current_slot == 0:
+                    relation_tuple.reverse()
                 for current_relation_name in relation_names:
                     relations.append(
                         {
                             "name": current_relation_name,
-                            "tuple": [related_id, root_entity_id],
+                            "tuple": relation_tuple,
                             "interval": interval,
                         }
                     )
@@ -5535,7 +5610,7 @@ def _execute_rulespec_test_case(
                     inputs.append(
                         {
                             "name": str(row_key),
-                            "entity": "Entity",
+                            "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
                             "value": _rulespec_scalar_value(row_value),
@@ -5545,7 +5620,7 @@ def _execute_rulespec_test_case(
             inputs.append(
                 {
                     "name": key,
-                    "entity": "Entity",
+                    "entity": query_entity,
                     "entity_id": root_entity_id,
                     "interval": interval,
                     "value": _rulespec_scalar_value(value),
@@ -5605,7 +5680,6 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    expected = case.get("output") or {}
     parameter_expected = {
         str(key): value
         for key, value in expected.items()
@@ -6000,7 +6074,12 @@ def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
         and isinstance(expected, (int, float))
         and not isinstance(expected, bool)
     ):
-        return abs(Decimal(str(value)) - Decimal(str(expected))) <= Decimal("1e-18")
+        return rulespec_numeric_values_equal(
+            Decimal(str(value)),
+            Decimal(str(expected)),
+            actual_kind=kind,
+            expected_kind="integer" if isinstance(expected, int) else "decimal",
+        )
     if kind == "date" and isinstance(expected, date):
         return value == expected.isoformat()
     if isinstance(expected, date):
@@ -31391,6 +31470,9 @@ def _run_encode_attempt(
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
+        codex_reasoning_effort=getattr(
+            args, "codex_reasoning_effort", DEFAULT_CODEX_REASONING_EFFORT
+        ),
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
@@ -39493,7 +39575,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
     ]
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
@@ -39511,6 +39595,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
+        generated_anchor=_relative_output_to_anchor(
+            relative_output, policy_repo_path=policy_repo_path
+        ),
     )
 
 
@@ -39812,6 +39899,7 @@ def _repair_scalar_relation_rows(
     test_file: Path,
     policy_repo_path: Path,
     parsed_issues: list[tuple[str, str, int]],
+    generated_anchor: str | None = None,
 ) -> list[str]:
     if not test_file.exists():
         return []
@@ -39846,17 +39934,34 @@ def _repair_scalar_relation_rows(
                 scalar_value = rows[list_index]
                 if isinstance(scalar_value, dict):
                     continue
-                replacement = _relation_row_replacement_from_companion_tests(
+                companion_replacement = _relation_row_replacement_from_companion_tests(
                     relation_key,
                     scalar_value,
                     policy_repo_path=policy_repo_path,
                 )
-                if replacement is None:
-                    replacement = _relation_row_replacement_from_generated_rules(
-                        relation_key,
-                        scalar_value,
-                        rules_file=rules_file,
-                    )
+                generated_replacement = _relation_row_replacement_from_generated_rules(
+                    relation_key,
+                    scalar_value,
+                    rules_file=rules_file,
+                )
+                generated_owns_relation = _generated_file_defines_relation(
+                    rules_file,
+                    relation_key,
+                    generated_anchor=generated_anchor,
+                )
+                # A protected replacement can rename the relation's child input.
+                # An older companion test then has a plausible row shape whose
+                # input is no longer declared by the generated module. Prefer
+                # the generated formula's single child fact in that case.
+                if (
+                    companion_replacement is not None
+                    and generated_replacement is not None
+                    and generated_owns_relation
+                    and not generated_replacement.keys() <= companion_replacement.keys()
+                ):
+                    replacement = generated_replacement
+                else:
+                    replacement = companion_replacement or generated_replacement
                 if replacement is None:
                     continue
                 rows[list_index] = replacement
@@ -40049,12 +40154,11 @@ def _relation_row_replacement_from_companion_tests(
             return copy.deepcopy(row)
     if isinstance(scalar_value, bool):
         template = copy.deepcopy(exemplar_rows[0])
-        changed = False
-        for key, value in list(template.items()):
-            if isinstance(value, bool):
-                template[key] = scalar_value
-                changed = True
-        if changed:
+        boolean_keys = [
+            key for key, value in template.items() if isinstance(value, bool)
+        ]
+        if len(boolean_keys) == 1:
+            template[boolean_keys[0]] = scalar_value
             return template
     return None
 
@@ -40089,6 +40193,34 @@ def _relation_row_replacement_from_generated_rules(
     relation_base = relation_ref.split("#", 1)[0].strip()
     child_ref = f"{relation_base}#input.{next(iter(child_names))}"
     return {child_ref: copy.deepcopy(scalar_value)}
+
+
+def _generated_file_defines_relation(
+    rules_file: Path | None,
+    relation_ref: str,
+    *,
+    generated_anchor: str | None,
+) -> bool:
+    """Whether the generated module owns the relation being repaired."""
+    if rules_file is None or not rules_file.exists():
+        return False
+    module_ref = relation_ref.split("#", 1)[0].strip()
+    if generated_anchor != module_ref:
+        return False
+    relation_name = _relation_name_from_relation_ref(relation_ref)
+    if not relation_name:
+        return False
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    return isinstance(rules, list) and any(
+        isinstance(rule, dict)
+        and rule.get("name") == relation_name
+        and rule.get("kind") == "data_relation"
+        for rule in rules
+    )
 
 
 def _relation_name_from_relation_ref(relation_ref: str) -> str:
@@ -40144,7 +40276,8 @@ def _relation_row_matches_scalar_value(
     scalar_value: object,
 ) -> bool:
     if isinstance(scalar_value, bool):
-        return any(value is scalar_value for value in row.values())
+        boolean_values = [value for value in row.values() if isinstance(value, bool)]
+        return len(boolean_values) == 1 and boolean_values[0] is scalar_value
     return False
 
 
@@ -57140,6 +57273,12 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
 
         supplemental_files: dict[Path, str] = {}
+        mapped_shape_repairs = _repair_existing_target_oracle_shape_contracts(
+            rules_file=overlay_target,
+            contract=existing_target_oracle_contract,
+        )
+        if mapped_shape_repairs:
+            supplemental_files[relative_output] = overlay_target.read_text()
         repaired_import_symbols = _repair_generated_import_symbol_near_misses(
             rules_file=overlay_target,
             repo_path=overlay_content_root,
@@ -57815,6 +57954,85 @@ def _stage_apply_overlay_dependency_roots(
         staged_names.add(dependency_root.name)
         staged.append(target)
     return tuple(staged)
+
+
+def _repair_existing_target_oracle_shape_contracts(
+    *,
+    rules_file: Path,
+    contract: ExistingTargetOracleContract | None,
+) -> list[str]:
+    """Restore exact mapped schemas while leaving generated policy logic intact.
+
+    Replacement generation may legitimately rewrite formulas, but an exact oracle
+    mapping makes the exported rule schema immutable except for a validator-proven
+    ``replacement_entity``.  Repair those mechanical fields deterministically so
+    a model cannot accidentally migrate an otherwise valid mapped helper while
+    correcting a neighbouring legacy entity defect.
+    """
+
+    if contract is None or not rules_file.exists():
+        return []
+    try:
+        payload = _safe_load_unique_keys(rules_file.read_text())
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return []
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    repaired: list[str] = []
+    for expected in contract.surfaces:
+        rule = rules.get(expected.name)
+        if not isinstance(rule, dict):
+            continue
+        if len(expected.indexed_by) > 1:
+            raise ValueError(
+                f"Cannot restore mapped rule {expected.name!r}: "
+                "multiple indexed_by dimensions are unsupported"
+            )
+        changed = False
+        protected_fields: dict[str, object] = {
+            "kind": expected.kind,
+            "entity": expected.replacement_entity or expected.entity,
+            "dtype": expected.dtype,
+            "period": expected.period,
+            "unit": expected.unit,
+            "indexed_by": expected.indexed_by[0] if expected.indexed_by else "",
+        }
+        for field, value in protected_fields.items():
+            if value == "" or value == () or value == []:
+                if field in rule:
+                    rule.pop(field, None)
+                    changed = True
+                continue
+            if rule.get(field) != value:
+                rule[field] = value
+                changed = True
+        metadata = rule.get("metadata")
+        if expected.private:
+            if not isinstance(metadata, dict):
+                metadata = {}
+                rule["metadata"] = metadata
+            if metadata.get("private") is not True:
+                metadata["private"] = True
+                changed = True
+        elif isinstance(metadata, dict) and "private" in metadata:
+            metadata.pop("private", None)
+            changed = True
+        if changed:
+            repaired.append(expected.name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return repaired
 
 
 _APPLY_OVERLAY_IGNORED_NAMES = frozenset(
@@ -59950,6 +60168,7 @@ def _finalize_legacy_exact_dependents_from_overlay(
 
 _MISSING_INPUT_RE = re.compile(
     r"(?:Test case `)?(?P<case>[^`:]+)`?(?: execution failed)?: "
+    r"(?:(?!Test case `)[^\n]*\n)*?"
     r"missing input `(?P<input>[^`]+)`"
     r"(?: for entity `(?P<entity>[^`]+)`)?"
 )
@@ -61115,7 +61334,19 @@ def _insert_input_default_in_relation_rows(
                     rendered = rendered_value
                 indent = " " * (item_indent + 2)
                 newline = "\n" if lines[index].endswith("\n") else ""
-                insertions.setdefault(index + 1, []).append(
+                insertion_index = index + 1
+                if (
+                    re.match(r"^\s*-\s+\?\s+", lines[index])
+                    and insertion_index < item_end
+                    and re.match(r"^\s+:\s+", lines[insertion_index])
+                ):
+                    # PyYAML renders canonical RuleSpec references longer than
+                    # 127 characters as an explicit ``? key`` / ``: value``
+                    # pair.  Keep that pair contiguous: inserting between the
+                    # two lines produces invalid YAML on the next validation
+                    # pass.
+                    insertion_index += 1
+                insertions.setdefault(insertion_index, []).append(
                     f"{indent}{input_ref}: {rendered}{newline}"
                 )
             index = item_end

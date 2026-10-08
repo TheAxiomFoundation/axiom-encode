@@ -409,15 +409,16 @@ def _pr_history(
     generation_sha256 = generation_sha256 or item["generation_sha256"]
     citation = citation or item["citation"]
     base_commit = base_commit or dispatch["rulespec_ref"]
+    base_branch = dispatch["pr_base_branch"]
     return [
         [
             {
-                "base": {"ref": "hard-cut/canonical-layout-us"},
+                "base": {"ref": base_branch},
                 "body": (
                     "Generated PR\n\n"
                     f"Citation: `{citation}`\n"
                     f"Base commit: `{base_commit}`\n"
-                    "Base branch: `hard-cut/canonical-layout-us`\n"
+                    f"Base branch: `{base_branch}`\n"
                     f"Queue item: `us-snap-or-ut-2026-07/{item_id}`\n"
                     f"Queue generation SHA-256: `{generation_sha256}`\n"
                     "Axiom Encode run: https://github.com/"
@@ -574,8 +575,11 @@ def test_retryable_disposition_creates_new_item_generation() -> None:
     assert result["items"][0]["dispatchable"] is True
 
 
-def _repin_fixture(tmp_path: Path) -> tuple[dict, Path, str, str]:
+def _repin_fixture(
+    tmp_path: Path, pr_base_branch: str = "hard-cut/canonical-layout-us"
+) -> tuple[dict, Path, str, str]:
     payload = _queue()
+    payload["dispatch"]["pr_base_branch"] = pr_base_branch
     rulespec = tmp_path / "rulespec"
     toolchain = rulespec / ".axiom/toolchain.toml"
     toolchain.parent.mkdir(parents=True)
@@ -638,7 +642,7 @@ def _repin_fixture(tmp_path: Path) -> tuple[dict, Path, str, str]:
             "-C",
             rulespec,
             "update-ref",
-            "refs/remotes/origin/hard-cut/canonical-layout-us",
+            f"refs/remotes/origin/{pr_base_branch}",
             new_ref,
         ],
         check=True,
@@ -1773,3 +1777,388 @@ def test_validate_tracked_dispatch_rejects_spoofed_provenance(
 
     with pytest.raises(ValueError, match=message):
         validate_tracked_dispatch(active_queue, **kwargs)
+
+
+def test_validate_snap_queue_accepts_only_approved_pr_base_branches() -> None:
+    payload = _queue()
+    payload["dispatch"]["pr_base_branch"] = "main"
+    validate_queue(payload)
+
+    payload["dispatch"]["pr_base_branch"] = "develop"
+    with pytest.raises(ValueError, match="PR base branch is not approved"):
+        validate_queue(payload)
+
+
+def test_finalize_repin_on_main_advances_to_the_protected_tip_without_allowlist(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, _, new_ref = _repin_fixture(tmp_path, pr_base_branch="main")
+    evidence = _finalizer_evidence()
+    evidence["target_evidence"] = _target_evidence(payload, rulespec, "ut-0001")
+
+    updated = finalize_and_repin(
+        payload,
+        rulespec_root=rulespec,
+        pull_requests=_pr_history(
+            "ut-0001",
+            state="closed",
+            merged=True,
+            merge_commit_sha=new_ref,
+            payload=payload,
+        ),
+        workflow_runs=_run_history(
+            "ut-0001",
+            status="completed",
+            conclusion="success",
+            payload=payload,
+        ),
+        new_rulespec_ref=new_ref,
+        reviewed_rulespec_refs=frozenset(),
+        **evidence,
+    )
+
+    assert updated["state"] == "active"
+    assert updated["dispatch"]["pr_base_branch"] == "main"
+    assert updated["dispatch"]["rulespec_ref"] == new_ref
+
+
+def test_finalize_repin_on_main_still_requires_the_exact_remote_tip(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, old_ref, new_ref = _repin_fixture(
+        tmp_path, pr_base_branch="main"
+    )
+    subprocess.run(
+        ["git", "-C", rulespec, "update-ref", "refs/remotes/origin/main", old_ref],
+        check=True,
+    )
+    with pytest.raises(ValueError, match="exact checked-out remote branch tip"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=new_ref,
+            reviewed_rulespec_refs=frozenset(),
+            **_finalizer_evidence(),
+        )
+
+
+def test_paused_transition_may_move_to_main_only_with_a_full_repin(
+    tmp_path: Path,
+) -> None:
+    previous_payload = _queue(active=False)
+    current_payload = copy.deepcopy(previous_payload)
+    current_payload["dispatch"]["pr_base_branch"] = "main"
+    previous = tmp_path / "previous.json"
+    current = tmp_path / "current.json"
+    previous.write_text(json.dumps(previous_payload), encoding="utf-8")
+    current.write_text(json.dumps(current_payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must replace every source pin"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+    current_payload["dispatch"].update(
+        {
+            "corpus_ref": "1" * 40,
+            "rules_engine_ref": "2" * 40,
+            "rulespec_ref": "3" * 40,
+        }
+    )
+    current_payload["release"] = {
+        "content_sha256": "4" * 64,
+        "manifest_sha256": "5" * 64,
+        "name": "replacement-signed-release",
+    }
+    current.write_text(json.dumps(current_payload), encoding="utf-8")
+
+    verify_paused_transition(current, previous_queue_path=previous)
+
+    current_payload["dispatch"]["pr_base_branch"] = "develop"
+    current.write_text(json.dumps(current_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="PR base branch is not approved"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+
+def test_paused_transition_to_main_requires_a_pristine_unsuspended_queue(
+    tmp_path: Path,
+) -> None:
+    def full_repin_to_main(payload: dict) -> dict:
+        repinned = copy.deepcopy(payload)
+        repinned["dispatch"].update(
+            {
+                "corpus_ref": "1" * 40,
+                "pr_base_branch": "main",
+                "rules_engine_ref": "2" * 40,
+                "rulespec_ref": "3" * 40,
+            }
+        )
+        repinned["release"] = {
+            "content_sha256": "4" * 64,
+            "manifest_sha256": "5" * 64,
+            "name": "replacement-signed-release",
+        }
+        return repinned
+
+    previous = tmp_path / "previous.json"
+    current = tmp_path / "current.json"
+
+    worked = record_disposition(
+        _queue(active=False),
+        item_id="ut-0001",
+        status="retryable",
+        evidence_url=(
+            "https://github.com/TheAxiomFoundation/axiom-encode/issues/"
+            "1257#issuecomment-123"
+        ),
+        note="Recorded disposition.",
+    )
+    previous.write_text(json.dumps(worked), encoding="utf-8")
+    current.write_text(json.dumps(full_repin_to_main(worked)), encoding="utf-8")
+    with pytest.raises(ValueError, match="toolchain repin requires pristine items"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+    active = _queue()
+    suspended = pause_queue(
+        active,
+        reason="Tranche dispatched; awaiting finalization.",
+        active_queue_sha256=queue_object_file_sha256(active),
+    )
+    assert suspended["suspension"] is not None
+    assert all(
+        item["status"] == "pending" and item["attempt"] == 1
+        for item in suspended["items"]
+    )
+    previous.write_text(json.dumps(suspended), encoding="utf-8")
+    current.write_text(json.dumps(full_repin_to_main(suspended)), encoding="utf-8")
+    with pytest.raises(ValueError, match="suspended queue cannot use a pristine"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+
+def _never_activated_fixture(
+    tmp_path: Path, pr_base_branch: str = "main"
+) -> tuple[dict, Path, str]:
+    """A pristine paused queue already repinned to its base branch's exact tip."""
+
+    payload = _queue(active=False)
+    payload["dispatch"]["pr_base_branch"] = pr_base_branch
+    rulespec = tmp_path / "rulespec"
+    toolchain = rulespec / ".axiom/toolchain.toml"
+    toolchain.parent.mkdir(parents=True)
+    release = payload["release"]
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{release["name"]}"\n'
+        "axiom_corpus_release_content_sha256 = "
+        f'"{release["content_sha256"]}"\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q", rulespec], check=True)
+    subprocess.run(["git", "-C", rulespec, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            rulespec,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "repinned tip",
+        ],
+        check=True,
+    )
+    tip = subprocess.check_output(
+        ["git", "-C", rulespec, "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            rulespec,
+            "update-ref",
+            f"refs/remotes/origin/{pr_base_branch}",
+            tip,
+        ],
+        check=True,
+    )
+    payload["dispatch"]["rulespec_ref"] = tip
+    validate_queue(payload)
+    assert "activation" not in payload and "suspension" not in payload
+    assert all(
+        item["status"] == "pending" and item["attempt"] == 1
+        for item in payload["items"]
+    )
+    return payload, rulespec, tip
+
+
+def test_finalize_repin_first_activation_may_use_the_repinned_tip(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
+
+    updated = finalize_and_repin(
+        payload,
+        rulespec_root=rulespec,
+        pull_requests=[],
+        workflow_runs=[],
+        new_rulespec_ref=tip,
+        reviewed_rulespec_refs=frozenset(),
+        **_finalizer_evidence(),
+    )
+
+    assert updated["state"] == "active"
+    assert "pause_reason" not in updated
+    assert updated["dispatch"]["rulespec_ref"] == tip
+    assert updated["activation"]["rulespec_ref"] == tip
+    assert updated["activation"]["previous_queue_object_sha256"] == _json_sha256(
+        payload
+    )
+    assert updated["items"] == payload["items"]
+
+
+def test_finalize_repin_first_activation_off_main_still_requires_allowlist(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_fixture(
+        tmp_path, pr_base_branch="hard-cut/canonical-layout-us"
+    )
+    arguments = {
+        "rulespec_root": rulespec,
+        "pull_requests": [],
+        "workflow_runs": [],
+        "new_rulespec_ref": tip,
+        **_finalizer_evidence(),
+    }
+
+    with pytest.raises(ValueError, match="not independently reviewed and allowlisted"):
+        finalize_and_repin(payload, reviewed_rulespec_refs=frozenset(), **arguments)
+
+    updated = finalize_and_repin(
+        payload, reviewed_rulespec_refs=frozenset({("us", tip)}), **arguments
+    )
+    assert updated["state"] == "active"
+    assert updated["dispatch"]["pr_base_branch"] == "hard-cut/canonical-layout-us"
+    assert updated["activation"]["rulespec_ref"] == tip
+
+
+def test_finalize_repin_first_activation_still_requires_live_green_tip(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
+    red = _finalizer_evidence()
+    red["check_runs"][0]["check_runs"][0]["conclusion"] = "failure"
+    with pytest.raises(ValueError, match="does not have green check runs: validate"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **red,
+        )
+
+    (rulespec / "moved.txt").write_text("main moved\n", encoding="utf-8")
+    subprocess.run(["git", "-C", rulespec, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            rulespec,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "main moved",
+        ],
+        check=True,
+    )
+    moved = subprocess.check_output(
+        ["git", "-C", rulespec, "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    subprocess.run(
+        ["git", "-C", rulespec, "update-ref", "refs/remotes/origin/main", moved],
+        check=True,
+    )
+    with pytest.raises(ValueError, match="exact checked-out remote branch tip"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **_finalizer_evidence(),
+        )
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["retryable", "blocked", "no-executable-rule"],
+)
+def test_finalize_repin_must_advance_once_any_item_has_a_disposition(
+    tmp_path: Path, status: str
+) -> None:
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
+    payload = record_disposition(
+        payload,
+        item_id="ut-0001",
+        status=status,
+        evidence_url=(
+            "https://github.com/TheAxiomFoundation/axiom-encode/issues/"
+            "1257#issuecomment-123"
+        ),
+        note="Recorded disposition.",
+    )
+
+    with pytest.raises(ValueError, match="must advance the queue base"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **_finalizer_evidence(),
+        )
+
+
+def test_finalize_repin_must_advance_after_a_dispatched_tranche(
+    tmp_path: Path,
+) -> None:
+    for pr_base_branch in ("hard-cut/canonical-layout-us", "main"):
+        root = tmp_path / pr_base_branch.replace("/", "-")
+        payload, rulespec, old_ref, _ = _repin_fixture(root, pr_base_branch)
+        assert payload["suspension"] is not None
+        subprocess.run(
+            ["git", "-C", rulespec, "checkout", "-q", old_ref],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                rulespec,
+                "update-ref",
+                f"refs/remotes/origin/{pr_base_branch}",
+                old_ref,
+            ],
+            check=True,
+        )
+        with pytest.raises(ValueError, match="must advance the queue base"):
+            finalize_and_repin(
+                payload,
+                rulespec_root=rulespec,
+                pull_requests=[],
+                workflow_runs=[],
+                new_rulespec_ref=old_ref,
+                reviewed_rulespec_refs=frozenset({("us", old_ref)}),
+                **_finalizer_evidence(),
+            )

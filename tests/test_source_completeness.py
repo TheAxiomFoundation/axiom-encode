@@ -814,6 +814,394 @@ def test_parent_chapeau_proof_does_not_absorb_first_structural_child():
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    excerpt = "all budgetary unit participants receive a listed benefit"
+    rule = _ky_derived_rule(
+        "all_participants_receive_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="all_participants_receive_listed_benefit_fact",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_coordinated_list_chapeau_is_narrowed_with_multiple_formula_excerpts():
+    source = """\
+Basic categorical eligibility exists when the budgetary unit does not have a disqualified participant, and all budgetary unit participants receive any of the following:
+
+● TANF CA Benefits
+● SSI This includes participants whose SSI benefits are in no pay or suspend status.
+"""
+    excerpt = "all budgetary unit participants receive any of the following"
+    rule = _ky_derived_rule(
+        "participant_receives_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="participant_receives_tanf or participant_receives_ssi",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_coordinated_list_chapeau_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays any of the following:\n\n"
+        "● A credit\n"
+        "● A refund."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_list_chapeau_retains_trailing_conditions():
+    source = (
+        "The agency approves the application and pays any of the following: "
+        "● a credit or ● a refund if the applicant is a resident and the "
+        "applicant is a citizen."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_multi_conjunct_excerpt_retains_conditional_context():
+    source = (
+        "Applicants are eligible when the applicant is a resident and the "
+        "applicant is a citizen and the applicant has income."
+    )
+    excerpt = "the applicant is a citizen and the applicant has income"
+    rule = _ky_derived_rule(
+        "citizens_with_income_are_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_a_citizen and applicant_has_income",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 3
+
+
+@pytest.mark.parametrize(
+    "excerpt",
+    [
+        "the spouse qualifies",
+        "the spouse qualifies if the spouse is a resident",
+    ],
+)
+def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
+    source = (
+        "The taxpayer must file and the spouse qualifies if the spouse is a "
+        "resident and the spouse is a citizen."
+    )
+    rule = _ky_derived_rule(
+        "spouse_qualifies",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="spouse_is_resident and spouse_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["If", "Only if", "(a) If", "For this program, if"],
+)
+def test_coordinated_consequence_retains_preposed_conditions(prefix: str):
+    source = (
+        f"{prefix} the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "pays the credit"
+    rule = _ky_derived_rule(
+        "credit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_excerpt_crossing_into_consequence_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "the applicant is a citizen, the agency approves the application"
+    rule = _ky_derived_rule(
+        "application_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_consequence_retains_shared_trailing_conditions():
+    source = (
+        "The agency accepts the application and approves the benefit and pays "
+        "the credit if the applicant is a resident and the applicant is a citizen."
+    )
+    excerpt = "approves the benefit"
+    rule = _ky_derived_rule(
+        "benefit_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_data_relation_is_structural_during_conjunctive_gate_expansion():
+    citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    first_excerpt = "the budgetary unit does not have a disqualified participant"
+    second_excerpt = "all budgetary unit participants receive a listed benefit"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation_path}},
+        "rules": [
+            {
+                "name": "member_of_budgetary_unit",
+                "kind": "data_relation",
+                "data_relation": {
+                    "predicate": "member_of_budgetary_unit",
+                    "arity": 2,
+                    "arguments": ["Person", "Household"],
+                },
+            },
+            _ky_derived_rule(
+                "no_participant_is_disqualified",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_is_disqualified) == 0"
+                ),
+                excerpt=first_excerpt,
+            ),
+            _ky_derived_rule(
+                "all_participants_receive_listed_benefit",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_receives_listed_benefit) "
+                    "== len(member_of_budgetary_unit)"
+                ),
+                excerpt=second_excerpt,
+            ),
+            {
+                **_ky_derived_rule(
+                    "basic_categorical_eligibility",
+                    source="Arizona DES FAA5",
+                    dtype="Judgment",
+                    formula=(
+                        "no_participant_is_disqualified and "
+                        "all_participants_receive_listed_benefit"
+                    ),
+                    excerpt=first_excerpt,
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": first_excerpt,
+                                },
+                            },
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": second_excerpt,
+                                },
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
+        "inputs": [
+            _ky_boolean_input(
+                "participant_is_disqualified", "The participant is disqualified."
+            ),
+            _ky_boolean_input(
+                "participant_receives_listed_benefit",
+                "The participant receives a listed benefit.",
+            ),
+        ],
+    }
+
+    result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert not _has_issue(result, "source-explicit-conditions")
+
+    principal_rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "basic_categorical_eligibility"
+    )
+    principal_rule["versions"][0]["formula"] = "no_participant_is_disqualified"
+    incomplete_result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert _has_issue(
+        incomplete_result,
+        "source-explicit-conditions",
+        "basic_categorical_eligibility",
+    )
+
+
 def test_parenthetical_condition_does_not_absorb_later_conjunctions():
     text = (
         "The monthly income of the sponsor and sponsor's spouse (if he or she has "
@@ -7927,6 +8315,24 @@ def test_cfr_source_reference_alias_matches_canonical_source_paths():
     ) == {("a", "3")}
 
 
+def test_usc_source_reference_alias_matches_scoped_statute_paths():
+    assert completeness_module._paths_from_source_reference(
+        "7 USC 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert completeness_module._paths_from_source_reference(
+        "7 U.S.C. 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert (
+        completeness_module._paths_from_source_reference(
+            "7 USC 2012(k)(5)(A)",
+            corpus_citation_path="us/statute/7/2012/j",
+        )
+        == set()
+    )
+
+
 def test_cfr_parent_and_child_source_aliases_cover_complete_structure():
     source = """\
 (a) A person is eligible only if one of the following applies:
@@ -9397,6 +9803,18 @@ def test_editorial_slash_date_does_not_create_computation_obligation():
     assert source_states_explicit_computation(
         "The amount is computed by dividing income by the divisor."
     )
+
+
+def test_snap_table_range_plus_labels_do_not_create_computation_obligation():
+    source = (
+        "Table 2: Standard Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 5: Maximum Asset Limits Household with at least 1 member "
+        "age 60+ or disabled $4,500 All other households $3,000"
+    )
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(source + " Benefit = 300 - 30.")
+    assert source_states_explicit_computation("Benefit = 6+ 48.")
 
 
 @pytest.mark.parametrize(
@@ -21031,6 +21449,136 @@ def test_guidance_structural_number_cleanup_preserves_substantive_values():
     }
 
     assert values == {1, 2}
+
+
+def _us_legacy_numeric_recall_values(
+    source: str,
+    corpus_citation_path: str = "us-wa/manual/dshs/eaz/example",
+) -> set[float]:
+    """US citation paths use the legacy numeric profile in production."""
+
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path=corpus_citation_path,
+    )
+    return {
+        occurrence.value
+        for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned,
+            profile="legacy",
+        )
+    }
+
+
+def test_us_manual_code_and_policy_references_are_not_numeric_recall_values():
+    # WA DSHS EAZ manual and Utah DWS eligibility manual cross-references.
+    source = (
+        "See WAC 388-450-0015 for excludable income. We must consider countable "
+        "liquid resources under WAC 388-470-0055 when determining eligibility. "
+        "If the client is a migrant use WAC 388-406-0021, then see "
+        "WAC 388-450-0230. For exceptions refer to policy 770-2. Refer to "
+        "policy 770-3 to determine when no notice is required. At least one "
+        "member is elderly or disabled according to policy 254. A household "
+        "may not have over $100 in liquid assets. Advance notice is defined as "
+        "10 days. Verification must arrive before the 60th day after the date "
+        "of application."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 60, 100}
+
+
+def test_us_policy_reference_does_not_swallow_following_value():
+    source = (
+        "Under policy 254, 3 members qualify. See policies 770-2 and 770-3; "
+        "4 days apply."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {3, 4}
+
+
+def test_numbered_manual_section_headings_are_not_numeric_recall_values():
+    # Maryland FIA SNAP Manual section 214 page 5 and Utah DWS policy 770-1.
+    source = (
+        "SNAP MANUAL UTILITY ALLOWANCES\n\n"
+        "214.2 Shared Utility Costs (continued)\n\n"
+        "D. The household pays $35 of the cost.\n\n"
+        "214.3 Telephone Allowance\n\n"
+        "A. The telephone allowance is $27.\n\n"
+        "770-1 Advance Notice of Adverse Action\n\n"
+        "Advance notice is 10 days."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 27, 35}
+
+
+def test_leading_values_that_are_not_section_headings_stay_in_numeric_recall():
+    source = (
+        "7.65 Percent\n"
+        "2.5 Times the standard applies to each member.\n"
+        "1.5 percent of gross income is excluded.\n"
+        "12.5 Months\n"
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {0.015, 0.0765, 2.5, 12.5}
+
+
+def test_us_form_contact_and_form_number_identifiers_are_not_numeric_recall():
+    # Kansas K-40ES voucher instructions.
+    source = (
+        "Mail to: Estimated Tax, Kansas Department of Revenue, PO Box 3506, "
+        "Topeka KS 66625-3506. Questions? Call 785-368-8222 or (785) 368-8222. "
+        "Use Schedule K-210 to figure any underpayment. Topeka, KS 66625- 3506. "
+        "Pay if your tax is $500 or more."
+    )
+
+    assert _us_legacy_numeric_recall_values(
+        source,
+        "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    ) == {500}
+
+
+@pytest.mark.parametrize(
+    "corpus_citation_path",
+    ["de/statute/estg/32", "dk/statute/lbk-603-2025/x/paragraf-2", ""],
+)
+def test_us_locator_masks_do_not_apply_outside_us_citation_paths(
+    corpus_citation_path: str,
+):
+    # A German thousands separator would otherwise read as a heading label.
+    cleaned = authoritative_numeric_recall_text(
+        "1.000 Euro Freibetrag pro Kind\n",
+        corpus_citation_path=corpus_citation_path,
+    )
+
+    assert "1.000" in cleaned
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source", "kept"),
+    (
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "12.50 Weekly Allowance\n",
+            "12.50",
+        ),
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "Under policy 2 adults must sign.",
+            "policy 2",
+        ),
+        ("de/manual/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+        # The gate reads the leading jurisdiction, not any `us/` segment.
+        ("de/manual/us/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+    ),
+)
+def test_us_manual_locator_masks_do_not_apply_to_other_manuals(
+    corpus_citation_path: str, source: str, kept: str
+):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=corpus_citation_path
+    )
+
+    assert kept in cleaned
 
 
 def test_guidance_footnote_cleanup_preserves_numbered_rules_and_categories():
@@ -34545,6 +35093,21 @@ def test_federal_except_tokens_cannot_bind_age_witness_to_joint_return_clause():
     )
 
 
+def test_cash_assistance_acronym_binds_full_selector_to_source_condition():
+    condition = (
+        "when the budgetary unit is CA eligible, but no CA benefit is being paid"
+    )
+
+    assert completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_is_cash_assistance_eligible_but_no_cash_assistance_benefit_is_paid",
+    )
+    assert not completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_receives_refugee_cash_assistance",
+    )
+
+
 @pytest.mark.parametrize("reverse_clause_order", [False, True])
 def test_age_qualification_witness_is_not_allocated_to_joint_return_clause(
     reverse_clause_order: bool,
@@ -43128,6 +43691,25 @@ def test_eu_regulation_identifiers_are_not_division_formulas(citation):
     )
 
 
+def test_parenthesized_see_reference_title_is_not_a_formula_clause():
+    source = (
+        "When a participant meets the elderly or disabled definition, the "
+        "budgetary unit receives special considerations. "
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    branches = recognize_source_structure(source)
+
+    assert not source_states_explicit_computation(
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    assert not completeness_module._source_formula_branches(
+        source,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+    )
+
+
 def test_estg32_regulation_title_does_not_create_formula_clause_witnesses():
     source = """(4) 1Ein Kind wird berücksichtigt, wenn es eine Freiwilligentätigkeit
 im Rahmen des Europäischen Solidaritätskorps im Sinne der
@@ -44584,3 +45166,77 @@ def test_income_table_amounts_still_require_numeric_coverage():
         ),
     )
     assert _has_issue(result, "numeric")
+
+
+@pytest.mark.parametrize("principal", ["net * rate", "net *\nrate"])
+@pytest.mark.parametrize("leaf", ["base - deduction", "base -\ndeduction"])
+def test_reached_witness_expands_supported_multiline_arithmetic(principal, leaf):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"effective_from": "2025-01-01", "formula": leaf}],
+        }
+    }
+    case = {
+        "period": "2025-01-01",
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": {"net": 80},
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert dependencies == {"net": 80}
+    expanded = completeness_module._expand_reached_formula_dependencies(
+        principal,
+        principal_rules=rules,
+        case=case,
+        formula_environment={},
+        dependency_environment=dependencies,
+    )
+    assert expanded == "(base - deduction) * rate"
+
+
+@pytest.mark.parametrize("assertions", [{}, {"net": 81}])
+def test_multiline_witness_does_not_inline_uncorroborated_dependency(assertions):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"formula": "base -\ndeduction"}],
+        }
+    }
+    case = {
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": assertions,
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert "net" not in dependencies
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            "net *\nrate",
+            principal_rules=rules,
+            case=case,
+            formula_environment={},
+            dependency_environment=dependencies,
+        )
+        == "net * rate"
+    )
+
+
+@pytest.mark.parametrize("formula", ["net +", "net; other", "net = other"])
+def test_multiline_dependency_expansion_preserves_invalid_expression(formula):
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            formula,
+            principal_rules={},
+            case={"input": {}},
+            formula_environment={},
+            dependency_environment={},
+        )
+        == formula
+    )

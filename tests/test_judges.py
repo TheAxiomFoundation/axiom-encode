@@ -13,8 +13,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import posixpath
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from pathlib import Path, PurePosixPath
@@ -150,7 +153,12 @@ class FakeBadRequestError(Exception):
 def install_fake_anthropic(monkeypatch, responses):
     """Install a fake ``anthropic`` module whose create() replays ``responses``.
 
-    Each item is a str (returned as the response text) or an Exception (raised).
+    Each item is a str (returned as the response text with ``stop_reason``
+    ``end_turn``), a ``(text, stop_reason)`` tuple, an Exception (raised), or a
+    dict with ``text``, ``stop_reason``, ``category``, ``thinking`` and
+    ``stop_details_as_dict`` keys for responses that end in a refusal or carry
+    a thinking block. The keyword arguments of every ``create()`` call are
+    recorded on ``mod.calls``.
     """
 
     mod = types.ModuleType("anthropic")
@@ -172,16 +180,55 @@ def install_fake_anthropic(monkeypatch, responses):
         def __init__(self, text):
             self.text = text
 
+    class _ThinkingBlock:
+        type = "thinking"
+        thinking = ""
+
+    class _StopDetails:
+        def __init__(self, category):
+            self.type = "refusal"
+            self.category = category
+
     class _Response:
-        def __init__(self, text):
-            self.content = [_Block(text)]
+        def __init__(
+            self,
+            text,
+            stop_reason="end_turn",
+            *,
+            category=None,
+            thinking=False,
+            stop_details_as_dict=False,
+        ):
+            blocks = [_ThinkingBlock()] if thinking else []
+            if text is not None:
+                blocks.append(_Block(text))
+            self.content = blocks
             self.usage = _Usage()
+            self.stop_reason = stop_reason
+            if stop_reason != "refusal":
+                self.stop_details = None
+            elif stop_details_as_dict:
+                # SDKs without the typed field keep it as a plain dict extra.
+                self.stop_details = {"type": "refusal", "category": category}
+            else:
+                self.stop_details = _StopDetails(category)
 
     class _Messages:
         def create(self, **kwargs):
+            mod.calls.append(kwargs)
             item = queue.pop(0)
             if isinstance(item, Exception):
                 raise item
+            if isinstance(item, tuple):
+                return _Response(*item)
+            if isinstance(item, dict):
+                return _Response(
+                    item.get("text"),
+                    item.get("stop_reason", "end_turn"),
+                    category=item.get("category"),
+                    thinking=item.get("thinking", False),
+                    stop_details_as_dict=item.get("stop_details_as_dict", False),
+                )
             return _Response(item)
 
     class Anthropic:
@@ -189,6 +236,7 @@ def install_fake_anthropic(monkeypatch, responses):
             self.messages = _Messages()
 
     mod.Anthropic = Anthropic
+    mod.calls = []
     monkeypatch.setitem(sys.modules, "anthropic", mod)
     return mod
 
@@ -293,6 +341,411 @@ def test_client_parse_failure_is_error_not_pass(monkeypatch):
     call = client.call(system="s", user_prompt="p", schema={})
     assert not call.ok
     assert call.error.type == "parse_error"
+
+
+def test_default_judge_models_are_current_and_cross_family(monkeypatch):
+    from axiom_encode.constants import DEFAULT_JUDGE_MODEL, JUDGE_ESCALATION_MODEL
+
+    monkeypatch.delenv("AXIOM_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("AXIOM_JUDGE_ESCALATION_MODEL", raising=False)
+    assert DEFAULT_JUDGE_MODEL == "claude-sonnet-5-5"
+    assert JUDGE_ESCALATION_MODEL == "claude-opus-5-5"
+    client = JudgeClient(api_key="test", generator_model="gpt-6-luna")
+    assert client.model == DEFAULT_JUDGE_MODEL
+    assert client.escalation_model == JUDGE_ESCALATION_MODEL
+    assert client.cross_family_problem(client.model) is None
+    assert client.cross_family_problem(client.escalation_model) is None
+
+
+def test_client_refusal_is_named_error_not_parse_error(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch, [{"text": None, "stop_reason": "refusal", "category": "cyber"}]
+    )
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.payload is None
+    assert call.error.type == "refusal"
+    assert "cyber" in call.error.message
+
+
+def test_client_refusal_does_not_escalate(monkeypatch):
+    # A decline is an error, not a low-confidence verdict: no escalation call.
+    mod = install_fake_anthropic(
+        monkeypatch, [{"text": None, "stop_reason": "refusal", "category": None}]
+    )
+    client = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    )
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert call.error.type == "refusal"
+    assert len(mod.calls) == 1
+
+
+def test_client_skips_thinking_blocks(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch, [{"text": '{"verdict": "pass"}', "thinking": True}]
+    )
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
+    call = client.call(system="s", user_prompt="p", schema={"required": ["verdict"]})
+    assert call.ok
+    assert call.payload == {"verdict": "pass"}
+
+
+def test_client_effort_passed_only_when_configured(monkeypatch):
+    monkeypatch.delenv("AXIOM_JUDGE_EFFORT", raising=False)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}', '{"a": 1}', '{"a": 1}'])
+    JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert "effort" not in mod.calls[0]["output_config"]
+    JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="medium").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[1]["output_config"]["effort"] == "medium"
+    monkeypatch.setenv("AXIOM_JUDGE_EFFORT", "low")
+    JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[2]["output_config"]["effort"] == "low"
+    # the structured-output format is always requested alongside effort
+    assert mod.calls[2]["output_config"]["format"]["type"] == "json_schema"
+
+
+def _clear_judge_env(monkeypatch):
+    for name in (
+        "AXIOM_JUDGE_EFFORT",
+        "AXIOM_JUDGE_ESCALATION_EFFORT",
+        "AXIOM_JUDGE_MAX_TOKENS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_client_invalid_effort_is_config_error_without_api_call(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="hgih")
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_EFFORT" in call.error.message
+    assert mod.calls == []
+
+
+def test_client_invalid_escalation_effort_is_config_error(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("AXIOM_JUDGE_ESCALATION_EFFORT", "extreme")
+    install_fake_anthropic(monkeypatch, [])
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_ESCALATION_EFFORT" in call.error.message
+
+
+def test_client_effort_is_case_and_space_insensitive(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    JudgeClient(model="claude-sonnet-5-5", api_key="test", effort=" XHigh ").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[0]["output_config"]["effort"] == "xhigh"
+
+
+@pytest.mark.parametrize("max_tokens", [0, -1])
+def test_client_max_tokens_below_one_is_config_error(monkeypatch, max_tokens):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    call = JudgeClient(
+        model="claude-sonnet-5-5", api_key="test", max_tokens=max_tokens
+    ).call(system="s", user_prompt="p", schema={})
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_MAX_TOKENS" in call.error.message
+    assert mod.calls == []
+
+
+def test_client_config_check_leaves_the_budget_ceiling_to_the_sdk():
+    # The non-streaming ceiling is enforced once, by the SDK, and reported as
+    # max_tokens_config (see the SDK-refusal test); config_problem does not
+    # duplicate it.
+    from axiom_encode.judges.client import NONSTREAMING_MAX_TOKENS
+
+    for max_tokens in (1, NONSTREAMING_MAX_TOKENS, NONSTREAMING_MAX_TOKENS + 1):
+        client = JudgeClient(
+            model="claude-sonnet-5-5",
+            api_key="test",
+            max_tokens=max_tokens,
+            effort="",
+            escalation_effort="",
+        )
+        assert client.config_problem() is None, max_tokens
+
+
+def test_escalation_uses_escalation_effort_high_by_default(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "pass", "confidence": 0.2}',
+            '{"verdict": "pass", "confidence": 0.9}',
+        ],
+    )
+    client = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    )
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert call.ok and call.escalated
+    assert mod.calls[0]["model"] == "claude-sonnet-5-5"
+    assert "effort" not in mod.calls[0]["output_config"]
+    assert mod.calls[1]["model"] == "claude-opus-5-5"
+    assert mod.calls[1]["output_config"]["effort"] == "high"
+
+
+def test_escalation_effort_empty_env_means_model_default(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("AXIOM_JUDGE_ESCALATION_EFFORT", "")
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "pass", "confidence": 0.2}',
+            '{"verdict": "pass", "confidence": 0.9}',
+        ],
+    )
+    JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    ).call(system="s", user_prompt="p", schema={})
+    assert "effort" not in mod.calls[1]["output_config"]
+
+
+def test_bad_request_fallback_keeps_effort(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [FakeBadRequestError("schema not supported"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="medium").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "effort_only"
+    assert mod.calls[1]["output_config"] == {"effort": "medium"}
+
+
+def test_type_error_fallback_keeps_effort(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [TypeError("unexpected keyword 'format'"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="low").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "effort_only"
+    assert mod.calls[1]["output_config"] == {"effort": "low"}
+
+
+def test_fallback_without_effort_is_plain(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [FakeBadRequestError("schema not supported"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "plain"
+    assert "output_config" not in mod.calls[1]
+
+
+def test_effort_rejected_on_every_shape_fails_closed(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [FakeBadRequestError("bad effort"), FakeBadRequestError("bad effort")],
+    )
+    call = JudgeClient(
+        model="claude-sonnet-5-5", api_key="test", effort="max", max_attempts=2
+    ).call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.error.type == "effort_rejected"
+    # not retried: a rejected configuration will not fix itself
+    assert len(mod.calls) == 2
+
+
+def test_structured_request_records_shape(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.request_shape == "structured"
+
+
+def test_request_shape_ladder_never_drops_a_configured_effort(monkeypatch):
+    """Execute the fallback ladder's invariants over every outcome combination.
+
+    For each effort setting and each outcome of the structured request and its
+    fallback: every request carries exactly the configured effort (or none);
+    the call succeeds as ``structured`` exactly when the structured request
+    did, otherwise as ``effort_only`` (effort set) or ``plain`` (no effort)
+    when the fallback did; the SDK's refusal of the output budget is
+    ``max_tokens_config`` on whichever request meets it and never enters the
+    ladder; and when both requests are rejected the error is
+    ``effort_rejected`` exactly when an effort was configured.
+    """
+
+    _clear_judge_env(monkeypatch)
+    outcomes = {
+        "ok": lambda: '{"a": 1}',
+        "type_error": lambda: TypeError("unexpected keyword 'output_config'"),
+        "bad_request": lambda: FakeBadRequestError("output_config rejected"),
+        "streaming": lambda: ValueError(
+            "Streaming is required for operations that may take longer than 10 minutes."
+        ),
+    }
+    terminal = {"ok", "streaming"}
+    for effort in (None, "low", "max"):
+        for first in outcomes:
+            for second in outcomes:
+                if first in terminal and second != "ok":
+                    continue  # the fallback never runs
+                responses = [outcomes[first]()]
+                if first not in terminal:
+                    responses.append(outcomes[second]())
+                mod = install_fake_anthropic(monkeypatch, responses)
+                call = JudgeClient(
+                    model="claude-sonnet-5-5",
+                    api_key="test",
+                    effort=effort or "",
+                    max_attempts=1,
+                ).call(system="s", user_prompt="p", schema={}, escalate=False)
+                case = (effort, first, second)
+                assert len(mod.calls) == len(responses), case
+                sent = [c.get("output_config", {}).get("effort") for c in mod.calls]
+                assert sent == [effort] * len(mod.calls), case
+                if first == "ok":
+                    assert call.ok and call.request_shape == "structured", case
+                elif "streaming" in (first, second):
+                    assert not call.ok and call.payload is None, case
+                    assert call.error.type == "max_tokens_config", case
+                elif second == "ok":
+                    expected = "effort_only" if effort else "plain"
+                    assert call.ok and call.request_shape == expected, case
+                else:
+                    assert not call.ok and call.payload is None, case
+                    assert (call.error.type == "effort_rejected") == bool(effort), case
+
+
+@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
+def test_failed_escalation_is_recorded_and_first_verdict_stands(
+    monkeypatch, stop_reason
+):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "flag", "confidence": 0.3}',
+            {"text": None, "stop_reason": stop_reason, "category": "bio"},
+        ],
+    )
+    call = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    ).call(system="s", user_prompt="p", schema={})
+    assert call.ok
+    assert call.escalated is False
+    assert call.model == "claude-sonnet-5-5"
+    assert call.payload["verdict"] == "flag"
+    assert call.escalation_error is not None
+    assert call.escalation_error.type == stop_reason
+    # tokens include the failed escalation attempt
+    assert call.tokens.input == 22
+
+
+def test_refusal_category_read_from_dict_stop_details(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            {
+                "text": None,
+                "stop_reason": "refusal",
+                "category": "bio",
+                "stop_details_as_dict": True,
+            }
+        ],
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.error.type == "refusal"
+    assert "bio" in call.error.message
+
+
+def test_call_diagnostics_reach_the_event_extra():
+    payload = {"verdict": "pass", "confidence": 0.3, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "effort_only"
+    result.escalation_error = JudgeError(type="refusal", message="declined")
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert ev.extra["request_shape"] == "effort_only"
+    assert ev.extra["escalation_error"] == {"type": "refusal", "message": "declined"}
+    assert validate_event_dict(ev.to_dict()) == []
+
+
+def test_unrecognized_verdict_event_keeps_fallback_shape():
+    result = _ok_call({"verdict": "maybe", "confidence": 0.5, "findings": []})
+    result.request_shape = "plain"
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert ev.verdict == Verdict.ERROR
+    assert ev.judge_error.type == "unrecognized_verdict"
+    assert ev.extra["request_shape"] == "plain"
+
+
+def test_call_diagnostics_absent_in_the_normal_case():
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "structured"
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert "request_shape" not in ev.extra
+    assert "escalation_error" not in ev.extra
+
+
+def test_call_diagnostics_reach_every_llm_stage_event():
+    # grid_adequacy, disposition and the pre-classifier carry the same call
+    # diagnostics as statutory_fidelity.
+    def diagnosed(payload):
+        result = _ok_call(payload)
+        result.request_shape = "plain"
+        result.escalation_error = JudgeError(type="max_tokens", message="cut off")
+        return FakeClient(result)
+
+    grid = grid_adequacy.run("p", [], client=diagnosed({"confidence": 0.9, "gaps": []}))
+    disp = disposition.run(
+        disposition.Disposition(
+            "d",
+            "rounding",
+            residual=42.0,
+            records=[{"engine_value": 100, "oracle_value": 142} for _ in range(3)],
+        ),
+        client=diagnosed({"consistent": True, "confidence": 0.9, "explanation": "y"}),
+    )
+    pre = preclassifier.classify(
+        {"citation": "X", "source_text": "A short operative clause with no markers."},
+        client=diagnosed(
+            {"classification": "self_contained", "confidence": 0.9, "reason": "op"}
+        ),
+    )
+    assert pre.method == "llm"
+    for ev in (grid, disp, pre.event):
+        assert ev.extra["request_shape"] == "plain", ev.stage
+        assert ev.extra["escalation_error"] == {
+            "type": "max_tokens",
+            "message": "cut off",
+        }, ev.stage
+        assert validate_event_dict(ev.to_dict()) == [], ev.stage
+    # stage-specific extra survives alongside the diagnostics
+    assert "arithmetic" in disp.extra and "cells" in grid.extra
+    assert pre.event.extra["classification"] == "self_contained"
+    assert pre.event.extra["method"] == "llm"
 
 
 def test_client_api_failure_retries_then_errors(monkeypatch):
@@ -1840,6 +2293,986 @@ def test_bulk_worklist_workflow_has_no_legacy_generation_lane():
     )
 
 
+_VERIFICATION_TREE = "/opt/axiom-verification"
+# The signing supervisor rejects any ancestor of its executable that is
+# group- or other-writable (validateTrustedAncestors in
+# cmd/axiom-encode-signing-supervisor/execution_trust.go), and GitHub's ubuntu
+# runner image ships /opt group-writable. Every step that provisions the
+# protected tree must also tighten /opt itself, then fail closed if it did not.
+_OPT_HARDENING = (
+    "sudo chown 0:0 /opt",
+    "sudo chmod go-w /opt",
+    'test "$(stat -c \'%u\' /opt)" = "0"',
+    'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+)
+_TREE_HARDENING = (
+    f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+    f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+)
+# Programs that can change a directory's mode or owner (tar and rsync copy an
+# archive's metadata onto an existing directory), and the files through which a
+# step hands values to later steps.
+_PERMISSION_PROGRAM = re.compile(
+    r"\b(?:chgrp|chmod|chown|cp|cpio|install|rsync|setfacl|(?:bsd|g)?tar)\b"
+)
+_PERMISSION_TRIGGER = re.compile(
+    rf"{_PERMISSION_PROGRAM.pattern}|\bGITHUB_(?:ENV|OUTPUT)\b"
+)
+# The operand of `cd`/`pushd`, after any options (`cd -- /`, `cd -P ..`).
+_CD_OPERAND = re.compile(
+    r"\b(?:cd|pushd)(?:\s+-[-A-Za-z]*)*\s+(?:\$?[\"'])?([^\s\"';&|)]+)"
+)
+# A literal absolute path starts a word: at line start, after whitespace or a
+# shell operator (including `-` and `+` for `${VAR:-/opt}`), after a quote,
+# possibly escaped, that does, or attached to a short-option cluster (`-C/opt`,
+# `-xzfC/opt`). `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not.
+_PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
+# `$'/opt'` (ANSI-C quoting) counts as a quote too.
+_ATTACHED_OPTION = "|".join(
+    rf"(?<={start}-[A-Za-z]{{{width}}}{quote})"
+    for width in range(1, 7)
+    for start in (r"\s", "^")
+    for quote in ("", "[\"']", "\\\\[\"']")
+)
+_LITERAL_PATH = re.compile(
+    rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
+    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"'])|(?<={_PATH_BOUNDARY}\$')"
+    rf"|(?<=^\$')|{_ATTACHED_OPTION})"
+    r"(/[\w./-]*)"
+)
+# `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
+# a working directory the guard cannot otherwise resolve.
+_ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
+# `..` that is not part of a longer name (`a..b`, `{1..5}`, `...`).
+_PARENT_OPERAND = re.compile(r"(?<![\w.])\.\.(?![\w.])")
+
+
+def _literal_paths(line):
+    return {
+        "/" + posixpath.normpath(path).lstrip("/")
+        for path in _LITERAL_PATH.findall(line)
+    }
+
+
+def _cd_moves(line):
+    """Return (changes to the root, climbs with ``..``) for a line's cd/pushd."""
+
+    operands = _CD_OPERAND.findall(line)
+    to_root = any(
+        operand.startswith("/") and posixpath.normpath("/" + operand.lstrip("/")) == "/"
+        for operand in operands
+    )
+    climbs = any(
+        not operand.startswith("/") and ".." in operand.split("/")
+        for operand in operands
+    )
+    return to_root, climbs
+
+
+def _at_or_under_opt(paths):
+    return any(path == "/opt" or path.startswith("/opt/") for path in paths)
+
+
+def _opt_permission_suspects(run, env=None, working_directory=None):
+    """Return the lines of a step that could change the permissions of /opt or /.
+
+    Deliberately conservative rather than a shell parser. When a step names a
+    permission program or writes ``$GITHUB_ENV``/``$GITHUB_OUTPUT`` anywhere
+    (its effective ``env:`` and ``working-directory`` included), a suspect is:
+
+    * a context line naming /opt or /, or a working directory at or under /opt;
+    * a command line holding a literal path that normalizes to /opt;
+    * a command line assigning the root (``X=/``), changing to it (``cd /``,
+      ``cd -- /``, ``cd /usr/..``),
+      or holding a literal / (or //) while itself running one of those
+      programs. The root check is otherwise per line because ``/`` and ``//``
+      are also Python and jq operators, and ``tr -d '/'`` is not a path;
+    * a command line with a ``..`` operand that runs one of those programs,
+      or that changes to ``..``, in a step whose context or code names a path
+      at or under /opt, since a ``cd`` on an earlier line may have moved there.
+
+    Quoting (escaped or not), separators, comments, continuations, ``sh -c``
+    wrappers, pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt``, ``X=/``,
+    ``chmod ..`` below /opt and hand-offs through ``$GITHUB_ENV`` therefore
+    fail closed. Comment-only lines are skipped
+    because they never execute; backslash-newline joins code lines but never
+    extends a comment, as in bash. A path assembled at run time is out of
+    scope: this guards against accidental edits, and the supervisor's own
+    ancestor check still refuses to start on a loose /opt.
+    """
+
+    context = [f"{name}={value}" for name, value in (env or {}).items()]
+    if working_directory:
+        context.append(f"working-directory={working_directory}")
+    code = []
+    pending = ""
+    for line in run.splitlines():
+        if not pending and line.lstrip().startswith("#"):
+            continue  # bash ends a comment at the newline, even after a backslash
+        if line.endswith("\\"):
+            pending += line[:-1]
+            continue
+        code.append(pending + line)
+        pending = ""
+    if pending:
+        code.append(pending)
+    if not _PERMISSION_TRIGGER.search("\n".join(context + code)):
+        return []
+    below_opt = bool(working_directory) and _at_or_under_opt(
+        _literal_paths(f" {working_directory}")
+    )
+    suspects = [line for line in context if _literal_paths(line) & {"/", "/opt"}]
+    if below_opt and context[-1] not in suspects:
+        suspects.append(context[-1])
+    names_under_opt = below_opt or any(
+        _at_or_under_opt(_literal_paths(line)) for line in context + code
+    )
+    for line in code:
+        paths = _literal_paths(line)
+        cd_to_root, cd_climbs = _cd_moves(line)
+        if (
+            "/opt" in paths
+            or _ROOT_ASSIGNMENT.search(line)
+            or cd_to_root
+            or ("/" in paths and _PERMISSION_PROGRAM.search(line))
+            or (
+                names_under_opt
+                and (
+                    cd_climbs
+                    or (
+                        _PARENT_OPERAND.search(line)
+                        and _PERMISSION_PROGRAM.search(line)
+                    )
+                )
+            )
+        ):
+            suspects.append(line.strip())
+    return suspects
+
+
+_HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)-?\s*([\"']?)([^\s\"';&|<>()]+)\1")
+# `set +e`, `set -x +e`, `set +o errexit`, `shopt -u -o errexit`: anything that
+# switches errexit off before the fail-closed checks.
+_ERREXIT_OFF = re.compile(
+    r"\bset\b[^;&|\n]*\s\+[A-Za-z]*e"
+    r"|\bset\b[^;&|\n]*\s\+o\s+errexit\b"
+    r"|\bshopt\b[^;&|\n]*\s-[A-Za-z]*u[^;&|\n]*\berrexit\b"
+)
+
+
+# An early successful exit skips the checks ("already provisioned"); only
+# `exit`/`return` with a literal status that is non-zero modulo 256 still fails
+# closed. This also covers `trap 'exit 0' ERR`. `exec` with a command replaces
+# the shell; a redirect-only `exec >log` does not. `--exit-code` is not an exit.
+_EXIT_OR_RETURN = re.compile(r"(?<![\w-])(?:exit|return)\b(?!-)(?:\s+(\d+)\b)?")
+_EXEC_COMMAND = re.compile(r"(?<![\w-])exec\s+(?![0-9]*[<>&])\S")
+
+
+def _ends_successfully(text):
+    return bool(_EXEC_COMMAND.search(text)) or any(
+        status is None or int(status) % 256 == 0
+        for status in (match.group(1) for match in _EXIT_OR_RETURN.finditer(text))
+    )
+
+
+_STARTUP_FILE_ENV = frozenset({"BASH_ENV", "ENV"})
+_WORD_BREAK = " \t;&|()"
+# Text read in the main shell: quoted text counts (a `trap 'exit 0'` action),
+# the inside of `$(...)`, backticks, `(...)` and `$((...))` does not.
+_MAIN_SHELL_CONTEXTS = frozenset({"case", "'", '"', "$'"})
+
+
+def _bash_declared_lines(run):
+    """Return ``run`` as bash itself prints it from ``declare -f``.
+
+    bash re-parses the text and prints it canonically: comments dropped and
+    compound commands re-indented. Defining the function runs nothing; the
+    shell is restricted with an empty PATH in case a stray ``}`` closes the
+    function early.
+    """
+
+    bash = shutil.which("bash")
+    assert bash, "bash is required to check the provisioning step's structure"
+    result = subprocess.run(
+        [
+            bash,
+            "--noprofile",
+            "--norc",
+            "-r",
+            "-c",
+            f"__provision_step() {{\n{run}\n}}\ndeclare -f __provision_step\n",
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": ""},
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()
+
+
+def _bash_line_contexts(lines):
+    """Pair each printed line with the constructs open where it starts.
+
+    Each entry is (line, constructs open at its start, the line's main-shell
+    text).
+
+    Tracks quotes (``'``, ``"``, ``$'``), command substitutions (``$(``,
+    backticks), arithmetic (``$((``), subshells (``(``), ``case`` bodies (whose
+    pattern ``)`` closes nothing) and heredoc bodies (``<<``). bash prints the
+    bodies of subshells, substitutions and heredocs at the enclosing indent or
+    verbatim, so indentation alone cannot tell they are nested.
+    """
+
+    stack = []
+    pending_heredocs = []
+    heredoc_end = None
+    contexts = []
+    for line in lines:
+        if heredoc_end is not None:
+            contexts.append((line, ("<<",), ""))
+            if line.lstrip("\t") == heredoc_end:
+                heredoc_end = pending_heredocs.pop(0) if pending_heredocs else None
+            continue
+        opened = tuple(stack)
+        main_text = []
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if set(stack) <= _MAIN_SHELL_CONTEXTS:
+                main_text.append(char)
+            top = stack[-1] if stack else None
+            at_word = index == 0 or line[index - 1] in _WORD_BREAK
+            if top in ("'",):
+                if char == "'":
+                    stack.pop()
+            elif top in ("$'", '"', "`"):
+                closer = {"$'": "'", '"': '"', "`": "`"}[top]
+                if char == "\\":
+                    index += 1
+                elif char == closer:
+                    stack.pop()
+                elif top == '"' and line.startswith("$(", index):
+                    stack.append("$(")
+                    index += 1
+                elif top == '"' and char == "`":
+                    stack.append("`")
+            elif char == "\\":
+                index += 1
+            elif char == "#" and at_word:
+                break
+            elif line.startswith("$'", index):
+                stack.append("$'")
+                index += 1
+            elif char in "'\"`":
+                stack.append(char)
+            elif line.startswith("$((", index):
+                stack.append("$((")
+                index += 2
+            elif line.startswith("$(", index):
+                stack.append("$(")
+                index += 1
+            elif char == "(":
+                stack.append("(")
+            elif char == ")":
+                if top == "$((" and line.startswith("))", index):
+                    stack.pop()
+                    index += 1
+                elif top in ("$(", "(", "$(("):
+                    stack.pop()
+            elif at_word and re.match(r"case(?=[ \t])", line[index:]):
+                stack.append("case")
+                index += 3
+            elif at_word and re.match(r"esac(?=$|[ \t;&|)])", line[index:]):
+                while stack and stack.pop() != "case":
+                    pass
+                index += 3
+            elif line.startswith("<<", index) and not line.startswith("<<<", index):
+                heredoc = _HEREDOC_OPERATOR.match(line, index)
+                if heredoc:
+                    pending_heredocs.append(heredoc.group(2))
+                    index = heredoc.end() - 1
+            index += 1
+        contexts.append((line, opened, "".join(main_text)))
+        if pending_heredocs and heredoc_end is None:
+            heredoc_end = pending_heredocs.pop(0)
+    return contexts
+
+
+def _bash_structure(run):
+    """Return (command, open constructs, is top level, main-shell text).
+
+    A line is top level when bash prints it at four spaces with nothing open.
+    Nothing after a four-space ``(`` counts either, so a subshell wrapper stays
+    nested even if the scanner misreads its contents.
+    """
+
+    structure = []
+    after_subshell = False
+    for line, opened, main_text in _bash_line_contexts(_bash_declared_lines(run)):
+        four_spaces = line.startswith("    ") and not line.startswith("     ")
+        after_subshell = after_subshell or (
+            four_spaces and not opened and line[4:].startswith("(")
+        )
+        command = " ".join(line.strip().rstrip(";").split())
+        structure.append(
+            (
+                command,
+                opened,
+                four_spaces and not opened and not after_subshell,
+                main_text,
+            )
+        )
+    return structure
+
+
+def _bash_errexit_disablers(run):
+    """Return main-shell commands in ``run`` that switch errexit off.
+
+    Reads bash's comment-free text with quote characters removed, so quoted
+    spellings (``set +o "errexit"``, ``set +'e'``) reduce to the plain form.
+    """
+
+    return [
+        command
+        for command, opened, _top, main_text in _bash_structure(run)
+        if set(opened) <= _MAIN_SHELL_CONTEXTS
+        and _ERREXIT_OFF.search(re.sub(r"[\"']", "", main_text))
+    ]
+
+
+def _bash_top_level_commands(run):
+    """Return the commands bash runs at the top level of ``run``."""
+
+    return {command for command, _opened, top, _text in _bash_structure(run) if top}
+
+
+def _bash_early_success_exits(run, commands):
+    """Return lines that could end ``run`` successfully before ``commands``.
+
+    Exits inside a substitution, subshell or heredoc end only that child, so
+    they are ignored; exits in the main shell (including inside an ``if``,
+    ``case`` or ``trap`` action) count.
+    """
+
+    structure = _bash_structure(run)
+    normalized = {" ".join(command.split()) for command in commands}
+    last = max(
+        (
+            index
+            for index, (command, _opened, top, _text) in enumerate(structure)
+            if top and command in normalized
+        ),
+        default=len(structure),
+    )
+    return [
+        command
+        for command, opened, _top, main_text in structure[:last]
+        if set(opened) <= _MAIN_SHELL_CONTEXTS and _ends_successfully(main_text)
+    ]
+
+
+def _verification_tree_jobs():
+    workflows_dir = Path(__file__).parents[1] / ".github" / "workflows"
+    jobs = []
+    for path in sorted(workflows_dir.glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in workflow["jobs"].items():
+            steps = job.get("steps", [])
+            if not any(_VERIFICATION_TREE in step.get("run", "") for step in steps):
+                continue
+            defaults = [
+                (scope.get("defaults") or {}).get("run") or {}
+                for scope in (job, workflow)
+            ]
+            context = {
+                "env": {**(workflow.get("env") or {}), **(job.get("env") or {})},
+                "working_directory": next(
+                    (
+                        d["working-directory"]
+                        for d in defaults
+                        if "working-directory" in d
+                    ),
+                    None,
+                ),
+                "shell": next((d["shell"] for d in defaults if "shell" in d), None),
+                "continue_on_error": job.get("continue-on-error", False),
+            }
+            jobs.append((path.name, job_name, steps, context))
+    return jobs
+
+
+def test_verification_tree_discovery_covers_every_known_provisioner():
+    discovered = {workflow for workflow, *_rest in _verification_tree_jobs()}
+
+    assert {
+        "bulk-encode.yml",
+        "golden-regeneration.yml",
+        "signed-apply-reusable.yml",
+        "targeted-signed-reencode.yml",
+    } <= discovered
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name", "steps", "context"),
+    [pytest.param(*job, id=f"{job[0]}:{job[1]}") for job in _verification_tree_jobs()],
+)
+def test_verification_tree_provisioning_tightens_opt(
+    workflow_name, job_name, steps, context
+):
+    tree_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    ]
+    provision_step = steps[tree_indexes[0]]
+    provision_run = provision_step["run"]
+    lines = [line.strip() for line in provision_run.splitlines()]
+    provisioner_line = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if "provision_verification_supervisor.py" in line
+        ),
+        None,
+    )
+
+    # The first step in the job that touches the tree is the one provisioning
+    # it, so no earlier step can run anything from it.
+    assert provisioner_line is not None, (
+        f"{workflow_name}:{job_name} uses {_VERIFICATION_TREE} before provisioning it"
+    )
+    assert f"--destination {_VERIFICATION_TREE}" in provision_run
+    missing = [
+        command
+        for command in (*_TREE_HARDENING, *_OPT_HARDENING)
+        if command not in lines
+    ]
+    assert not missing, (
+        f"{workflow_name}:{job_name} provisions {_VERIFICATION_TREE} "
+        f"without hardening it and /opt: {missing}"
+    )
+    assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
+    opt_positions = [lines.index(command) for command in _OPT_HARDENING]
+    assert opt_positions == sorted(opt_positions)
+    # The fail-closed checks only fail the job as top-level commands under the
+    # default `bash -e` shell, with no `set +e` and no continue-on-error: inside
+    # a `{ ...; } | tee` or `{ ...; } || echo` group, an `if` or a function, or
+    # after a `\\` or `||` carried from the line before, bash ignores -e.
+    top_level = _bash_top_level_commands(provision_run)
+    nested = [
+        command
+        for command in _OPT_HARDENING
+        if " ".join(command.split()) not in top_level
+    ]
+    assert not nested, f"{workflow_name}:{job_name} nests {nested}"
+    assert "shell" not in provision_step and context["shell"] is None
+    assert not provision_step.get("continue-on-error")
+    assert not context["continue_on_error"]
+    assert not _bash_errexit_disablers(provision_run)
+    assert not _STARTUP_FILE_ENV & {
+        *context["env"],
+        *(provision_step.get("env") or {}),
+    }
+    # Nor may any step hand one to later steps through $GITHUB_ENV.
+    assert not any(re.search(r"\bBASH_ENV\b", step.get("run", "")) for step in steps)
+    early_exits = _bash_early_success_exits(provision_run, _OPT_HARDENING)
+    assert not early_exits, early_exits
+    # The hardening lines are the only lines anywhere in the job that could
+    # change the permissions of /opt or /, so nothing loosens /opt again before
+    # the supervisor runs.
+    suspects = [
+        line
+        for step in steps
+        for line in _opt_permission_suspects(
+            step.get("run", ""),
+            {**context["env"], **(step.get("env") or {})},
+            step.get("working-directory") or context["working_directory"],
+        )
+    ]
+    assert suspects == list(_OPT_HARDENING)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo chmod g+w /opt",
+        'sudo chmod g+w "/opt"',
+        "sudo chmod g+w '/opt'",
+        "sudo chmod g+w /opt;",
+        "sudo chmod g+w /opt/",
+        "sudo chmod g+w /opt/../opt",
+        "sudo -- chmod 775 /opt",
+        "true && sudo chgrp runner /opt || exit 1",
+        "sudo chmod \\\n  g+w /opt",
+        "sudo chmod g+w /op\\\nt",
+        "sudo chmod -R g+w /",
+        "sudo /bin/chmod 1777 //opt",
+        "sudo setfacl -m g:runner:rwx /opt",
+        "sudo install -d -m 0777 /opt",
+        "sudo chmod g+w '/opt",
+        "sudo sh -c 'chmod g+w /opt'",
+        "sudo sh -c 'sh -c \"chmod g+w /opt\"'",
+        'sudo bash -ec "true; chmod 775 /opt"',
+        "sudo bash -euo pipefail -c 'chmod 775 /opt'",
+        "sudo bash -O extglob -c 'chmod g+w /opt'",
+        "sudo bash --rcfile /dev/null -c 'chmod g+w /opt'",
+        "sudo find /opt -maxdepth 0 -exec chmod g+w {} +",
+        "echo /opt | sudo xargs chmod g+w",
+        "echo /opt |\n  sudo xargs chmod g+w",
+        "echo /opt | # keep runner access\n  sudo xargs chmod g+w",
+        "echo /opt |\n\n  sudo xargs chmod g+w",
+        "(( ${#x[@]} )) && sudo chmod g+w /opt",
+        "# a &&\nsudo chmod g+w /opt",
+        "# note \\\nsudo chmod g+w /opt",
+        "cd / && sudo chmod g+w opt",
+        'D=/opt; sudo chmod g+w "$D"',
+        'sudo chmod g+w "${TARGET:-/opt}"',
+        'sudo chmod g+w "${TARGET-/opt}"',
+        'sudo chmod g+w "${TARGET:-/}"',
+        'echo "TARGET=/opt" >> "$GITHUB_ENV"',
+        'echo "target=/" >> "$GITHUB_OUTPUT"',
+        "sudo tar -xzf tool.tgz -C /opt",
+        "sudo rsync -a vendor/ /opt/",
+        "cd /\nsudo chmod g+w opt",
+        'sudo sh -c "chmod g+w \\"/opt\\""',
+        'TARGET=/\nsudo chmod g+w "$TARGET"opt',
+        'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF',
+        "cd /opt/hostedtoolcache && sudo chmod g+w ..",
+        "cd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        "pushd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        'D=/opt/hostedtoolcache; sudo chmod g+w "$D/.."',
+        "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w .",
+        "sudo tar -xzf tool.tgz -C/opt",
+        "sudo tar -xzfC/opt tool.tgz",
+        'sudo tar -xzf tool.tgz -C"/opt"',
+        "sudo tar -xzf tool.tgz -C'/opt'",
+        "(cd /opt/hostedtoolcache && sudo chmod g+w ..)",
+        "sudo bsdtar -xf tool.tar -C /opt",
+        "cd -- /\nsudo chmod g+w opt",
+        "pushd -- /\nsudo chmod g+w opt",
+        "cd /usr/..\nsudo chmod g+w opt",
+        "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w .",
+        "cd -P /opt/hostedtoolcache/..\nsudo chmod g+w .",
+        "sudo chmod g+w $'/opt'",
+        "sudo cp -a tool/. /opt/",
+        'sudo chmod g+w "${TARGET:+/opt}"',
+        "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
+    ],
+)
+def test_opt_permission_suspects_see_through_shell_syntax(command):
+    assert _opt_permission_suspects(f"echo before\n{command}\necho after\n")
+
+
+def test_opt_permission_suspects_include_step_context():
+    assert _opt_permission_suspects('sudo chmod g+w "$TARGET"', {"TARGET": "/opt"})
+    assert _opt_permission_suspects("sudo chmod g+w opt", working_directory="/")
+    assert _opt_permission_suspects(
+        "sudo chmod g+w ..", working_directory="/opt/hostedtoolcache"
+    )
+    assert _opt_permission_suspects(
+        'cd "$TOOLCACHE" && sudo chmod g+w ..', {"TOOLCACHE": "/opt/hostedtoolcache"}
+    )
+    assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
+
+
+def _verification_tree_job(workflow_name, job_name):
+    return next(
+        job for job in _verification_tree_jobs() if job[:2] == (workflow_name, job_name)
+    )
+
+
+def _golden_drift_job():
+    return _verification_tree_job("golden-regeneration.yml", "drift")
+
+
+@pytest.mark.parametrize(
+    ("workflow_env", "job_env", "defaults", "added_steps"),
+    [
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'echo "TARGET=/opt" >> "$GITHUB_ENV"'},
+                {"run": 'sudo chmod g+w "$TARGET"'},
+            ],
+            id="github-env-hand-off",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"working-directory": "/", "run": "sudo chmod g+w opt"}],
+            id="step-working-directory",
+        ),
+        pytest.param(
+            {},
+            {"TOOL_ROOT": "/opt"},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="job-env",
+        ),
+        pytest.param(
+            {"TOOL_ROOT": "/opt"},
+            {},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="workflow-env",
+        ),
+        pytest.param(
+            {},
+            {},
+            "/",
+            [{"run": "sudo chmod g+w opt"}],
+            id="defaults-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "working-directory": "/opt/hostedtoolcache",
+                    "run": "sudo chmod g+w ..",
+                }
+            ],
+            id="parent-of-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\nsudo chmod g+w .."}],
+            id="parent-after-multiline-cd",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "env": {"TOOLCACHE": "/opt/hostedtoolcache"},
+                    "run": 'cd "$TOOLCACHE" && sudo chmod g+w ..',
+                }
+            ],
+            id="parent-through-step-env",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w ."}],
+            id="cd-parent-then-dot",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "sudo tar -xzf tool.tgz -C/opt"}],
+            id="attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": 'sudo tar -xzf tool.tgz -C"/opt"'}],
+            id="quoted-attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "(cd /opt/hostedtoolcache && sudo chmod g+w ..)"}],
+            id="parent-in-subshell",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd -- /\nsudo chmod g+w opt"}],
+            id="cd-double-dash-root",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w ."}],
+            id="cd-double-dash-parent",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
+                {"run": 'sudo chmod g+w "$TARGET"opt'},
+            ],
+            id="root-through-github-env-heredoc",
+        ),
+    ],
+)
+def test_verification_tree_guard_sees_job_context(
+    workflow_env, job_env, defaults, added_steps
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [*steps[: provision + 1], *added_steps, *steps[provision + 1 :]]
+    mutated_context = {
+        **context,
+        "env": {**context["env"], **workflow_env, **job_env},
+        "working_directory": defaults or context["working_directory"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, mutated_context
+        )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+        f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+        f"sudo install -o root -g root -m 0755 signer {_VERIFICATION_TREE}/signer",
+        f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
+        'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+        "# sudo chmod g+w /opt",
+        "sudo mkdir -p /opt",
+        "ls -ld /opt",
+        "echo /opt | grep opt",
+        "ls /opt |\n  grep hostedtoolcache",
+        "sudo bash -euo pipefail -c 'ls -ld /opt'",
+        "sudo bash scripts/install.sh",
+        "uv pip install --target /opt/axiom-verification/site .",
+        'chmod 0644 "$RUNNER_TEMP/opt"',
+        "sudo chmod 0755 /usr/local/bin/tool 2>/dev/null",
+        'rsync -a src "$GITHUB_WORKSPACE"/',
+        'cp -a "$RUNNER_TEMP/staged/." "$out/"',
+        'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
+        'jurs="$(cd "$genroot" && ls -d */ | tr -d \'/\')"\ncp -a a b',
+        "cd .. && chmod 0644 notes.txt",
+        'gcc -I/usr/include -L"$RUNNER_TEMP"/lib -o out main.c && chmod 755 out',
+        'for i in {1..5}; do chmod 0644 "part-$i"; done',
+        'cd -- "$GITHUB_WORKSPACE" && chmod 0644 notes.txt',
+        "cd /usr/local\nchmod 755 bin/tool",
+        "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
+    ],
+)
+def test_opt_permission_suspects_ignore_other_paths(command):
+    assert _opt_permission_suspects(command) == []
+
+
+@pytest.mark.parametrize(
+    ("step_changes", "context_changes", "prefix"),
+    [
+        pytest.param({"continue-on-error": True}, {}, "", id="step-continue-on-error"),
+        pytest.param({"shell": "bash {0}"}, {}, "", id="step-shell-without-e"),
+        pytest.param({}, {"shell": "bash {0}"}, "", id="defaults-shell"),
+        pytest.param({}, {"continue_on_error": True}, "", id="job-continue-on-error"),
+        pytest.param({}, {}, "set +e\n", id="set-plus-e"),
+        pytest.param({}, {}, "set +o errexit\n", id="set-plus-o-errexit"),
+        pytest.param({}, {}, "set -x +e\n", id="set-x-plus-e"),
+        pytest.param({}, {}, 'set +o "errexit"\n', id="set-plus-o-quoted-errexit"),
+        pytest.param({}, {}, "set +'e'\n", id="set-plus-quoted-e"),
+        pytest.param({}, {}, "shopt -u -o 'errexit'\n", id="shopt-quoted-errexit"),
+        pytest.param({}, {}, "set -x +o errexit\n", id="set-x-plus-o-errexit"),
+        pytest.param({}, {}, "shopt -u -o errexit\n", id="shopt-unset-errexit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exit 0; fi\n",
+            id="early-exit-if-provisioned",
+        ),
+        pytest.param({}, {}, "true || exit\n", id="early-bare-exit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then\n"
+            "  exit 0  # already provisioned\n"
+            "fi\n",
+            id="early-exit-with-comment",
+        ),
+        pytest.param({}, {}, "trap 'exit 0' ERR\n", id="trap-exit-zero"),
+        pytest.param({}, {}, 'true || exit "0"\n', id="early-quoted-zero"),
+        pytest.param({}, {}, "trap '\n  exit 0\n' ERR\n", id="multiline-trap"),
+        pytest.param({}, {}, "true || exit 256\n", id="exit-256-wraps-to-zero"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exec true; fi\n",
+            id="exec-replaces-shell",
+        ),
+        pytest.param({"env": {"BASH_ENV": "./relax.sh"}}, {}, "", id="step-bash-env"),
+        pytest.param({}, {"env": {"BASH_ENV": "./relax.sh"}}, "", id="job-bash-env"),
+    ],
+)
+def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
+    step_changes, context_changes, prefix
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        **step_changes,
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, {**context, **context_changes}
+        )
+
+
+def test_verification_tree_rejects_bash_env_hand_off_from_an_earlier_step():
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    mutated = [
+        {"run": 'echo "BASH_ENV=$RUNNER_TEMP/relax.sh" >> "$GITHUB_ENV"'},
+        *steps,
+    ]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
+        )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param(
+            "ver=\"$(python -c 'import sys; sys.exit(0)')\"\n", id="substitution"
+        ),
+        pytest.param("python <<'PY'\nimport sys\nsys.exit(0)\nPY\n", id="heredoc"),
+        pytest.param(
+            'case "$x" in\n  a) echo bad; exit 1 ;;\nesac\n', id="nonzero-exit"
+        ),
+        pytest.param("git diff --exit-code -- uv.lock\n", id="exit-code-flag"),
+        pytest.param(
+            'exec > >(tee -a "$RUNNER_TEMP/provision.log") 2>&1\n', id="exec-redirect"
+        ),
+    ],
+)
+def test_verification_tree_allows_exits_that_cannot_skip_the_checks(prefix):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    test_verification_tree_provisioning_tightens_opt(
+        workflow_name, job_name, mutated, context
+    )
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(
+            lambda run: f"{{\n{run}\n}} 2>&1 | tee provisioning.log\n", id="tee"
+        ),
+        pytest.param(lambda run: f"{{\n{run}\n}} || echo warn\n", id="or-echo"),
+        pytest.param(
+            lambda run: f"(\n{run}\n) 2>&1 | tee provisioning.log\n", id="subshell-tee"
+        ),
+        pytest.param(
+            lambda run: (
+                '(\necho "1) Provision the verification tree"\n'
+                f"{run}\n) 2>&1 | tee provisioning.log\n"
+            ),
+            id="subshell-quoted-paren",
+        ),
+        pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
+        pytest.param(
+            lambda run: (
+                'provision_log="$(\n'
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + ')"\necho "$provision_log"\n'
+            ),
+            id="command-substitution-log",
+        ),
+        pytest.param(
+            lambda run: (
+                "bash <<'BASH'\n"
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + "BASH\n"
+            ),
+            id="heredoc-bash",
+        ),
+        pytest.param(lambda run: f"harden() {{\n{run}\n}}\nharden\n", id="function"),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chown 0:0 /opt\n", "echo \\\nsudo chown 0:0 /opt\n"
+            ),
+            id="backslash-carry",
+        ),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chmod go-w /opt\n", "true ||\nsudo chmod go-w /opt\n"
+            ),
+            id="or-carry",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "job_key",
+    [
+        pytest.param(("golden-regeneration.yml", "drift"), id="checks-last"),
+        pytest.param(("targeted-signed-reencode.yml", "encode"), id="checks-mid-step"),
+        pytest.param(("signed-apply-reusable.yml", "encode"), id="checks-after-case"),
+    ],
+)
+def test_verification_tree_hardening_must_run_at_top_level(wrap, job_key):
+    workflow_name, job_name, steps, context = _verification_tree_job(*job_key)
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": wrap(mutated[provision]["run"]),
+    }
+    assert mutated[provision]["run"] != steps[provision]["run"]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
+        )
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}",
+        f"cd {_VERIFICATION_TREE}/python && sudo chmod -R go-w ..",
+    ],
+)
+def test_opt_permission_suspects_are_conservative(run):
+    # Intended false positives: a harmless `ls /opt` beside a chmod, or a `..`
+    # that stays inside the tree, is still a suspect, so the guard never has to
+    # decide what a line does.
+    assert _opt_permission_suspects(run) == [run]
+
+
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
 
 
@@ -2331,6 +3764,70 @@ def test_calibration_counts_error_separately_not_as_pass():
     assert report.true_negative == 0
 
 
+def test_calibration_breaks_errors_out_by_type():
+    cases = [
+        calibration.CalibrationCase("g1", "c", "good", "prov", "rule"),
+        calibration.CalibrationCase("b1", "c", "bad", "prov", "rule"),
+    ]
+    report = calibration.run_calibration(
+        cases, client=FakeClient(_err_call("refusal", "declined"))
+    )
+    assert report.errors_by_type == {"refusal": 2}
+    assert report.to_dict()["errors_by_type"] == {"refusal": 2}
+    assert "refusal=2" in report.summary()
+    assert {c["error_type"] for c in report.per_case} == {"refusal"}
+    assert {c["judge_model"] for c in report.per_case} == {"claude-haiku-4-5-20251001"}
+
+
+def test_calibration_records_failed_escalation_without_unscoring_the_verdict():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.3, "findings": []}
+    result = _ok_call(payload)
+    result.escalation_error = JudgeError(type="refusal", message="declined")
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    # the valid first verdict is still scored
+    assert report.true_negative == 1
+    assert report.errors == 0
+    assert report.escalation_errors_by_type == {"refusal": 1}
+    assert report.per_case[0]["escalation_error_type"] == "refusal"
+    assert report.to_dict()["escalation_errors_by_type"] == {"refusal": 1}
+    assert "escalation failures: refusal=1" in report.summary()
+
+
+def test_calibration_records_fallback_request_shape():
+    cases = [calibration.CalibrationCase("b1", "c", "bad", "prov", "rule")]
+    payload = {"verdict": "flag", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "effort_only"
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    assert report.true_positive == 1
+    assert report.fallback_shapes == {"effort_only": 1}
+    assert report.per_case[0]["request_shape"] == "effort_only"
+    assert "fallback request shapes: effort_only=1" in report.summary()
+
+
+def test_calibration_structured_success_has_no_caveats():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "structured"
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    assert report.escalation_errors_by_type == {}
+    assert report.fallback_shapes == {}
+    assert report.per_case[0]["request_shape"] is None
+    assert "escalation failures" not in report.summary()
+    assert "fallback request shapes" not in report.summary()
+
+
+def test_calibration_per_case_error_type_is_none_on_success():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    report = calibration.run_calibration(cases, client=FakeClient(_ok_call(payload)))
+    assert report.errors_by_type == {}
+    assert report.per_case[0]["error_type"] is None
+    assert "(" not in report.summary().splitlines()[1]
+
+
 def _make_db(path: Path):
     conn = sqlite3.connect(str(path))
     conn.execute(
@@ -2575,3 +4072,204 @@ def test_advisory_flag_passes_but_promoted_flag_fails():
 def test_judge_generator_default_is_the_encoder_default(monkeypatch):
     monkeypatch.delenv("AXIOM_GENERATOR_MODEL", raising=False)
     assert JudgeClient(api_key="x").generator_model == "gpt-6-luna"
+
+
+# -- output budget (max_tokens) --------------------------------------------
+
+_FIDELITY_OK = json.dumps({"verdict": "pass", "confidence": 0.9, "findings": []})
+_FIDELITY_TRUNCATED = (
+    '{"verdict": "flag", "confidence": 0.8, "findings": [{"clause_ref": "(a)", '
+    '"rule_path": "rules[0]", "kind": "amount_mismatch", "explanation": "the '
+)
+
+
+def test_judge_default_output_budget_is_sent_and_under_the_sdk_ceiling(monkeypatch):
+    from axiom_encode.judges.client import DEFAULT_MAX_TOKENS, NONSTREAMING_MAX_TOKENS
+
+    monkeypatch.delenv("AXIOM_JUDGE_MAX_TOKENS", raising=False)
+    mod = install_fake_anthropic(monkeypatch, [_FIDELITY_OK])
+    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    assert client.max_tokens == DEFAULT_MAX_TOKENS == 16_000
+    call = client.call(system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA)
+    assert call.ok
+    assert mod.calls[0]["max_tokens"] == 16_000
+    # anthropic 0.83.0 `_calculate_nonstreaming_timeout` refuses a non-streaming
+    # request when 3600 * max_tokens / 128000 exceeds 600 seconds.
+    assert 3600 * NONSTREAMING_MAX_TOKENS / 128_000 <= 600
+    assert 3600 * (NONSTREAMING_MAX_TOKENS + 1) / 128_000 > 600
+    assert DEFAULT_MAX_TOKENS <= NONSTREAMING_MAX_TOKENS
+
+
+def test_judge_output_budget_env_override_still_wins(monkeypatch):
+    monkeypatch.setenv("AXIOM_JUDGE_MAX_TOKENS", "4096")
+    mod = install_fake_anthropic(monkeypatch, [_FIDELITY_OK])
+    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    client.call(system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA)
+    assert mod.calls[0]["max_tokens"] == 4096
+
+
+def test_truncated_reply_is_a_named_max_tokens_error(monkeypatch):
+    install_fake_anthropic(monkeypatch, [(_FIDELITY_TRUNCATED, "max_tokens")])
+    client = JudgeClient(
+        model="claude-haiku-4-5-20251001", api_key="test", max_tokens=2048
+    )
+    call = client.call(system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA)
+    assert not call.ok
+    assert call.payload is None
+    assert call.error.type == "max_tokens"
+    assert "2048-token output budget" in call.error.message
+    assert "AXIOM_JUDGE_MAX_TOKENS" in call.error.message
+    assert "at most 21,333" in call.error.message
+    assert call.tokens == TokenCounts(11, 7)
+    assert call.raw_text == _FIDELITY_TRUNCATED
+    # The same text without the budget stop is still a plain parse error.
+    install_fake_anthropic(monkeypatch, [_FIDELITY_TRUNCATED])
+    call = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test").call(
+        system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA
+    )
+    assert call.error.type == "parse_error"
+
+
+def test_statutory_fidelity_reports_truncation_as_an_error_needing_review(monkeypatch):
+    install_fake_anthropic(monkeypatch, [(_FIDELITY_TRUNCATED, "max_tokens")])
+    client = JudgeClient(
+        model="claude-haiku-4-5-20251001",
+        api_key="test",
+        generator_model="gpt-6-luna",
+    )
+    event = statutory_fidelity.run("provision", "rules: []", client=client)
+    assert event.verdict == Verdict.ERROR
+    assert event.judge_error.type == "max_tokens"
+    assert statutory_fidelity.needs_review_label(event) == "needs-review"
+    assert validate_event_dict(event.to_dict()) == []
+
+
+def test_reply_classification_invariants_hold_for_every_reply_shape(monkeypatch):
+    """Execute the client's fail-closed invariants over every reply shape.
+
+    For each stop reason and reply text: a call is ok exactly when the model
+    did not refuse and the reply parsed to a JSON object carrying every
+    required key; an ok call carries a payload and no error; a failed call
+    carries an error and no payload; the error is ``refusal`` exactly when the
+    reply stopped on a refusal, whatever its text; and the error is
+    ``max_tokens`` exactly when the reply was cut off by the budget and is not
+    a complete payload.
+    """
+
+    from axiom_encode.judges.client import TRUNCATION_STOP_REASONS
+
+    schema = statutory_fidelity._SCHEMA
+    texts = {
+        "complete": _FIDELITY_OK,
+        "fenced": "```json\n" + _FIDELITY_OK + "\n```",
+        "missing_keys": '{"verdict": "pass"}',
+        "truncated": _FIDELITY_TRUNCATED,
+        "prose": "The artifact looks faithful.",
+        "empty": "",
+        "array": "[1, 2, 3]",
+    }
+    complete = {"complete", "fenced"}
+    stop_reasons = (
+        "end_turn",
+        "max_tokens",
+        "model_context_window_exceeded",
+        "stop_sequence",
+        "refusal",
+        None,
+    )
+    for stop_reason in stop_reasons:
+        for label, text in texts.items():
+            install_fake_anthropic(monkeypatch, [(text, stop_reason)])
+            call = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test").call(
+                system="s", user_prompt="u", schema=schema, escalate=False
+            )
+            case = (stop_reason, label)
+            refused = stop_reason == "refusal"
+            assert call.ok == (label in complete and not refused), case
+            if call.ok:
+                assert call.error is None and call.payload is not None, case
+                assert all(k in call.payload for k in schema["required"]), case
+            else:
+                assert call.error is not None and call.payload is None, case
+                assert (call.error.type == "refusal") == refused, case
+                truncated = stop_reason in TRUNCATION_STOP_REASONS
+                assert (call.error.type in TRUNCATION_STOP_REASONS.values()) == (
+                    truncated
+                ), case
+                if truncated:
+                    assert call.error.type == TRUNCATION_STOP_REASONS[stop_reason]
+
+
+def test_truncated_escalation_keeps_the_first_verdict(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict":"flag","confidence":0.2,"findings":[]}',
+            (_FIDELITY_TRUNCATED, "max_tokens"),
+        ],
+    )
+    client = JudgeClient(
+        model="claude-haiku-4-5-20251001",
+        escalation_model="claude-sonnet-4-5",
+        api_key="test",
+        escalate_below=0.6,
+    )
+    call = client.call(system="s", user_prompt="p", schema=statutory_fidelity._SCHEMA)
+    # The low-confidence first verdict stands (existing behaviour for a failed
+    # escalation) and carries both calls' tokens; the call is not an error, but
+    # the truncated escalation is recorded on it.
+    assert call.ok and call.escalated is False
+    assert call.model == "claude-haiku-4-5-20251001"
+    assert call.payload["confidence"] == 0.2
+    assert call.tokens == TokenCounts(22, 14)
+    assert call.escalation_error.type == "max_tokens"
+
+
+def test_truncated_reply_on_the_plain_request_fallback_is_named(monkeypatch):
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [FakeBadRequestError("schema rejected"), (_FIDELITY_TRUNCATED, "max_tokens")],
+    )
+    call = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test").call(
+        system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA
+    )
+    assert call.error.type == "max_tokens"
+    assert "output_config" in mod.calls[0] and "output_config" not in mod.calls[1]
+
+
+def test_non_string_stop_reason_falls_back_to_parse_error(monkeypatch):
+    install_fake_anthropic(monkeypatch, [(_FIDELITY_TRUNCATED, 1)])
+    call = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test").call(
+        system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA
+    )
+    assert call.error.type == "parse_error"
+
+
+def test_context_window_stop_is_named(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch, [(_FIDELITY_TRUNCATED, "model_context_window_exceeded")]
+    )
+    call = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test").call(
+        system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA
+    )
+    assert call.error.type == "context_window_exceeded"
+    assert "AXIOM_JUDGE_PROVISION_CHARS" in call.error.message
+
+
+def test_sdk_refusal_of_the_output_budget_is_named_and_not_retried(monkeypatch):
+    import axiom_encode.judges.client as clientmod
+
+    monkeypatch.setattr(clientmod.time, "sleep", lambda *_: None)
+    refusal = ValueError(
+        "Streaming is required for operations that may take longer than 10 "
+        "minutes. See https://github.com/anthropics/anthropic-sdk-python#long-requests "
+        "for more details"
+    )
+    mod = install_fake_anthropic(monkeypatch, [refusal, _FIDELITY_OK])
+    call = JudgeClient(
+        model="claude-opus-4-1-20250805", api_key="test", max_attempts=2
+    ).call(system="s", user_prompt="u", schema=statutory_fidelity._SCHEMA)
+    assert not call.ok
+    assert call.error.type == "max_tokens_config"
+    assert "AXIOM_JUDGE_MAX_TOKENS" in call.error.message
+    assert len(mod.calls) == 1  # a configuration error is not retried

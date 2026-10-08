@@ -117,6 +117,7 @@ from axiom_encode.cli import (
     _manifest_census,
     _manifest_coverage_by_file,
     _medicaid_magi_income_helper_issue_names,
+    _missing_input_assignments_from_validation,
     _normalize_invalid_proof_atom_kinds,
     _normalize_invalid_proof_atom_kinds_file,
     _normalize_top_level_parameter_values_to_versions,
@@ -151,6 +152,7 @@ from axiom_encode.cli import (
     _repair_colorado_tax_subsection_2_import,
     _repair_colorado_tax_subsection_2_test_inputs,
     _repair_employer_scoped_entities,
+    _repair_existing_target_oracle_shape_contracts,
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
@@ -1279,14 +1281,13 @@ def test_arizona_snap_ecps_projects_boundary_inputs():
         "snap_total_monthly_unearned_income": 200.0,
     }
     assert project_jurisdiction_household_inputs(config, values, 0) == {
-        "na_net_income": 750.0,
         "na_budgetary_unit_is_eligible": True,
         "budgetary_unit_participant_count": 2,
+        "az_utility_allowance_participant_count": 2,
         "thrifty_food_plan_amount_for_budgetary_unit_size": 536.0,
         "minimum_na_allotment": 24.0,
         "initial_month_proration_applies": False,
         "prorated_initial_month_na_benefit": 0,
-        "snap_excess_shelter_deduction_for_net_income": 150.0,
     }
 
 
@@ -3290,6 +3291,49 @@ class TestRunnerOverrides:
 
 
 class TestMain:
+    def test_encode_help_describes_explicit_gpt61_model_selection(self, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", "encode", "--help"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 0
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert "gpt-6.1-sol" in help_text
+        assert "--model/--escalation-model" in help_text
+        assert "ChatGPT-account Codex rejected" not in help_text
+        assert "2026-09-24" not in help_text
+
+    def test_encode_accepts_explicit_gpt61_models(self):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "encode",
+                    "26 USC 1",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                    "--model",
+                    "gpt-6.1-sol",
+                    "--escalation-model",
+                    "gpt-6.1-sol",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_encode") as mock_cmd,
+        ):
+            main()
+
+        args = mock_cmd.call_args.args[0]
+        assert args.backend == "codex"
+        assert args.model == "gpt-6.1-sol"
+        assert args.escalation_model == "gpt-6.1-sol"
+
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
         with patch("sys.argv", ["axiom_encode"]):
@@ -7558,6 +7602,22 @@ rules:
             {"kind": "decimal", "value": Decimal("19.99")},
             20,
         )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.50000000000002"},
+            197.5,
+        )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "100.49999999999998"},
+            100.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.51"},
+            197.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "integer", "value": "9007199254740993"},
+            9007199254740992,
+        )
 
     def _execute_period_fixture(self, tmp_path, monkeypatch, *, period_kind):
         content_root = tmp_path / "rulespec-us/us"
@@ -7779,6 +7839,94 @@ rules:
         ]
         assert commands[0][6] == "--output"
         assert Path(commands[0][7]).parent == compiled_dir
+
+    @pytest.mark.parametrize(
+        ("slots", "query_entity", "expected_tuple", "related_entity"),
+        [
+            (["Payment", "Asset"], "Payment", ["case", "related_0"], "Asset"),
+            (["Person", "TaxUnit"], "TaxUnit", ["related_0", "case"], "Person"),
+            (["Person", "Person"], "Person", ["related_0", "case"], "Person"),
+        ],
+    )
+    def test_companion_relation_uses_compiled_slot_order(
+        self, monkeypatch, tmp_path, slots, query_entity, expected_tuple, related_entity
+    ):
+        content_root = tmp_path / "rulespec-us/us"
+        program = content_root / "statutes/1/example.yaml"
+        program.parent.mkdir(parents=True)
+        relation_id = "us:statutes/1/example#relation.related_item"
+        output_id = "us:statutes/1/example#benefit"
+        child_input_id = "us:statutes/1/example#input.qualifies"
+        program.write_text(
+            "format: rulespec/v1\nrules:\n"
+            "  - name: related_item\n    kind: data_relation\n"
+            "    data_relation:\n      predicate: related_item\n"
+            "      arity: 2\n      arguments:\n"
+            f"        - {slots[0]}\n        - {slots[1]}\n"
+        )
+        companion = program.with_name("example.test.yaml")
+        companion.write_text(
+            "- name: typed_relation\n  period: 2026-01\n  input:\n"
+            f"    {relation_id}:\n      - {child_input_id}: true\n"
+            f"  output:\n    {output_id}: 1\n"
+        )
+        captured_request = None
+
+        def fake_run(command, **kwargs):
+            nonlocal captured_request
+            captured_request = json.loads(kwargs["input"])
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "results": [
+                            {
+                                "outputs": {
+                                    output_id: {
+                                        "kind": "scalar",
+                                        "value": {"kind": "integer", "value": 1},
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+        result = _execute_rulespec_test_file(
+            companion,
+            binary=tmp_path / "axiom-rules-engine",
+            axiom_rules_path=tmp_path,
+            env={},
+            rulespec_roots=(tmp_path / "rulespec-us",),
+            tmp_path=tmp_path,
+            compiled_cache={
+                program: (
+                    tmp_path / "compiled.json",
+                    {
+                        "program": {
+                            "derived": [{"id": output_id, "entity": query_entity}],
+                            "relations": [
+                                {
+                                    "name": relation_id,
+                                    "arity": 2,
+                                    "slot_entities": slots,
+                                }
+                            ],
+                        }
+                    },
+                )
+            },
+            policy_repo_path=content_root,
+        )
+
+        assert result["failures"] == []
+        assert captured_request is not None
+        assert captured_request["dataset"]["relations"][0]["tuple"] == expected_tuple
+        assert captured_request["dataset"]["inputs"][0]["entity"] == related_entity
 
     def test_absolute_module_ref_uses_only_explicit_dependency_roots(
         self, monkeypatch, tmp_path
@@ -13716,6 +13864,7 @@ class TestCmdEncode:
         # escalation tests opt in explicitly so their gate sequences stay clear.
         args.escalation_enabled = overrides.get("escalation_enabled", False)
         args.backend = overrides.get("backend", "codex")
+        args.codex_reasoning_effort = overrides.get("codex_reasoning_effort", "low")
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
@@ -14442,13 +14591,17 @@ class TestCmdEncode:
             == expected
         )
 
-    def test_encode_escalates_after_n_validator_failures(self, tmp_path):
+    @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
+    def test_encode_escalates_after_n_validator_failures(
+        self, tmp_path, reasoning_effort
+    ):
         args = self._make_args(
             tmp_path,
             model=None,
             apply=True,
             sync=False,
             escalation_enabled=True,
+            codex_reasoning_effort=reasoning_effort,
         )
 
         exit_code, generated, validated, mock_run, mock_validate, mock_apply = (
@@ -14472,6 +14625,9 @@ class TestCmdEncode:
         ]
         assert validated == generated
         assert mock_run.call_count == 4
+        assert [
+            call.kwargs["codex_reasoning_effort"] for call in mock_run.call_args_list
+        ] == [reasoning_effort] * 4
         assert [
             call.kwargs["validation_retry_feedback"] for call in mock_run.call_args_list
         ] == [
@@ -45826,8 +45982,10 @@ rules:
   input:
     us:regulations/42-cfr/435/603/d#input.federal_poverty_level_for_applicable_family_size: 20000
     us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household:
-    - us:regulations/42-cfr/435/603/d#input.expected_required_to_file_return_under_6012_a_1: true
-      us:regulations/42-cfr/435/603/d#input.included_in_household_of_natural_adopted_or_step_parent: false
+    - ? us:regulations/42-cfr/435/603/d#input.expected_required_to_file_return_under_6012_a_1
+      : true
+      ? us:regulations/42-cfr/435/603/d#input.included_in_household_of_natural_adopted_or_step_parent
+      : false
   output:
     us:regulations/42-cfr/435/603/d#household_income: 0
 """
@@ -46069,6 +46227,198 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
+    def test_repair_scalar_relation_rows_prefers_new_generated_child_input(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: old_companion_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / "statutes" / "7" / "2012" / "j.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments: [Household, Person]
+  - name: snap_household_has_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: count_where(member_of_household, member_meets_elderly_or_disabled_definition) > 0
+inputs:
+  - name: member_meets_elderly_or_disabled_definition
+    entity: Person
+    dtype: Boolean
+    period: Month
+"""
+        )
+        test_file = rules_file.with_name("j.test.yaml")
+        test_file.write_text(
+            f"""- name: new_household_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_household_case", relation_ref, 1)],
+                generated_anchor="us:statutes/7/2012/j",
+            )
+
+        assert repaired == [f"new_household_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {
+                "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition": True
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("generated_relative", "generated_anchor"),
+        [
+            ("statutes/7/2012/k.yaml", "us:statutes/7/2012/k"),
+            ("us-ny/statutes/7/2012/j.yaml", "us-ny:statutes/7/2012/j"),
+        ],
+    )
+    def test_repair_scalar_relation_rows_keeps_imported_companion_shape(
+        self, tmp_path, generated_relative, generated_anchor
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: imported_relation_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / generated_relative
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+  - name: another_rule
+    kind: derived
+    versions:
+      - formula: count_where(member_of_household, wrong_child_fact) > 0
+"""
+        )
+        test_file = rules_file.with_name(f"{rules_file.stem}.test.yaml")
+        test_file.write_text(
+            f"""- name: new_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_case", relation_ref, 1)],
+                generated_anchor=generated_anchor,
+            )
+
+        assert repaired == [f"new_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
+
+    def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us" / "us-az"
+        policy_repo.mkdir(parents=True)
+        dependency_root = tmp_path / "rulespec-us"
+        dependency_module = (
+            dependency_root / "us-az" / "policies" / "des" / "faa5" / "categorical.yaml"
+        )
+        dependency_module.parent.mkdir(parents=True)
+        dependency_module.write_text("format: rulespec/v1\nrules: []\n")
+        companion_test = dependency_module.with_name("categorical.test.yaml")
+        relation_ref = (
+            "us-az:policies/des/faa5/categorical#relation.member_of_budgetary_unit"
+        )
+        companion_test.write_text(
+            f"""- name: tanf_services_member
+  period: 2026-07
+  input:
+    {relation_ref}:
+      - us-az:policies/des/faa5/categorical#input.receives_tanf_services: true
+        us-az:policies/des/faa5/categorical#input.is_elderly_or_disabled: false
+  output: {{}}
+"""
+        )
+        test_file = tmp_path / "generated" / "categorical.test.yaml"
+        test_file.parent.mkdir()
+        test_file.write_text(
+            f"""- name: elderly_or_disabled_special_considerations
+  period: 2026-07
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((dependency_root,)):
+            repaired = _repair_scalar_relation_rows(
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[
+                    (
+                        "elderly_or_disabled_special_considerations",
+                        relation_ref,
+                        1,
+                    )
+                ],
+            )
+
+        assert repaired == []
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [True]
+
     def test_repair_scalar_relation_rows_from_generated_formula(self, tmp_path):
         policy_repo = tmp_path / "rulespec-uk" / "uk"
         policy_repo.mkdir(parents=True)
@@ -46112,6 +46462,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="uk:statutes/ukpga/2007/3/23",
             parsed_issues=[
                 (
                     "charged_income_less_reliefs_and_allowances",
@@ -46467,6 +46818,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="us-co:regulations/10-ccr-2506-1/4.208.1",
             parsed_issues=[
                 (
                     "mixed_age_household_does_not_qualify",
@@ -47323,8 +47675,147 @@ inputs:
         assert supplemental == {}
         assert observed_contracts == [standalone_contract]
         assert [issue.partition(": ci: ")[2] for issue in overlay_issues] == (
-            standalone_issues
+            standalone_issues[1:]
         )
+
+    def test_repairs_exact_mapped_shapes_without_rewriting_formulas(self, tmp_path):
+        rules_file = tmp_path / "replacement.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: valid_person_helper
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      private: true
+      proof: preserved
+    versions:
+      - effective_from: '2026-01-01'
+        formula: generated_person_formula
+  - name: aggregate_helper
+    kind: derived
+    entity: Member
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(membership, predicate) > 0
+"""
+        )
+        contract = SimpleNamespace(
+            surfaces=(
+                SimpleNamespace(
+                    name="valid_person_helper",
+                    kind="derived",
+                    entity="Person",
+                    replacement_entity="",
+                    dtype="Judgment",
+                    period="Month",
+                    unit="",
+                    indexed_by=(),
+                    private=False,
+                ),
+                SimpleNamespace(
+                    name="aggregate_helper",
+                    kind="derived",
+                    entity="Member",
+                    replacement_entity="Household",
+                    dtype="Judgment",
+                    period="Month",
+                    unit="",
+                    indexed_by=(),
+                    private=False,
+                ),
+            )
+        )
+
+        repaired = _repair_existing_target_oracle_shape_contracts(
+            rules_file=rules_file,
+            contract=contract,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        rules = {rule["name"]: rule for rule in payload["rules"]}
+        assert repaired == ["valid_person_helper", "aggregate_helper"]
+        assert rules["valid_person_helper"]["entity"] == "Person"
+        assert "private" not in rules["valid_person_helper"]["metadata"]
+        assert rules["valid_person_helper"]["metadata"]["proof"] == "preserved"
+        assert (
+            rules["valid_person_helper"]["versions"][0]["formula"]
+            == "generated_person_formula"
+        )
+        assert rules["aggregate_helper"]["entity"] == "Household"
+        assert (
+            rules["aggregate_helper"]["versions"][0]["formula"]
+            == "count_where(membership, predicate) > 0"
+        )
+
+    @pytest.mark.parametrize("initial_index", ["household_size", ["wrong_selector"]])
+    def test_mapped_table_repair_preserves_scalar_selector(
+        self, tmp_path, initial_index
+    ):
+        rules_file = tmp_path / "table.yaml"
+        versions = [{"effective_from": "2023-10-01", "values": {1: 1215, 8: 4214}}]
+        rules_file.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [
+                        {
+                            "name": "income_table",
+                            "kind": "parameter",
+                            "dtype": "Money",
+                            "unit": "USD",
+                            "indexed_by": initial_index,
+                            "versions": versions,
+                        }
+                    ],
+                }
+            )
+        )
+        contract = SimpleNamespace(
+            surfaces=(
+                SimpleNamespace(
+                    name="income_table",
+                    kind="parameter",
+                    entity="",
+                    replacement_entity="",
+                    dtype="Money",
+                    period="",
+                    unit="USD",
+                    indexed_by=("household_size",),
+                    private=False,
+                ),
+            )
+        )
+        original = rules_file.read_bytes()
+        repaired = _repair_existing_target_oracle_shape_contracts(
+            rules_file=rules_file, contract=contract
+        )
+        if initial_index == "household_size":
+            assert repaired == []
+            assert rules_file.read_bytes() == original
+        else:
+            assert repaired == ["income_table"]
+        rule = yaml.safe_load(rules_file.read_text())["rules"][0]
+        assert rule["indexed_by"] == "household_size"
+        assert rule["versions"] == versions
+        before = rules_file.read_bytes()
+        assert (
+            _repair_existing_target_oracle_shape_contracts(
+                rules_file=rules_file, contract=contract
+            )
+            == []
+        )
+        assert rules_file.read_bytes() == before
+        contract.surfaces[0].indexed_by = ("household_size", "region")
+        with pytest.raises(ValueError, match="multiple indexed_by dimensions"):
+            _repair_existing_target_oracle_shape_contracts(
+                rules_file=rules_file, contract=contract
+            )
+        assert rules_file.read_bytes() == before
 
     def test_apply_overlay_scopes_authenticated_canonical_replacement(self, tmp_path):
         output_root = tmp_path / "out"
@@ -49175,6 +49666,29 @@ rules:
                 overlay_content_root=content_root,
                 dependents=[dependent],
             )
+
+    def test_missing_input_parser_accepts_relation_warning_before_error(self):
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `relation_case` execution failed: "
+                        "warning[relation_slot_entity_mismatch]: expected `Person` "
+                        "but found `Member`\n"
+                        "missing input `participant_receives_combination` for entity "
+                        "`case-1-relation.member-1` over 2026-07-01..2026-07-31"
+                    )
+                )
+            }
+        )
+
+        assert _missing_input_assignments_from_validation(validation) == [
+            {
+                "case": "relation_case",
+                "input": "participant_receives_combination",
+                "entity": "case-1-relation.member-1",
+            }
+        ]
 
     def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
         self, tmp_path
