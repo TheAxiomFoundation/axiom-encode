@@ -46347,6 +46347,146 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
+    def test_repair_scalar_relation_rows_prefers_new_generated_child_input(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: old_companion_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / "statutes" / "7" / "2012" / "j.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments: [Household, Person]
+  - name: snap_household_has_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: count_where(member_of_household, member_meets_elderly_or_disabled_definition) > 0
+inputs:
+  - name: member_meets_elderly_or_disabled_definition
+    entity: Person
+    dtype: Boolean
+    period: Month
+"""
+        )
+        test_file = rules_file.with_name("j.test.yaml")
+        test_file.write_text(
+            f"""- name: new_household_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_household_case", relation_ref, 1)],
+                generated_anchor="us:statutes/7/2012/j",
+            )
+
+        assert repaired == [f"new_household_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {
+                "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition": True
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("generated_relative", "generated_anchor"),
+        [
+            ("statutes/7/2012/k.yaml", "us:statutes/7/2012/k"),
+            ("us-ny/statutes/7/2012/j.yaml", "us-ny:statutes/7/2012/j"),
+        ],
+    )
+    def test_repair_scalar_relation_rows_keeps_imported_companion_shape(
+        self, tmp_path, generated_relative, generated_anchor
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: imported_relation_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / generated_relative
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+  - name: another_rule
+    kind: derived
+    versions:
+      - formula: count_where(member_of_household, wrong_child_fact) > 0
+"""
+        )
+        test_file = rules_file.with_name(f"{rules_file.stem}.test.yaml")
+        test_file.write_text(
+            f"""- name: new_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_case", relation_ref, 1)],
+                generated_anchor=generated_anchor,
+            )
+
+        assert repaired == [f"new_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
+
     def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us" / "us-az"
         policy_repo.mkdir(parents=True)
@@ -46442,6 +46582,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="uk:statutes/ukpga/2007/3/23",
             parsed_issues=[
                 (
                     "charged_income_less_reliefs_and_allowances",
@@ -46797,6 +46938,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="us-co:regulations/10-ccr-2506-1/4.208.1",
             parsed_issues=[
                 (
                     "mixed_age_household_does_not_qualify",

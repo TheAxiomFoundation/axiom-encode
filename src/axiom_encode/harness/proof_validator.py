@@ -733,7 +733,19 @@ def _source_evidence_span_is_bounded(
         right = after.lstrip()
         while right and unicodedata.category(right[0]) == "Cf":
             right = right[1:]
-        if right and _is_numeric_suffix_marker(right[0]):
+        # A PDF table often flattens adjacent money cells as "$744 $1,189".
+        # The second currency marker begins a new amount, not a suffix of
+        # the excerpted first cell. Keep rejecting an actual trailing marker
+        # ("744 $") and non-currency suffixes such as percent signs.
+        next_money_cell = bool(
+            after
+            and after[0].isspace()
+            and right
+            and _is_currency_marker(right[0])
+            and len(right) > 1
+            and right[1].isdecimal()
+        )
+        if right and _is_numeric_suffix_marker(right[0]) and not next_money_cell:
             return False
         if _right_context_starts_textual_numeric_suffix(after):
             return False
