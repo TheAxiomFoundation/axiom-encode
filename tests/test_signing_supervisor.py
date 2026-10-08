@@ -2532,6 +2532,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert 'cascade_args+=("${dependent_citations[@]}")' in cascade_step["run"]
     assert "--allow-proof-import-subset" in cascade_step["run"]
+    assert "all-direct|proof-import-subset|proof-import-chain" in cascade_step["run"]
     assert 'cascade_mode="$("${cascade_args[@]}")"' in cascade_step["run"]
     assert "DEPENDENT_CASCADE_MODE=%s" in cascade_step["run"]
 
@@ -2673,6 +2674,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'local scheduled_dependent_paths_json="${11:-[]}"' in command
     assert "--scheduled-dependent-rulespec-path" in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
@@ -5060,6 +5062,7 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (1, "proof-import-subset", "target-existing"),
         (2, "", ""),
         (2, "", "target-existing"),
+        (2, "proof-import-chain", "target-existing"),
     ],
 )
 def test_targeted_signed_reencode_orders_target_and_dependents(
@@ -5257,16 +5260,23 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[0][encode_args[0].index(option) + 1] == expected_value
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
-        dependent_count > 0 and cascade_mode != "proof-import-subset"
+        dependent_count > 0
+        and cascade_mode not in {"proof-import-subset", "proof-import-chain"}
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode == "proof-import-subset"
+        cascade_mode in {"proof-import-subset", "proof-import-chain"}
     )
-    if cascade_mode == "proof-import-subset":
+    if cascade_mode in {"proof-import-subset", "proof-import-chain"}:
         assert encode_args[0][encode_args[0].index(scheduled_option) + 1] == (
             "us/regulations/42-cfr/435/559.yaml"
         )
+        if cascade_mode == "proof-import-chain":
+            assert encode_args[0].count(scheduled_option) == 2
+            second = encode_args[0].index(
+                scheduled_option, encode_args[0].index(scheduled_option) + 1
+            )
+            assert encode_args[0][second + 1] == ("us/regulations/42-cfr/435/561.yaml")
     assert (
         Path(encode_args[0][encode_args[0].index("--review-findings") + 1])
         .read_text(encoding="utf-8")

@@ -49834,6 +49834,97 @@ rules:
                 dependents=[dependent],
             )
 
+    def test_scheduled_two_hop_proof_chain_is_authenticated(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        for module in (target, first, second):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        first_sha = hashlib.sha256(first.read_bytes()).hexdigest()
+        second.write_text(
+            f"""format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/10
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:{first_sha}
+"""
+        )
+
+        resolved = _resolve_scheduled_proof_hash_dependents(
+            (
+                Path("us/regulations/7-cfr/273/10.yaml"),
+                Path("us/regulations/7-cfr/273/11/c.yaml"),
+            ),
+            overlay_content_root=content_root,
+            dependents=[first, second],
+        )
+
+        assert resolved == {first, second}
+        assert f"hash: sha256:{first_sha}" in second.read_text()
+
+    def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        for module in (target, first, second):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        second.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        with pytest.raises(ValueError, match="lacks a proof import pinned"):
+            _resolve_scheduled_proof_hash_dependents(
+                (
+                    Path("us/regulations/7-cfr/273/10.yaml"),
+                    Path("us/regulations/7-cfr/273/11/c.yaml"),
+                ),
+                overlay_content_root=content_root,
+                dependents=[first, second],
+            )
+
     def test_missing_input_parser_accepts_relation_warning_before_error(self):
         validation = SimpleNamespace(
             results={

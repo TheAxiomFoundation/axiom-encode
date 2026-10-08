@@ -16,6 +16,7 @@ from axiom_encode.legacy_replacement import (
     receipt_identity_payload,
     receipt_identity_sha256,
 )
+from axiom_encode.prepare_signed_backfill import _classify_dependent_cascade
 from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
@@ -3958,6 +3959,127 @@ def test_validate_dependent_cascade_rejects_nonproof_subset_even_when_allowed(
             repo,
             "us/policy/usda/snap/maximum",
             "us/statute/7/2017/a",
+            allow_proof_import_subset=True,
+        )
+
+
+def test_validate_dependent_cascade_accepts_exact_two_hop_proof_chain(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/9.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11/c",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    assert mode == "proof-import-chain"
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+
+
+def test_validate_dependent_cascade_rejects_incomplete_two_hop_proof_chain(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    for section in ("c", "d"):
+        dependent = _write_module(
+            repo,
+            f"regulations/7-cfr/273/11/{section}.yaml",
+            imports=("us:regulations/7-cfr/273/10",),
+        )
+        dependent.write_text(
+            dependent.read_text().replace(
+                "rules: []",
+                f"""rules:
+  - name: treatment_{section}
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+            )
+        )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11/c",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
             allow_proof_import_subset=True,
         )
 

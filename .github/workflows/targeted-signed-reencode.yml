@@ -1228,7 +1228,7 @@ jobs:
           cascade_args+=("${dependent_citations[@]}")
           cascade_mode="$("${cascade_args[@]}")"
           case "$cascade_mode" in
-            all-direct|proof-import-subset) ;;
+            all-direct|proof-import-subset|proof-import-chain) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
@@ -1840,7 +1840,8 @@ jobs:
               citation-rulespec-path "$SECOND_DEPENDENT_CITATION")"
           fi
           scheduled_dependent_paths_json="[]"
-          if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ]; then
+          if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
                 --arg first "$dependent_rulespec_path" \
@@ -2337,7 +2338,8 @@ jobs:
 
             if [ -n "$DEPENDENT_CITATION" ]; then
               primary_target_only=true
-              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ]; then
+              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
                 primary_target_only=false
               fi
               run_signed_encode \

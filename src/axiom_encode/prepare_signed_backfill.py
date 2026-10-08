@@ -1779,7 +1779,7 @@ def validate_dependent_cascade(
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
 ) -> tuple[PurePosixPath, ...]:
-    """Require all direct dependents, or the exact proof-pinned subset when allowed."""
+    """Require all direct dependents or an exact source-bound proof chain."""
 
     dependents, _mode = _classify_dependent_cascade(
         repo,
@@ -1858,6 +1858,10 @@ def _classify_dependent_cascade(
     canonical_target_import = f"{target_jurisdiction}:{target_import}"
     direct_dependents: set[PurePosixPath] = set()
     proof_import_dependents: set[PurePosixPath] = set()
+    first_dependent_proof: set[PurePosixPath] = set()
+    first_relative = dependent_relatives[0]
+    first_import = first_relative.with_suffix("").as_posix()
+    canonical_first_import = f"{target_jurisdiction}:{first_import}"
     for atomic_root in sorted(RULESPEC_ATOMIC_ROOTS):
         root = content_root / atomic_root
         if not root.exists():
@@ -1896,12 +1900,35 @@ def _classify_dependent_cascade(
                     canonical_target_import=canonical_target_import,
                 ):
                     proof_import_dependents.add(relative_candidate)
+            if candidate != content_root / first_relative and any(
+                isinstance(raw_import, str)
+                and raw_import.split("#", 1)[0].strip().strip("/")
+                in {first_import, canonical_first_import}
+                for raw_import in imports
+            ):
+                relative_candidate = PurePosixPath(
+                    candidate.relative_to(content_root).as_posix()
+                )
+                if _payload_has_proof_import_for_target(
+                    payload,
+                    target_import=first_import,
+                    canonical_target_import=canonical_first_import,
+                ):
+                    first_dependent_proof.add(relative_candidate)
 
     expected = set(dependent_relatives)
     if direct_dependents == expected:
         return tuple(dependent_relatives), "all-direct"
     if allow_proof_import_subset and proof_import_dependents == expected:
         return tuple(dependent_relatives), "proof-import-subset"
+    if (
+        allow_proof_import_subset
+        and len(dependent_relatives) == 2
+        and proof_import_dependents == {first_relative}
+        and first_dependent_proof == {dependent_relatives[1]}
+        and dependent_relatives[1] not in direct_dependents
+    ):
+        return tuple(dependent_relatives), "proof-import-chain"
     rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
     raise ValueError(
         "target direct-dependent set does not exactly match supplied dependents: "
