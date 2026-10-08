@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _relative_generated_output_path,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
+    _remove_invalid_test_input_refs,
     _remove_unknown_dependent_test_outputs,
     _repair_anaphoric_scope_identifiers,
     _repair_bare_indexed_parameter_references,
@@ -31820,6 +31821,69 @@ rules:
         assert run.outcome["auto_repaired_invalid_test_inputs"] == [invalid_ref]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_invalid_input_cleanup_preserves_only_relation_row_fact(self, tmp_path):
+        test_file = tmp_path / "j.test.yaml"
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        derived_ref = (
+            "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition"
+        )
+        stale_ref = "us:statutes/7/2012/j#input.stale_unrelated_fact"
+        test_file.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "name": "household_with_member",
+                        "input": {
+                            relation_ref: [{derived_ref: True}],
+                            stale_ref: False,
+                        },
+                        "output": {},
+                    }
+                ],
+                sort_keys=False,
+            )
+        )
+        issues = [
+            f"input `{ref}` does not resolve to an input slot"
+            for ref in (derived_ref, stale_ref)
+        ]
+
+        assert _remove_invalid_test_input_refs(test_file=test_file, issues=issues) == [
+            stale_ref
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [{derived_ref: True}]
+        assert stale_ref not in case["input"]
+
+    def test_invalid_input_cleanup_removes_ref_when_relation_row_retains_fact(
+        self, tmp_path
+    ):
+        test_file = tmp_path / "j.test.yaml"
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        stale_ref = "us:statutes/7/2012/j#input.stale_member_fact"
+        valid_ref = "us:statutes/7/2012/j#input.member_age"
+        test_file.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "name": "household_with_member",
+                        "input": {
+                            relation_ref: [{stale_ref: True, valid_ref: 60}],
+                        },
+                        "output": {},
+                    }
+                ],
+                sort_keys=False,
+            )
+        )
+
+        assert _remove_invalid_test_input_refs(
+            test_file=test_file,
+            issues=[f"input `{stale_ref}` does not resolve to an input slot"],
+        ) == [stale_ref]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [{valid_ref: 60}]
 
     def test_encode_apply_preserves_valid_external_legacy_input_during_canonical_repair(
         self, capsys, tmp_path

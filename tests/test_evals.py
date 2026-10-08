@@ -1104,6 +1104,95 @@ def test_repair_candidate_overlay_rejects_referenced_input_removal(
         )
 
 
+@pytest.mark.parametrize("stale_test_input", [False, True])
+def test_repair_candidate_overlay_can_remove_input_shadowed_by_derived_rule(
+    tmp_path, stale_test_input
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "statutes" / "7" / "2012" / "j.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    preserved_rulespec = """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    entity: Person
+    dtype: Judgment
+    period: Month
+  - name: member_age
+    entity: Person
+    dtype: Integer
+    period: Month
+rules:
+  - name: member_meets_definition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_age >= 60
+  - name: household_has_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_meets_definition
+"""
+    rulespec_file.write_text(
+        """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    repair_remove: true
+rules: []
+""",
+        encoding="utf-8",
+    )
+    test_ref = (
+        "us:statutes/7/2012/j#input.member_meets_definition"
+        if stale_test_input
+        else "us:statutes/7/2012/j#input.member_age"
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        f"""- name: household_case
+  period: 2026-01
+  input:
+    {test_ref}: 60
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=preserved_rulespec,
+        tests="""- name: household_case
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_meets_definition: true
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+    )
+
+    if stale_test_input:
+        with pytest.raises(ValueError, match="remain referenced"):
+            evals_module._overlay_validation_retry_candidate(
+                rulespec_file,
+                artifact_root=artifact_root,
+                candidate=candidate,
+            )
+        return
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+    merged = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert {item["name"] for item in merged["inputs"]} == {"member_age"}
+    assert "removed_input:member_meets_definition" in repairs
+
+
 def test_repair_candidate_overlay_removes_explicit_named_tombstones(tmp_path):
     artifact_root = tmp_path / "generated"
     rulespec_file = artifact_root / "regulations" / "section.yaml"
@@ -4931,6 +5020,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
+    assert "cannot have the same name as a local derived rule" in prompt
+    assert "never put a fabricated" in prompt
     assert "never assign prohibited derived" in prompt
     assert (
         "classifications such as any imported or local `#input.filing_status`" in prompt
