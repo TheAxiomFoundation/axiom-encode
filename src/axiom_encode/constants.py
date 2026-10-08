@@ -2,7 +2,10 @@
 # Change the model in ONE place, it changes everywhere.
 
 # Full model ID for Agent SDK (API) backend
-DEFAULT_MODEL = "claude-opus-4-6"
+DEFAULT_MODEL = "claude-opus-5-5"
+# Opus 5.5 defaults to medium effort; encoding is intelligence-sensitive, so the
+# API backend asks for high explicitly (override with AXIOM_API_ENCODER_EFFORT).
+DEFAULT_API_ENCODER_EFFORT = "high"
 
 # Short-form model names for Claude Code CLI backend
 DEFAULT_CLI_MODEL = "opus"
@@ -12,16 +15,19 @@ REVIEWER_CLI_MODEL = "opus"
 # This is also the *generator* family the LLM judges must never share (see
 # below): same-model self-review correlates errors (the 9/9 identical
 # hardcoded-600,000 incident is the cautionary tale).
-DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
-DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-5.6-sol"
+# GPT-6 Luna generates; GPT-6 Sol takes the bounded validator-failure retry.
+# Explicit --model/--escalation-model overrides also accept gpt-6.1-sol.
+# Codex model availability is determined by the signed-in account and CLI.
+DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-6-sol"
 DEFAULT_OPENAI_ESCALATE_AFTER = 2
 
 # LLM judge models (maximum-traceability part 2). Cross-family by design: the
 # generator is a GPT model, so judges run on a Claude-family model. Volume runs
-# on Haiku; low-confidence verdicts escalate to Sonnet. Both are overridable via
-# AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
-DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001"
-JUDGE_ESCALATION_MODEL = "claude-sonnet-4-5"
+# on Sonnet 5.5; low-confidence verdicts escalate to Opus 5.5. Both are
+# overridable via AXIOM_JUDGE_MODEL / AXIOM_JUDGE_ESCALATION_MODEL.
+DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5"
+JUDGE_ESCALATION_MODEL = "claude-opus-5-5"
 
 # Statutory-fidelity screen (judges/statutory_fidelity_screen.py): a typed
 # probability pre-screen on TypeSafe System One (model family ``typesafe``,

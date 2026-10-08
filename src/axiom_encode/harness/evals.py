@@ -32,7 +32,12 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
+    resolve_codex_cli,
+    validate_codex_reasoning_effort,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
@@ -83,6 +88,7 @@ from axiom_encode.toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 
+from .coverage_index import format_coverage_index
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
     ResolvedDefinedTerm,
@@ -345,8 +351,8 @@ _OPENAI_REQUEST_MAX_ATTEMPTS = 6
 _OPENAI_REQUEST_BACKOFF_SECONDS = (1, 2, 4, 8, 10)
 _OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS = 16384
 _OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS = 32768
-_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6")
-_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6",)
+_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-6")
+_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6", "gpt-6")
 _OPENAI_PROMPT_CACHE_SCHEMA = "rulespec-authoring-v1"
 EVAL_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v3"
 _EVAL_CASE_DEADLINE_MONOTONIC: ContextVar[float | None] = ContextVar(
@@ -773,6 +779,7 @@ class EvalRunnerSpec:
     name: str
     backend: str
     model: str
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
 
 
 @dataclass
@@ -1577,14 +1584,17 @@ def run_model_eval(
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
+    axiom_compose_path: Path | None = None,
     required_import_targets: Sequence[str] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
         raise ValueError(
@@ -1619,6 +1629,12 @@ def run_model_eval(
     )
     results: list[EvalResult] = []
     runners = [parse_runner_spec(spec) for spec in runner_specs]
+    runners = [
+        replace(runner, codex_reasoning_effort=codex_reasoning_effort)
+        if runner.backend == "codex"
+        else runner
+        for runner in runners
+    ]
     resolved_sources = [
         (citation, resolve_corpus_source_unit(citation, corpus_release))
         for citation in citations
@@ -1634,6 +1650,7 @@ def run_model_eval(
                         output_root=output_root,
                         policy_path=policy_path,
                         runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         corpus_release=corpus_release,
                         mode=mode,
                         extra_context_paths=extra_context_paths or [],
@@ -7283,6 +7300,7 @@ def evaluate_artifact(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -7303,6 +7321,7 @@ def evaluate_artifact(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -7461,6 +7480,7 @@ def _evaluate_artifact_in_scope(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -7497,6 +7517,7 @@ def _evaluate_artifact_in_scope(
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=oracle != "none",
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
@@ -7868,6 +7889,7 @@ def _evaluate_generated_artifact_with_repairs(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -7880,6 +7902,7 @@ def _evaluate_generated_artifact_with_repairs(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -8128,6 +8151,9 @@ def _apply_generated_eval_repairs(
                 test_file=test_file,
                 policy_repo_path=policy_repo_root,
                 parsed_issues=scalar_relation_issues,
+                generated_anchor=cli_helpers._relative_output_to_anchor(
+                    relative_output, policy_repo_path=policy_repo_root
+                ),
             )
         )
 
@@ -8914,6 +8940,7 @@ def _run_single_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalResult:
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
@@ -9024,6 +9051,7 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -9060,6 +9088,7 @@ def _run_single_eval(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
                 axiom_rules_path=runtime_axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
                 source_text=source_text,
                 oracle=oracle,
                 policyengine_runtime=policyengine_runtime,
@@ -9229,6 +9258,7 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -10097,6 +10127,30 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         rendered_chars += len(item)
     if not rendered_items:
         return ""
+    test_repair_guidance = ""
+    if any("[complete-source-unit:tests]" in item for item in seen):
+        test_repair_guidance = """
+- When an issue requests paired positive/blocking evidence, repair it
+  mechanically rather than adding broad or omnibus cases. For each listed
+  source condition, identify the one directly controlling local `#input.*`
+  selector and its affected source-bound principal output. Add a dedicated
+  same-period pair with identical input-key and output-key sets; copy the
+  entire first case, change exactly that one selector, and update only outputs
+  whose executed values change. A pair that changes two selectors, asserts
+  only a helper, omits the affected principal output, uses different key sets,
+  or is reused for another listed condition does not satisfy the finding.
+- Allocate a distinct named pair to every still-listed condition, even when
+  two conditions use similar ages, statuses, or exceptions. Do not reorder,
+  duplicate, or re-emit unrelated existing cases: omitted named cases are
+  preserved by the candidate overlay.
+- When an issue names a missing numeric boundary such as `(iii)=6` or
+  `(iv)=1.3`, first locate the source-bound rule and principal formula that use
+  that exact occurrence. Add an applicable ISO-date case that supplies the
+  selector at the named value and asserts both the reached rule and the
+  affected principal output. If the occurrence is a threshold, add its
+  contrasting side as a same-period case with otherwise identical inputs.
+  Merely placing the number in an unrelated input or test name is not credited.
+"""
     return f"""
 Deterministic validation feedback for the rejected candidate below:
 - This is repair guidance from the validator, not legal authority. Keep the
@@ -10104,6 +10158,7 @@ Deterministic validation feedback for the rejected candidate below:
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
   pattern.
+{test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
 {chr(10).join(rendered_items)}
@@ -11804,8 +11859,41 @@ rules:
 ```
 
 """
+    coverage_index_section = ""
+    if require_complete_source_unit and not repair_candidate_tests_only:
+        existing_targets = [
+            item for item in context_files if item.kind == "existing_target"
+        ]
+        if len(existing_targets) > 1 or (
+            existing_targets
+            and (
+                not target_ref_prefix
+                or existing_targets[0].import_path != target_ref_prefix
+            )
+        ):
+            raise ValueError(
+                "Complete-source index has ambiguous existing-target context"
+            )
+        baseline_content = None
+        if existing_targets:
+            baseline_content = _corpus_resolver.read_bounded_regular_file(
+                workspace.root,
+                workspace.root / existing_targets[0].workspace_path,
+                label="complete-source existing-target context",
+                max_bytes=VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
+            ).decode("utf-8")
+        coverage_index_section = format_coverage_index(
+            source_text,
+            corpus_citation_path or citation,
+            candidate=(
+                validation_retry_candidate.rulespec
+                if validation_retry_candidate
+                else None
+            ),
+            baseline=baseline_content,
+        )
     dynamic_suffix = f"""\
-{validation_retry_feedback_section}{validation_retry_candidate_section}
+{coverage_index_section}{validation_retry_feedback_section}{validation_retry_candidate_section}
 {output_rules}
 Do not respond with summaries, markdown prose, or file-write confirmations.
 """
@@ -12185,12 +12273,25 @@ def _format_existing_target_contract_guidance(
             if oracle_contract is not None
             else set()
         )
+        required_surfaces = (
+            {surface.name: surface for surface in oracle_contract.surfaces}
+            if oracle_contract is not None
+            else {}
+        )
         if oracle_contract is not None and oracle_contract.replacement_name_identity:
             replacement_name_identities.add(oracle_contract.replacement_name_identity)
         for name, surface in surfaces.items():
+            required_surface = required_surfaces.get(name)
+            entity_detail = f"entity={surface.get('entity') or ''}"
+            if required_surface is not None and required_surface.replacement_entity:
+                entity_detail = (
+                    f"entity={required_surface.replacement_entity} (required relation-"
+                    "current-slot repair; "
+                    f"legacy {surface.get('entity') or ''} is invalid)"
+                )
             details = [
                 f"kind={surface.get('kind') or ''}",
-                f"entity={surface.get('entity') or ''}",
+                entity_detail,
                 f"dtype={surface.get('dtype') or ''}",
                 f"period={surface.get('period') or ''}",
             ]
@@ -12239,7 +12340,8 @@ def _format_existing_target_contract_guidance(
         required_section = """
 Exact-oracle replacement contract:
 These valid existing names are owned by exact oracle registry entries. Preserve
-each executable name and its listed public/private shape, and preserve each
+each executable name and its listed public/private shape except where an
+explicit entity-repair note requires the listed corrected entity. Preserve each
 listed valid explicit input contract. Repair formulas, proofs, tests, and
 temporal coverage behind those stable surfaces. This exception does not
 preserve any invalid legacy input:
@@ -14680,6 +14782,7 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
+    reasoning_effort = validate_codex_reasoning_effort(runner.codex_reasoning_effort)
     configured_timeout_seconds, codex_idle_timeout_seconds = _codex_prompt_timeouts(
         workspace
     )
@@ -14705,7 +14808,7 @@ def _run_codex_prompt_eval(
         "-m",
         runner.model,
         "-c",
-        'reasoning_effort="low"',
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         "-C",
         str(workspace.root),
         "-s",
@@ -14851,6 +14954,7 @@ def _run_codex_prompt_eval(
         and not ((terminated_after_output and final_text) or (timed_out and final_text))
     ):
         error = (stdout_text + stderr_text).strip() or "Codex eval failed"
+    error = with_codex_model_availability_hint(error)
 
     return EvalPromptResponse(
         text=final_text,
@@ -14861,6 +14965,7 @@ def _run_codex_prompt_eval(
             "provider": "openai",
             "backend": "codex-exec",
             "model": runner.model,
+            "reasoning_effort": reasoning_effort,
             "timed_out": timed_out,
             "timeout_stage": timeout_stage,
             "timeout_reason": timeout_reason,
@@ -15183,7 +15288,7 @@ def _openai_prompt_max_output_tokens(model: str) -> int:
 
 
 def _openai_model_supports_explicit_prompt_cache(model: str) -> bool:
-    """Return whether the model supports GPT-5.6 prompt-cache breakpoints."""
+    """Return whether the model supports GPT-5.6-and-later prompt-cache breakpoints."""
 
     return any(
         model == prefix or model.startswith(f"{prefix}-")

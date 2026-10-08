@@ -1,0 +1,1 @@
+Preserve externally proved scalar parameters during retired source metadata replacement, with exact verified source admission, final overlay preservation checks, and replayable whitespace containment evidence.

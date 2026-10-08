@@ -36,6 +36,7 @@ LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4 = "axiom-encode/legacy-fresh-reencode-recei
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5 = "axiom-encode/legacy-fresh-reencode-receipt/v5"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6 = "axiom-encode/legacy-fresh-reencode-receipt/v6"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7 = "axiom-encode/legacy-fresh-reencode-receipt/v7"
+LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8 = "axiom-encode/legacy-fresh-reencode-receipt/v8"
 LEGACY_EXACT_DEPENDENT_TOOL = (
     "axiom-encode encode --apply --legacy-exact-dependent-rulespec-path"
 )
@@ -43,6 +44,7 @@ LEGACY_RETAINED_SUCCESSOR_TOOL = (
     "axiom-encode encode --apply --legacy-retained-successor-rulespec-path"
 )
 MODEL_APPLY_TOOL = "axiom-encode encode --apply"
+REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 MODEL_APPLY_BACKENDS = frozenset({"claude", "codex", "openai"})
 LEGACY_REPLACEMENT_METADATA_PATHS = frozenset(
     {
@@ -70,6 +72,8 @@ DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
 REVIEWED_RULESPEC_REFS = frozenset(
     {
+        # rulespec-ca#28: reviewed toolchain preparation; artifact-only.
+        ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         (
             "dk",
             "06489d04e7d4b8d424d1711d99df883c6411248a",
@@ -139,6 +143,14 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
         ),
         (
+            "us",
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+        ),
+        (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -170,6 +182,16 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "us",
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
         ),
     }
 )
@@ -362,6 +384,33 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if len(atomic_source_json.encode("utf-8")) > MAX_SOURCE_BUNDLE_JSON_BYTES:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    if isinstance(payload, dict) and payload.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v6"
+    ):
+        if set(payload) != {"schema", "transaction", "repair_mode"}:
+            raise ValueError("v6 requires exactly transaction and repair_mode")
+        mode = payload["repair_mode"]
+        if not isinstance(mode, str) or mode not in {"full_artifact", "tests_only"}:
+            raise ValueError("v6 repair_mode must be full_artifact or tests_only")
+        inner = payload["transaction"]
+        if not isinstance(inner, dict) or inner.get("schema") not in {
+            f"axiom-encode/atomic-source-transaction/v{version}"
+            for version in (2, 3, 4, 5)
+        }:
+            raise ValueError("v6 transaction must be an exact v2-v5 object")
+        normalized = split_atomic_source_input(json.dumps(inner, allow_nan=False))
+        if (
+            normalized["require_complete_source_unit"] is not True
+            or not normalized["primary_required_test_cases"]
+            or normalized["source_bundle"]
+            or normalized["canonical_refresh_bundle"]
+            or normalized.get("manifest_only_refresh", False)
+            or normalized.get("reviewed_candidate_promotion", False)
+        ):
+            raise ValueError(
+                "v6 requires full-source required cases without other modes"
+            )
+        return {**normalized, "repair_mode": mode}
     if isinstance(payload, list):
         return {
             "canonical_refresh_bundle": [],
@@ -387,6 +436,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     }
     require_complete_source_unit = True
     manifest_only_refresh = False
+    reviewed_candidate_promotion = False
     if (
         isinstance(payload, dict)
         and payload.get("schema") == "axiom-encode/atomic-source-transaction/v3"
@@ -402,6 +452,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         )
         require_complete_source_unit = payload.get("require_complete_source_unit")
         manifest_only_refresh = payload.get("manifest_only_refresh")
+    elif (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/atomic-source-transaction/v5"
+    ):
+        transaction_fields.update(
+            {
+                "require_complete_source_unit",
+                "manifest_only_refresh",
+                "reviewed_candidate_promotion",
+            }
+        )
+        require_complete_source_unit = payload.get("require_complete_source_unit")
+        manifest_only_refresh = payload.get("manifest_only_refresh")
+        reviewed_candidate_promotion = payload.get("reviewed_candidate_promotion")
     if (
         not isinstance(payload, dict)
         or set(payload) != transaction_fields
@@ -410,16 +474,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "axiom-encode/atomic-source-transaction/v2",
             "axiom-encode/atomic-source-transaction/v3",
             "axiom-encode/atomic-source-transaction/v4",
+            "axiom-encode/atomic-source-transaction/v5",
         }
     ):
         raise ValueError(
             "atomic source JSON must be a source citation array or an exact "
-            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, or v4 object"
+            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, v4, "
+            "or v5 object"
         )
     if not isinstance(require_complete_source_unit, bool):
         raise ValueError("require_complete_source_unit must be a boolean")
     if not isinstance(manifest_only_refresh, bool):
         raise ValueError("manifest_only_refresh must be a boolean")
+    if not isinstance(reviewed_candidate_promotion, bool):
+        raise ValueError("reviewed_candidate_promotion must be a boolean")
     refresh_bundle = payload["canonical_refresh_bundle"]
     source_bundle = payload["source_bundle"]
     primary_required_test_cases = payload["primary_required_test_cases"]
@@ -439,15 +507,114 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "manifest-only refresh cannot include source, canonical refresh, or "
             "required-test bundles"
         )
+    if reviewed_candidate_promotion and (
+        manifest_only_refresh
+        or source_bundle
+        or refresh_bundle
+        or primary_required_test_cases
+        or require_complete_source_unit is not True
+    ):
+        raise ValueError(
+            "reviewed candidate promotion cannot mix with another source mode"
+        )
     normalized = {
         "canonical_refresh_bundle": refresh_bundle,
         "primary_required_test_cases": primary_required_test_cases,
         "require_complete_source_unit": require_complete_source_unit,
         "source_bundle": source_bundle,
     }
-    if payload["schema"] == "axiom-encode/atomic-source-transaction/v4":
+    if payload["schema"] in {
+        "axiom-encode/atomic-source-transaction/v4",
+        "axiom-encode/atomic-source-transaction/v5",
+    }:
         normalized["manifest_only_refresh"] = manifest_only_refresh
+    if payload["schema"] == "axiom-encode/atomic-source-transaction/v5":
+        normalized["reviewed_candidate_promotion"] = reviewed_candidate_promotion
     return normalized
+
+
+def immutable_atomic_source_contract(atomic_source_json: str) -> dict[str, object]:
+    """Project only a validated v6 envelope onto its exact older transaction.
+
+    In particular, absent historical v4/v5 flags are not invented or discarded.
+    Unknown keys and nested wrappers fail before this projection is available.
+    """
+    normalized = split_atomic_source_input(atomic_source_json)
+    if "repair_mode" not in normalized:
+        return normalized
+    payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    return split_atomic_source_input(
+        json.dumps(payload["transaction"], allow_nan=False)
+    )
+
+
+def resolve_atomic_repair_mode(
+    atomic_source_json: str, dispatch: dict[str, str]
+) -> dict[str, object]:
+    """Select execution mode; old envelopes retain historical inference."""
+    normalized = split_atomic_source_input(atomic_source_json)
+    explicit = normalized.get("repair_mode")
+    mode = explicit or (
+        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+    )
+    if explicit is not None:
+        run_id = dispatch.get("REPAIR_RUN_ID", "")
+        if not re.fullmatch(r"[0-9]+", run_id) or run_id == dispatch.get(
+            "GITHUB_RUN_ID"
+        ):
+            raise ValueError("v6 requires a distinct authenticated prior repair run")
+        if run_id == "35160240952":
+            raise ValueError("v6 cannot select the signed-success tests-only pilot")
+        if any(
+            dispatch.get(field, "")
+            for field in (
+                "QUEUE_ID",
+                "DEPENDENT_CITATION",
+                "SECOND_DEPENDENT_CITATION",
+                "REPLACE_LEGACY_RULESPEC_PATH",
+                "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+                "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            )
+        ):
+            raise ValueError("v6 supports only an ordinary single-target repair")
+        for field in (
+            "EXISTING_SIGNED_IMPORTS_JSON",
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+        ):
+            if _load_unambiguous_json(dispatch.get(field) or "[]", label=field) != []:
+                raise ValueError("v6 cannot include imports or retained successors")
+        citation = dispatch.get("CITATION", "")
+        target = dispatch.get("REPLACE_RULESPEC_PATH", "")
+        if not target or citation_rulespec_path(citation).as_posix() != target:
+            raise ValueError("v6 requires the exact ordinary replacement citation/path")
+    return {"mode": mode, "tests_only": mode == "tests_only"}
+
+
+def repair_execution_metadata(
+    atomic_source_json: str,
+    repair_run_id: str,
+    mode: str,
+    tests_only: str,
+) -> dict[str, object] | None:
+    """Bind recorded execution selection to the request; never infer execution."""
+    if not repair_run_id:
+        if mode or tests_only:
+            raise ValueError("repair execution selection without a repair run")
+        return None
+    normalized = split_atomic_source_input(atomic_source_json)
+    requested = normalized.get("repair_mode")
+    expected = requested or (
+        "tests_only" if normalized["primary_required_test_cases"] else "full_artifact"
+    )
+    if mode != expected or tests_only != (
+        "true" if expected == "tests_only" else "false"
+    ):
+        raise ValueError("repair execution mode differs from the selected request")
+    return {
+        "requested_mode": requested or "legacy_inference",
+        "mode": mode,
+        "tests_only": expected == "tests_only",
+    }
 
 
 def parse_source_bundle(
@@ -801,6 +968,97 @@ def _validate_wrapped_review_contract_size(
         raise ValueError(
             f"{label} wrapped review contract exceeds the maximum input size"
         )
+
+
+def validate_fresh_primary_test_target(
+    repo: Path,
+    citation: str,
+    rulespec_path: str,
+    requested_ref: str,
+    required_test_cases_json: str,
+) -> dict[str, object]:
+    """Bind a fresh ordinary replacement without claiming predecessor admission."""
+
+    from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
+    citation = require_canonical_corpus_citation_path(citation)
+    path = _safe_relative_path(rulespec_path, label="fresh primary RuleSpec")
+    if path != citation_rulespec_path(citation):
+        raise ValueError("fresh primary path must match its canonical citation")
+    repo = repo.resolve(strict=True)
+    if repo.name != f"rulespec-{path.parts[0].partition('-')[0]}":
+        raise ValueError("fresh primary repository must match citation country")
+    if (
+        COMMIT_PATTERN.fullmatch(requested_ref) is None
+        or _git(repo, "rev-parse", "HEAD").decode().strip() != requested_ref
+    ):
+        raise ValueError(
+            "fresh primary checkout must match the immutable requested ref"
+        )
+    if not isinstance(required_test_cases_json, str):
+        raise ValueError("fresh primary required tests must be JSON text")
+    if (
+        len(required_test_cases_json.encode())
+        > MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES
+    ):
+        raise ValueError("fresh primary required tests exceed maximum input size")
+    cases = _normalize_required_test_cases(
+        _load_unambiguous_json(
+            required_test_cases_json, label="fresh primary required tests"
+        ),
+        label="fresh primary required tests",
+    )
+    if not cases:
+        raise ValueError("fresh primary required tests must not be empty")
+    _validate_wrapped_review_contract_size(
+        citation=citation,
+        path=path,
+        deferred_output_contracts=(),
+        required_test_cases=cases,
+        label="fresh primary",
+    )
+    inventory: dict[str, str | None] = {}
+    companion = path.with_name(f"{path.stem}.test.yaml")
+    index_entries = _git(repo, "ls-files", "--stage", "-z").split(b"\0")
+    for target in (path, companion):
+        label = f"fresh primary file {target}"
+        stage = [
+            entry
+            for entry in index_entries
+            if entry.rpartition(b"\t")[2] == target.as_posix().encode()
+        ]
+        tree = _git(
+            repo, "ls-tree", "-z", "--full-tree", "HEAD", "--", target.as_posix()
+        )
+        absolute = repo.joinpath(*target.parts)
+        if target == companion and not stage and not tree:
+            if absolute.exists() or absolute.is_symlink():
+                raise ValueError(f"{label} is untracked")
+            inventory[target.as_posix()] = None
+            continue
+        tree_entry = re.fullmatch(
+            rb"100644 blob ([0-9a-f]{40})\t"
+            + re.escape(target.as_posix().encode())
+            + rb"\x00",
+            tree,
+        )
+        expected_blob = tree_entry.group(1).decode() if tree_entry else ""
+        if (
+            stage != [f"100644 {expected_blob} 0\t{target}".encode()]
+            or tree != f"100644 blob {expected_blob}\t{target}\0".encode()
+        ):
+            raise ValueError(f"{label} must be unchanged tracked 100644 at HEAD")
+        raw = _read_bounded_regular(
+            repo, target, label=label, max_bytes=10 * 1024 * 1024
+        )
+        if raw != _git(repo, "show", f"HEAD:{target}"):
+            raise ValueError(f"{label} differs from HEAD")
+        inventory[target.as_posix()] = hashlib.sha256(raw).hexdigest()
+    return {
+        "base": requested_ref,
+        "files": inventory,
+        "required_test_cases": list(cases),
+    }
 
 
 def parse_canonical_refresh_bundle(
@@ -2431,7 +2689,10 @@ def _validate_legacy_exact_dependents(
         replacement_source_raw
     )
     retained_modules: list[tuple[Path, Path, bytes, bytes]] = []
-    if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+    if receipt_schema in {
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+    }:
         raw_successors = receipt_replacement.get("retained_successors")
         if not isinstance(raw_successors, list):
             raise ValueError("legacy replacement retained successors are malformed")
@@ -2470,9 +2731,13 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             expected_dependent_fields.add("source_verification_migration")
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             expected_dependent_fields.add("concept_replacements")
         if (
             not isinstance(raw_dependent, dict)
@@ -2486,6 +2751,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             else None
         )
@@ -2607,6 +2873,7 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             _unused_primary, source_verification_migration = (
                 migrate_legacy_exact_dependent_source_verification(
@@ -2648,7 +2915,10 @@ def _validate_legacy_exact_dependents(
             raise ValueError(f"{label}.rewrites is malformed")
         exact_authoritative_replacements = authoritative_replacements
         exact_concept_replacements: dict[str, str] = {}
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             derived_concepts = derive_exact_dependent_parameter_replacements(
                 dependent_primary_raw=base_by_path[primary],
                 retained_modules=retained_modules,
@@ -2677,6 +2947,7 @@ def _validate_legacy_exact_dependents(
             if receipt_schema in {
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 expected_rewrite_fields.add("proof_excerpt_reanchors")
             if not isinstance(rewrite, dict) or set(rewrite) != expected_rewrite_fields:
@@ -2705,6 +2976,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and not isinstance(rewrite.get("proof_excerpt_reanchors"), list)
                 )
@@ -2744,6 +3016,7 @@ def _validate_legacy_exact_dependents(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         expected_live, observed_source_migration = (
                             migrate_legacy_exact_dependent_source_verification(
@@ -2761,6 +3034,7 @@ def _validate_legacy_exact_dependents(
                     if receipt_schema in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         if corpus_release is None:
                             raise ValueError(
@@ -2796,6 +3070,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and rewrite["proof_excerpt_reanchors"]
                 ):
@@ -2825,6 +3100,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             and primary not in rewrite_paths
             and source_verification_migration is not None
@@ -3031,7 +3307,19 @@ def authorized_changed_paths(
             raise ValueError(
                 f"model apply manifest has an unsupported backend: {relative}"
             )
-        is_model_apply = tool == MODEL_APPLY_TOOL
+        is_reviewed_candidate = tool == REVIEWED_CANDIDATE_TOOL
+        if is_reviewed_candidate:
+            reviewed_ref = payload.get("reviewed_rulespec_ref")
+            if (
+                backend is not None
+                or not isinstance(reviewed_ref, str)
+                or COMMIT_PATTERN.fullmatch(reviewed_ref) is None
+                or _git(repo, "rev-parse", "HEAD").decode().strip() != reviewed_ref
+            ):
+                raise ValueError(
+                    f"reviewed candidate manifest does not bind exact HEAD: {relative}"
+                )
+        is_exact_apply = tool == MODEL_APPLY_TOOL or is_reviewed_candidate
         replacement = payload.get("replacement")
         receipt_rewrites: set[PurePosixPath] = set()
         if tool == LEGACY_REPLACEMENT_TOOL:
@@ -3073,6 +3361,7 @@ def authorized_changed_paths(
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                    LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                 }
                 or receipt.get("tool") != LEGACY_REPLACEMENT_TOOL
             ):
@@ -3094,8 +3383,17 @@ def authorized_changed_paths(
                 old_manifest.get("path"),
                 label=f"{relative} legacy.manifest.path",
             )
+            replaces_manifest_in_place = (
+                isinstance(receipt_replacement.get("source"), str)
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                and old_manifest_path == relative
+            )
             if (
-                old_manifest_path not in deleted_manifests
+                (
+                    old_manifest_path not in deleted_manifests
+                    and not replaces_manifest_in_place
+                )
                 or replacement.get("legacy_manifest_path")
                 != old_manifest_path.as_posix()
                 or replacement.get("legacy_manifest_sha256")
@@ -3139,6 +3437,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 if not isinstance(retained_successors, list) or not isinstance(
                     metadata_reconciliations, list
@@ -3171,6 +3470,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 identity_deleted_files.extend(
                     {"path": item.get("path"), "deleted": True}
@@ -3219,6 +3519,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3231,6 +3532,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3243,6 +3545,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3254,6 +3557,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3265,6 +3569,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3279,6 +3584,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             } and (
                 not isinstance(
                     receipt_replacement.get("destination_predecessor_class"), str
@@ -3310,6 +3616,7 @@ def authorized_changed_paths(
                 _legacy_metadata_reconciliation_bytes,
                 _legacy_replacement_authoritative_map,
                 _legacy_replacement_reference_inventory_issues,
+                _required_replacement_index_postimages,
                 _strict_legacy_replacement_map,
             )
 
@@ -3333,6 +3640,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 predecessor_issues = _legacy_destination_predecessor_issues(
                     repo,
@@ -3426,10 +3734,20 @@ def authorized_changed_paths(
                 for old, new in authoritative_replacements.items()
                 if old.endswith(".yaml") and not old.endswith(".test.yaml")
             ]
+            in_place_waiver_modules = (
+                frozenset({str(receipt_replacement["source"])})
+                if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                else frozenset()
+            )
             exact_metadata_manifest_paths: set[str] = set()
             exact_metadata_retired_schema_modules: set[str] = set()
             exact_metadata_reindexed_modules: dict[str, bytes] = {}
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 assert isinstance(exact_dependents, list)
                 for index, dependent in enumerate(exact_dependents):
                     label = f"{relative} exact_dependents[{index}]"
@@ -3485,6 +3803,7 @@ def authorized_changed_paths(
                         Path("known-validation-gaps.yaml"),
                         base_waiver_raw,
                         moves=primary_moves,
+                        in_place_waiver_modules=in_place_waiver_modules,
                     )
                 )
                 post_migration_waiver_sha256 = hashlib.sha256(
@@ -3493,7 +3812,10 @@ def authorized_changed_paths(
             except (subprocess.CalledProcessError, ValueError):
                 pass
             retired_schema_count_transition: tuple[int, int] | None = None
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 try:
                     base_retired_freeze_raw = _git_quiet(
                         repo,
@@ -3505,6 +3827,7 @@ def authorized_changed_paths(
                             Path(".axiom/retired-schema-freeze.json"),
                             base_retired_freeze_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             retired_schema_modules=frozenset(
                                 exact_metadata_retired_schema_modules
                             ),
@@ -3523,6 +3846,23 @@ def authorized_changed_paths(
                         )
                 except (subprocess.CalledProcessError, ValueError):
                     pass
+            new_destination_modules = _required_replacement_index_postimages(
+                repo,
+                base_commit=str(base_commit or ""),
+                replacement=receipt_replacement,
+                nested=nested_manifest,
+                moves=primary_moves,
+            )
+            allowed_metadata_paths = (
+                frozenset(
+                    {
+                        PurePosixPath("known-validation-gaps.yaml"),
+                        PurePosixPath(".axiom/toolchain.toml"),
+                    }
+                )
+                if in_place_waiver_modules and not primary_moves
+                else LEGACY_REPLACEMENT_METADATA_PATHS
+            )
             metadata_paths: set[PurePosixPath] = set()
             for index, reconciliation in enumerate(metadata_reconciliations):
                 if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -3539,7 +3879,7 @@ def authorized_changed_paths(
                     label=f"{relative} metadata_reconciliations[{index}].path",
                 )
                 if (
-                    metadata_path not in LEGACY_REPLACEMENT_METADATA_PATHS
+                    metadata_path not in allowed_metadata_paths
                     or metadata_path in metadata_paths
                 ):
                     raise ValueError(
@@ -3558,6 +3898,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3569,6 +3910,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError as exc:
@@ -3588,7 +3930,7 @@ def authorized_changed_paths(
                     )
                 metadata_paths.add(metadata_path)
             expected_metadata_paths: set[PurePosixPath] = set()
-            for metadata_path in LEGACY_REPLACEMENT_METADATA_PATHS:
+            for metadata_path in allowed_metadata_paths:
                 try:
                     base_raw = _git_quiet(
                         repo,
@@ -3603,6 +3945,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3614,6 +3957,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError:
@@ -3764,7 +4108,7 @@ def authorized_changed_paths(
                 *[
                     {"path": item.get("path"), "deleted": True}
                     for item in legacy_files
-                    if isinstance(item, dict)
+                    if isinstance(item, dict) and item.get("path") not in live_paths
                 ],
                 *retained_deleted_files,
             ]
@@ -3801,6 +4145,14 @@ def authorized_changed_paths(
                     raise ValueError(
                         f"legacy replacement live file differs: {live_path}"
                     )
+                if replaces_manifest_in_place and live_path not in changed:
+                    base_raw = _git(repo, "show", f"HEAD:{live_path.as_posix()}")
+                    if hashlib.sha256(base_raw).hexdigest() != item["sha256"]:
+                        raise ValueError(
+                            f"legacy replacement unchanged live base differs: {live_path}"
+                        )
+                    authorized_unchanged.add(live_path)
+                    authenticated_unchanged_claims.add((relative, live_path))
             for index, item in enumerate(legacy_files):
                 if (
                     not isinstance(item, dict)
@@ -3815,7 +4167,9 @@ def authorized_changed_paths(
                     item.get("path"),
                     label=f"{relative} legacy.files[{index}].path",
                 )
-                if (repo / deleted_path).exists() or (repo / deleted_path).is_symlink():
+                if deleted_path.as_posix() not in live_paths and (
+                    (repo / deleted_path).exists() or (repo / deleted_path).is_symlink()
+                ):
                     raise ValueError(
                         f"legacy replacement deleted file still exists: {deleted_path}"
                     )
@@ -3949,6 +4303,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 exact_unchanged_claims = _validate_legacy_exact_dependents(
                     repo,
@@ -3996,7 +4351,7 @@ def authorized_changed_paths(
             if applied_path not in receipt_rewrites:
                 _validate_rulespec_path(repo, applied_path, label=label)
             authorized.add(applied_path)
-            if is_model_apply:
+            if is_exact_apply:
                 digest = entry.get("sha256")
                 if (
                     set(entry) != {"path", "sha256"}
@@ -4009,7 +4364,11 @@ def authorized_changed_paths(
                 live_raw = _read_bounded_regular(
                     repo,
                     applied_path,
-                    label="model-applied file",
+                    label=(
+                        "model-applied file"
+                        if tool == MODEL_APPLY_TOOL
+                        else "reviewed-candidate file"
+                    ),
                     max_bytes=16 * 1024 * 1024,
                 )
                 if hashlib.sha256(live_raw).hexdigest() != digest:
@@ -4177,6 +4536,12 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
+    fresh_parser.add_argument("repo", type=Path)
+    fresh_parser.add_argument("citation")
+    fresh_parser.add_argument("rulespec_path")
+    fresh_parser.add_argument("requested_ref")
+    fresh_parser.add_argument("required_test_cases_json")
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     stage_parser.add_argument("--corpus-path", dest="corpus_root", type=Path)
@@ -4236,10 +4601,17 @@ def main() -> None:
     atomic_source_parser.add_argument(
         "atomic_source_json",
         help=(
-            "legacy source citation array or exact "
-            '{"canonical_refresh_bundle":[...]} object'
+            "legacy source citation array, canonical refresh object, v2-v5 "
+            "transaction, or v6 {transaction: exact v2-v5, repair_mode: "
+            "full_artifact|tests_only} authenticated failed-repair wrapper"
         ),
     )
+    repair_mode_parser = subparsers.add_parser(
+        "resolve-atomic-repair-mode",
+        help="validate explicit failed-repair scope or retain legacy mode inference",
+    )
+    repair_mode_parser.add_argument("atomic_source_json")
+    repair_mode_parser.add_argument("--check-selected", action="store_true")
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4321,6 +4693,18 @@ def main() -> None:
                     pr_base_branch=args.pr_base_branch,
                 )
             )
+        elif args.command == "validate-fresh-primary-test-target":
+            print(
+                json.dumps(
+                    validate_fresh_primary_test_target(
+                        args.repo,
+                        args.citation,
+                        args.rulespec_path,
+                        args.requested_ref,
+                        args.required_test_cases_json,
+                    )
+                )
+            )
         elif args.command == "validate-dependent-cascade":
             _dependents, mode = _classify_dependent_cascade(
                 args.repo,
@@ -4369,6 +4753,25 @@ def main() -> None:
                     sort_keys=True,
                 )
             )
+        elif args.command == "resolve-atomic-repair-mode":
+            resolved = resolve_atomic_repair_mode(
+                args.atomic_source_json, dict(os.environ)
+            )
+            if args.check_selected and os.environ.get("REPAIR_RUN_ID"):
+                repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    os.environ.get("REPAIR_MODE", ""),
+                    os.environ.get("REPAIR_TESTS_ONLY", ""),
+                )
+            if os.environ.get("REPAIR_RUN_ID"):
+                resolved["execution"] = repair_execution_metadata(
+                    args.atomic_source_json,
+                    os.environ["REPAIR_RUN_ID"],
+                    str(resolved["mode"]),
+                    "true" if resolved["tests_only"] else "false",
+                )
+            print(json.dumps(resolved, separators=(",", ":"), sort_keys=True))
         elif args.command == "validate-source-add-targets":
             print(
                 json.dumps(

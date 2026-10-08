@@ -8,6 +8,73 @@ import pytest
 from axiom_encode.judges import disposition, preclassifier
 
 JUDGE_STAGES = Path(__file__).parents[1] / "docs" / "judge-stages.md"
+METHODS_LOG = Path(__file__).parents[1] / "docs" / "axiom-encode-methods-log.md"
+
+
+def _section(text, heading, next_heading):
+    return text.split(heading, 1)[1].split(next_heading, 1)[0]
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "Placeholder threshold and the evidence behind it",
+        "Live check on real generations",
+        "Cost and latency",
+    ],
+)
+def test_reported_measurements_disclose_unpublished_provenance(heading):
+    section = _section(JUDGE_STAGES.read_text(), f"### {heading}", "### ")
+    text = " ".join(section.lower().split())
+    assert "unreproduced" in text
+    assert re.search(r"raw (?:scores|data|results).*?not (?:yet )?published", text)
+
+
+def test_calibration_result_discloses_unpublished_provenance():
+    paragraphs = JUDGE_STAGES.read_text().split("\n\n")
+    paragraph = next(p for p in paragraphs if "0.546" in p)
+    assert "unreproduced" in paragraph.lower()
+    assert re.search(
+        r"raw (?:scores|data|results).*?not (?:yet )?published",
+        " ".join(paragraph.lower().split()),
+    )
+
+
+def test_synthetic_pilot_capability_claims_keep_their_scope():
+    paragraphs = [" ".join(p.split()) for p in JUDGE_STAGES.read_text().split("\n\n")]
+    capability_claims = [p for p in paragraphs if "dropped conjunct" in p]
+    assert capability_claims
+    for paragraph in capability_claims:
+        assert "unreproduced synthetic pilot" in paragraph.lower()
+    assert "the two kinds the pilot validated" not in JUDGE_STAGES.read_text()
+
+
+@pytest.mark.parametrize("path", [JUDGE_STAGES, METHODS_LOG])
+def test_pilot_documentation_uses_no_local_evidence_pointers(path):
+    text = path.read_text()
+    if path == METHODS_LOG:
+        text = _section(text, "### 2026-09-17:", "\n## ")
+    assert "_axiom-runs/jev-" not in text
+    assert "foundation mirror" not in text.lower()
+
+
+@pytest.mark.parametrize("path", [JUDGE_STAGES, METHODS_LOG])
+def test_pilot_documentation_promises_published_evidence_links(path):
+    text = path.read_text()
+    if path == METHODS_LOG:
+        text = _section(text, "### 2026-09-17:", "\n## ")
+    text = " ".join(text.lower().split())
+    assert re.search(
+        r"figures.*?linked to published evidence.*?artifacts.*?released", text
+    )
+
+
+def test_methods_log_qualifies_pilot_based_capabilities():
+    entry = _section(METHODS_LOG.read_text(), "### 2026-09-17:", "\n## ")
+    text = " ".join(entry.lower().split())
+    assert "unreproduced" in text
+    assert re.search(r"raw (?:scores|data|results).*?not (?:yet )?published", text)
+    assert "detects reliably" not in text
 
 
 def test_lowest_threshold_claim_agrees_with_displayed_operating_points():

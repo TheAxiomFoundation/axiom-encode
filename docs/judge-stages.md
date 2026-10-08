@@ -44,7 +44,8 @@ calibrated decisions; reward and data undisclosed.
 ### What it asks
 
 One `Choice` and five `Noul` questions, with the state keys and question text
-verbatim from the 2026-09-17 pilot (`build_state` and `build_questions`):
+verbatim from the unreproduced internal 2026-09-17 pilot, whose raw scores are
+not yet published (`build_state` and `build_questions`):
 
 - `verdict`: a pass or flag choice, with a probability per label and a
   reported confidence.
@@ -53,8 +54,8 @@ verbatim from the 2026-09-17 pilot (`build_state` and `build_questions`):
   probability in [0, 1].
 - `faithful`: the pilot's overall faithfulness probability, recorded only.
 
-Changing the state shape or the question text invalidates the pilot evidence
-behind the placeholder threshold, so the event records
+Changing the state shape or the question text breaks comparability with the
+unreproduced pilot behind the placeholder threshold, so the event records
 `screen.questions_version` and `judge_prompt_sha256` (a digest of the state
 and questions actually sent).
 
@@ -62,7 +63,8 @@ and questions actually sent).
 
 The event carries `judge_stage = statutory_fidelity_screen`, `advisory =
 true` (hard-wired; the screen has no promoted form), the responding model id
-(`jev-1.13.0` in the pilot), `judge_model_family = typesafe`, token usage, and
+(`jev-1.13.0` as reported in that unreproduced pilot),
+`judge_model_family = typesafe`, token usage, and
 under `attrs.screen`: the policy mode and thresholds, every probability,
 latency in milliseconds, and the cascade decision. On an error the event
 carries the policy, the questions version, latency and the cascade decision,
@@ -93,7 +95,8 @@ should run and why:
 | Mode `cascade`, some kind at or above its threshold | requested | `threshold_exceeded` |
 | Mode `cascade`, every kind below its threshold | skipped | `below_threshold` |
 
-By default only the two kinds the pilot validated carry a threshold
+By default only the two kinds reported as detectable in the unreproduced
+synthetic pilot (raw scores not yet published) carry a threshold
 (`amount_mismatch`, `boundary_direction`). The other two are recorded but never
 reported as findings or used by the cascade unless a per-kind threshold is
 configured. Cascade mode refuses a policy with no thresholds at all
@@ -147,10 +150,10 @@ referee.
 ### Placeholder threshold and the evidence behind it
 
 The default threshold of 0.25 is a placeholder, marked as such in
-`constants.py`. It comes from the 2026-09-17 pilot (scripts, raw results and a
-README under `_axiom-runs/jev-judge-pilot-2026-09-17/` in the foundation
-mirror), which planted one defect in each of 30 known-good artifacts per kind
-and scored the original and mutated artifact against the same provision:
+`constants.py`. It comes from an unreproduced internal pilot on 2026-09-17
+whose raw scores are not yet published. The reported pilot planted one defect
+in each of 30 known-good artifacts per kind and scored the original and mutated
+artifact against the same provision:
 
 | Planted defect | Jev's kind probability rose | Mean rise | AUC mutated vs original |
 |---|---|---|---|
@@ -158,7 +161,8 @@ and scored the original and mutated artifact against the same provision:
 | Boundary flipped (`>=` to `>`, `<=` to `<`) | 30 of 30 | +0.41 | 0.953 |
 | One `and` conjunct dropped | 21 of 30 | +0.09 | 0.603 |
 
-Operating points read off the same 180 calls. The cascade rule sends an
+The following operating points are reported from the same unreproduced pilot's
+180 calls (raw scores not yet published). The cascade rule sends an
 artifact to the referee when its amount or boundary probability reaches the
 threshold; the 90 originals are clean artifacts. The last column applies the
 boundary probability alone, to show what the boundary question by itself sees.
@@ -170,7 +174,8 @@ boundary probability alone, to show what the boundary question by itself sees.
 | 0.30 | 25 of 90 | 30 of 30 | 28 of 30 | 28 of 30 |
 | 0.50 | 10 of 90 | 30 of 30 | 22 of 30 | 22 of 30 |
 
-0.25 is the selected placeholder operating point: the cascade skips 58 of 90
+In that unreproduced pilot (raw scores not yet published), 0.25 is the selected
+placeholder operating point: the cascade skips 58 of 90
 clean artifacts while sending every planted amount and boundary defect to the
 referee. The displayed 0.20 operating point also skips most clean artifacts
 (47 of 90) and sends every planted amount and boundary defect. The boundary
@@ -181,17 +186,21 @@ than a referee call.
 
 The calibration harness in `judges/calibration.py` cannot set this value: its
 labels are apply and blocked outcomes of the compile and CI gates, which a
-reader of provision plus artifact cannot see, and both the screen and the
-referee were near chance on them (Jev AUC 0.546). The verifier track
+reader of provision plus artifact cannot see. In an unreproduced internal
+calibration pilot whose raw scores are not yet published, both the screen and
+the referee were reported near chance on them (Jev AUC 0.546). The verifier track
 (TheAxiomFoundation/axiom-encode#1657, landing under `benchmarks/verifier/`)
 is the authority for the real threshold.
 
+The reported pilot and live-run figures on this page will be linked to
+published evidence when the pilot artifacts are released.
+
 ### Live check on real generations
 
-On 2026-09-17 the shipped stage ran live on three `gpt-5.6-terra` generations
-with outcome `apply_applied` from `encodings.db` (script, results and run logs
-under `_axiom-runs/jev-prescreen-live-2026-09-17/` in the foundation mirror).
-The responding model was `jev-1.13.0`. The three calls used 15,196 input
+In an unreproduced internal live run on 2026-09-17 whose raw data are not yet
+published, the shipped stage reportedly ran on three `gpt-5.6-terra` generations
+with outcome `apply_applied` from `encodings.db`.
+The reported responding model was `jev-1.13.0`. The three calls used 15,196 input
 tokens, about 0.06 cents at the published price, with latencies of 394 to 467
 milliseconds. Every event validated, each was appended to a run log, and
 neither the key nor an authorization header appeared in anything written.
@@ -202,36 +211,40 @@ neither the key nor an authorization header appeared in anything written.
 | `us-co/regulation/9-ccr-2503-5/3.544` | flag (0.94) | 0.44 | 0.32 | 0.93 | referee requested |
 | `us-il/statute/35/5/201` | pass (0.27) | 0.12 | 0.10 | 0.96 | referee skipped |
 
-All three merged generations scored 0.93 or higher on `unrepresented_clause`.
-That matches the pilot, where the kind did not separate clean from defective
-artifacts, and it is why the kind stays record-only. Three cases are a wiring
-check, not evidence for a threshold.
+In that unreproduced live run (raw data not yet published), all three merged
+generations reportedly scored 0.93 or higher on `unrepresented_clause`.
+That matches the reported unreproduced pilot result, where the kind did not
+separate clean from defective artifacts, and it is why the kind stays
+record-only. Three cases are a wiring check, not evidence for a threshold.
 
 ### Limits
 
-- The screen cannot see a dropped conjunct (AUC 0.603), so a cascade that
-  skips the referee is blind to that kind. This is why cascade mode is off by
-  default and why the kind carries no threshold.
-- The pilot's defects are synthetic single edits, 30 per kind, with amounts
-  chosen so the original number appears verbatim in the provision. Real
-  defects may score differently.
-- The binary choice verdict flagged about half of clean originals in the
-  pilot and is not used by the cascade; only the per-kind probabilities are.
+- In the unreproduced synthetic pilot (raw scores not yet published), dropped
+  conjunct detection was weak (AUC 0.603), suggesting a cascade that skips the
+  referee may miss that kind. This is why cascade mode is off by default and
+  why the kind carries no threshold.
+- The unreproduced pilot's defects (raw scores not yet published) are synthetic
+  single edits, 30 per kind, with amounts chosen so the original number appears
+  verbatim in the provision. Real defects may score differently.
+- In the unreproduced pilot (raw scores not yet published), the binary choice
+  verdict reportedly flagged about half of clean originals. It is not used by
+  the cascade; only the per-kind probabilities are.
 - The screen returns no location, so it cannot replace the referee's located
   findings; it can only decide whether to request them.
 
 ### Cost and latency
 
-In the pilot, 180 calls used 535,243 input tokens with a median latency of
+In an unreproduced internal pilot whose raw data are not yet published,
+180 calls reportedly used 535,243 input tokens with a median latency of
 0.19 seconds. At the price published at the time (0.042 dollars per million
 input tokens, output free) that is about two cents for the whole pilot, against
 a median of 4.5 seconds per call for the Haiku referee.
 
 ### What the verifier track must decide
 
-- Whether the cascade may skip the referee at all, given the screen's
-  blindness to dropped conjuncts and any other kinds the real-defect corpus
-  surfaces.
+- Whether the cascade may skip the referee at all, given the weak dropped
+  conjunct detection reported in the unreproduced synthetic pilot (raw scores
+  not yet published) and any other kinds the real-defect corpus surfaces.
 - The threshold per kind on real defects, replacing the placeholder, and
   whether `unrepresented_clause` or `untraceable_branch` ever earn one.
 - Whether the choice verdict or the `faithful` probability should join the

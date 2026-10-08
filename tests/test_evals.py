@@ -1360,13 +1360,14 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-6:] == [
+    assert parameters[-7:] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
         "validation_retry_candidate",
         "repair_candidate_tests_only",
         "accept_valid_retry_candidate",
+        "codex_reasoning_effort",
     ]
 
 
@@ -5286,6 +5287,49 @@ inputs:
     assert "`2026_section_40_18_5`" in guidance
     assert "exact mapped legacy surface names listed above are the only" in guidance
     assert "invalid" in guidance
+
+
+def test_existing_target_prompt_requires_relation_entity_repair(tmp_path):
+    target = tmp_path / "2026_section_40_18_5_schedule_before_credits.yaml"
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: al_pit_2026_section_40_18_5_schedule_before_credits
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.income)
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+"""
+    )
+    context = EvalContextFile(
+        source_path=str(target),
+        workspace_path="context/existing_target.yaml",
+        import_path=(
+            "us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits"
+        ),
+        kind="existing_target",
+    )
+
+    guidance = _format_existing_target_contract_guidance([context])
+
+    assert "entity=TaxUnit (required relation-current-slot repair" in guidance
+    assert "legacy Person is invalid" in guidance
+    assert "explicit entity-repair note" in guidance
     assert "legacy input" in guidance
 
 
@@ -9904,6 +9948,76 @@ rules:
         assert rows == [
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
+
+    def test_generated_eval_repairs_local_scalar_relation_from_formula(self, tmp_path):
+        repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_members
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_has_eligible_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(household_members, member_is_eligible) > 0
+"""
+        )
+        test_file = rulespec_file.with_name("example.test.yaml")
+        test_file.write_text(
+            """- name: eligible_case
+  period: 2026-01
+  input:
+    us-co:regulations/example#relation.household_members:
+      - true
+  output:
+    us-co:regulations/example#household_has_eligible_member: holds
+"""
+        )
+        relation_issue = (
+            "Test case `eligible_case` input invalid: relation "
+            "`us-co:regulations/example#relation.household_members` item #1 "
+            "must be a mapping"
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[relation_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="A household with an eligible member qualifies.",
+                skip_reviewers=True,
+            )
+
+        [case] = yaml.safe_load(test_file.read_text())
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert case["input"][
+            "us-co:regulations/example#relation.household_members"
+        ] == [{"us-co:regulations/example#input.member_is_eligible": True}]
 
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
@@ -22464,6 +22578,62 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         assert "PolicyEngine skills" in response.error
         assert response.unexpected_accesses
 
+    def test_run_codex_prompt_eval_explains_chatgpt_account_model_rejection(
+        self, tmp_path
+    ):
+        runner = parse_runner_spec("codex:gpt-6-luna")
+        workspace = prepare_eval_workspace(
+            citation="us-wa/regulation/388/388-478/388-478-0035",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="income limit",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-wa"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+        rejection = (
+            '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+            '"message":"The \'gpt-6-luna\' model is not supported when using '
+            'Codex with a ChatGPT account."}}'
+        )
+        event_line = json.dumps({"type": "error", "message": rejection})
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.error is not None
+        assert response.error.startswith(rejection)
+        assert "The signed-in Codex account rejected the requested model." in (
+            response.error
+        )
+        assert "`encode --model MODEL --escalation-model MODEL`" in response.error
+        assert "`eval --runner claude:opus --runner codex:MODEL`" in response.error
+
 
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
@@ -23846,6 +24016,40 @@ def test_retry_feedback_appends_after_static_prompt_prefix(tmp_path):
     }
 
 
+def test_complete_source_test_retry_feedback_adds_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        (
+            "ci: [complete-source-unit:tests] Source-stated exceptions require "
+            "paired positive/blocking cases differing in exactly one input",
+            "ci: [complete-source-unit:tests] Companion tests do not exercise "
+            "every source-stated boundary input; missing: (iii)=6, (iv)=1.3.",
+        )
+    )
+    normalized = " ".join(rendered.split())
+
+    assert "change exactly that one selector" in normalized
+    assert "identical input-key and output-key sets" in normalized
+    assert (
+        "Allocate a distinct named pair to every still-listed condition" in normalized
+    )
+    assert (
+        "and asserts both the reached rule and the affected principal output"
+        in normalized
+    )
+    assert (
+        "Do not reorder, duplicate, or re-emit unrelated existing cases" in normalized
+    )
+
+
+def test_non_test_retry_feedback_omits_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        ("ci: [complete-source-unit:structure] Source branch is missing",)
+    )
+
+    assert "change exactly that one selector" not in rendered
+    assert "Allocate a distinct named pair" not in rendered
+
+
 def test_openai_prompt_cache_key_is_stable_per_prompt_family():
     prefix = "prompt head " * 500
     key = evals_module._openai_prompt_cache_key("gpt-5.6-terra", prefix)
@@ -23900,3 +24104,27 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
     assert evals_module._openai_prompt_cache_key(
         "gpt-5.4", first_prefix
     ) == evals_module._openai_prompt_cache_key("gpt-5.4", retry_prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "extended", "explicit_cache"),
+    [
+        ("gpt-6-luna", True, True),
+        ("gpt-6-sol", True, True),
+        ("gpt-5.6-terra", True, True),
+        ("gpt-5.4", True, False),
+        ("gpt-60-luna", False, False),
+        ("gpt-4.1", False, False),
+    ],
+)
+def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
+    expected_tokens = (
+        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
+        if extended
+        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
+    )
+    assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
+    assert (
+        evals_module._openai_model_supports_explicit_prompt_cache(model)
+        is explicit_cache
+    )

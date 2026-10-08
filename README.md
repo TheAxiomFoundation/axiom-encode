@@ -49,11 +49,14 @@ this repo:
 ## Installation
 
 ```bash
-uv sync
+uv sync --locked --extra dev
 ```
 
+This installs exactly what `uv.lock` pins, including the test and lint tools.
+CI builds its test environment with `uv sync --locked --python 3.13 --extra dev`.
 Without [uv](https://docs.astral.sh/uv/), create and activate a virtualenv,
-then `pip install -e ".[dev]"`.
+then `pip install -e ".[dev]"`, which resolves the latest compatible releases
+rather than the locked set.
 
 ## Usage
 
@@ -86,6 +89,14 @@ the output directory are not a second validation layout.
 explicit `--rulespec-dependency-root` pointing to the canonical country
 checkout; ambient environment and sibling checkout discovery are not used.
 
+Git probes for RuleSpec checkout identity and configuration use a 10-second
+timeout per attempt and retry once on timeout. On loaded hosts, set
+`AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS` to a finite positive number of seconds
+up to 300 to change that budget. Identity checks reject checkout admission after
+exhausted timeouts or Git launch failures. Configuration-discovery failures disable
+caching, so each inspection performs fresh identity checks. Invalid timeout
+values are rejected before Git is launched.
+
 `encode` resolves the requested citation to exactly one active
 `corpus.provisions` row before model generation. Each RuleSpec checkout must
 pin one signed release object in `.axiom/toolchain.toml` through
@@ -104,18 +115,32 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
-`encode` defaults to `--backend codex` with `gpt-5.6-terra`. Each section gets
+`encode` defaults to `--backend codex` with `gpt-6-luna`. Each section gets
 up to two validator-rejected generations on that model, then one generation
-with `gpt-5.6-sol`; use
+with `gpt-6-sol`; use
 `--escalate-after`, `--escalation-model`, or `--no-escalation` to override that
-policy. Claude/Fable capacity is reserved for orchestration, gating, and review
-rather than YAML generation. The Codex backend authenticates through the Codex
-CLI's `~/.codex/auth.json`
+policy. Pass `--model gpt-6.1-sol --escalation-model gpt-6.1-sol` to select
+GPT-6.1 Sol explicitly. The same default reaches `eval` and
+`eval-source` (default runners `claude:opus` and `codex:gpt-6-luna`; `--runner`
+replaces the whole list, so pass `--runner claude:opus --runner
+codex:gpt-6.1-sol`) and the Codex reviewer (`AXIOM_ENCODE_REVIEWER_CLI=codex`,
+or the fallback when the Claude CLI is missing; set
+`AXIOM_ENCODE_REVIEWER_CODEX_MODEL=gpt-6.1-sol`). Model availability depends on
+the signed-in account and Codex CLI; an actual account rejection includes
+guidance for selecting an available model. Claude/Fable capacity is reserved
+for orchestration, gating, and review rather than YAML generation. The Codex
+backend authenticates through the Codex CLI's `~/.codex/auth.json`
 (created by `codex login`, or an `OPENAI_API_KEY` recorded there); `CODEX_HOME`
 overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
 the check. When neither is present `encode` stops with a clear error before
 starting a run. Other backends stay available explicitly with
 `--backend claude` or `--backend openai`.
+
+Use `encode --codex-reasoning-effort high` to select Codex's reasoning effort
+for every generation and retry. The default is `low`; the value is passed as
+Codex's `model_reasoning_effort` config setting and recorded in the generation
+trace. Other backends ignore this option. Available effort values depend on
+the selected Codex model.
 
 `proof-validate` checks explicit RuleSpec proof trees without reviewers or
 oracles. Proof atoms must cite immutable release-bound corpus text or an

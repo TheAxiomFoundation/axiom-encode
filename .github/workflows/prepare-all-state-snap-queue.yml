@@ -27,6 +27,9 @@ jobs:
       RELEASE_SHA: aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5
       RULES_ENGINE_REF: 4658144031f8ef1b39a971eb7002997fa0880b5a
       RULESPEC_REF: 38ddc92d4160a0d39af13bfe232a446b554a15c5
+      # Pinned with RULESPEC_REF, which must be this branch's live tip when
+      # the queue PR is validated; change the two together.
+      PR_BASE_BRANCH: hard-cut/canonical-layout-us
       SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
     steps:
       - name: Checkout immutable encoder main
@@ -51,9 +54,9 @@ jobs:
           persist-credentials: false
 
       - name: Install encoder
-        uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v7.2.0
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
-          version: "0.9.26"
+          version: "0.11.7"
 
       - name: Build authenticated paused queue
         env:
@@ -85,6 +88,7 @@ jobs:
             --corpus-ref "$CORPUS_REF" \
             --rulespec-ref "$RULESPEC_REF" \
             --rules-engine-ref "$RULES_ENGINE_REF" \
+            --pr-base-branch "$PR_BASE_BRANCH" \
             --release-name "$RELEASE_NAME" \
             --release-content-sha256 "$RELEASE_SHA" \
             --release-object "$release_object" \
