@@ -9,25 +9,36 @@ from __future__ import annotations
 
 import functools
 import random
+from collections import Counter
 
 import pytest
+import yaml
 
 from axiom_encode.harness.source_completeness import (
     SourceStructureBranch,
     _additional_numeric_recall_spans,
     _analyze_rulespec_payload,
+    _mask_numeric_spans,
+    _numeric_recall_introducer_spans,
+    _source_boundary_numeric_recall_text,
     _source_boundary_obligations,
     authoritative_numeric_recall_text,
 )
 from axiom_encode.harness.validator_pipeline import (
+    _NUMERIC_EXTRACTION_PROFILES,
+    _numeric_profile_for_citation_path,
+    extract_named_scalar_occurrences,
     extract_typed_numeric_inventory_occurrences_from_text,
     extract_typed_numeric_occurrences_from_text,
+    find_ungrounded_numeric_issues,
     numeric_value_is_grounded,
 )
 
 UK = "uk/regulation/uksi/2002/1792/schedule/IIA"
 US = "us/statute/26/7701"
 PROFILES = ("legacy", "en-US", "en-GB")
+ALL_PROFILES = tuple(sorted(_NUMERIC_EXTRACTION_PROFILES))
+DANISH_FORMAT_CHARACTERS = ("\u00ad", "\u200c", "\u200d", "\u2060", "\ufeff")
 GLUED_RECALL_QUANTITIES = (
     "100EUR",
     "100eur",
@@ -127,6 +138,106 @@ def _recall_issues(source: str, citation: str, profile: str, values=(), module=N
         imported_symbol_contents=(),
     )
     return [issue for issue in analysis.issues if ":numeric-recall]" in issue]
+
+
+@pytest.mark.parametrize("format_character", DANISH_FORMAT_CHARACTERS)
+def test_danish_production_recall_preserves_binary_operand(format_character):
+    citation = "dk/statute/lbk-603-2025/x/paragraf-2"
+    profile = _numeric_profile_for_citation_path(citation)
+    assert profile == "da-DK"
+    source = (
+        f"Under section 7C, 100x{format_character}-2 dollars shall be paid. "
+        "A separate adjustment of -2 dollars applies."
+    )
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation}},
+        "rules": [
+            {
+                "name": "adjustment",
+                "kind": "parameter",
+                "dtype": "Float",
+                "source": citation,
+                "versions": [{"effective_from": "2026-01-01", "formula": "-2"}],
+            }
+        ],
+    }
+    content = yaml.safe_dump(payload)
+    assert not find_ungrounded_numeric_issues(
+        content, source, source_citation_path=citation
+    )
+    analysis = _analyze_rulespec_payload(
+        payload,
+        content=content,
+        source_text=source,
+        corpus_citation_path=citation,
+        test_cases=(),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile=profile
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        artifact_numeric_values=None,
+        artifact_numeric_bindings=None,
+        authenticated_same_act_aliases=(),
+        imported_symbol_contents=(),
+    )
+    assert analysis.missing_source_numeric_occurrence_count == 1
+    assert any(
+        ":numeric-recall]" in issue and "numeric value 2 " in issue
+        for issue in analysis.issues
+    )
+
+
+@pytest.mark.parametrize("profile", ALL_PROFILES)
+@pytest.mark.parametrize(
+    "clause",
+    (
+        "At least {n} of the National Housing Act applicants qualify for the grant.",
+        "At least {n} of the National Housing Act beneficiaries must be served.",
+        "There must be {n} of the National Housing Act households enrolled.",
+        "The grant requires {n} of the National Housing Act dwellings to qualify.",
+        "At least {n} of the National Housing Act applicants must qualify.",
+    ),
+)
+def test_us_act_population_counts_keep_main_recall_obligations(clause, profile):
+    source = clause.format(n=236)
+    assert [item.value for item in _inventory(source, US, profile)] == [236]
+    assert _recall_issues(source, US, profile, (1,))
+    assert not _recall_issues(source, US, profile, (236,))
+
+
+@pytest.mark.parametrize("profile", ALL_PROFILES)
+def test_generated_masks_preserve_outside_tokens_in_every_profile(profile):
+    """An accepted mask retains each outside token's coordinates and identity."""
+    generator = random.Random(17792026)
+    for amount in (2, *generator.sample(range(3, 999), 8)):
+        for character in DANISH_FORMAT_CHARACTERS:
+            source = (
+                f"Under section 7C, 100x{character}-{amount} dollars shall be paid. "
+                f"A separate adjustment of -{amount} dollars applies."
+            )
+            spans = _additional_numeric_recall_spans(source, corpus_citation_path=US)
+            reference = _mask_numeric_spans(
+                source, _numeric_recall_introducer_spans(source, spans)
+            )
+            masked = _mask_numeric_spans(reference, spans)
+
+            def tokens(text):
+                return Counter(
+                    (item.start, item.end, item.value, item.raw)
+                    for item in extract_typed_numeric_inventory_occurrences_from_text(
+                        text, profile=profile
+                    )
+                    if not any(
+                        item.start < end and start < item.end for start, end in spans
+                    )
+                )
+
+            assert tokens(reference) <= tokens(masked), (source, spans, profile)
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -453,17 +564,30 @@ def test_generated_structures_never_exempt_equal_operative_values(
     for index, value in enumerate(values):
         year = generator.randrange(1900, 2100)
         structure = template.format(n=value, year=year)
-        assert not _inventory(structure, citation, profile), structure
+        # US bibliographic text keeps main's conservative obligations. These
+        # cases still check that adding an equal operative amount retains it.
+        structural = (
+            extract_typed_numeric_inventory_occurrences_from_text(
+                _source_boundary_numeric_recall_text(structure), profile=profile
+            )
+            if citation == US
+            else ()
+        )
+        assert [
+            (item.value, item.raw) for item in _inventory(structure, citation, profile)
+        ] == [(item.value, item.raw) for item in structural], structure
         # Years are operative controls too: no filtering by numeric value.
         amount = year if "{year}" in template else value
         quantity = quantities[index % len(quantities)].format(n=amount)
         source = f"{structure}\nThe required quantity is {quantity}."
         occurrences = _inventory(source, citation, profile)
-        assert len(occurrences) == 1, (source, occurrences)
+        assert len(occurrences) == len(structural) + 1, (source, occurrences)
         scalar = float(amount) / 100 if "percent" in quantity else float(amount)
         assert numeric_value_is_grounded(scalar, occurrences)
         assert _recall_issues(source, citation, profile), source
-        assert not _recall_issues(source, citation, profile, (scalar,)), source
+        assert not _recall_issues(
+            source, citation, profile, (scalar, *(item.value for item in structural))
+        ), source
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -486,12 +610,21 @@ def test_generated_marker_renumbering_preserves_substantive_inventory(
                 assert 0 <= start < end <= len(source)
                 assert source[start:end].strip()
                 assert "£" not in source[start:end]
-            inventories.append(
-                [
-                    (item.value, item.raw)
-                    for item in _inventory(source, citation, profile)
-                ]
+            structural = (
+                extract_typed_numeric_inventory_occurrences_from_text(
+                    _source_boundary_numeric_recall_text(structure), profile=profile
+                )
+                if citation == US
+                else ()
             )
+            inventory = Counter(
+                (item.value, item.raw) for item in _inventory(source, citation, profile)
+            )
+            expected_structure = Counter((item.value, item.raw) for item in structural)
+            assert inventory == expected_structure + Counter(
+                {(float(amount), str(amount)): 1}
+            )
+            inventories.append(list((inventory - expected_structure).elements()))
         assert inventories[0] == inventories[1] == [(float(amount), str(amount))]
 
 
@@ -732,3 +865,102 @@ def test_very_small_duration_sources_keep_a_nonzero_recall_obligation(unit):
     assert _inventory(source, UK, "legacy")
     assert _recall_issues(source, UK, "legacy")
     assert _recall_issues(source, UK, "legacy", (0,))
+
+
+# These round-3/4 probe classes cannot be authenticated as safe furniture.
+# Keep main's obligations even when its partial citation cleanup produces an
+# odd-looking amount (for example 996100 from `1996 100EUR(1)`).
+UNSAFE_CITATION_MASK_SOURCES = (
+    pytest.param(
+        "Under paragraph 2(1), 100E+2 dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="scientific-operand",
+    ),
+    pytest.param(
+        "Under section 40-18-2 to 100 000-2 dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="spaced-grouped-range",
+    ),
+    pytest.param(
+        "Under Section 431 of the Act of 1996 -2 dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="instrument-year-adjacent-sign",
+    ),
+    pytest.param(
+        "Under Section 431 of the Act of 1996,100-(+2) dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="instrument-year-arithmetic",
+    ),
+    pytest.param(
+        "Under Section 431 of the Act of 1996 100EUR(1)-2 dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="instrument-year-glued-currency",
+    ),
+    pytest.param(
+        "section\n431 of the Act of\n1996, 100.5 dollars shall apply.",
+        id="wrapped-instrument-year",
+    ),
+    pytest.param(
+        "Under paragraph 2(1), 100E–2 dollars shall apply. "
+        "A separate adjustment of -2 dollars applies.",
+        id="scientific-en-dash",
+    ),
+    pytest.param(
+        "Under paragraph 2(1), 100E+2EUR is the required amount. "
+        "A separate adjustment of -2 dollars applies.",
+        id="scientific-glued-currency",
+    ),
+    pytest.param(
+        "Under Section 431 of the Act of 1996EUR is the limit. "
+        "A separate adjustment of -2 dollars applies.",
+        id="instrument-year-glued-unit",
+    ),
+)
+
+
+def _main_cleaner_inventory(source, profile):
+    return extract_typed_numeric_inventory_occurrences_from_text(
+        _source_boundary_numeric_recall_text(source), profile=profile
+    )
+
+
+@pytest.mark.parametrize("profile", ALL_PROFILES)
+@pytest.mark.parametrize("citation", (US, UK))
+@pytest.mark.parametrize("source", UNSAFE_CITATION_MASK_SOURCES)
+def test_removed_unsafe_citation_classes_retain_main_inventory(
+    source, citation, profile
+):
+    main_inventory = Counter(
+        (item.value, item.raw) for item in _main_cleaner_inventory(source, profile)
+    )
+    actual_inventory = Counter(
+        (item.value, item.raw) for item in _inventory(source, citation, profile)
+    )
+    assert main_inventory
+    assert main_inventory <= actual_inventory
+
+
+@pytest.mark.parametrize("profile", ALL_PROFILES)
+@pytest.mark.parametrize("citation", (US, UK))
+@pytest.mark.parametrize("source", UNSAFE_CITATION_MASK_SOURCES)
+def test_removed_unsafe_citation_classes_retain_main_omission_rejections(
+    source, citation, profile, monkeypatch
+):
+    """Every amount main rejects must still fail production omission recall."""
+
+    main_values = {item.value for item in _main_cleaner_inventory(source, profile)}
+    actual_values = {item.value for item in _inventory(source, citation, profile)}
+    assert main_values
+    for omitted in sorted(main_values):
+        # Cover any additional safe obligation before omitting one of main's
+        # amounts. Only that lost obligation can account for an issue mismatch.
+        recalled = tuple(sorted((main_values | actual_values) - {omitted}))
+        actual = _recall_issues(source, citation, profile, recalled)
+        with monkeypatch.context() as main_context:
+            main_context.setattr(
+                "axiom_encode.harness.source_completeness.authoritative_numeric_recall_text",
+                lambda text, **_kwargs: _source_boundary_numeric_recall_text(text),
+            )
+            expected = _recall_issues(source, citation, profile, recalled)
+        assert expected, (source, profile, omitted)
+        assert actual == expected, (source, profile, omitted)

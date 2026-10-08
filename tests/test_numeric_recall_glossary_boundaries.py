@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import operator
 import random
 import re
 
@@ -15,6 +16,7 @@ from axiom_encode.harness.source_completeness import (
     _source_has_operative_policy_effect,
 )
 from axiom_encode.harness.validator_pipeline import (
+    _NUMERIC_EXTRACTION_PROFILES,
     extract_typed_numeric_inventory_occurrences_from_text,
     numeric_value_is_grounded,
 )
@@ -454,3 +456,145 @@ def test_narrative_boundary_path_receives_exact_main_cleaned_first_line(
         (boundary.value, boundary.raw, boundary.start, boundary.end)
         for _branch, boundary in actual
     ] == expected
+
+
+BOUNDARY_WITNESS_SOURCE_TEMPLATES = (
+    _source("(d)(5)(A)"),
+    "Under section 212(d)(5)(A), applicants are eligible if parole years "
+    "are at least 1.",
+    "Applicants are eligible if parole years are at least 1.",
+)
+BOUNDARY_WITNESS_RELATIONS = (
+    ("at least", ">="),
+    ("more than", ">"),
+    ("at most", "<="),
+    ("less than", "<"),
+)
+BOUNDARY_WITNESS_SOURCES = tuple(
+    (source.replace("at least", wording), comparator)
+    for source in BOUNDARY_WITNESS_SOURCE_TEMPLATES
+    for wording, comparator in BOUNDARY_WITNESS_RELATIONS
+)
+BOUNDARY_WITNESS_OPERATORS = {
+    ">=": operator.ge,
+    ">": operator.gt,
+    "<=": operator.le,
+    "<": operator.lt,
+    "==": operator.eq,
+    "!=": operator.ne,
+}
+
+
+def _executed_boundary_issues(source, profile, comparator):
+    """Exercise witness admission with formula-consistent endpoint outputs."""
+
+    rule_name = "household_eligible"
+    rule = {
+        "name": rule_name,
+        "kind": "derived",
+        "dtype": "Judgment",
+        "versions": [{"formula": f"parole_years {comparator} 1"}],
+    }
+    cases = tuple(
+        {
+            "name": f"duration {value}",
+            "period": "2026-01-01",
+            "input": {"parole_years": value},
+            "output": {
+                rule_name: (
+                    "holds"
+                    if BOUNDARY_WITNESS_OPERATORS[comparator](value, 1)
+                    else "not_holds"
+                )
+            },
+        }
+        for value in (0, 1, 2)
+    )
+    issues = completeness._companion_test_issues(
+        {rule_name: rule},
+        parameter_rules={},
+        principal_rule_paths={rule_name: {()}},
+        principal_formula_clause_rules={},
+        formula_branches=(),
+        branches=(_root(source),),
+        source_text=source,
+        corpus_citation_path=US,
+        deferred_paths=set(),
+        test_cases=cases,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
+        ),
+        numeric_value_is_grounded=numeric_value_is_grounded,
+        formula_environment={},
+        source_bound_constant_occurrences={},
+        declared_input_names={"parole_years"},
+    )
+    return [issue for issue in issues if "source-stated boundary input" in issue]
+
+
+def _main_witness_interval_lookup(branch, boundary, *, extract_numeric_occurrences):
+    """Main's lookup at aa755d20, with its frozen INA-corpus cleaner above."""
+
+    direct_text = _main_corpus_cleaned_text(branch.text)
+    for fragment_start, fragment in completeness._source_boundary_fragments(
+        direct_text
+    ):
+        interval = completeness._shift_numeric_interval(
+            completeness._formula_interval_from_text(
+                fragment.split(":", 1)[0],
+                extract_numeric_occurrences=extract_numeric_occurrences,
+            ),
+            fragment_start,
+        )
+        if interval is None:
+            continue
+        if any(
+            occurrence is not None
+            and occurrence.start == boundary.start
+            and occurrence.end == boundary.end
+            and completeness._numeric_occurrences_are_equivalent(occurrence, boundary)
+            for occurrence in (interval.lower, interval.upper)
+        ):
+            return interval, completeness._source_boundary_boolean_polarity(fragment)
+    return None, 0
+
+
+@pytest.mark.parametrize("profile", sorted(_NUMERIC_EXTRACTION_PROFILES))
+@pytest.mark.parametrize("source,source_comparator", BOUNDARY_WITNESS_SOURCES)
+@pytest.mark.parametrize("comparator", BOUNDARY_WITNESS_OPERATORS)
+def test_executed_boundary_witness_admission_matches_main(
+    profile, source, source_comparator, comparator, monkeypatch
+):
+    """Citation masking cannot admit a wrong direction or endpoint inclusion."""
+
+    actual = _executed_boundary_issues(source, profile, comparator)
+    with monkeypatch.context() as main_context:
+        main_context.setattr(
+            completeness,
+            "_source_interval_and_polarity_for_boundary",
+            _main_witness_interval_lookup,
+        )
+        expected = _executed_boundary_issues(source, profile, comparator)
+    assert bool(expected) is (comparator != source_comparator)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("profile", sorted(_NUMERIC_EXTRACTION_PROFILES))
+@pytest.mark.parametrize("source,source_comparator", BOUNDARY_WITNESS_SOURCES)
+def test_boundary_witness_consumers_receive_main_cleaned_text(
+    profile, source, source_comparator, monkeypatch
+):
+    expected_text = _main_corpus_cleaned_text(source)
+    actual_texts = []
+    comparison = completeness._formula_text_has_boundary_comparison
+
+    def record_comparison(text, **kwargs):
+        actual_texts.append(kwargs["source_text"])
+        return comparison(text, **kwargs)
+
+    monkeypatch.setattr(
+        completeness, "_formula_text_has_boundary_comparison", record_comparison
+    )
+    assert not _executed_boundary_issues(source, profile, source_comparator)
+    assert actual_texts
+    assert all(text == expected_text for text in actual_texts)

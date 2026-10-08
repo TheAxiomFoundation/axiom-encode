@@ -13037,8 +13037,10 @@ _RECALL_ENGLISH_REFERENCE_CONTINUATION = re.compile(
     + r")",
     re.IGNORECASE,
 )
-_RECALL_REFERENCE_INSTRUMENT_YEAR = re.compile(
-    r"\s+of\s+(?:the\s+)?Act\s+of\s+(?P<target>(?:18|19|20)\d{2})\b(?![.,]\d)",
+_RECALL_MAIN_ENGLISH_CLEANUP_INPUT = re.compile(
+    r"\b\d+(?:[.,]\d+)?[Ee][+\-–−]?\d+|"
+    r"\d[^\S\r\n]+\d|"
+    r"\bAct\s+of\s+(?:18|19|20)\d{2}",
     re.IGNORECASE,
 )
 # Preserve amounts carrying known currency tokens even where the numeric
@@ -13089,19 +13091,21 @@ _RECALL_UK_TABLE_MARKER = re.compile(
     r" Premium[—.]+[ \t]*\|[ \t]*(?P<repeat>[1-9]\d*)"
     r"(?=[ \t\u00a0]*(?:\||[a-z]?\s*[£$€]))"
 )
-_RECALL_US_BIBLIOGRAPHIC = tuple(
-    re.compile(pattern)
-    for pattern in (
-        r"\bPub\.\s*L\.\s*\d+\s*[-–—]\s*\d+\b(?![.,]\d)",
-        r"\b\d+\s+Stat\.\s*\d+\b(?![.,]\d)",
-        r"\bInternal Revenue Service Notice\s+\d{4}\s*[-–—]\s*\d+\b(?![.,]\d)",
-        r"\b\d+\s+U\.S\.C\.\s+note\s+prec\.\s*\d+[A-Za-z]*\b(?![.,]\d)",
-        r"\b\d+[A-Za-z]*(?:\([A-Za-z0-9]+\))*\s+of\s+the\s+"
-        r"[A-Z][A-Za-z'-]*(?:\s+(?:[A-Z][A-Za-z'-]*|and|of|the)){0,10}\s+Act\b",
-        r"(?m)^[ \t]*[1-9]\d?(?:[ \t]+[1-9]\d?)?[ \t]+So in original\.",
-        r"\bSee\s+\d{4}\s+Amendment note below\.",
+
+
+def _numeric_recall_requires_main_english_cleanup(text: str) -> bool:
+    """Remove all added masks for citation inputs with unsafe numeric classes.
+
+    Main's deletion cleaner can expose a scientific token, split digit groups,
+    or change a sign after an instrument year. Outside-token preservation does
+    not prove that its resulting obligations survive. These entire input
+    classes retain main's cleanup, including its conservative false obligations.
+    """
+
+    return bool(
+        _RECALL_COMPLETE_ENGLISH_REFERENCE.search(text)
+        and _RECALL_MAIN_ENGLISH_CLEANUP_INPUT.search(text)
     )
-)
 
 
 def _additional_numeric_recall_spans(
@@ -13109,10 +13113,13 @@ def _additional_numeric_recall_spans(
 ) -> tuple[tuple[int, int], ...]:
     """Recognize citation-local furniture without blacklisting its numeric value.
 
-    The citation is resolver-owned. Flattened UK paragraph labels and US
-    editorial notes are source-format conventions, not rules supplied by an
-    encoding. Mask only their own spans so equal operative amounts survive.
+    The citation is resolver-owned. Flattened UK paragraph labels are source
+    conventions, not rules supplied by an encoding. Mask only their own spans
+    so equal operative amounts survive.
     """
+
+    if _numeric_recall_requires_main_english_cleanup(text):
+        return ()
 
     def is_quantity(match: re.Match[str], *, check_prefix: bool = True) -> bool:
         target = match.groupdict().get("target")
@@ -13161,14 +13168,6 @@ def _additional_numeric_recall_spans(
             if is_quantity(continuation, check_prefix=False):
                 break
             end = continuation.end()
-        # An instrument year belongs to the introduced citation too. Include
-        # its own digits explicitly: removing the section must not cause the
-        # extractor's title-year cleanup to erase an outside occurrence.
-        instrument_year = _RECALL_REFERENCE_INSTRUMENT_YEAR.match(text, end)
-        if instrument_year is not None and not is_quantity(
-            instrument_year, check_prefix=False
-        ):
-            spans.append(instrument_year.span("target"))
         # A citation's comma/en/em dash is outside the retained numeric
         # envelope. Mask it too so every profile sees a clean token boundary;
         # commas inside the quantity stay intact. Keep punctuation before a
@@ -13199,13 +13198,6 @@ def _additional_numeric_recall_spans(
         for match in _RECALL_UK_TABLE_MARKER.finditer(text):
             if match.group("label") == match.group("repeat"):
                 spans.extend((match.span("label"), match.span("repeat")))
-    if corpus_citation_path.startswith("us/statute/"):
-        spans.extend(
-            match.span()
-            for pattern in _RECALL_US_BIBLIOGRAPHIC
-            for match in pattern.finditer(text)
-            if not is_quantity(match)
-        )
     proposed = tuple(spans)
     if not proposed:
         return ()
@@ -13257,12 +13249,13 @@ def _numeric_recall_masks_preserve_outside_tokens(
     # validator_pipeline imports this module; defer the shared extractor until
     # cleanup is called, after both modules have finished initializing.
     from axiom_encode.harness.validator_pipeline import (
+        _NUMERIC_EXTRACTION_PROFILES,
         extract_typed_numeric_inventory_occurrences_from_text,
     )
 
     reference = _mask_numeric_spans(text, _numeric_recall_introducer_spans(text, spans))
     masked = _mask_numeric_spans(reference, spans)
-    for profile in ("legacy", "en-US", "en-GB"):
+    for profile in sorted(_NUMERIC_EXTRACTION_PROFILES):
         before = Counter(
             (item.start, item.end, item.value, item.raw)
             for item in extract_typed_numeric_inventory_occurrences_from_text(
@@ -13474,7 +13467,9 @@ def _authoritative_numeric_recall_text(
     # Footnote authentication, manual heading checks and specialized citation
     # cleaners need the complete references intact. Masking them first can
     # create a fresh title-case amount row or clip an authenticated identifier.
-    if additional_citation_masks:
+    if additional_citation_masks and not _numeric_recall_requires_main_english_cleanup(
+        cleaned
+    ):
         cleaned = _mask_numeric_spans(
             cleaned,
             _additional_numeric_recall_spans(
@@ -23393,7 +23388,7 @@ def _branch_boundary_test_witnesses(
                     and _formula_execution_binds_boundary(
                         controller_execution,
                         boundary,
-                        source_text=authoritative_numeric_recall_text(branch.text),
+                        source_text=_source_boundary_numeric_recall_text(branch.text),
                         input_names=input_names,
                         formula_environment=(controller_execution.constant_environment),
                         evaluation_environment=execution_environment,
@@ -24154,7 +24149,7 @@ def _source_interval_and_polarity_for_boundary(
     *,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[_NumericInterval | None, int]:
-    direct_text = authoritative_numeric_recall_text(branch.text)
+    direct_text = _source_boundary_numeric_recall_text(branch.text)
     for fragment_start, fragment in _source_boundary_fragments(direct_text):
         interval = _shift_numeric_interval(
             _formula_interval_from_text(
@@ -24546,7 +24541,7 @@ def _formula_branch_interval(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> _NumericInterval | None:
     first_line = branch.text.splitlines()[0] if branch.text.splitlines() else ""
-    range_text = authoritative_numeric_recall_text(first_line)
+    range_text = _source_boundary_numeric_recall_text(first_line)
     return _formula_interval_from_text(
         range_text,
         extract_numeric_occurrences=extract_numeric_occurrences,
@@ -27606,7 +27601,7 @@ def _exception_witnesses_for_branch(
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
     numeric_interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(condition_text),
+        _source_boundary_numeric_recall_text(condition_text),
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     equality_candidates = {
@@ -28803,7 +28798,7 @@ def _numeric_exception_witness_matches_source(
     if transition is None:
         return False
     interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(
+        _source_boundary_numeric_recall_text(
             _source_exception_condition_text(branch.text)
         ),
         extract_numeric_occurrences=extract_numeric_occurrences,
@@ -31720,11 +31715,8 @@ def _source_boundary_obligations(
                 )
             )
     for branch in narrative_formula_branches:
-        # Preserve the same first-line input main used for narrative bounds.
-        first_line = branch.text.splitlines()[0] if branch.text.splitlines() else ""
-        range_text = _source_boundary_numeric_recall_text(first_line)
-        interval = _formula_interval_from_text(
-            range_text,
+        interval = _formula_branch_interval(
+            branch,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if interval is None:

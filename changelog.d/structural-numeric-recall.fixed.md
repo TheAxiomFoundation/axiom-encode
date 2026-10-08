@@ -1,6 +1,7 @@
-Exclude recognized UK paragraph/table labels and complete UK/US citation spans
-from numeric recall. Neutralize citation introducers while retaining every
-numeric target and operator, then refuse masks that change an outside token's
-value, sign or source text in legacy, en-US or en-GB. Keep ambiguous citation
-continuations and adjacent operative amounts required. Check US manual headings
-before complete citation masking so cents-valued rows retain their amounts.
+Exclude recognized UK paragraph/table labels and complete English citation
+spans from numeric recall only when every supported extraction profile retains
+outside tokens' coordinates, values, signs and source text. Keep US
+bibliographic text on the existing cleanup path and use that same path for
+boundary obligations and executed witness checks. Apply no added masks to
+English citation inputs containing scientific notation, separated digit groups
+or Act-of-year references; retain the existing cleaner's obligations there.

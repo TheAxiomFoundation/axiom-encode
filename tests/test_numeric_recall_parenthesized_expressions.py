@@ -29,6 +29,7 @@ from tests.test_numeric_recall_structural_properties import (
     UK,
     US,
     _inventory,
+    _main_cleaner_inventory,
     _recall_issues,
 )
 
@@ -231,14 +232,26 @@ def test_introducer_only_masks_recover_the_complete_numeric_envelope(
 def test_complete_reference_includes_only_its_own_instrument_year(profile, year):
     source = f"Under section 431 of the Act of {year}, applicants qualify."
     spans = _additional_numeric_recall_spans(source, corpus_citation_path=US)
-    assert (source.index(str(year)), source.index(str(year)) + 4) in spans
-    assert not _inventory(source, US, profile)
+    # Instrument-year masks have been removed. Preserve all of main's
+    # conservative residue while keeping the equal-valued payment required.
+    assert not spans
+    baseline = Counter(
+        (item.value, item.raw) for item in _main_cleaner_inventory(source, profile)
+    )
+    assert (
+        Counter((item.value, item.raw) for item in _inventory(source, US, profile))
+        == baseline
+    )
     paired = source + f" A separate payment of {year} dollars applies."
-    assert [(item.value, item.raw) for item in _inventory(paired, US, profile)] == [
-        (year, str(year))
-    ]
-    assert _recall_issues(paired, US, profile)
-    assert not _recall_issues(paired, US, profile, (year,))
+    occurrences = _inventory(paired, US, profile)
+    assert Counter(
+        (item.value, item.raw) for item in occurrences
+    ) == baseline + Counter({(year, str(year)): 1})
+    values = tuple(item.value for item in occurrences)
+    assert _recall_issues(
+        paired, US, profile, tuple(value for value in values if value != year)
+    )
+    assert not _recall_issues(paired, US, profile, values)
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -248,26 +261,26 @@ def test_reference_instrument_year_shaped_quantity_remains_required(profile, suf
     start = source.index("1996")
     spans = _additional_numeric_recall_spans(source, corpus_citation_path=US)
     assert all(end <= start or start + 4 <= begin for begin, end in spans)
-    baseline = _inventory(f"The limit is 1996{suffix}.", US, profile)
+    baseline = _main_cleaner_inventory(source, profile)
     occurrences = _inventory(source, US, profile)
-    # If removing the section would make the extractor erase this operative
-    # amount as a title year, retaining the section is the required refusal.
-    # Its extra structural scalar must not conceal the separate amount.
+    # Use the removed class's actual main reading, including clipped amounts,
+    # rather than an unrelated sentence with different year-cleanup context.
+    assert Counter((item.value, item.raw) for item in occurrences) == Counter(
+        (item.value, item.raw) for item in baseline
+    )
+    values = tuple(item.value for item in occurrences)
+    assert not _recall_issues(source, US, profile, values)
     for expected in baseline:
-        assert any(
-            item.value == expected.value and item.raw == expected.raw
-            for item in occurrences
+        assert _recall_issues(
+            source,
+            US,
+            profile,
+            tuple(value for value in values if value != expected.value),
         )
-    if baseline:
-        values = tuple(item.value for item in occurrences)
-        assert not _recall_issues(source, US, profile, values)
-        for expected in baseline:
-            assert _recall_issues(
-                source,
-                US,
-                profile,
-                tuple(value for value in values if value != expected.value),
-            )
+    paired = source + " A separate payment of 236 dollars applies."
+    assert any(item.value == 236 for item in _inventory(paired, US, profile))
+    assert _recall_issues(paired, US, profile, values)
+    assert not _recall_issues(paired, US, profile, (*values, 236))
 
 
 @pytest.mark.parametrize("profile", PROFILES)
