@@ -60826,6 +60826,13 @@ def _complete_missing_imported_test_inputs(
     missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
+    if _copy_case_facts_to_single_empty_relation_row(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        assignments=missing_assignments,
+    ):
+        return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
     if current_base:
@@ -60885,6 +60892,83 @@ def _complete_missing_imported_test_inputs(
         return False
     test_file.write_text(updated)
     return True
+
+
+def _copy_case_facts_to_single_empty_relation_row(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    assignments: list[dict[str, str]],
+) -> bool:
+    """Use explicit case facts for an unambiguous generated relation member.
+
+    A generated case may assert Person outputs at the top level and use a
+    single empty Person row for its Household output.  Defaults would turn an
+    explicitly elderly member into a younger one.  Copy only facts declared
+    for the relation's child entity, and only for the exact failing row.
+    """
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    if not isinstance(rules_payload, dict) or not isinstance(cases, list):
+        return False
+    anchor = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    if not anchor:
+        return False
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    declared_inputs = rules_payload.get("inputs")
+    input_entities = (
+        {
+            str(item.get("name")): str(item.get("entity"))
+            for item in declared_inputs
+            if isinstance(item, dict) and item.get("name") and item.get("entity")
+        }
+        if isinstance(declared_inputs, list)
+        else {}
+    )
+    relation_children: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "data_relation":
+            continue
+        relation = rule.get("data_relation")
+        arguments = relation.get("arguments") if isinstance(relation, dict) else None
+        if not isinstance(arguments, list) or len(arguments) != 2:
+            continue
+        child = arguments[1]
+        if isinstance(child, dict) and isinstance(child.get("entity"), str):
+            relation_children[str(rule.get("name"))] = child["entity"]
+    changed = False
+    for assignment in assignments:
+        entity_id = assignment.get("entity", "")
+        for relation_name, child_entity in relation_children.items():
+            relation_ref = f"{anchor}#relation.{relation_name}"
+            if not entity_id.endswith(f"{relation_ref}-1"):
+                continue
+            for case in cases:
+                if not isinstance(case, dict) or case.get("name") != assignment["case"]:
+                    continue
+                inputs = case.get("input")
+                if not isinstance(inputs, dict) or inputs.get(relation_ref) != [{}]:
+                    continue
+                child_facts = {
+                    ref: value
+                    for ref, value in inputs.items()
+                    if isinstance(ref, str)
+                    and ref.startswith(f"{anchor}#input.")
+                    and input_entities.get(ref.rsplit("#input.", 1)[1]) == child_entity
+                }
+                if f"{anchor}#input.{assignment['input']}" not in child_facts:
+                    continue
+                inputs[relation_ref][0] = child_facts
+                changed = True
+    if changed:
+        test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=True))
+    return changed
 
 
 def _complete_missing_local_test_inputs(
