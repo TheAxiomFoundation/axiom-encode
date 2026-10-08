@@ -42041,6 +42041,51 @@ class TestEncodeReplacementTarget:
         assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
         assert resolved.context_paths == (target,)
 
+    def test_accepts_existing_child_module_from_its_exact_parent_source(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        args.replace_rulespec_path = Path("us-nc/statutes/105/105-153.7/a.yaml")
+        target = content_root / "statutes" / "105" / "105-153.7" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-nc/statute/105/105-153.7\n"
+            "rules: []\n"
+        )
+        source_unit.requested = "us-nc/statute/105/105-153.7"
+        source_unit.citation_path = source_unit.requested
+        replacement_source = SimpleNamespace(
+            requested=source_unit.requested,
+            citation_path=source_unit.citation_path,
+            body=source_unit.body,
+            resolved_source=source_unit.resolved_source,
+        )
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
+        assert resolved.context_paths == (target,)
+
     def test_rejects_non_direct_source_refinement(self, tmp_path):
         (
             args,

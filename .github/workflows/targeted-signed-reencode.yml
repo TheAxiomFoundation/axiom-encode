@@ -1225,8 +1225,14 @@ jobs:
              [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             cascade_args+=(--allow-proof-import-subset)
           fi
+          cascade_args+=(--json)
           cascade_args+=("${dependent_citations[@]}")
-          cascade_mode="$("${cascade_args[@]}")"
+          cascade_result="$("${cascade_args[@]}")"
+          cascade_mode="$(jq -er '.mode' <<< "$cascade_result")"
+          dependent_paths_json="$(jq -cer '.paths' <<< "$cascade_result")"
+          jq -e --argjson count "${#dependent_citations[@]}" \
+            'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
+            <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
             all-direct|proof-import-subset|proof-import-chain) ;;
             *)
@@ -1235,6 +1241,8 @@ jobs:
               ;;
           esac
           printf 'DEPENDENT_CASCADE_MODE=%s\n' "$cascade_mode" >> "$GITHUB_ENV"
+          printf 'DEPENDENT_RULESPEC_PATHS_JSON=%s\n' \
+            "$dependent_paths_json" >> "$GITHUB_ENV"
 
       - name: Verify existing signed imports
         env:
@@ -1826,8 +1834,8 @@ jobs:
             workflow_python="${AXIOM_TEST_PYTHON:-python}"
           fi
           if [ -n "$DEPENDENT_CITATION" ]; then
-            dependent_rulespec_path="$("$workflow_python" "$backfill_helper" \
-              citation-rulespec-path "$DEPENDENT_CITATION")"
+            dependent_rulespec_path="$(jq -er '.[0]' \
+              <<< "$DEPENDENT_RULESPEC_PATHS_JSON")"
           fi
           if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
              [ "$REPAIR_RUN_LANE" = "dependent" ] && \
@@ -1836,8 +1844,8 @@ jobs:
             exit 1
           fi
           if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
-            second_dependent_rulespec_path="$("$workflow_python" "$backfill_helper" \
-              citation-rulespec-path "$SECOND_DEPENDENT_CITATION")"
+            second_dependent_rulespec_path="$(jq -er '.[1]' \
+              <<< "$DEPENDENT_RULESPEC_PATHS_JSON")"
           fi
           scheduled_dependent_paths_json="[]"
           if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
@@ -2363,9 +2371,16 @@ jobs:
                 "$dependent_target_only" dependent \
                 "$dependent_replacement_path" "" false
               if [ -n "$SECOND_DEPENDENT_CITATION" ]; then
+                second_replacement_path=""
+                canonical_second_path="$("$workflow_python" "$backfill_helper" \
+                  citation-rulespec-path "$SECOND_DEPENDENT_CITATION")"
+                if [ "$second_dependent_rulespec_path" != "$canonical_second_path" ]; then
+                  second_replacement_path="$second_dependent_rulespec_path"
+                fi
                 run_signed_encode \
                   "$SECOND_DEPENDENT_CITATION" \
-                  "$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 "" "" false
+                  "$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 \
+                  "$second_replacement_path" "" false
               fi
             else
               run_signed_encode \

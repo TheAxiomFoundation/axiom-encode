@@ -3963,7 +3963,106 @@ def test_validate_dependent_cascade_rejects_nonproof_subset_even_when_allowed(
         )
 
 
-def test_validate_dependent_cascade_accepts_exact_two_hop_proof_chain(
+@pytest.mark.parametrize("also_direct", [False, True])
+def test_validate_dependent_cascade_accepts_source_parent_child(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    also_direct: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "statutes/7/2012/j.yaml")
+    first = _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:statutes/7/2012/j",),
+    )
+    first.write_text(
+        first.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef""",
+        )
+    )
+    second = _write_module(
+        repo,
+        "regulations/7-cfr/273/11/c.yaml",
+        imports=("us:regulations/7-cfr/273/10",)
+        + (("us:statutes/7/2012/j",) if also_direct else ()),
+    )
+    second.write_text(
+        second.read_text().replace(
+            "rules: []",
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:deadbeef""",
+        )
+    )
+    if not also_direct:
+        _write_module(
+            repo,
+            "regulations/7-cfr/273/9.yaml",
+            imports=("us:statutes/7/2012/j",),
+        )
+
+    dependents, mode = _classify_dependent_cascade(
+        repo,
+        "us/statute/7/2012/j",
+        "us/regulation/7/273/10",
+        "us/regulation/7/273/11",
+        target_rulespec_path="us/statutes/7/2012/j.yaml",
+        allow_proof_import_subset=True,
+    )
+
+    expected_mode = "all-direct" if also_direct else "proof-import-chain"
+    assert mode == expected_mode
+    assert dependents == (
+        first.relative_to(repo / "us"),
+        second.relative_to(repo / "us"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "prepare_signed_backfill.py",
+            "validate-dependent-cascade",
+            str(repo),
+            "us/statute/7/2012/j",
+            "--target-rulespec-path",
+            "us/statutes/7/2012/j.yaml",
+            "--allow-proof-import-subset",
+            "--json",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+        ],
+    )
+    prepare_signed_backfill_main()
+    assert json.loads(capsys.readouterr().out) == {
+        "mode": expected_mode,
+        "paths": [
+            "us/regulations/7-cfr/273/10.yaml",
+            "us/regulations/7-cfr/273/11/c.yaml",
+        ],
+    }
+
+
+def test_validate_dependent_cascade_rejects_unattested_source_parent_child(
     tmp_path: Path,
 ) -> None:
     repo = _repo(tmp_path)
@@ -3995,7 +4094,10 @@ def test_validate_dependent_cascade_accepts_exact_two_hop_proof_chain(
     second.write_text(
         second.read_text().replace(
             "rules: []",
-            """rules:
+            """module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/11/d
+rules:
   - name: nonhousehold_member_treatment
     metadata:
       proof:
@@ -4006,26 +4108,16 @@ def test_validate_dependent_cascade_accepts_exact_two_hop_proof_chain(
               hash: sha256:deadbeef""",
         )
     )
-    _write_module(
-        repo,
-        "regulations/7-cfr/273/9.yaml",
-        imports=("us:statutes/7/2012/j",),
-    )
 
-    dependents, mode = _classify_dependent_cascade(
-        repo,
-        "us/statute/7/2012/j",
-        "us/regulation/7/273/10",
-        "us/regulation/7/273/11/c",
-        target_rulespec_path="us/statutes/7/2012/j.yaml",
-        allow_proof_import_subset=True,
-    )
-
-    assert mode == "proof-import-chain"
-    assert dependents == (
-        first.relative_to(repo / "us"),
-        second.relative_to(repo / "us"),
-    )
+    with pytest.raises(ValueError, match="source-parent dependent"):
+        _classify_dependent_cascade(
+            repo,
+            "us/statute/7/2012/j",
+            "us/regulation/7/273/10",
+            "us/regulation/7/273/11",
+            target_rulespec_path="us/statutes/7/2012/j.yaml",
+            allow_proof_import_subset=True,
+        )
 
 
 def test_validate_dependent_cascade_rejects_incomplete_two_hop_proof_chain(
