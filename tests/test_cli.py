@@ -50076,7 +50076,8 @@ rules:
         target = content_root / "statutes/7/2012/j.yaml"
         first = content_root / "regulations/7-cfr/273/10.yaml"
         second = content_root / "regulations/7-cfr/273/11/c.yaml"
-        for module in (target, first, second):
+        sibling = content_root / "policies/usda/snap/state-plan-composition.yaml"
+        for module in (target, first, second, sibling):
             module.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("format: rulespec/v1\nrules: []\n")
         first.write_text(
@@ -50110,6 +50111,11 @@ rules:
               hash: sha256:{first_sha}
 """
         )
+        sibling.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
 
         resolved = _resolve_scheduled_proof_hash_dependents(
             (
@@ -50122,6 +50128,18 @@ rules:
 
         assert resolved == {first, second}
         assert f"hash: sha256:{first_sha}" in second.read_text()
+        # The first dependent has now been regenerated; only its proof-pinned
+        # second dependent may be deferred, not an ordinary sibling importer.
+        first.write_text(first.read_text() + "# signed re-encode\n")
+        first_closure_skip = _resolve_scheduled_proof_hash_dependents(
+            (Path("us/regulations/7-cfr/273/11/c.yaml"),),
+            overlay_content_root=content_root,
+            dependents=[second, sibling],
+        )
+        assert first_closure_skip == {second}
+        assert [path for path in (second, sibling) if path not in first_closure_skip] == [
+            sibling
+        ]
 
     def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
         content_root = tmp_path / "rulespec-us" / "us"

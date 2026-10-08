@@ -5315,7 +5315,15 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[1].count("--repair-candidate-path") == 1
             assert encode_args[1].count("--repair-candidate-rulespec-sha256") == 1
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
-        assert ("--apply-target-only" in encode_args[1]) is (dependent_count == 2)
+        assert "--apply-target-only" not in encode_args[1]
+        assert (scheduled_option in encode_args[1]) is (
+            cascade_mode == "proof-import-chain"
+        )
+        if cascade_mode == "proof-import-chain":
+            assert encode_args[1].count(scheduled_option) == 1
+            assert encode_args[1][encode_args[1].index(scheduled_option) + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
         assert (
             Path(encode_args[1][encode_args[1].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
