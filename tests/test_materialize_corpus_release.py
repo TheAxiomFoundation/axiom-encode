@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
 import os
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -176,13 +178,88 @@ def test_every_release_object_fetch_uses_the_resolver_cap() -> None:
                 assert not re.search(
                     r"\bwget\b|urlopen|gh release download", command
                 ), (workflow.name, step.get("name"))
-                curls = re.findall(r"curl (?:[^\n]*\\\n)*[^\n]*", command)
+                curls = re.findall(
+                    r"curl (?:[^\n]*\\\n)*[^\n]*|\[\s*['\"]curl['\"][^\]]*\]",
+                    command,
+                )
                 assert curls, (workflow.name, step.get("name"))
                 for curl in curls:
-                    assert re.findall(r"--max-filesize[= ]+(\S+)", curl) == [
-                        str(cap)
-                    ], (workflow.name, curl)
-    assert len(fetch_steps) >= 4, fetch_steps
+                    assert re.findall(
+                        r"--max-filesize(?:[= ]+|['\"]\s*,\s*['\"])([^\s'\",]+)", curl
+                    ) == [str(cap)], (workflow.name, curl)
+    assert len(fetch_steps) >= 5, fetch_steps
+
+
+@pytest.mark.parametrize(
+    ("curl", "valid"),
+    [
+        ("curl --max-filesize 67108864 https://example/releases/object.json", True),
+        ("curl --max-filesize=67108864 https://example/releases/object.json", True),
+        (
+            "subprocess.run(['curl',\n '--max-filesize', '67108864', url], check=True)",
+            True,
+        ),
+        ('subprocess.run(["curl", "--max-filesize", "67108864", url])', True),
+        ("subprocess.run(['curl', '--max-filesize', '16777216', url])", False),
+        ("subprocess.run(['curl', url])", False),
+        ("curl --max-filesize 16777216 https://example/releases/object.json", False),
+        ("curl https://example/releases/object.json", False),
+    ],
+)
+def test_release_object_fetch_audit_handles_shell_and_python_argv(
+    tmp_path: Path, monkeypatch, curl: str, valid: bool
+) -> None:
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    steps = [
+        {
+            "name": f"Fetch {index}",
+            "run": f"url='https://example/releases/object.json'\n{curl}",
+        }
+        for index in range(5)
+    ]
+    (workflows / "fetch.yml").write_text(
+        yaml.safe_dump({"jobs": {"fetch": {"steps": steps}}})
+    )
+    monkeypatch.setattr(f"{__name__}.ROOT", tmp_path)
+
+    if valid:
+        test_every_release_object_fetch_uses_the_resolver_cap()
+    else:
+        with pytest.raises(AssertionError):
+            test_every_release_object_fetch_uses_the_resolver_cap()
+
+
+@pytest.mark.parametrize(
+    "size", [MAX_RELEASE_OBJECT_BYTES, MAX_RELEASE_OBJECT_BYTES + 1]
+)
+def test_canada_release_object_size_check_uses_resolver_cap(size: int) -> None:
+    workflow = ROOT / ".github/workflows/issue233-canada-source-diagnostic.yml"
+    document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    command = next(
+        step["run"]
+        for job in document["jobs"].values()
+        for step in job["steps"]
+        if step.get("name")
+        == "Acquire authenticated fixed release and signed artifact inventory"
+    )
+    source = command.split("<<'PYCODE'\n", 1)[1].rsplit("\nPYCODE", 1)[0]
+    checks = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assert)
+        and ast.unparse(node.test).startswith("public_object.stat().st_size <=")
+    ]
+    assert len(checks) == 1
+    check = compile(ast.Module(body=checks, type_ignores=[]), str(workflow), "exec")
+    namespace = {
+        "public_object": SimpleNamespace(stat=lambda: SimpleNamespace(st_size=size))
+    }
+    if size <= MAX_RELEASE_OBJECT_BYTES:
+        exec(check, namespace)
+    else:
+        with pytest.raises(AssertionError):
+            exec(check, namespace)
 
 
 def _grow_after_fstat(monkeypatch, target: Path) -> list[int]:
