@@ -31826,8 +31826,7 @@ rules:
         test_file = tmp_path / "j.test.yaml"
         relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
         derived_ref = (
-            "us:statutes/7/2012/j#input."
-            "member_meets_elderly_or_disabled_definition"
+            "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition"
         )
         stale_ref = "us:statutes/7/2012/j#input.stale_unrelated_fact"
         test_file.write_text(
