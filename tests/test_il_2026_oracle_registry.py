@@ -15,7 +15,7 @@ DIRECT_VARIABLES = {
     ),
 }
 ORACLE_MERGE = "d3419010d9c8de6a790220bf47912d85aadc2588"
-ENCODER_VERSION = "0.2.2137"
+ENCODER_VERSION = "0.2.2138"
 FALLBACK_TEXT = """  - legal_id_prefix: "us-il:"
     country: us
     mapping_type: not_comparable

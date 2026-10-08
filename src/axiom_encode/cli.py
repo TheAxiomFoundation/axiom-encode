@@ -19854,19 +19854,50 @@ def _remove_invalid_test_input_refs(
         invalid_refs,
     )
 
-    changed = False
+    removed_refs: set[str] = set()
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
         inputs = test_case.get("input")
-        if _remove_mapping_keys_recursive(inputs, removable_refs):
-            changed = True
-    if not changed:
+        retained_refs = _invalid_refs_solely_populating_relation_rows(
+            inputs, removable_refs
+        )
+        case_removable_refs = removable_refs - retained_refs
+        present_refs = {
+            str(key) for key in _mapping_keys_recursive(inputs)
+        } & case_removable_refs
+        if _remove_mapping_keys_recursive(inputs, case_removable_refs):
+            removed_refs.update(present_refs)
+    if not removed_refs:
         return []
     test_file.write_text(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
-    return sorted(removable_refs)
+    return sorted(removed_refs)
+
+
+def _invalid_refs_solely_populating_relation_rows(
+    inputs: object, invalid_refs: set[str]
+) -> set[str]:
+    """Keep a concrete invalid-input diagnostic instead of creating an empty row.
+
+    A generated relation row whose only child fact is an invalid reference needs
+    model repair. Deleting that fact turns a precise input-slot error into an
+    opaque missing-assignment error and can leave a misleading ``- {}`` row.
+    """
+    if not isinstance(inputs, dict):
+        return set()
+    retained: set[str] = set()
+    for relation_ref, rows in inputs.items():
+        if "#relation." not in str(relation_ref) or not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or not row:
+                continue
+            row_keys = {str(key) for key in row}
+            if row_keys <= invalid_refs:
+                retained.update(row_keys)
+    return retained
 
 
 def _rewrite_import_output_test_input_refs(
