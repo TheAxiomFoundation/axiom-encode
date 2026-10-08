@@ -822,7 +822,8 @@ def _tr_converts_case(words: tuple[str, ...]) -> bool:
 # and the only names each writes. A new writer needs a reviewed entry here.
 GITHUB_ENV_WRITERS = {
     ("targeted-signed-reencode.yml", "encode", "Validate dependent cascade"): {
-        "DEPENDENT_CASCADE_MODE"
+        "DEPENDENT_CASCADE_MODE",
+        "DEPENDENT_RULESPEC_PATHS_JSON",
     },
 }
 

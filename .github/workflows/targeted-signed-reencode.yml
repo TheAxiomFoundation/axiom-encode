@@ -1241,8 +1241,7 @@ jobs:
               ;;
           esac
           printf 'DEPENDENT_CASCADE_MODE=%s\n' "$cascade_mode" >> "$GITHUB_ENV"
-          printf 'DEPENDENT_RULESPEC_PATHS_JSON=%s\n' \
-            "$dependent_paths_json" >> "$GITHUB_ENV"
+          printf 'DEPENDENT_RULESPEC_PATHS_JSON=%s\n' "$dependent_paths_json" >> "$GITHUB_ENV"
 
       - name: Verify existing signed imports
         env:
