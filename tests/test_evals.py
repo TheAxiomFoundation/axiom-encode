@@ -9285,7 +9285,13 @@ rules: []
         assert mock_evaluate.call_count == 4
         assert mock_repair.call_count == 3
 
-    def test_generated_eval_repair_expands_fail_fast_coverage_issues(self, tmp_path):
+    def test_generated_eval_repair_expands_fail_fast_coverage_issues(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "axiom_encode.cli._rulespec_companion_test_failures",
+            lambda *args, **kwargs: [],
+        )
         repo_path = _canonical_rulespec_content_root(tmp_path, "us")
         rulespec_file = repo_path / "statutes" / "7" / "2015" / "f.yaml"
         test_file = rulespec_file.with_name("f.test.yaml")
