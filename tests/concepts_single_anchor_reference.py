@@ -1,12 +1,30 @@
 """Single-anchor concept registry semantics, frozen as a differential oracle.
 
-These are the validator and test auto-repair from axiom-encode origin/main
-436cf3044 (src/axiom_encode/concepts/validator.py lines 38-188 and
-auto_repair.py lines 71-109), copied verbatim apart from the function names.
-They read only `Concept.producer_anchor`. For a registry in which every
-concept has at most one producer, the multi-producer implementation must
-agree with them exactly (tests/test_concepts_vintage_producers.py).
-Do not update this file to track the live implementation.
+These are the validator, test auto-repair and prompt guidance from
+axiom-encode origin/main 436cf3044 (src/axiom_encode/concepts/validator.py
+lines 38-188, auto_repair.py lines 71-109, and harness/evals.py lines
+12186-12262), copied verbatim apart from the function names and these
+changes, none of which alters behaviour for the inputs the tests pass:
+
+- `concept.has_producer` is replaced by `_has_producer(concept)`, main's
+  definition of that property (registry.py lines 26-28 at 436cf3044),
+  because the live property now reads `producer_anchors`;
+- the guidance copy requires `registry` (main's fallback that loads the
+  packaged registry when none is passed is dropped) and inlines
+  `_canonical_concept_token_index`.
+
+For producers they read only `Concept.producer_anchor`. For a registry in
+which every concept has at most one producer, the multi-producer
+implementation must agree with them exactly
+(tests/test_concepts_vintage_producers.py). Do not update this file to track
+the live implementation.
+
+The scanner regexes are frozen here too (validator.py lines 19-22 and
+auto_repair.py lines 32-34 at 436cf3044), so a later change to the live
+patterns shows up as a differential failure instead of moving the oracle.
+Only the `CanonicalNameViolation` record type is shared with the live code:
+the differential test compares violation lists with `==`, which needs the
+same class.
 """
 
 from __future__ import annotations
@@ -17,12 +35,25 @@ from typing import Iterable
 
 import yaml
 
-from axiom_encode.concepts.registry import ConceptRegistry
-from axiom_encode.concepts.validator import (
-    ANCHORED_REF_RE,
-    IDENT_RE,
-    CanonicalNameViolation,
+from axiom_encode.concepts.registry import Concept, ConceptRegistry
+from axiom_encode.concepts.validator import CanonicalNameViolation
+
+# validator.py IDENT_RE and ANCHORED_REF_RE at 436cf3044.
+IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
+ANCHORED_REF_RE = re.compile(
+    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(input\.)?([a-z][a-z0-9_]*)"
 )
+# auto_repair.py ANCHORED_REF_RE at 436cf3044 (its own copy of the pattern).
+AUTO_REPAIR_ANCHORED_REF_RE = re.compile(
+    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(input\.)?([a-z][a-z0-9_]*)"
+)
+# harness/evals.py _CANONICAL_CONCEPT_TOKEN_RE at 436cf3044.
+CANONICAL_CONCEPT_TOKEN_RE = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def _has_producer(concept: Concept) -> bool:
+    """`Concept.has_producer` as defined at 436cf3044."""
+    return concept.producer_anchor is not None and not concept.producer_missing
 
 
 def legacy_validate_generated_against_registry(
@@ -82,7 +113,7 @@ def legacy_validate_generated_against_registry(
             canonical = registry.lookup_canonical(name)
             if (
                 canonical is not None
-                and canonical.has_producer
+                and _has_producer(canonical)
                 and canonical.producer_anchor != anchor
                 and not is_input_ref
             ):
@@ -126,7 +157,7 @@ def legacy_validate_generated_against_registry(
                 if (
                     canonical is not None
                     and apply_anchor is not None
-                    and canonical.has_producer
+                    and _has_producer(canonical)
                     and canonical.producer_anchor != apply_anchor
                     and not path.name.endswith(".test.yaml")
                 ):
@@ -209,11 +240,74 @@ def legacy_rewrite_anchored_refs(
         canonical = registry.lookup_canonical(name)
         if (
             canonical is not None
-            and canonical.has_producer
+            and _has_producer(canonical)
             and canonical.producer_anchor != anchor
             and not is_input_ref
         ):
             return f"{canonical.producer_anchor}#{input_prefix}{name}"
         return match.group(0)
 
-    return ANCHORED_REF_RE.sub(repl, text)
+    return AUTO_REPAIR_ANCHORED_REF_RE.sub(repl, text)
+
+
+def legacy_format_canonical_concept_registry_guidance(
+    source_text: str,
+    workspace,
+    context_files,
+    *,
+    registry: ConceptRegistry,
+) -> str:
+    """Inject canonical-concept registry directives scoped to mentioned concepts.
+
+    Scans source text plus copied context files for any canonical name or
+    blocked synonym in the registry; emits a terse "use these exact names"
+    block for the matched concepts only. Concepts that never appear in any
+    text are omitted so the prompt does not pay tokens for irrelevant rules.
+    """
+    if not registry.concepts_by_id:
+        return ""
+
+    haystack_parts: list[str] = [source_text]
+    for item in context_files:
+        path = workspace.root / item.workspace_path
+        try:
+            haystack_parts.append(path.read_text())
+        except OSError:
+            continue
+    haystack_tokens = set(CANONICAL_CONCEPT_TOKEN_RE.findall("\n".join(haystack_parts)))
+    if not haystack_tokens:
+        return ""
+
+    token_index: dict[str, Concept] = {}
+    for concept in registry.concepts_by_id.values():
+        token_index[concept.canonical_name] = concept
+        for synonym in concept.blocked_synonyms:
+            token_index[synonym] = concept
+    matched: list[Concept] = []
+    seen_ids: set[str] = set()
+    for token in haystack_tokens:
+        concept = token_index.get(token)
+        if concept is None or concept.id in seen_ids:
+            continue
+        seen_ids.add(concept.id)
+        matched.append(concept)
+
+    if not matched:
+        return ""
+
+    matched.sort(key=lambda c: c.id)
+    lines: list[str] = []
+    for concept in matched:
+        parts: list[str] = [f"`{concept.canonical_name}`"]
+        if _has_producer(concept):
+            parts.append(f"producer `{concept.producer_anchor}`")
+        if concept.blocked_synonyms:
+            blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
+            parts.append(f"do not use: {blocked}")
+        lines.append("- " + " — ".join(parts))
+
+    return """
+Canonical concept names:
+Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
+{lines}
+""".format(lines="\n".join(lines))

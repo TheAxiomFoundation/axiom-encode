@@ -6,7 +6,9 @@ producer anchor, `fy-2026-cola/maximum-allotments`, so an FY2027 producer was
 refused with `canonical_conflict` and test auto-repair silently re-anchored
 FY2027 (and FY2024) output assertions to the FY2026 module.
 
-Invariants exercised here (example tests first, then Hypothesis properties):
+Invariants exercised here (example tests first, then Hypothesis properties
+whose oracles read only what the strategy drew, never the `Concept`
+predicates under test):
 
 1. Acceptance: a module may define a registered canonical, and a non-input
    reference may target it, iff its anchor is one of the concept's
@@ -15,22 +17,35 @@ Invariants exercised here (example tests first, then Hypothesis properties):
    never moves an input reference, and redirects an anchor only to the
    concept's single producer; with several vintages it leaves the anchor
    alone (no guessing) and validation names every accepted producer.
-3. Auto-repair is idempotent.
-4. For registries in which every concept has at most one producer, the
-   validator and auto-repair agree exactly with the single-anchor
-   implementation from origin/main 436cf3044 (differential oracle in
-   tests/concepts_single_anchor_reference.py).
-5. The corpus audit reports a canonical producer as a conflict iff its anchor
+3. Auto-repair renames a blocked synonym to its canonical unless the
+   reference is an input slot of an imported module or of one of the
+   concept's producers, and validation flags `blocked_synonym` on exactly
+   those references; nothing else is renamed.
+4. Auto-repair is idempotent.
+5. For registries in which every concept has at most one producer, the
+   validator, auto-repair and encoder prompt guidance agree exactly with the
+   single-anchor implementation from origin/main 436cf3044 (differential
+   oracle in tests/concepts_single_anchor_reference.py).
+6. The corpus audit reports a canonical producer as a conflict iff its anchor
    is not an accepted producer, and reports every accepted producer.
+7. The registry YAML loader round-trips producers and periods.
+8. Producer periods load iff each is ordered and no two share a day, so at
+   most one vintage covers any date.
+9. A vintaged concept's prompt line names each accepted producer exactly
+   once, with its period, and calls the module being encoded a producer iff
+   it is one.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
 import textwrap
+from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -52,6 +67,7 @@ from axiom_encode.concepts.registry import (
     REGISTRY_FORMAT,
     Concept,
     ConceptRegistry,
+    ProducerPeriod,
     load_concept_registry,
 )
 from axiom_encode.concepts.validator import (
@@ -60,10 +76,14 @@ from axiom_encode.concepts.validator import (
 )
 from axiom_encode.harness.evals import (
     EvalWorkspace,
+    _build_rulespec_eval_prompt,
+    _canonical_target_ref_prefix,
     _format_canonical_concept_registry_guidance,
+    _resolve_eval_output_path,
 )
 from axiom_encode.prepare_signed_backfill import citation_rulespec_path
 from tests.concepts_single_anchor_reference import (
+    legacy_format_canonical_concept_registry_guidance,
     legacy_rewrite_anchored_refs,
     legacy_validate_generated_against_registry,
 )
@@ -145,6 +165,24 @@ def test_packaged_cola_concepts_list_every_fiscal_year_producer(name):
     assert concept.producer_anchor == FY2026
     assert concept.has_producer
     assert concept.unique_producer_anchor is None
+
+
+@pytest.mark.parametrize("name", COLA_NAMES)
+def test_packaged_cola_concepts_label_each_vintage_with_its_fiscal_year(name):
+    """Federal fiscal years; FY2027 is the memorandum's 2026-10-01..2027-09-30."""
+    concept = load_concept_registry().lookup_canonical(name)
+    assert [
+        (p.anchor, p.label, p.effective_from, p.effective_to)
+        for p in concept.producer_periods
+    ] == [
+        (FY2024, "FY2024", date(2023, 10, 1), date(2024, 9, 30)),
+        (FY2026, "FY2026", date(2025, 10, 1), date(2026, 9, 30)),
+        (FY2027, "FY2027", date(2026, 10, 1), date(2027, 9, 30)),
+    ]
+    assert concept.producer_period(FY2027).describe() == (
+        "FY2027, 2026-10-01 to 2027-09-30"
+    )
+    assert concept.producer_period(CONSUMER) is None
 
 
 def test_fy2027_anchor_is_the_encoders_canonical_path_for_memo_page_4():
@@ -302,6 +340,151 @@ def test_direct_concept_construction_keeps_single_anchor_semantics():
     assert Concept(id="t.n", canonical_name="n", producer_anchor=None).has_producer is (
         False
     )
+
+
+_TWO_VINTAGES = "producer_anchors: [us:policies/a/fy-1, us:policies/a/fy-2]"
+
+
+def _period(anchor: str, label: str, start: str, end: str) -> str:
+    return (
+        f"- {{anchor: {anchor}, label: {label}, effective_from: {start}, "
+        f"effective_to: {end}}}"
+    )
+
+
+def test_loader_reads_producer_periods_in_anchor_order(tmp_path: Path):
+    root = _registry_yaml(
+        tmp_path,
+        f"""
+        - id: t.vintaged
+          canonical_name: vintaged_amount
+          {_TWO_VINTAGES}
+          producer_periods:
+            {_period("us:policies/a/fy-2", "FY2", "'2025-10-01'", "2026-09-30")}
+            {_period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30")}
+        """,
+    )
+    concept = load_concept_registry(root).lookup_canonical("vintaged_amount")
+    assert concept.producer_periods == (
+        ProducerPeriod(
+            "us:policies/a/fy-1", "FY1", date(2024, 10, 1), date(2025, 9, 30)
+        ),
+        ProducerPeriod(
+            "us:policies/a/fy-2", "FY2", date(2025, 10, 1), date(2026, 9, 30)
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("periods", "message"),
+    [
+        ("producer_periods: []", "producer_periods must be a non-empty list"),
+        (
+            "producer_periods: {us:policies/a/fy-1: FY1}",
+            "producer_periods must be a non-empty list",
+        ),
+        ("producer_periods: [FY1]", "each period must be a mapping"),
+        (
+            "producer_periods:\n  " + _period("1", "FY1", "2024-10-01", "2025-09-30"),
+            "anchor must be a string, got 1",
+        ),
+        (
+            "producer_periods:\n  - {anchor: us:policies/a/fy-1, label: FY1}",
+            r"missing \['effective_from', 'effective_to'\]",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30")[:-1]
+            + ", fiscal_year: 2025}",
+            r"unknown \['fiscal_year'\]",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30"),
+            "must name each producer anchor exactly once",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-3", "FY3", "2026-10-01", "2027-09-30"),
+            "must name each producer anchor exactly once",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-1", "FY1b", "2026-10-01", "2027-09-30"),
+            "must name each producer anchor exactly once",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-10-01")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY2", "2025-10-01", "2026-09-30"),
+            "overlap",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2025-09-30", "2024-10-01")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY2", "2025-10-01", "2026-09-30"),
+            "is after effective_to",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "''", "2024-10-01", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY2", "2025-10-01", "2026-09-30"),
+            "label must be a non-empty string",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY", "2024-10-01", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY", "2025-10-01", "2026-09-30"),
+            "duplicate producer period labels",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "'2024-13-01'", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY2", "2025-10-01", "2026-09-30"),
+            "expected an ISO calendar date",
+        ),
+        (
+            "producer_periods:\n  "
+            + _period("us:policies/a/fy-1", "FY1", "2024-10-01 00:00:00", "2025-09-30")
+            + "\n  "
+            + _period("us:policies/a/fy-2", "FY2", "2025-10-01", "2026-09-30"),
+            "expected a calendar date, got datetime",
+        ),
+    ],
+)
+def test_loader_rejects_malformed_producer_periods(tmp_path, periods, message):
+    body = (
+        "- id: t.bad\n  canonical_name: bad_amount\n  "
+        + _TWO_VINTAGES
+        + "\n  "
+        + periods.replace("\n", "\n  ")
+        + "\n"
+    )
+    with pytest.raises(ValueError, match=message):
+        load_concept_registry(_registry_yaml(tmp_path, body))
+
+
+def test_loader_rejects_periods_without_producers(tmp_path: Path):
+    root = _registry_yaml(
+        tmp_path,
+        f"""
+        - id: t.bad
+          canonical_name: bad_amount
+          producer_periods:
+            {_period("us:policies/a/fy-1", "FY1", "2024-10-01", "2025-09-30")}
+        """,
+    )
+    with pytest.raises(ValueError, match="must name each producer anchor exactly once"):
+        load_concept_registry(root)
 
 
 # ---------------------------------------------------------------------------
@@ -597,30 +780,132 @@ def test_concepts_audit_cli_reports_accepted_producers(tmp_path: Path):
 # Encoder prompt guidance (runs with and without --apply)
 # ---------------------------------------------------------------------------
 
+_COLA_PERIOD_TEXT = {
+    FY2024: "FY2024, 2023-10-01 to 2024-09-30",
+    FY2026: "FY2026, 2025-10-01 to 2026-09-30",
+    FY2027: "FY2027, 2026-10-01 to 2027-09-30",
+}
 
-def test_prompt_guidance_lists_every_vintage_producer(tmp_path: Path):
-    source_text = "snap_maximum_allotment and snap_total_gross_income"
+
+def _guidance(tmp_path: Path, source_text: str, **kwargs) -> str:
     source_file = _write(tmp_path / "source.txt", source_text)
     manifest = _write(tmp_path / "context-manifest.json", "{}")
     workspace = EvalWorkspace(
         root=tmp_path, source_text_file=source_file, manifest_file=manifest
     )
-    section = _format_canonical_concept_registry_guidance(
-        source_text, workspace, context_files=[]
+    return _format_canonical_concept_registry_guidance(
+        source_text, workspace, context_files=[], **kwargs
     )
-    allotment_line = next(
-        line for line in section.splitlines() if "`snap_maximum_allotment`" in line
-    )
+
+
+def _line_for(section: str, name: str) -> str:
+    return next(line for line in section.splitlines() if line.startswith(f"- `{name}`"))
+
+
+def test_prompt_guidance_lists_every_vintage_producer(tmp_path: Path):
+    section = _guidance(tmp_path, "snap_maximum_allotment and snap_total_gross_income")
+    allotment_line = _line_for(section, "snap_maximum_allotment")
     for vintage in COLA_VINTAGES:
-        assert f"`{vintage}`" in allotment_line
+        assert f"`{vintage}` ({_COLA_PERIOD_TEXT[vintage]})" in allotment_line
     assert "one producer per vintage" in allotment_line
+    assert "period covers the dates you encode" in allotment_line
     assert f"producer `{FY2026}`" not in allotment_line
-    assert "producer `us:regulations/7-cfr/273/10`" in section
+    assert "this module" not in allotment_line  # no target known
+    # Single-producer lines are byte-for-byte what main printed.
+    assert (
+        _line_for(section, "snap_total_gross_income")
+        == "- `snap_total_gross_income` — producer `us:regulations/7-cfr/273/10` — "
+        "do not use: `snap_gross_monthly_income`, `snap_monthly_gross_income`, "
+        "`snap_monthly_household_income`"
+    )
+
+
+def test_prompt_guidance_tells_the_fy2027_page_4_encode_it_is_the_producer(
+    tmp_path: Path,
+):
+    section = _guidance(
+        tmp_path,
+        "snap_maximum_allotment snap_one_person_thrifty_food_plan_cost",
+        target_anchor=FY2027,
+    )
+    for name in COLA_NAMES:
+        line = _line_for(section, name)
+        assert (
+            f"this module, `{FY2027}`, is the FY2027 producer "
+            "(2026-10-01 to 2027-09-30): when this source sets it, define it "
+            "here under this exact name"
+        ) in line
+        other_vintages = line.split("other vintages: ", 1)[1]
+        assert f"`{FY2027}`" not in other_vintages
+        for vintage in (FY2024, FY2026):
+            assert f"`{vintage}` ({_COLA_PERIOD_TEXT[vintage]})" in other_vintages
+        assert "do not define" not in line
+
+
+@pytest.mark.parametrize(
+    "target",
+    ["us:policies/usda/fns/snap-fy2027-cola/page-5", "us:regulations/7-cfr/273/10"],
+)
+def test_prompt_guidance_tells_other_modules_not_to_define_the_name(
+    tmp_path: Path, target
+):
+    line = _line_for(
+        _guidance(tmp_path, "snap_maximum_allotment", target_anchor=target),
+        "snap_maximum_allotment",
+    )
+    assert "this module is not one of them, so do not define a rule" in line
+    assert "this module, `" not in line
+    for vintage in COLA_VINTAGES:
+        assert f"`{vintage}` ({_COLA_PERIOD_TEXT[vintage]})" in line
+
+
+def test_prompt_target_for_the_page_4_citation_is_the_registered_fy2027_anchor():
+    """The prompt's target_ref_prefix for the page-4 encode is the FY2027 anchor.
+
+    `_build_rulespec_eval_prompt` passes `target_ref_prefix` as the guidance's
+    `target_anchor`; derive it the way the eval run does (evals.py: the
+    output path from `_resolve_eval_output_path`, the prefix from
+    `_canonical_target_ref_prefix` with the corpus citation as source id).
+    """
+    citation = f"{FY2027_CITATION_PREFIX}4"
+    relative_output = _resolve_eval_output_path(citation)
+    assert _canonical_target_ref_prefix(citation, relative_output) == FY2027
+
+
+def test_build_rulespec_eval_prompt_passes_target_to_concept_guidance(
+    tmp_path: Path,
+):
+    source_text = "Maximum allotments: snap_maximum_allotment for each size."
+    source_file = _write(tmp_path / "source.txt", source_text)
+    manifest = _write(tmp_path / "context-manifest.json", "{}")
+    workspace = EvalWorkspace(
+        root=tmp_path, source_text_file=source_file, manifest_file=manifest
+    )
+    prompt = _build_rulespec_eval_prompt(
+        citation=f"{FY2027_CITATION_PREFIX}4",
+        mode="cold",
+        workspace=workspace,
+        context_files=[],
+        target_file_name="policies/usda/fns/snap-fy2027-cola/page-4.yaml",
+        target_ref_prefix=FY2027,
+        include_tests=False,
+        runner_backend="codex",
+        policyengine_rule_hint=None,
+    )
+    assert (
+        f"this module, `{FY2027}`, is the FY2027 producer (2026-10-01 to 2027-09-30)"
+        in prompt
+    )
 
 
 # ---------------------------------------------------------------------------
 # Hypothesis properties
 # ---------------------------------------------------------------------------
+#
+# Every oracle below decides from what the strategy drew (`_Drawn`), never from
+# `Concept` methods such as `accepts_producer_anchor`, `has_producer` or
+# `unique_producer_anchor`: an oracle that called the predicate under test
+# would agree with any bug in it.
 
 PROPERTY_SETTINGS = settings(
     max_examples=200,
@@ -632,6 +917,7 @@ PROPERTY_SETTINGS = settings(
 
 _SEGMENT = st.text(alphabet="abcxyz0189-._AZ", min_size=1, max_size=6)
 _SAFE_SEGMENT = st.text(alphabet="abcxyz0189-", min_size=1, max_size=6)
+_EPOCH = date(2020, 1, 1)
 
 
 def _anchors(segment):
@@ -643,56 +929,99 @@ def _anchors(segment):
     )
 
 
+@dataclass(frozen=True)
+class _Drawn:
+    """One concept as the strategy drew it: the properties' ground truth."""
+
+    canonical_name: str
+    anchors: tuple[str, ...]
+    missing: bool
+    periods: tuple[ProducerPeriod, ...] = ()
+
+    def lists(self, anchor: str | None) -> bool:
+        return anchor in frozenset(self.anchors)
+
+    @property
+    def produces(self) -> bool:
+        return len(self.anchors) > 0 and not self.missing
+
+
+@st.composite
+def _disjoint_periods(draw, anchors: tuple[str, ...]):
+    """One inclusive period per anchor, non-overlapping, in a shuffled order."""
+    periods = []
+    cursor = draw(st.integers(0, 400))
+    for index in draw(st.permutations(range(len(anchors)))):
+        length = draw(st.integers(0, 400))
+        periods.append(
+            ProducerPeriod(
+                anchor=anchors[index],
+                label=f"V{index}",
+                effective_from=_EPOCH + timedelta(days=cursor),
+                effective_to=_EPOCH + timedelta(days=cursor + length),
+            )
+        )
+        cursor += length + 1 + draw(st.integers(0, 60))
+    return tuple(draw(st.permutations(periods)))
+
+
 @st.composite
 def _registries(draw, *, segment=_SEGMENT, single_anchor_only=False):
-    """A random registry plus the anchor pool its concepts draw from."""
+    """A random registry, the anchor pool it draws from, and what was drawn."""
     pool = draw(st.lists(_anchors(segment), min_size=1, max_size=6, unique=True))
     concepts = []
+    drawn: dict[str, _Drawn] = {}
     for index in range(draw(st.integers(min_value=1, max_value=4))):
         max_anchors = 1 if single_anchor_only else 3
-        anchors = draw(
-            st.lists(st.sampled_from(pool), max_size=max_anchors, unique=True)
+        anchors = tuple(
+            draw(st.lists(st.sampled_from(pool), max_size=max_anchors, unique=True))
         )
         if single_anchor_only:
             # The single-anchor implementation reads only producer_anchor.
             legacy = anchors[0] if anchors else None
+            periods: tuple[ProducerPeriod, ...] = ()
         else:
             legacy = (
                 draw(st.sampled_from(anchors))
                 if anchors and draw(st.booleans())
                 else None
             )
+            periods = (
+                draw(_disjoint_periods(anchors))
+                if anchors and draw(st.booleans())
+                else ()
+            )
+        canonical = f"name_{index}"
         synonyms = tuple(
             f"name_{index}_old_{k}" for k in range(draw(st.integers(0, 2)))
         )
+        missing = draw(st.booleans())
         concepts.append(
             Concept(
                 id=f"t.c{index}",
-                canonical_name=f"name_{index}",
+                canonical_name=canonical,
                 producer_anchor=legacy,
                 blocked_synonyms=synonyms,
-                producer_missing=draw(st.booleans()),
-                producer_anchors=tuple(anchors),
+                producer_missing=missing,
+                producer_anchors=anchors,
+                producer_periods=periods,
             )
         )
+        truth = _Drawn(canonical, anchors, missing, periods)
+        for name in (canonical, *synonyms):
+            drawn[name] = truth
     registry = ConceptRegistry(
         concepts_by_id={c.id: c for c in concepts},
         canonical_to_concept={c.canonical_name: c for c in concepts},
         synonym_to_concept={s: c for c in concepts for s in c.blocked_synonyms},
     )
-    return pool, registry
+    return pool, registry, drawn
 
 
 @st.composite
 def _registry_and_refs(draw, *, single_anchor_only=False):
-    pool, registry = draw(_registries(single_anchor_only=single_anchor_only))
-    names = sorted(
-        {
-            *registry.canonical_to_concept,
-            *registry.synonym_to_concept,
-            "unregistered_name",
-        }
-    )
+    pool, registry, drawn = draw(_registries(single_anchor_only=single_anchor_only))
+    names = sorted({*drawn, "unregistered_name"})
     anchor_choices = st.one_of(st.sampled_from(pool), _anchors(_SEGMENT))
     refs = draw(
         st.lists(
@@ -702,7 +1031,7 @@ def _registry_and_refs(draw, *, single_anchor_only=False):
         )
     )
     apply_anchor = draw(st.one_of(st.none(), st.sampled_from(pool)))
-    return pool, registry, refs, apply_anchor
+    return pool, registry, drawn, refs, apply_anchor
 
 
 def _ref_text(refs) -> str:
@@ -722,35 +1051,64 @@ def _parse_lines(text: str):
     return parsed
 
 
+def _keeps_synonym(truth: _Drawn, anchor: str, is_input: bool, apply_anchor) -> bool:
+    """A blocked-synonym ref that is an imported module's or a producer's input slot."""
+    return is_input and (
+        (apply_anchor is not None and anchor != apply_anchor) or truth.lists(anchor)
+    )
+
+
 @PROPERTY_SETTINGS
 @given(_registry_and_refs())
 def test_property_repair_never_moves_accepted_or_input_refs_and_never_guesses(case):
-    _pool, registry, refs, apply_anchor = case
-    text = _ref_text(refs)
-    repaired = _rewrite_anchored_refs(text, registry, apply_anchor=apply_anchor)
+    _pool, registry, drawn, refs, apply_anchor = case
+    repaired = _rewrite_anchored_refs(
+        _ref_text(refs), registry, apply_anchor=apply_anchor
+    )
     after = _parse_lines(repaired)
     assert len(after) == len(refs)
-    for (anchor, is_input, name), (new_anchor, new_input, new_name) in zip(refs, after):
+    for (anchor, is_input, name), (new_anchor, new_input, _name) in zip(refs, after):
         assert new_input == is_input
-        concept = registry.concept_for_name(name)
-        if concept is None:
-            assert (new_anchor, new_name) == (anchor, name)
-            continue
-        assert new_name in {name, concept.canonical_name}
-        if is_input or concept.accepts_producer_anchor(anchor):
+        truth = drawn.get(name)
+        if truth is None:
             assert new_anchor == anchor
-        if len(concept.producer_anchors) > 1:
+            continue
+        if is_input or truth.lists(anchor):
+            assert new_anchor == anchor
+        if len(truth.anchors) > 1:
             assert new_anchor == anchor  # never chooses a vintage
         if new_anchor != anchor:
-            assert not is_input
-            assert not concept.accepts_producer_anchor(anchor)
-            assert new_anchor == concept.unique_producer_anchor
+            assert truth.anchors == (new_anchor,)
+
+
+@PROPERTY_SETTINGS
+@given(_registry_and_refs())
+def test_property_repair_renames_exactly_the_candidate_owned_synonyms(case):
+    """A blocked synonym becomes its canonical name unless it is an input slot
+    of an imported module or of one of the concept's producers; nothing else
+    is renamed."""
+    _pool, registry, drawn, refs, apply_anchor = case
+    repaired = _rewrite_anchored_refs(
+        _ref_text(refs), registry, apply_anchor=apply_anchor
+    )
+    for (anchor, is_input, name), (_anchor, _input, new_name) in zip(
+        refs, _parse_lines(repaired)
+    ):
+        truth = drawn.get(name)
+        if (
+            truth is None
+            or name == truth.canonical_name
+            or _keeps_synonym(truth, anchor, is_input, apply_anchor)
+        ):
+            assert new_name == name
+        else:
+            assert new_name == truth.canonical_name
 
 
 @PROPERTY_SETTINGS
 @given(_registry_and_refs())
 def test_property_repair_is_idempotent(case):
-    _pool, registry, refs, apply_anchor = case
+    _pool, registry, _drawn, refs, apply_anchor = case
     once = _rewrite_anchored_refs(_ref_text(refs), registry, apply_anchor=apply_anchor)
     twice = _rewrite_anchored_refs(once, registry, apply_anchor=apply_anchor)
     assert twice == once
@@ -759,13 +1117,11 @@ def test_property_repair_is_idempotent(case):
 @PROPERTY_SETTINGS
 @given(_registry_and_refs(), st.data())
 def test_property_validation_accepts_iff_listed_producer(case, data):
-    pool, registry, refs, _apply_anchor = case
-    concepts = list(registry.concepts_by_id.values())
-    defined = data.draw(st.lists(st.sampled_from(concepts), unique_by=lambda c: c.id))
+    pool, registry, drawn, refs, _apply_anchor = case
+    canonicals = sorted({truth.canonical_name for truth in drawn.values()})
+    defined = data.draw(st.lists(st.sampled_from(canonicals), unique=True))
     apply_anchor = data.draw(st.one_of(st.sampled_from(pool), _anchors(_SEGMENT)))
-    rules = "".join(
-        f"  - name: {c.canonical_name}\n    kind: parameter\n" for c in defined
-    )
+    rules = "".join(f"  - name: {name}\n    kind: parameter\n" for name in defined)
     with tempfile.TemporaryDirectory() as temporary:
         module = _write(Path(temporary) / "m.yaml", "rules:\n" + rules)
         test_file = _write(Path(temporary) / "m.test.yaml", _ref_text(refs))
@@ -774,26 +1130,29 @@ def test_property_validation_accepts_iff_listed_producer(case, data):
         )
     conflicts = {v.name for v in violations if v.kind == "canonical_conflict"}
     assert conflicts == {
-        c.canonical_name
-        for c in defined
-        if c.has_producer and not c.accepts_producer_anchor(apply_anchor)
+        name
+        for name in defined
+        if drawn[name].produces and not drawn[name].lists(apply_anchor)
     }
-    misses = {
-        v.where.split(".test.yaml:", 1)[1]
-        for v in violations
-        if v.kind == "anchored_ref_miss"
-    }
+
+    def flagged(kind):
+        return {
+            v.where.split(".test.yaml:", 1)[1] for v in violations if v.kind == kind
+        }
+
     expected_misses = set()
+    expected_synonyms = set()
     for anchor, is_input, name in refs:
-        concept = registry.lookup_canonical(name)
-        if (
-            concept is not None
-            and not is_input
-            and concept.has_producer
-            and not concept.accepts_producer_anchor(anchor)
-        ):
+        truth = drawn.get(name)
+        if truth is None:
+            continue
+        if name != truth.canonical_name:
+            if not _keeps_synonym(truth, anchor, is_input, apply_anchor):
+                expected_synonyms.add(f"{anchor}#{name}")
+        elif not is_input and truth.produces and not truth.lists(anchor):
             expected_misses.add(f"{anchor}#{name}")
-    assert misses == expected_misses
+    assert flagged("anchored_ref_miss") == expected_misses
+    assert flagged("blocked_synonym") == expected_synonyms
 
 
 @PROPERTY_SETTINGS
@@ -801,7 +1160,7 @@ def test_property_validation_accepts_iff_listed_producer(case, data):
 def test_property_repair_then_validate_flags_exactly_the_ambiguous_vintage_refs(
     case,
 ):
-    _pool, registry, refs, _apply_anchor = case
+    _pool, registry, drawn, refs, _apply_anchor = case
     with tempfile.TemporaryDirectory() as temporary:
         test_file = _write(Path(temporary) / "m.test.yaml", _ref_text(refs))
         auto_repair_test_yaml_canonical_violations([test_file], registry)
@@ -814,36 +1173,36 @@ def test_property_repair_then_validate_flags_exactly_the_ambiguous_vintage_refs(
     }
     expected = set()
     for anchor, is_input, name in refs:
-        concept = registry.concept_for_name(name)
+        truth = drawn.get(name)
         if (
-            concept is not None
+            truth is not None
             and not is_input
-            and concept.has_producer
-            and len(concept.producer_anchors) > 1
-            and not concept.accepts_producer_anchor(anchor)
+            and truth.produces
+            and len(truth.anchors) > 1
+            and not truth.lists(anchor)
         ):
-            expected.add(f"{anchor}#{concept.canonical_name}")
+            expected.add(f"{anchor}#{truth.canonical_name}")
     assert flagged == expected
 
 
 @PROPERTY_SETTINGS
 @given(_registry_and_refs(single_anchor_only=True), st.data())
 def test_property_single_producer_registries_match_main_branch_semantics(case, data):
-    pool, registry, refs, apply_anchor = case
+    pool, registry, drawn, refs, apply_anchor = case
     text = _ref_text(refs)
     assert _rewrite_anchored_refs(
         text, registry, apply_anchor=apply_anchor
     ) == legacy_rewrite_anchored_refs(text, registry, apply_anchor=apply_anchor)
 
-    concepts = list(registry.concepts_by_id.values())
-    defined = data.draw(st.lists(st.sampled_from(concepts), unique_by=lambda c: c.id))
+    canonicals = sorted({truth.canonical_name for truth in drawn.values()})
+    defined = data.draw(st.lists(st.sampled_from(canonicals), unique=True))
     synonyms = data.draw(
         st.lists(st.sampled_from(sorted(registry.synonym_to_concept) or ["x"]))
     )
     rules = "".join(
         f"  - name: {name}\n    kind: derived\n    versions:\n"
         f"      - formula: {' + '.join(synonyms) or '0'}\n"
-        for name in [c.canonical_name for c in defined] + synonyms
+        for name in defined + synonyms
     )
     with tempfile.TemporaryDirectory() as temporary:
         module = _write(Path(temporary) / "m.yaml", "rules:\n" + rules)
@@ -858,10 +1217,80 @@ def test_property_single_producer_registries_match_main_branch_semantics(case, d
     assert current == legacy
 
 
+def _guidance_for(registry, source_text: str, **kwargs) -> str:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        workspace = EvalWorkspace(
+            root=root,
+            source_text_file=_write(root / "source.txt", source_text),
+            manifest_file=_write(root / "context-manifest.json", "{}"),
+        )
+        return _format_canonical_concept_registry_guidance(
+            source_text, workspace, [], registry=registry, **kwargs
+        )
+
+
+@PROPERTY_SETTINGS
+@given(_registries(single_anchor_only=True), st.data())
+def test_property_single_producer_prompt_guidance_matches_main_branch(case, data):
+    """With one producer per concept the prompt is main's, whatever the target."""
+    pool, registry, drawn = case
+    words = data.draw(st.lists(st.sampled_from([*sorted(drawn), "unrelated"])))
+    source_text = " ".join(words)
+    target = data.draw(st.one_of(st.none(), st.sampled_from(pool), _anchors(_SEGMENT)))
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        workspace = EvalWorkspace(
+            root=root,
+            source_text_file=_write(root / "source.txt", source_text),
+            manifest_file=_write(root / "context-manifest.json", "{}"),
+        )
+        current = _format_canonical_concept_registry_guidance(
+            source_text, workspace, [], registry=registry, target_anchor=target
+        )
+        legacy = legacy_format_canonical_concept_registry_guidance(
+            source_text, workspace, [], registry=registry
+        )
+    assert current == legacy
+
+
+_BACKTICKED_ANCHOR_RE = re.compile(r"`([a-z][a-z0-9-]*:[^`]+)`")
+
+
+@PROPERTY_SETTINGS
+@given(_registries(), st.data())
+def test_property_prompt_names_each_vintage_once_and_the_targets_role(case, data):
+    """A concept's prompt line names exactly its accepted producers, each once
+    with its registered period, and calls the module being encoded a producer
+    iff it is one of them."""
+    pool, registry, drawn = case
+    target = data.draw(st.one_of(st.none(), st.sampled_from(pool), _anchors(_SEGMENT)))
+    truths = {truth.canonical_name: truth for truth in drawn.values()}
+    section = _guidance_for(registry, " ".join(sorted(truths)), target_anchor=target)
+    for name, truth in truths.items():
+        line = _line_for(section, name)
+        named = _BACKTICKED_ANCHOR_RE.findall(line)
+        if not truth.produces:
+            assert named == []
+            continue
+        assert sorted(named) == sorted(truth.anchors)
+        for period in truth.periods:
+            assert period.label in line
+            assert period.effective_from.isoformat() in line
+            assert period.effective_to.isoformat() in line
+        if len(truth.anchors) == 1:
+            assert f"producer `{truth.anchors[0]}`" in line
+            continue
+        assert (f"this module, `{target}`, is " in line) is truth.lists(target)
+        assert ("so do not define a rule with this name here" in line) is (
+            target is not None and not truth.lists(target)
+        )
+
+
 @PROPERTY_SETTINGS
 @given(_registries())
 def test_property_registry_yaml_round_trip_preserves_producers(case):
-    _pool, registry = case
+    _pool, registry, _drawn = case
     payload = {
         "format": REGISTRY_FORMAT,
         "concepts": [
@@ -872,6 +1301,21 @@ def test_property_registry_yaml_round_trip_preserves_producers(case):
                 **(
                     {"producer_anchors": list(c.producer_anchors)}
                     if c.producer_anchors
+                    else {}
+                ),
+                **(
+                    {
+                        "producer_periods": [
+                            {
+                                "anchor": p.anchor,
+                                "label": p.label,
+                                "effective_from": p.effective_from,
+                                "effective_to": p.effective_to,
+                            }
+                            for p in c.producer_periods
+                        ]
+                    }
+                    if c.producer_periods
                     else {}
                 ),
                 "producer_missing": c.producer_missing,
@@ -889,7 +1333,70 @@ def test_property_registry_yaml_round_trip_preserves_producers(case):
         assert again.producer_anchors == concept.producer_anchors
         assert again.producer_anchor == concept.producer_anchor
         assert again.has_producer == concept.has_producer
+        assert again.producer_periods == concept.producer_periods
         assert all(PRODUCER_ANCHOR_RE.fullmatch(a) for a in again.producer_anchors)
+
+
+@PROPERTY_SETTINGS
+@given(st.data())
+def test_property_loader_accepts_periods_iff_well_formed_and_disjoint(data):
+    """Periods load iff each is ordered and no two share a day; once loaded,
+    every date is covered by at most one producer and periods follow the
+    producer_anchors order."""
+    anchors = data.draw(
+        st.lists(_anchors(_SAFE_SEGMENT), min_size=1, max_size=4, unique=True)
+    )
+    bounds = data.draw(
+        st.lists(
+            st.tuples(st.integers(0, 40), st.integers(0, 40)),
+            min_size=len(anchors),
+            max_size=len(anchors),
+        )
+    )
+    order = data.draw(st.permutations(range(len(anchors))))
+    entries = [
+        {
+            "anchor": anchors[i],
+            "label": f"V{i}",
+            "effective_from": (_EPOCH + timedelta(days=bounds[i][0])).isoformat(),
+            "effective_to": (_EPOCH + timedelta(days=bounds[i][1])).isoformat(),
+        }
+        for i in order
+    ]
+    ordered = all(start <= end for start, end in bounds)
+    disjoint = all(
+        max(bounds[i][0], bounds[j][0]) > min(bounds[i][1], bounds[j][1])
+        for i in range(len(bounds))
+        for j in range(i + 1, len(bounds))
+    )
+    payload = {
+        "format": REGISTRY_FORMAT,
+        "concepts": [
+            {
+                "id": "t.vintaged",
+                "canonical_name": "vintaged_amount",
+                "producer_anchors": anchors,
+                "producer_periods": entries,
+            }
+        ],
+    }
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        (root / "c.yaml").write_text(yaml.safe_dump(payload, sort_keys=False))
+        if not (ordered and disjoint):
+            with pytest.raises(ValueError):
+                load_concept_registry(root)
+            return
+        concept = load_concept_registry(root).lookup_canonical("vintaged_amount")
+    assert [p.anchor for p in concept.producer_periods] == anchors
+    for offset in range(0, 42):
+        day = _EPOCH + timedelta(days=offset)
+        covering = [
+            p
+            for p in concept.producer_periods
+            if p.effective_from <= day <= p.effective_to
+        ]
+        assert len(covering) <= 1
 
 
 @settings(

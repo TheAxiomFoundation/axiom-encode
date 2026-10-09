@@ -14,7 +14,11 @@ format: axiom-encode/concepts/v1
 # the listed anchors; it is kept for back-compat and is never used to pick
 # a vintage. Add the next fiscal year's producer here when its module path
 # is fixed (for an encoder-produced module, the canonical path of its
-# corpus citation).
+# corpus citation). `producer_periods`, optional, gives each listed
+# producer's inclusive effective dates and a label; periods may not overlap.
+# They are printed in the encoder prompt so the model references the
+# vintage whose dates it is encoding; they do not change which anchors are
+# accepted.
 #
 # Source of truth for canonical names is the federal regulation/statute
 # producer. Where no federal producer exists yet, set `producer_missing: true`
@@ -215,10 +219,28 @@ concepts:
   - id: snap.allotment.max_for_household_size
     canonical_name: snap_maximum_allotment
     producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
-    producer_anchors:
+    # One module per fiscal year produces both COLA allotment concepts, so
+    # the next entry reuses these lists through the YAML aliases.
+    producer_anchors: &snap_cola_allotment_producers
       - us:policies/usda/snap/fy-2024-cola/maximum-allotments
       - us:policies/usda/snap/fy-2026-cola/maximum-allotments
       - us:policies/usda/fns/snap-fy2027-cola/page-4
+    # Federal fiscal years, inclusive. FY2024 and FY2026 match the effective
+    # periods stated in those modules' summaries; FY2027 matches the FNS
+    # FY2027 COLA memorandum (effective 2026-10-01 through 2027-09-30).
+    producer_periods: &snap_cola_allotment_periods
+      - anchor: us:policies/usda/snap/fy-2024-cola/maximum-allotments
+        label: FY2024
+        effective_from: 2023-10-01
+        effective_to: 2024-09-30
+      - anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
+        label: FY2026
+        effective_from: 2025-10-01
+        effective_to: 2026-09-30
+      - anchor: us:policies/usda/fns/snap-fy2027-cola/page-4
+        label: FY2027
+        effective_from: 2026-10-01
+        effective_to: 2027-09-30
     description: >-
       Maximum monthly SNAP allotment for the household's size in the
       applicable region. Each fiscal year's cost-of-living module owns its
@@ -243,10 +265,8 @@ concepts:
   - id: snap.allotment.max_for_one_person
     canonical_name: snap_one_person_thrifty_food_plan_cost
     producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
-    producer_anchors:
-      - us:policies/usda/snap/fy-2024-cola/maximum-allotments
-      - us:policies/usda/snap/fy-2026-cola/maximum-allotments
-      - us:policies/usda/fns/snap-fy2027-cola/page-4
+    producer_anchors: *snap_cola_allotment_producers
+    producer_periods: *snap_cola_allotment_periods
     description: >-
       Maximum allotment for a one-person household, used to compute the
       minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). Each fiscal year's

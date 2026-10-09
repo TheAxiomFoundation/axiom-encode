@@ -10596,6 +10596,7 @@ Import and context rules:
         source_text,
         workspace,
         rulespec_context_files,
+        target_anchor=target_ref_prefix,
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
@@ -12202,6 +12203,7 @@ def _format_canonical_concept_registry_guidance(
     context_files: list[EvalContextFile],
     *,
     registry: ConceptRegistry | None = None,
+    target_anchor: str | None = None,
 ) -> str:
     """Inject canonical-concept registry directives scoped to mentioned concepts.
 
@@ -12209,6 +12211,11 @@ def _format_canonical_concept_registry_guidance(
     blocked synonym in the registry; emits a terse "use these exact names"
     block for the matched concepts only. Concepts that never appear in any
     text are omitted so the prompt does not pay tokens for irrelevant rules.
+
+    ``target_anchor`` is the RuleSpec anchor of the module being encoded (the
+    prompt's ``target_ref_prefix``). It only changes the line for a concept
+    with several producer vintages: the line then says whether this module
+    is one of those producers. Single-producer lines do not depend on it.
     """
     if registry is None:
         try:
@@ -12248,14 +12255,11 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer and len(concept.producer_anchors) == 1:
-            parts.append(f"producer `{concept.producer_anchors[0]}`")
-        elif concept.has_producer:
-            producers = ", ".join(f"`{a}`" for a in concept.producer_anchors)
-            parts.append(
-                "one producer per vintage, only at "
-                f"{producers}; reference the producer of the vintage you mean"
-            )
+        producer_guidance = _canonical_concept_producer_guidance(
+            concept, target_anchor=target_anchor
+        )
+        if producer_guidance:
+            parts.append(producer_guidance)
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")
@@ -12266,6 +12270,58 @@ Canonical concept names:
 Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
 {lines}
 """.format(lines="\n".join(lines))
+
+
+def _canonical_concept_producer_guidance(
+    concept: Concept, *, target_anchor: str | None = None
+) -> str | None:
+    """Describe where a registered concept's producer lives, for the prompt.
+
+    One producer: ``producer `<anchor>```, as before vintages existed. Several
+    producers (one per vintage, e.g. per fiscal year): every vintage is
+    listed with its registered period, and when the module being encoded is
+    known the line says whether it is one of them, so a producer encode
+    defines the name locally and any other module references the vintage
+    whose dates it encodes instead of defining it.
+    """
+    if not concept.has_producer:
+        return None
+
+    def labelled(anchor: str) -> str:
+        period = concept.producer_period(anchor)
+        return f"`{anchor}` ({period.describe()})" if period else f"`{anchor}`"
+
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"producer {labelled(anchors[0])}"
+    if concept.accepts_producer_anchor(target_anchor):
+        period = concept.producer_period(target_anchor)
+        vintage = (
+            f"the {period.label} producer ({period.effective_from.isoformat()} "
+            f"to {period.effective_to.isoformat()})"
+            if period
+            else "one of its vintage producers"
+        )
+        others = ", ".join(labelled(a) for a in anchors if a != target_anchor)
+        return (
+            f"this module, `{target_anchor}`, is {vintage}: when this source "
+            "sets it, define it here under this exact name rather than "
+            f"importing another vintage; other vintages: {others}"
+        )
+    listed = ", ".join(labelled(a) for a in anchors)
+    choice = (
+        "when importing it, reference the producer whose period covers the "
+        "dates you encode"
+        if concept.producer_periods
+        else "when importing it, reference the producer of the vintage you mean"
+    )
+    guidance = f"one producer per vintage, only at {listed}; {choice}"
+    if target_anchor is not None:
+        guidance += (
+            "; this module is not one of them, so do not define a rule with "
+            "this name here"
+        )
+    return guidance
 
 
 def _format_existing_target_contract_guidance(
