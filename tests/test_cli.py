@@ -46095,6 +46095,198 @@ rules:
             == 0
         )
 
+    def test_missing_input_copies_explicit_facts_to_single_empty_relation_member(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: member_age
+    entity: Person
+  - name: receives_disability_payment
+    entity: Person
+  - name: household_size
+    entity: Household
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: elderly_member
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#input.receives_disability_payment: false
+    us:statutes/7/2012/j#input.household_size: 1
+    us:statutes/7/2012/j#relation.member_of_household:
+      - {}
+  output: {}
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `elderly_member` execution failed: missing input "
+                        "`member_age` for entity "
+                        "`case-1-us:statutes/7/2012/j#relation.member_of_household-1` "
+                        "over 2026-01-01..2026-01-31"
+                    )
+                )
+            }
+        )
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+            {
+                "us:statutes/7/2012/j#input.member_age": 60,
+                "us:statutes/7/2012/j#input.receives_disability_payment": False,
+            }
+        ]
+        assert case["input"]["us:statutes/7/2012/j#input.household_size"] == 1
+
+    def test_missing_input_does_not_guess_for_multiple_empty_relation_members(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - {name: member_age, entity: Person}
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: two_members
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#relation.member_of_household:
+      - {}
+      - {}
+  output: {}
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `two_members` execution failed: missing input "
+                        "`member_age` for entity "
+                        "`case-1-us:statutes/7/2012/j#relation.member_of_household-1` "
+                        "over 2026-01-01..2026-01-31"
+                    )
+                )
+            }
+        )
+
+        assert not _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+            {},
+            {},
+        ]
+
+    def test_missing_input_keeps_anchored_relation_rows_case_local(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - {name: member_age, entity: Person}
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: elderly_member
+  input: &shared_input
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#relation.member_of_household: &shared_rows
+      - {}
+  output: {}
+- name: younger_member
+  input:
+    <<: *shared_input
+    us:statutes/7/2012/j#input.member_age: 20
+    us:statutes/7/2012/j#relation.member_of_household: *shared_rows
+  output: {}
+"""
+        )
+
+        def validation_for(case_name, case_number):
+            return SimpleNamespace(
+                results={
+                    "ci": SimpleNamespace(
+                        error=(
+                            f"Test case `{case_name}` execution failed: missing input "
+                            "`member_age` for entity "
+                            f"`case-{case_number}-us:statutes/7/2012/j#relation.member_of_household-1` "
+                            "over 2026-01-01..2026-01-31"
+                        )
+                    )
+                }
+            )
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation_for("elderly_member", 1),
+        )
+        cases = yaml.safe_load(test_file.read_text())
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        age_ref = "us:statutes/7/2012/j#input.member_age"
+        assert cases[0]["input"][relation_ref] == [{age_ref: 60}]
+        assert cases[1]["input"][relation_ref] == [{}]
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation_for("younger_member", 2),
+        )
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"][relation_ref] == [{age_ref: 60}]
+        assert cases[1]["input"][relation_ref] == [{age_ref: 20}]
+
     def test_repair_snap_2014c_income_standard_test_inputs(self, tmp_path):
         test_file = tmp_path / "c.test.yaml"
         test_file.write_text(
