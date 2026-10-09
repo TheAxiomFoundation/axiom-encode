@@ -21493,7 +21493,10 @@ def _retired_source_metadata_manifest_issues(
 
 
 def _retired_source_metadata_change_set_issues(
-    repo_path: Path, changed: list[str], *, base_ref: str | None = None,
+    repo_path: Path,
+    changed: list[str],
+    *,
+    base_ref: str | None = None,
 ) -> list[str]:
     """A new receipt and every file and manifest it records land together."""
 
@@ -21558,10 +21561,15 @@ def _retired_source_metadata_change_set_issues(
                 )
             if base_ref is not None:
                 protected_base = _rulespec_migration_git(
-                    repo_path, "rev-parse", "--verify", f"{base_ref}^{{commit}}",
+                    repo_path,
+                    "rev-parse",
+                    "--verify",
+                    f"{base_ref}^{{commit}}",
                 ).strip()
                 if protected_base != migration.plan.base_commit:
-                    raise RetiredSourceMetadataError("migration receipt base_commit does not match the protected base")
+                    raise RetiredSourceMetadataError(
+                        "migration receipt base_commit does not match the protected base"
+                    )
         except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
             issues.append(
                 f"{path} retired source metadata change set is invalid: {exc}"
