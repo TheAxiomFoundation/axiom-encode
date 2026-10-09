@@ -32,6 +32,7 @@ from axiom_encode.corpus_resolver import (
 from tests.release_object_fixtures import (
     TEST_RELEASE_PUBLIC_KEY,
     bind_test_corpus_release,
+    write_test_release_object,
 )
 
 CITATION = "us/statute/7/2014/e"
@@ -595,6 +596,170 @@ def test_named_local_release_requires_release_object(tmp_path: Path):
 
     with pytest.raises(InvalidCorpusReleaseError, match="release object not found"):
         _release(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("padding_scopes", "minimum_mib"),
+    [
+        # Just past the former 16 MiB cap, which rejected every wave-4 union.
+        (400, 16),
+        # A union of about 30 MiB pretty-printed must still load.
+        (650, 30),
+    ],
+)
+def test_release_object_larger_than_former_cap_loads_and_resolves(
+    tmp_path: Path, padding_scopes: int, minimum_mib: int
+):
+    version = "2026-01-01-active"
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    content_sha256 = write_test_release_object(
+        tmp_path,
+        TEST_RELEASE,
+        [("us", "statute", version)],
+        unmaterialized_scopes=[
+            ("us-zz", "manual", f"2026-01-01-padding-{index:04d}")
+            for index in range(padding_scopes)
+        ],
+        unmaterialized_sources_per_scope=100,
+    )
+    release_object = tmp_path / "releases" / TEST_RELEASE / f"{content_sha256}.json"
+    size = release_object.stat().st_size
+    assert minimum_mib * 1024 * 1024 < size <= corpus_resolver.MAX_RELEASE_OBJECT_BYTES
+
+    release = LocalCorpusRelease(
+        tmp_path,
+        TEST_RELEASE,
+        content_sha256,
+        TEST_RELEASE_PUBLIC_KEY,
+    )
+
+    assert len(release.scopes) == padding_scopes + 1
+    assert resolve_local_corpus_source(CITATION, release).body == "inside"
+
+
+def test_release_object_over_size_limit_is_rejected_before_read(
+    tmp_path: Path, monkeypatch
+):
+    _write_rows(
+        tmp_path,
+        "2026-01-01-active",
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    content_sha256 = "0" * 64
+    release_object = tmp_path / "releases" / TEST_RELEASE / f"{content_sha256}.json"
+    release_object.parent.mkdir(parents=True)
+    with release_object.open("wb") as stream:
+        stream.truncate(corpus_resolver.MAX_RELEASE_OBJECT_BYTES + 1)
+
+    def unexpected_read(*args, **kwargs):
+        raise AssertionError("an oversized release object must not be read")
+
+    monkeypatch.setattr(corpus_resolver, "read_bounded_regular_file", unexpected_read)
+
+    with pytest.raises(
+        UnsafeCorpusPathError,
+        match=f"exceeds the {corpus_resolver.MAX_RELEASE_OBJECT_BYTES}-byte safety",
+    ):
+        LocalCorpusRelease(
+            tmp_path,
+            TEST_RELEASE,
+            content_sha256,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
+
+
+def test_release_object_growing_past_size_limit_after_check_fails_closed(
+    tmp_path: Path, monkeypatch
+):
+    version = "2026-01-01-active"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": CITATION, "body": "inside"}],
+    )
+    release = _release(tmp_path)
+    monkeypatch.setattr(
+        corpus_resolver,
+        "MAX_RELEASE_OBJECT_BYTES",
+        release.release_object_path.stat().st_size,
+    )
+    original = corpus_resolver._safe_file
+
+    def grow_after_check(root, candidate, *, label, max_bytes):
+        resolved = original(root, candidate, label=label, max_bytes=max_bytes)
+        if label == "corpus release object" and resolved is not None:
+            with resolved.open("ab") as stream:
+                stream.write(b" ")
+        return resolved
+
+    monkeypatch.setattr(corpus_resolver, "_safe_file", grow_after_check)
+
+    with pytest.raises(UnsafeCorpusPathError, match="byte safety limit"):
+        LocalCorpusRelease(
+            tmp_path,
+            TEST_RELEASE,
+            release.content_sha256,
+            TEST_RELEASE_PUBLIC_KEY,
+        )
+
+
+def test_bounded_read_rejects_oversized_file_before_reading(
+    tmp_path: Path, monkeypatch
+):
+    target = tmp_path / "release-object.json"
+    target.write_bytes(b"x" * 17)
+
+    def unexpected_read(descriptor, size):
+        raise AssertionError("an oversized file must not be read")
+
+    monkeypatch.setattr(os, "read", unexpected_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="16-byte safety limit"):
+        corpus_resolver.read_bounded_regular_file(
+            tmp_path,
+            target,
+            label="corpus release object",
+            max_bytes=16,
+        )
+
+
+def test_bounded_read_stops_at_limit_when_file_grows_after_fstat(
+    tmp_path: Path, monkeypatch
+):
+    target = tmp_path / "release-object.json"
+    target.write_bytes(b"x" * 16)
+    real_fstat = os.fstat
+    real_read = os.read
+    returned: list[int] = []
+
+    def fstat_then_grow(descriptor):
+        result = real_fstat(descriptor)
+        if os.path.samestat(result, os.stat(target)):
+            with target.open("ab") as stream:
+                stream.write(b"y" * (4 * 1024 * 1024))
+        return result
+
+    def counting_read(descriptor, size):
+        chunk = real_read(descriptor, size)
+        returned.append(len(chunk))
+        return chunk
+
+    monkeypatch.setattr(os, "fstat", fstat_then_grow)
+    monkeypatch.setattr(os, "read", counting_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="16-byte safety limit"):
+        corpus_resolver.read_bounded_regular_file(
+            tmp_path,
+            target,
+            label="corpus release object",
+            max_bytes=16,
+        )
+    assert sum(returned) == 17
 
 
 def test_does_not_invent_compact_uk_alias_for_corpus_path(tmp_path: Path):
