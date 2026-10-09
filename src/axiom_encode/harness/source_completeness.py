@@ -27637,26 +27637,25 @@ def _source_owned_greater_alternative_witness(
         if ambiguous and owned_conditions:
             return False
         condition_clauses.update(owned_conditions)
-    # A witness certifies only the source clause whose affected output it
-    # actually exercises, on the formula version it executed. Separate exact
-    # atoms cannot avoid ambiguous ownership by claiming sibling definitions
-    # on the same formula; duplicate atoms for one clause remain harmless.
-    if len(condition_clauses) != 1:
-        return False
-    owned = next(iter(condition_clauses))
-    if not (
-        owned.branch_path == branch.path
+    # Several exact clauses may legitimately share one formula/output. Select
+    # this clause, then authenticate its own reached comparison and output;
+    # sibling atoms cannot transfer credit between definitions.
+    matching = [
+        owned
+        for owned in condition_clauses
+        if owned.branch_path == branch.path
         and owned.start <= branch.start
         and branch.end <= owned.end
         and _normalized_formula_clause_text(owned.text)
         == _normalized_formula_clause_text(branch.text)
-    ):
+    ]
+    if len(matching) != 1:
         return False
     return _greater_alternative_definition_comparison_is_executed(
         branch,
         corpus_citation_path=corpus_citation_path,
         rule=rule,
-        selector_name=witness.selector_name,
+        witness=witness,
         principal_rules=principal_rules,
         cases=cases,
         formula_environment=formula_environment,
@@ -27668,23 +27667,19 @@ def _greater_alternative_definition_comparison_is_executed(
     *,
     corpus_citation_path: str,
     rule: dict[str, Any],
-    selector_name: str,
+    witness: _ExceptionWitness,
     principal_rules: dict[str, dict[str, Any]],
     cases: Sequence[dict[str, Any]],
     formula_environment: dict[str, Any],
 ) -> bool:
-    """Bind a defined amount to the comparison producing the asserted output.
+    """Bind a clause's reached comparison, operands and affected output.
 
-    Even a lone exact atom can be moved onto a sibling's formula. For a quoted
-    amount definition, both reached leaves must compare its own named amount
-    with the source income operands, at the source's strict/inclusive boundary.
-    A comparison hidden in unrelated arithmetic or an unreached branch cannot
-    certify this definition. Other clauses retain unique proof ownership.
+    Numeric cases must implement the source maximum in both executions.
+    Named Judgment repairs instead implement the ordinary/alternative arms
+    selected by that authenticated Judgment, including its polarity.
     """
 
-    text = _collapse_text(branch.text)
-    if re.match(r'The ["“][^"”]+["”] is the amount\b', text, re.I) is None:
-        return True
+    text = _collapse_text(_strip_source_clause_marker(branch.text))
     definition = re.match(
         r'The ["“](?P<amount>[^"”]+)["”] is the amount of '
         r"(?P<ordinary>[^()]+) \(or, if greater, (?P<alternative>[^()]+)\) "
@@ -27692,23 +27687,42 @@ def _greater_alternative_definition_comparison_is_executed(
         text,
         re.I,
     )
-    if definition is None:
-        return False
+    if definition is not None:
+        amount_name = definition["amount"]
+        # Proof placement cannot rename the output defined by the IRS source.
+        if not (
+            corpus_citation_path == "us/guidance/irs/rev-proc-2025-32/page-14"
+            and branch.path == ("06", "1")
+            and _IRS_REV_PROC_2025_32_DEFINITION_WITNESS_OUTPUTS.get(
+                re.sub(r"[^a-z0-9]+", "_", amount_name.lower()).strip("_")
+            )
+            == rule.get("name")
+        ):
+            return False
+    else:
+        # A supported allowance clause owns its named output and threshold,
+        # even when another allowance clause is OR'd into the same output.
+        definition = re.fullmatch(
+            r"The (?P<benefit>[A-Za-z ]+?) is (?:also )?allowed for "
+            r"(?P<ordinary>[^()]+) \(or, if greater, (?P<alternative>[^()]+)\) "
+            r"(?P<inclusive>at or )?above the (?P<amount>[A-Za-z ]+)\.",
+            text,
+            re.I,
+        )
+        if definition is None or rule.get("name") != (
+            re.sub(r"[^a-z0-9]+", "_", definition["benefit"].lower()).strip("_")
+            + "_allowed"
+        ):
+            return False
     amount, ordinary, alternative = (
         re.sub(r"[^a-z0-9]+", "_", definition[group].lower()).strip("_")
         for group in ("amount", "ordinary", "alternative")
     )
-    # This closed source profile authenticates the affected output independently
-    # of candidate proof placement and formula text. Moving both a comparison
-    # and its exact atom to a sibling cannot rename the source-defined outcome.
-    # Unsupported quoted definition owners retain their witness obligations.
-    if not (
-        corpus_citation_path == "us/guidance/irs/rev-proc-2025-32/page-14"
-        and branch.path == ("06", "1")
-        and _IRS_REV_PROC_2025_32_DEFINITION_WITNESS_OUTPUTS.get(amount)
-        == rule.get("name")
-    ):
+    numeric = witness.numeric_transition is not None
+    selector_name = witness.selector_name
+    if not numeric and selector_name != (f"{alternative}_is_greater_than_{ordinary}"):
         return False
+    source_results = []
     for case in cases:
         dependencies = _case_asserted_dependency_environment(
             principal_rules, case, formula_environment=formula_environment
@@ -27719,70 +27733,98 @@ def _greater_alternative_definition_comparison_is_executed(
             formula_environment=formula_environment,
             dependency_environment=dependencies,
         )
-        expression = (
-            _parse_formula_expression(execution.leaf) if execution is not None else None
+        environment = _formula_case_runtime_environment(
+            case,
+            dependency_environment=dependencies,
+            formula_environment=formula_environment,
         )
-        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.Or):
-            # Judgment repair expresses an if/else as two complementary guarded
-            # comparisons. Select its reached arm, never an arbitrary comparison
-            # nested in arithmetic or a short-circuited Boolean expression.
-            environment = _formula_case_runtime_environment(
-                case,
-                dependency_environment=dependencies,
-                formula_environment=formula_environment,
-            )
-            arms: dict[bool, ast.expr] = {}
-            for arm in expression.values:
-                if not (
-                    isinstance(arm, ast.BoolOp)
-                    and isinstance(arm.op, ast.And)
-                    and len(arm.values) == 2
-                ):
-                    return False
-                guard, comparison = arm.values
-                positive = isinstance(guard, ast.Name) and guard.id == selector_name
-                negative = (
-                    isinstance(guard, ast.UnaryOp)
-                    and isinstance(guard.op, ast.Not)
-                    and isinstance(guard.operand, ast.Name)
-                    and guard.operand.id == selector_name
+        if execution is None or environment is None:
+            return False
+        values = {
+            name: _rulespec_runtime_decimal(environment.get(name))
+            for name in (ordinary, alternative, amount)
+        }
+        if any(value is None or not value.is_finite() for value in values.values()):
+            return False
+        choice = _boolean_value(environment.get(selector_name)) if not numeric else None
+        if not numeric and (
+            choice is None
+            or not _formula_execution_reaches_selector(execution, selector_name)
+        ):
+            return False
+        selected_income = (
+            max(values[ordinary], values[alternative])
+            if numeric
+            else values[alternative if choice else ordinary]
+        )
+        required = (
+            selected_income >= values[amount]
+            if definition["inclusive"]
+            else selected_income > values[amount]
+        )
+        source_results.append(required)
+        if _boolean_value(_formula_execution_runtime_value(execution)) is not required:
+            return False
+        expression = _parse_formula_expression(execution.leaf)
+        matched = False
+        for comparison in _reached_formula_boolean_comparisons(expression, environment):
+            if len(comparison.ops) != 1 or len(comparison.comparators) != 1:
+                continue
+            left, right = comparison.left, comparison.comparators[0]
+            operator = type(comparison.ops[0])
+            if isinstance(left, ast.Name) and left.id == amount:
+                left, right = right, left
+                operator = {ast.Lt: ast.Gt, ast.LtE: ast.GtE}.get(operator)
+            if not (
+                isinstance(right, ast.Name)
+                and right.id == amount
+                and operator == (ast.GtE if definition["inclusive"] else ast.Gt)
+            ):
+                continue
+            if isinstance(left, ast.Name):
+                operand_matches = (
+                    left.id in {ordinary, alternative}
+                    and values[left.id] == selected_income
+                    and (numeric or left.id == (alternative if choice else ordinary))
                 )
-                if not (positive or negative) or positive in arms:
-                    return False
-                arms[positive] = comparison
-            choice = _boolean_value((environment or {}).get(selector_name))
-            if set(arms) != {False, True} or choice is None:
-                return False
-            expression = arms[choice]
-        if not (
-            isinstance(expression, ast.Compare)
-            and len(expression.ops) == len(expression.comparators) == 1
-        ):
+            else:
+                operand_matches = (
+                    numeric
+                    and isinstance(left, ast.Call)
+                    and isinstance(left.func, ast.Name)
+                    and left.func.id == "max"
+                    and len(left.args) == 2
+                    and not left.keywords
+                    and all(isinstance(argument, ast.Name) for argument in left.args)
+                    and {argument.id for argument in left.args}
+                    == {ordinary, alternative}
+                )
+            if (
+                operand_matches
+                and _boolean_value(
+                    _evaluate_condition_expression(comparison, environment)
+                )
+                is required
+            ):
+                matched = True
+        if not matched:
             return False
-        left, right = expression.left, expression.comparators[0]
-        operator = type(expression.ops[0])
-        if isinstance(left, ast.Name) and left.id == amount:
-            left, right = right, left
-            operator = {ast.Lt: ast.Gt, ast.LtE: ast.GtE}.get(operator)
-        if not (
-            isinstance(right, ast.Name)
-            and right.id == amount
-            and operator == (ast.GtE if definition["inclusive"] else ast.Gt)
-        ):
-            return False
-        if isinstance(left, ast.Name) and left.id in {ordinary, alternative}:
-            continue
-        if not (
-            isinstance(left, ast.Call)
-            and isinstance(left.func, ast.Name)
-            and left.func.id == "max"
-            and len(left.args) == 2
-            and not left.keywords
-            and all(isinstance(argument, ast.Name) for argument in left.args)
-            and {argument.id for argument in left.args} == {ordinary, alternative}
-        ):
-            return False
-    return True
+    return set(source_results) == {False, True}
+
+
+def _reached_formula_boolean_comparisons(
+    expression: ast.AST | None, environment: dict[str, Any]
+) -> Iterable[ast.Compare]:
+    """Yield comparisons on the executed Boolean path, excluding arithmetic."""
+
+    if isinstance(expression, ast.Compare):
+        yield expression
+    elif isinstance(expression, ast.BoolOp):
+        for value in expression.values:
+            yield from _reached_formula_boolean_comparisons(value, environment)
+            boolean = _boolean_value(_evaluate_condition_expression(value, environment))
+            if boolean is None or boolean == isinstance(expression.op, ast.Or):
+                break
 
 
 def _exception_witnesses_for_branch(
@@ -30478,11 +30520,14 @@ def _maximum_changes_principal_output(
     executions: tuple[_FormulaExecution, _FormulaExecution],
     environments: tuple[dict[str, Any], dict[str, Any]],
 ) -> bool:
-    """Freeze only max() to the other case's value and replay the full output.
+    """Freeze only max() and replay the full output, including guarded arms.
 
     Changing a numeric input can affect unrelated arithmetic in the same
     formula.  The maximum itself must explain an output change; an inert
-    ``0 * max(A, B) + B`` is not a witness for the maximum's binding.
+    ``0 * max(A, B) + B`` is not a witness for the maximum's binding. A guard
+    such as ``max(A, B) > A`` may need a value outside the pair's maxima to
+    select its other arm. Source comparison binding separately authenticates
+    the real winning operands and results, never these counterfactual values.
     """
 
     formula = _rule_formula_text_for_case(rule, cases[0])
@@ -30519,26 +30564,36 @@ def _maximum_changes_principal_output(
     )
     if any(value is None or not value.is_finite() for value in maximum_values):
         return False
+    operand_values = tuple(
+        _rulespec_runtime_decimal(environment.get(name))
+        for environment in environments
+        for name in names
+    )
+    if any(value is None or not value.is_finite() for value in operand_values):
+        return False
+    lower, upper = min(operand_values), max(operand_values)
+    margin = max(abs(lower), abs(upper), Decimal(1))
     for index, (execution, environment) in enumerate(zip(executions, environments)):
-        rewritten = formula
-        # Freeze all occurrences, including reversed arguments, so duplicated
-        # terms that cancel cannot manufacture an isolated max effect.
-        frozen = f"({maximum_values[1 - index]:f})"
-        for start, end in reversed(spans):
-            rewritten = rewritten[:start] + frozen + rewritten[end:]
-        counterfactual = _apply_currency_output_rounding(
-            rule,
-            _execute_formula_text(
-                rewritten,
-                environment=environment,
-                constant_environment=execution.constant_environment,
-            ),
-        )
-        if counterfactual is not None and _exception_effect_changes(
-            _formula_execution_runtime_value(execution),
-            _formula_execution_runtime_value(counterfactual),
-        ):
-            return True
+        for value in (maximum_values[1 - index], lower - margin, upper + margin):
+            rewritten = formula
+            # Freeze all occurrences, including reversed arguments, so duplicated
+            # terms that cancel cannot manufacture an isolated max effect.
+            frozen = f"({value:f})"
+            for start, end in reversed(spans):
+                rewritten = rewritten[:start] + frozen + rewritten[end:]
+            counterfactual = _apply_currency_output_rounding(
+                rule,
+                _execute_formula_text(
+                    rewritten,
+                    environment=environment,
+                    constant_environment=execution.constant_environment,
+                ),
+            )
+            if counterfactual is not None and _exception_effect_changes(
+                _formula_execution_runtime_value(execution),
+                _formula_execution_runtime_value(counterfactual),
+            ):
+                return True
     return False
 
 

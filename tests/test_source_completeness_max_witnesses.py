@@ -81,11 +81,11 @@ def _binding_pair(rule_name, threshold_name, threshold, *, named=False):
     return [ordinary, alternative]
 
 
-def _paired_issues(payload, cases, *, source=None):
+def _paired_issues(payload, cases, *, source=None, citation=CITATION):
     result = sc.analyze_complete_source_unit(
         yaml.safe_dump(payload),
         source or json.loads((FIXTURE / "page-14.json").read_text())["body"],
-        corpus_citation_path=CITATION,
+        corpus_citation_path=citation,
         test_cases=cases,
         extract_numeric_occurrences=EXTRACT,
         extract_named_scalars=extract_named_scalar_occurrences,
@@ -99,6 +99,52 @@ def _paired_issues(payload, cases, *, source=None):
 def test_original_max_candidate_does_not_switch_the_binding_operand():
     payload, cases = _candidate()
     assert _paired_issues(payload, cases)
+
+
+def test_numeric_max_guard_cannot_credit_a_comparison_of_the_lesser_income():
+    payload, cases = _candidate()
+    name, threshold_name, threshold, _ = OUTPUTS[0]
+    rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+    rule["versions"][0]["formula"] = (
+        "if max(adjusted_gross_income, earned_income) > adjusted_gross_income: "
+        "adjusted_gross_income > threshold_phaseout_amount "
+        "else: earned_income > threshold_phaseout_amount"
+    )
+    pair = _binding_pair(name, threshold_name, threshold)
+    for index, case in enumerate(pair):
+        case["input"][REFERENCE + "input.adjusted_gross_income"] = 23891
+        case["input"][REFERENCE + "input.earned_income"] = (23890, 23893)[index]
+        environment = {
+            key.rsplit("input.", 1)[-1]: value for key, value in case["input"].items()
+        }
+        # Independent arithmetic oracle: the source maximum is above its
+        # threshold in both executions, although the candidate switches output.
+        required = (
+            max(environment["adjusted_gross_income"], environment["earned_income"])
+            > environment[threshold_name]
+        )
+        assert required is True
+        execution = sc._execute_formula_text(
+            rule["versions"][0]["formula"],
+            environment=environment,
+            constant_environment={},
+        )
+        assert sc._formula_execution_runtime_value(execution) is bool(index)
+    cases = [case for case in cases if REFERENCE + name not in case["output"]]
+    cases.extend(pair)
+    cases.extend(_binding_pair(*OUTPUTS[1][:3]))
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={CITATION: source},
+    )
+    assert proof.passed
+    assert proof.atoms_checked == 22
+    assert not proof.issues
+    issues = _paired_issues(payload, cases)
+    assert any('The "threshold phaseout amount"' in issue for issue in issues)
+    assert not any('The "completed phaseout amount"' in issue for issue in issues)
 
 
 @pytest.mark.parametrize("reverse_arguments", [False, True])
@@ -213,6 +259,48 @@ def test_real_candidate_named_judgment_selector_survives_auto_repair(tmp_path):
     }
     repaired = yaml.safe_load(rules_file.read_text())
     assert not _paired_issues(repaired, cases)
+
+
+@pytest.mark.parametrize("repaired", [False, True])
+def test_named_max_selector_requires_the_source_arm_polarity(tmp_path, repaired):
+    payload, cases = _candidate()
+    payload["inputs"].append(
+        {"name": SELECTOR, "entity": "TaxUnit", "dtype": "Judgment", "period": "Year"}
+    )
+    name, threshold_name, threshold, comparison = OUTPUTS[0]
+    rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+    rule["versions"][0]["formula"] = (
+        f"if {SELECTOR}: adjusted_gross_income {comparison} {threshold_name} "
+        f"else: earned_income {comparison} {threshold_name}"
+    )
+    pair = _binding_pair(name, threshold_name, threshold, named=True)
+    for index, case in enumerate(pair):
+        # The declared selector authorizes alternative income in its true arm;
+        # the swapped candidate instead changes from true to false.
+        case["output"][REFERENCE + name] = "holds" if index == 0 else "not_holds"
+    cases = [case for case in cases if REFERENCE + name not in case["output"]]
+    cases.extend(pair)
+    cases.extend(_binding_pair(*OUTPUTS[1][:3]))
+    if repaired:
+        rules_file = tmp_path / "candidate.yaml"
+        rules_file.write_text(yaml.safe_dump(payload))
+        assert _rewrite_judgment_conditional_formulas(rules_file) == [name]
+        payload = yaml.safe_load(rules_file.read_text())
+        rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+    for index, case in enumerate(pair):
+        environment = {
+            key.rsplit("input.", 1)[-1]: value for key, value in case["input"].items()
+        }
+        environment[SELECTOR] = bool(index)
+        execution = sc._execute_formula_text(
+            rule["versions"][0]["formula"],
+            environment=environment,
+            constant_environment={},
+        )
+        assert sc._formula_execution_runtime_value(execution) is (index == 0)
+    issues = _paired_issues(payload, cases)
+    assert any('The "threshold phaseout amount"' in issue for issue in issues)
+    assert not any('The "completed phaseout amount"' in issue for issue in issues)
 
 
 def test_named_max_selector_cannot_cover_an_independent_condition(tmp_path):
@@ -729,3 +817,327 @@ def test_max_binding_witness_tracks_the_compared_operands(
         )
         for witness in witnesses
     )
+
+
+_SHARED_CREDIT_CITATION = "us/statute/26/32/a"
+_SHARED_CREDIT_REFERENCE = "us:statutes/26/32/a#"
+_SHARED_CREDIT_ALTERNATIVES = ("earned_income", "investment_income")
+_SHARED_CREDIT_THRESHOLDS = ("first_threshold", "second_threshold")
+
+
+def _shared_credit_candidate(
+    clause_count=2,
+    *,
+    formula_specs=(("direct", False, False, True),) * 2,
+    pair_specs=((True, "switch"),) * 2,
+):
+    """Make isolated pairs and an arithmetic oracle independent of the evaluator.
+
+    A formula spec selects direct max or numeric guarded arms, max argument
+    order, guard polarity, and whether the true arm compares alternative income.
+    A pair spec chooses the intervened operand and whether the source result or
+    only the candidate changes. Distinct years exclude unintended cross-pairs.
+    """
+    sentences = [
+        f"The credit is {'also ' if index else ''}allowed for adjusted gross "
+        f"income (or, if greater, {alternative.replace('_', ' ')}) above the "
+        f"{_SHARED_CREDIT_THRESHOLDS[index].replace('_', ' ')}."
+        for index, alternative in enumerate(_SHARED_CREDIT_ALTERNATIVES[:clause_count])
+    ]
+    terms = []
+    for index, alternative in enumerate(_SHARED_CREDIT_ALTERNATIVES[:clause_count]):
+        kind, reverse_arguments, reverse_guard, then_alternative = formula_specs[index]
+        operands = ("adjusted_gross_income", alternative)
+        if reverse_arguments:
+            operands = operands[::-1]
+        maximum = f"max({', '.join(operands)})"
+        threshold = _SHARED_CREDIT_THRESHOLDS[index]
+        if kind == "direct":
+            terms.append(f"{maximum} > {threshold}")
+        else:
+            guard = f"{maximum} > adjusted_gross_income"
+            if reverse_guard:
+                guard = f"not ({guard})"
+            true_operand = alternative if then_alternative else "adjusted_gross_income"
+            false_operand = "adjusted_gross_income" if then_alternative else alternative
+            terms.append(
+                f"(({guard}) and {true_operand} > {threshold}) or "
+                f"((not ({guard})) and {false_operand} > {threshold})"
+            )
+    formula = " or ".join(f"({term})" for term in terms)
+    rule = {
+        "name": "credit_allowed",
+        "kind": "derived",
+        "entity": "TaxUnit",
+        "dtype": "Judgment",
+        "period": "Year",
+        "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "formula",
+                        "source": {
+                            "corpus_citation_path": _SHARED_CREDIT_CITATION,
+                            "excerpt": sentence,
+                        },
+                    }
+                    for sentence in sentences
+                ]
+            }
+        },
+    }
+    names = (
+        "adjusted_gross_income",
+        *_SHARED_CREDIT_ALTERNATIVES[:clause_count],
+        *_SHARED_CREDIT_THRESHOLDS[:clause_count],
+    )
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": _SHARED_CREDIT_CITATION}
+        },
+        "inputs": [
+            {"name": name, "entity": "TaxUnit", "dtype": "Money", "period": "Year"}
+            for name in names
+        ],
+        "rules": [rule],
+    }
+
+    def candidate_clause_result(values, index):
+        kind, _, reverse_guard, then_alternative = formula_specs[index]
+        ordinary = values["adjusted_gross_income"]
+        alternative = values[_SHARED_CREDIT_ALTERNATIVES[index]]
+        if kind == "direct":
+            operand = max(ordinary, alternative)
+        else:
+            guard = max(ordinary, alternative) > ordinary
+            if reverse_guard:
+                guard = not guard
+            chooses_alternative = then_alternative if guard else not then_alternative
+            operand = alternative if chooses_alternative else ordinary
+        return operand > values[_SHARED_CREDIT_THRESHOLDS[index]]
+
+    cases = []
+    expected_credit = []
+    for index in range(clause_count):
+        changed_alternative, profile = pair_specs[index]
+        fixed = 11 if profile == "source_constant" else 9
+        varying = (7, 8) if profile == "same_binding" else (fixed - 1, fixed + 2)
+        source_results = []
+        candidate_results = []
+        for alternate, varying_value in enumerate(varying):
+            values = dict.fromkeys(names, 8)
+            values["adjusted_gross_income"] = fixed
+            for threshold in _SHARED_CREDIT_THRESHOLDS[:clause_count]:
+                values[threshold] = 100
+            values[_SHARED_CREDIT_THRESHOLDS[index]] = 10
+            changed = (
+                _SHARED_CREDIT_ALTERNATIVES[index]
+                if changed_alternative
+                else "adjusted_gross_income"
+            )
+            if not changed_alternative:
+                values[_SHARED_CREDIT_ALTERNATIVES[index]] = fixed
+            values[changed] = varying_value
+            source_result = (
+                max(
+                    values["adjusted_gross_income"],
+                    values[_SHARED_CREDIT_ALTERNATIVES[index]],
+                )
+                > values[_SHARED_CREDIT_THRESHOLDS[index]]
+            )
+            candidate_result = any(
+                candidate_clause_result(values, candidate_index)
+                for candidate_index in range(clause_count)
+            )
+            source_results.append(source_result)
+            candidate_results.append(candidate_result)
+            year = 2026 + index
+            cases.append(
+                {
+                    "name": f"clause_{index}_{alternate}",
+                    "period": {
+                        "period_kind": "tax_year",
+                        "start": f"{year}-01-01",
+                        "end": f"{year}-12-31",
+                    },
+                    "input": {
+                        _SHARED_CREDIT_REFERENCE + "input." + name: value
+                        for name, value in values.items()
+                    },
+                    "output": {
+                        _SHARED_CREDIT_REFERENCE + "credit_allowed": (
+                            "holds" if candidate_result else "not_holds"
+                        )
+                    },
+                }
+            )
+        expected_credit.append(
+            source_results[0] != source_results[1]
+            and candidate_results == source_results
+        )
+    return payload, cases, "(1) " + " ".join(sentences), sentences, expected_credit
+
+
+def test_two_max_clauses_can_share_one_output_with_their_own_pairs():
+    payload, cases, source, _, expected_credit = _shared_credit_candidate()
+    # Match the review's positive control exactly: both pairs are in 2026.
+    for case in cases:
+        case["period"]["start"] = "2026-01-01"
+        case["period"]["end"] = "2026-12-31"
+    assert expected_credit == [True, True]
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    for index, case in enumerate(cases):
+        values = {
+            key.rsplit("input.", 1)[-1]: value for key, value in case["input"].items()
+        }
+        assert sc._evaluate_rulespec_formula(formula, environment=values) is bool(
+            index % 2
+        )
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={_SHARED_CREDIT_CITATION: source},
+    )
+    assert proof.passed
+    assert proof.atoms_checked == 2
+    assert not proof.issues
+    assert not _paired_issues(
+        payload, cases, source=source, citation=_SHARED_CREDIT_CITATION
+    )
+
+
+def test_numeric_max_guard_credits_a_correct_pair_changing_ordinary_income():
+    payload, cases, source, _, expected_credit = _shared_credit_candidate(
+        1,
+        formula_specs=(("arms", False, False, True),) * 2,
+        pair_specs=((False, "switch"),) * 2,
+    )
+    assert expected_credit == [True]
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    for index, case in enumerate(cases):
+        values = {
+            key.rsplit("input.", 1)[-1]: value for key, value in case["input"].items()
+        }
+        assert (
+            max(values["adjusted_gross_income"], values["earned_income"]) > 10
+        ) is bool(index)
+        assert sc._evaluate_rulespec_formula(formula, environment=values) is bool(index)
+    assert not _paired_issues(
+        payload, cases, source=source, citation=_SHARED_CREDIT_CITATION
+    )
+
+
+def test_two_named_max_repairs_can_share_one_output_with_their_own_pairs():
+    payload, cases, source, _, _ = _shared_credit_candidate()
+    selectors = [
+        alternative + "_is_greater_than_adjusted_gross_income"
+        for alternative in _SHARED_CREDIT_ALTERNATIVES
+    ]
+    payload["inputs"].extend(
+        {"name": selector, "entity": "TaxUnit", "dtype": "Judgment", "period": "Year"}
+        for selector in selectors
+    )
+    terms = [
+        f"(({selector}) and {alternative} > {threshold}) or "
+        f"((not ({selector})) and adjusted_gross_income > {threshold})"
+        for selector, alternative, threshold in zip(
+            selectors,
+            _SHARED_CREDIT_ALTERNATIVES,
+            _SHARED_CREDIT_THRESHOLDS,
+            strict=True,
+        )
+    ]
+    formula = " or ".join(f"({term})" for term in terms)
+    payload["rules"][0]["versions"][0]["formula"] = formula
+    for index, case in enumerate(cases):
+        values = case["input"]
+        for alternative in _SHARED_CREDIT_ALTERNATIVES:
+            values[_SHARED_CREDIT_REFERENCE + "input." + alternative] = 11
+        for selector_index, selector in enumerate(selectors):
+            values[_SHARED_CREDIT_REFERENCE + "input." + selector] = (
+                "holds" if selector_index == index // 2 and index % 2 else "not_holds"
+            )
+        environment = {
+            key.rsplit("input.", 1)[-1]: value for key, value in values.items()
+        }
+        for selector in selectors:
+            environment[selector] = environment[selector] == "holds"
+        assert sc._evaluate_rulespec_formula(formula, environment=environment) is bool(
+            index % 2
+        )
+    assert not _paired_issues(
+        payload, cases, source=source, citation=_SHARED_CREDIT_CITATION
+    )
+
+
+@settings(
+    max_examples=30,
+    deadline=None,
+    phases=tuple(phase for phase in Phase if phase != Phase.explain),
+)
+@example(
+    clause_count=2,
+    formula_specs=(("direct", False, False, True),) * 2,
+    pair_specs=((True, "switch"),) * 2,
+)
+@example(
+    clause_count=1,
+    formula_specs=(("arms", False, False, False),) * 2,
+    pair_specs=((True, "source_constant"),) * 2,
+)
+@example(
+    clause_count=2,
+    formula_specs=(("arms", False, False, True), ("arms", True, True, False)),
+    pair_specs=((True, "switch"), (False, "switch")),
+)
+@example(
+    clause_count=2,
+    formula_specs=(("direct", False, False, True), ("arms", False, False, False)),
+    pair_specs=((True, "switch"), (True, "source_constant")),
+)
+@given(
+    clause_count=st.integers(min_value=1, max_value=2),
+    formula_specs=st.tuples(
+        *[
+            st.tuples(
+                st.sampled_from(("direct", "arms")),
+                st.booleans(),
+                st.booleans(),
+                st.booleans(),
+            )
+        ]
+        * 2
+    ),
+    pair_specs=st.tuples(
+        *[
+            st.tuples(
+                st.booleans(),
+                st.sampled_from(("switch", "source_constant", "same_binding")),
+            )
+        ]
+        * 2
+    ),
+)
+def test_max_clause_credit_matches_source_and_executed_arm_results(
+    clause_count, formula_specs, pair_specs
+):
+    payload, cases, source, sentences, expected_credit = _shared_credit_candidate(
+        clause_count, formula_specs=formula_specs, pair_specs=pair_specs
+    )
+    formula = payload["rules"][0]["versions"][0]["formula"]
+    for case in cases:
+        values = {
+            key.rsplit("input.", 1)[-1]: value for key, value in case["input"].items()
+        }
+        expected = (
+            case["output"][_SHARED_CREDIT_REFERENCE + "credit_allowed"] == "holds"
+        )
+        assert sc._evaluate_rulespec_formula(formula, environment=values) is expected
+    issues = _paired_issues(
+        payload, cases, source=source, citation=_SHARED_CREDIT_CITATION
+    )
+    for sentence, credited in zip(sentences, expected_credit, strict=True):
+        assert (not any(sentence in issue for issue in issues)) is credited
