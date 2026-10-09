@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import given, settings
+from hypothesis import Phase, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.cli import _rewrite_judgment_conditional_formulas
@@ -335,14 +335,116 @@ def test_maximum_reachability_respects_chained_comparison(first_operand, reached
     assert bool(maxima) is reached
 
 
-def test_max_pair_does_not_cover_another_source_condition():
+@pytest.mark.parametrize("alternative_count", [1, 2])
+@pytest.mark.parametrize("incorrect_completed_formula", [False, True])
+def test_max_pair_does_not_cover_another_source_condition(
+    alternative_count, incorrect_completed_formula
+):
     payload, cases = _candidate()
     name, threshold_name, threshold, _ = OUTPUTS[0]
-    cases.extend(_binding_pair(name, threshold_name, threshold))
+    pair = _binding_pair(name, threshold_name, threshold)
+    cases.extend(pair)
+    if alternative_count == 2:
+        alternative = copy.deepcopy(pair[1])
+        alternative["name"] = "another_threshold_alternative"
+        alternative["input"][REFERENCE + "input.earned_income"] = threshold + 2
+        cases.append(alternative)
+    if incorrect_completed_formula:
+        completed_rule = next(
+            rule for rule in payload["rules"] if rule["name"] == OUTPUTS[1][0]
+        )
+        completed_rule["versions"][0]["formula"] = (
+            "adjusted_gross_income >= completed_phaseout_amount"
+        )
     issues = _paired_issues(payload, cases)
     assert issues
     assert 'The "completed phaseout amount"' in issues[0]
     assert 'The "threshold phaseout amount"' not in issues[0]
+
+
+@settings(
+    max_examples=30,
+    deadline=None,
+    phases=tuple(phase for phase in Phase if phase != Phase.explain),
+)
+@example(output_index=0, threshold=23890, alternative_count=2, reverse_arguments=False)
+@given(
+    output_index=st.integers(min_value=0, max_value=1),
+    threshold=st.integers(min_value=10, max_value=1_000_000),
+    alternative_count=st.integers(min_value=2, max_value=5),
+    reverse_arguments=st.booleans(),
+)
+def test_max_witnesses_cannot_certify_a_sibling_definition(
+    output_index, threshold, alternative_count, reverse_arguments
+):
+    payload, cases = _candidate()
+    name, threshold_name, _, _ = OUTPUTS[output_index]
+    if reverse_arguments:
+        for rule in payload["rules"]:
+            rule["versions"][0]["formula"] = rule["versions"][0]["formula"].replace(
+                "max(adjusted_gross_income, earned_income)",
+                "max(earned_income, adjusted_gross_income)",
+            )
+    pair = _binding_pair(name, threshold_name, threshold)
+    cases.extend(pair)
+    for offset in range(2, alternative_count + 1):
+        alternative = copy.deepcopy(pair[1])
+        alternative["name"] = f"{name}_alternative_{offset}"
+        alternative["input"][REFERENCE + "input.earned_income"] = threshold + offset
+        cases.append(alternative)
+    issues = _paired_issues(payload, cases)
+    missing_term = ("completed", "threshold")[output_index]
+    witnessed_term = ("threshold", "completed")[output_index]
+    assert issues
+    assert f'The "{missing_term} phaseout amount"' in issues[0]
+    assert f'The "{witnessed_term} phaseout amount"' not in issues[0]
+
+
+@pytest.mark.parametrize(
+    "invalid_binding",
+    [
+        "shared_excerpt",
+        "broad_excerpt",
+        "sibling_excerpt",
+        "different_citation",
+        "different_version",
+    ],
+)
+def test_max_witness_requires_its_own_executed_formula_source(invalid_binding):
+    payload, cases = _candidate()
+    for name, threshold_name, threshold, _ in OUTPUTS:
+        cases.extend(_binding_pair(name, threshold_name, threshold))
+    completed_rule = next(
+        rule for rule in payload["rules"] if rule["name"] == OUTPUTS[1][0]
+    )
+    atom = completed_rule["metadata"]["proof"]["atoms"][0]
+    if invalid_binding == "shared_excerpt":
+        atom["source"]["excerpt"] = (
+            "adjusted gross income (or, if greater, earned income)"
+        )
+    elif invalid_binding == "broad_excerpt":
+        source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+        atom["source"]["excerpt"] = next(
+            branch.text
+            for branch in sc.recognize_source_structure(
+                source, corpus_citation_path=CITATION
+            )
+            if branch.path == ("06", "1")
+        )
+    elif invalid_binding == "sibling_excerpt":
+        threshold_rule = next(
+            rule for rule in payload["rules"] if rule["name"] == OUTPUTS[0][0]
+        )
+        atom["source"]["excerpt"] = threshold_rule["metadata"]["proof"]["atoms"][0][
+            "source"
+        ]["excerpt"]
+    elif invalid_binding == "different_citation":
+        atom["source"]["corpus_citation_path"] = CITATION.replace("page-14", "page-15")
+    elif invalid_binding == "different_version":
+        atom["path"] = "versions[1].formula"
+    issues = _paired_issues(payload, cases)
+    assert issues
+    assert 'The "completed phaseout amount"' in issues[0]
 
 
 def test_max_binding_may_switch_when_adjusted_gross_income_decreases():

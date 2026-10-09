@@ -6296,10 +6296,6 @@ def _resolved_definition_deferral_clauses(
         )
         if definition is None:
             continue
-        # Naming a definition does not account for a second independent
-        # condition appended to the same printed sentence.
-        if len(_source_exception_or_applicability_matches(text)) > 1:
-            continue
         term = definition.group("term")
         symbol = re.sub(r"[^a-z0-9]+", "_", term.lower()).strip("_") + "_definition"
         if output.partition("#")[2] != symbol or not re.search(
@@ -6317,6 +6313,26 @@ def _resolved_definition_deferral_clauses(
             else None
         )
         if not required_exports or not set(required_exports) <= set(targets):
+            continue
+        # Only the phaseout definitions own the "if greater" comparison;
+        # the earned-income definition has no intrinsic condition cue.
+        expected_cues = ()
+        if symbol != "earned_income_amount_definition":
+            comparison = re.search(
+                r"\(\s*or,\s*(?P<cue>if)\s+greater,\s*earned\s+income\s*\)",
+                text,
+                re.I,
+            )
+            if comparison is None:
+                continue
+            expected_cues = (comparison.span("cue"),)
+        if (
+            tuple(
+                match.span()
+                for match in _source_exception_or_applicability_matches(text)
+            )
+            != expected_cues
+        ):
             continue
         clauses.append(
             SourceStructureBranch(
@@ -27567,6 +27583,57 @@ def _source_owned_equality_witness(
     return set(equality_values) == {False, True}
 
 
+def _source_owned_greater_alternative_witness(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    rule: dict[str, Any],
+    asserted_cases: Sequence[dict[str, Any]],
+    source_text: str,
+    corpus_citation_path: str,
+) -> bool:
+    """Bind an operand switch to one clause on the exercised principal formula."""
+
+    indexed = {id(case): case for case in asserted_cases}
+    if len(witness.case_pair_identity) != 2 or any(
+        identity not in indexed for identity in witness.case_pair_identity
+    ):
+        return False
+    cases = [indexed[identity] for identity in witness.case_pair_identity]
+    selected = _selected_rule_formula_version_index(rule, cases[0])
+    if selected is None or any(
+        _selected_rule_formula_version_index(rule, case) != selected for case in cases
+    ):
+        return False
+    branches = recognize_source_structure(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
+    citation = corpus_citation_path.strip("/").casefold()
+    for path, atom_citation, excerpt in _rule_source_excerpt_atoms(rule):
+        if (
+            _formula_proof_version_index(path) != selected
+            or atom_citation.strip("/").casefold() != citation
+        ):
+            continue
+        owned_clauses, ambiguous = _source_condition_clauses_owned_by_excerpt(
+            excerpt,
+            rule=rule,
+            source_text=source_text,
+            branches=branches,
+            corpus_citation_path=corpus_citation_path,
+        )
+        if not ambiguous and any(
+            owned.branch_path == branch.path
+            and owned.start <= branch.start
+            and branch.end <= owned.end
+            and _normalized_formula_clause_text(owned.text)
+            == _normalized_formula_clause_text(branch.text)
+            for owned in owned_clauses
+        ):
+            return True
+    return False
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
@@ -27596,6 +27663,23 @@ def _exception_witnesses_for_branch(
             if path
         )
     }
+    if _source_has_greater_alternative_condition(branch.text):
+        # Shared paragraph ancestry and shared income operands do not identify
+        # which definition/output a pair certifies. Bind before allocating pairs,
+        # for both numeric maxima and repaired named Judgment selectors.
+        toggled_exception_selectors = {
+            witness
+            for witness in toggled_exception_selectors
+            if witness.rule_name in affecting_rules
+            and _source_owned_greater_alternative_witness(
+                branch,
+                witness,
+                rule=principal_rules[witness.rule_name],
+                asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+            )
+        }
     requirement = _source_exception_effect_requirement(branch.text)
     condition_text = _source_exception_condition_text(branch.text)
     numeric_interval = _formula_interval_from_text(

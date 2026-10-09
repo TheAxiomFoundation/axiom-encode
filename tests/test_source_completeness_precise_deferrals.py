@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from hypothesis import given, settings
+from hypothesis import Phase, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
@@ -26,6 +26,11 @@ BEHAVIOR_EXPORTS = (
     "us:statutes/26/32#eitc_phase_out_start",
     "us:statutes/26/32#eitc_reduction",
 )
+DEFINITION_ENDINGS = {
+    "earned_income": "maximum amount of the earned income credit is allowed",
+    "threshold_phaseout": "maximum amount of the credit begins to phase out",
+    "completed_phaseout": "at or above which no credit is allowed",
+}
 
 
 def _candidate():
@@ -222,11 +227,24 @@ def test_unrelated_arithmetic_in_the_same_paragraph_is_not_deferred(evaluate):
     assert any("complete-source-unit:formula" in issue for issue in issues)
 
 
-def test_unrelated_condition_within_a_definition_sentence_is_not_deferred(evaluate):
+@pytest.mark.parametrize("definition", DEFINITION_ENDINGS)
+@pytest.mark.parametrize(
+    "condition",
+    [
+        ", but if the taxpayer is disqualified, no credit is allowed",
+        " unless the taxpayer is disqualified",
+    ],
+)
+def test_unrelated_condition_within_a_definition_sentence_is_not_deferred(
+    evaluate, definition, condition
+):
     _, _, source = _candidate()
+    ending = DEFINITION_ENDINGS[definition]
+    assert source.count(ending + ".") == 1
     source = source.replace(
-        "begins to phase out.",
-        "begins to phase out, but if the taxpayer is disqualified, no credit is allowed.",
+        ending + ".",
+        ending + condition + ".",
+        1,
     )
     assert "taxpayer is disqualified" in " ".join(_paired(evaluate(source_text=source)))
 
@@ -354,3 +372,72 @@ def test_definition_deferral_requires_all_its_specific_exports(definition, targe
         BEHAVIOR_EXPORTS[1 if definition == "threshold" else 2],
     }
     assert bool(clauses) == (required <= targets)
+
+
+@settings(
+    max_examples=40,
+    deadline=None,
+    phases=tuple(phase for phase in Phase if phase != Phase.explain),
+)
+@given(
+    definition=st.sampled_from(tuple(DEFINITION_ENDINGS)),
+    cue=st.sampled_from(["if", "unless"]),
+    conjunction=st.sampled_from([", but ", ", and ", " and "]),
+    subject=st.sampled_from(["taxpayer", "claimant", "spouse"]),
+    status=st.sampled_from(["disqualified", "ineligible", "excluded"]),
+)
+def test_definition_deferral_never_exempts_an_independent_condition(
+    definition, cue, conjunction, subject, status
+):
+    payload, _, source = _candidate()
+    ending = DEFINITION_ENDINGS[definition]
+    source = source.replace(
+        ending + ".",
+        f"{ending}{conjunction}{cue} the {subject} is {status}, no credit is allowed.",
+        1,
+    )
+    record = next(
+        record
+        for record in payload["module"]["deferred_outputs"]
+        if record["output"].endswith(f"#{definition}_amount_definition")
+    )
+    clauses = sc._resolved_definition_deferral_clauses(
+        record,
+        payload=payload,
+        corpus_citation_path=CITATION,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=CITATION),
+        resolved_dependency_outputs=record["blocked_by"],
+    )
+    assert not clauses
+
+
+@pytest.mark.parametrize("definition", ["threshold_phaseout", "completed_phaseout"])
+def test_definition_deferral_requires_its_intrinsic_condition_profile(definition):
+    payload, _, source = _candidate()
+    term = definition.replace("_", " ") + " amount"
+    prefix, sentence_start, remainder = source.partition(f'The "{term}"')
+    sentence, separator, suffix = remainder.partition(".")
+    assert sentence_start and separator
+    sentence = sentence.replace("(or, if greater, earned income)", "(or earned income)")
+    source = (
+        prefix
+        + sentence_start
+        + sentence
+        + " unless the taxpayer is disqualified."
+        + suffix
+    )
+    record = next(
+        record
+        for record in payload["module"]["deferred_outputs"]
+        if record["output"].endswith(f"#{definition}_amount_definition")
+    )
+    clauses = sc._resolved_definition_deferral_clauses(
+        record,
+        payload=payload,
+        corpus_citation_path=CITATION,
+        source_text=source,
+        branches=sc.recognize_source_structure(source, corpus_citation_path=CITATION),
+        resolved_dependency_outputs=record["blocked_by"],
+    )
+    assert not clauses
