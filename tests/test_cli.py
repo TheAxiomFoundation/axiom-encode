@@ -14679,6 +14679,206 @@ class TestCmdEncode:
             "escalation_model": DEFAULT_OPENAI_ESCALATION_MODEL,
         }
 
+    def test_encode_records_each_try_wall_time_and_phases(self, tmp_path, capsys):
+        """Every try carries its wall time and a contiguous phase timeline; the
+        loop's setup and finalization close the gap to the whole run."""
+        from datetime import datetime, timezone
+
+        from axiom_encode.encode_timing import EncodeLoopTimer
+
+        class TickingClock:
+            now = 50.0
+
+            def __call__(self) -> float:
+                self.now += 1.0
+                return self.now
+
+        clock = TickingClock()
+
+        def timer_factory():
+            return EncodeLoopTimer(
+                monotonic=clock,
+                origin=(clock.now, datetime(2026, 10, 7, 16, tzinfo=timezone.utc)),
+            )
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+        with patch("axiom_encode.cli.EncodeLoopTimer", side_effect=timer_factory):
+            exit_code, *_rest = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (False, ["terra-2"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert [iteration.attempt for iteration in run.iterations] == [1, 2, 3]
+        for earlier, later in zip(run.iterations, run.iterations[1:]):
+            # A try ends the instant the next one starts.
+            assert earlier.finished_at == later.started_at
+        for iteration in run.iterations:
+            # duration_ms keeps meaning "the model call" for existing readers.
+            assert iteration.duration_ms == 123
+            assert iteration.started_at.endswith("Z")
+            phases = iteration.phases
+            assert phases[0]["started_at"] == iteration.started_at
+            assert phases[-1]["finished_at"] == iteration.finished_at
+            for earlier, later in zip(phases, phases[1:]):
+                assert earlier["finished_at"] == later["started_at"]
+            assert sum(phase["duration_ms"] for phase in phases) == (
+                iteration.wall_duration_ms
+            )
+            names = [phase["name"] for phase in phases]
+            assert names[:4] == [
+                "other",
+                "prepare",
+                "apply_repair",
+                "overlay_validation",
+            ]
+            assert names[-1] == "retry_handoff"
+        assert "apply_write" not in [
+            phase["name"] for phase in run.iterations[0].phases
+        ]
+        assert "apply_write" in [phase["name"] for phase in run.iterations[-1].phases]
+
+        loop = run.outcome["encode_loop_timing"]
+        assert loop["schema"] == "axiom-encode/encode-loop-timing/v1"
+        assert loop["try_count"] == 3
+        assert loop["tries_ms"] == sum(
+            iteration.wall_duration_ms for iteration in run.iterations
+        )
+        assert loop["setup_ms"] > 0 and loop["finalize_ms"] > 0
+        assert (
+            loop["setup_ms"]
+            + loop["tries_ms"]
+            + loop["between_tries_ms"]
+            + loop["finalize_ms"]
+        ) == loop["wall_duration_ms"]
+
+        out = capsys.readouterr().out
+        assert "  try=1 start at=2026-10-07T16:" in out
+        assert re.search(
+            r"^  try=2 phase=overlay_validation at=\S+Z prev=apply_repair:\d+ms$",
+            out,
+            flags=re.MULTILINE,
+        )
+        assert re.search(r"^  try=3 end at=\S+Z wall_ms=\d+", out, re.MULTILINE)
+
+    def test_encode_sync_payload_carries_try_timing(self, tmp_path):
+        """The run handed to the Supabase sync already holds the timing."""
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            pytest.raises(SystemExit),
+        ):
+            cmd_encode(args)
+
+        synced_run = mock_sync.call_args.args[0]
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at and iteration.finished_at
+        assert isinstance(iteration.wall_duration_ms, int)
+        assert sum(phase["duration_ms"] for phase in iteration.phases) == (
+            iteration.wall_duration_ms
+        )
+        loop = synced_run.outcome["encode_loop_timing"]
+        assert loop["try_count"] == 1
+        assert loop["tries_ms"] == iteration.wall_duration_ms
+
+    def test_encode_survives_a_failed_timing_write(self, tmp_path, capsys):
+        """Telemetry never fails an encode: when the local timing write fails,
+        the run still records and syncs its outcome, and no copy carries the
+        per-try timing the local row lacks."""
+        import sqlite3
+
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            patch.object(
+                EncodingDB,
+                "update_run_iterations",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(SystemExit) as failed_write,
+        ):
+            cmd_encode(args)
+
+        assert "  encode_timing=failed:OperationalError" in capsys.readouterr().out
+        synced_run = mock_sync.call_args.args[0]
+        assert synced_run.outcome["status"]
+        assert "encode_loop_timing" not in synced_run.outcome
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at is None and iteration.phases is None
+        stored = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert stored.outcome["status"] == synced_run.outcome["status"]
+        assert stored.iterations[0].phases is None
+
+        # The same encode without the failure exits the same way.
+        (tmp_path / "baseline").mkdir()
+        baseline_args = self._make_args(tmp_path / "baseline", backend="codex")
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ),
+            pytest.raises(SystemExit) as baseline,
+        ):
+            cmd_encode(baseline_args)
+        assert failed_write.value.code == baseline.value.code
+
+    def test_encode_try_error_passes_through_and_clears_the_timer(self, tmp_path):
+        """An error inside a try reaches the caller unchanged, and the loop
+        timer is no longer active afterwards."""
+        from axiom_encode.encode_timing import active_encode_loop_timer
+
+        args = self._make_args(tmp_path, backend="codex")
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                side_effect=RuntimeError("model backend exploded"),
+            ),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            pytest.raises(RuntimeError, match="model backend exploded"),
+        ):
+            cmd_encode(args)
+
+        assert active_encode_loop_timer() is None
+
     def test_encode_retries_from_best_candidate_when_later_attempt_regresses(
         self, tmp_path
     ):

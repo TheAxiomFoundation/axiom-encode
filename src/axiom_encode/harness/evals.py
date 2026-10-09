@@ -50,6 +50,18 @@ from axiom_encode.constants import (
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
 )
+from axiom_encode.encode_timing import (
+    PHASE_ARTIFACT_REPAIR,
+    PHASE_CANDIDATE_VALIDATION,
+    PHASE_MODEL_CALL,
+    PHASE_PREPARE,
+    PHASE_RECORD_RESULT,
+    PHASE_REPAIR_OVERLAY,
+    PHASE_RETAINED_CANDIDATE_PREFLIGHT,
+    PHASE_STAGE_CANDIDATE,
+    mark_encode_phase,
+    timed_phase,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -8053,6 +8065,7 @@ _EVAL_SCALAR_REPAIR_MARKERS = (
 )
 
 
+@timed_phase(PHASE_ARTIFACT_REPAIR)
 def _apply_generated_eval_repairs(
     *,
     rulespec_file: Path,
@@ -8944,6 +8957,9 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
 ) -> EvalResult:
+    # Encode-loop phases (no-ops outside `encode`): the workspace and prompt
+    # are preparation; later marks follow the try through the candidate.
+    mark_encode_phase(PHASE_PREPARE)
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -9027,6 +9043,7 @@ def _run_single_eval(
     if accept_valid_retry_candidate:
         assert validation_retry_candidate is not None
         assert validation_retry_candidate.tests is not None
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         preflight_started = time.monotonic()
         _write_eval_artifact_text(
             output_file,
@@ -9049,6 +9066,7 @@ def _run_single_eval(
             workspace,
             protected_paths=protected_paths,
         )
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9075,6 +9093,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
         )
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
             rulespec_file=output_file,
             relative_output=relative_output,
@@ -9086,6 +9105,7 @@ def _run_single_eval(
                 "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
                 + ",".join(rebound_hashes)
             )
+            mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
             retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
@@ -9112,6 +9132,7 @@ def _run_single_eval(
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
             )
+            mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
@@ -9155,6 +9176,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
                 runner=runner,
@@ -9172,6 +9194,7 @@ def _run_single_eval(
                 required_test_case_contracts=required_test_case_contracts,
             )
         )
+    mark_encode_phase(PHASE_STAGE_CANDIDATE)
     overlay_validation_issue: str | None = None
     if (
         wrote_artifact
@@ -9256,6 +9279,7 @@ def _run_single_eval(
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
     if wrote_artifact and not retained_candidate_accepted:
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9282,6 +9306,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
         )
+    mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
         if overlay_validation_issue not in metrics.ci_issues:
@@ -17609,6 +17634,7 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+@timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
     *,

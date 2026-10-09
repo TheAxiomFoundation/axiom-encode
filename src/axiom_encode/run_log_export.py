@@ -30,6 +30,7 @@ from typing import Any, Iterable, Optional
 
 from pydantic import ValidationError
 
+from .encode_timing import iteration_timing_payload
 from .repo_routing import is_composition_policy_repo_root
 from .run_log import (
     FUNNEL_STEPS,
@@ -225,18 +226,44 @@ def _apply_event_from_outcome(outcome: dict[str, Any]) -> Optional[dict[str, Any
     }
 
 
+def _try_timings(iterations: Optional[Iterable[Any]]) -> Optional[list[dict[str, Any]]]:
+    """Per-try wall time and phases for the ``generate`` event, when recorded.
+
+    Each entry is ``{attempt, started_at, finished_at, wall_duration_ms,
+    phases}`` exactly as ``encoding_runs.iterations`` stores those fields;
+    tries that were not timed are left out, and ``None`` means none were.
+    """
+    tries: list[dict[str, Any]] = []
+    for iteration in iterations or ():
+        timing = iteration_timing_payload(iteration)
+        if not timing:
+            continue
+        attempt = (
+            iteration.get("attempt")
+            if isinstance(iteration, dict)
+            else getattr(iteration, "attempt", None)
+        )
+        tries.append({"attempt": attempt, **timing})
+    return tries or None
+
+
 def emit_live_encode_events(
     result: Any,
     run_id: str,
     outcome: dict[str, Any],
     *,
     total_duration_ms: int | None = None,
+    iterations: Optional[Iterable[Any]] = None,
     log_dir: Optional[Path] = None,
 ) -> RunLogWriter:
     """Emit generate + gate + apply events for a just-completed encode run.
 
     Duck-typed on ``result`` (an ``EvalResult``) so this module does not import
     harness types. Never raises: the writer swallows its own errors.
+
+    ``iterations`` (the run's ``Iteration`` records) adds each try's wall time
+    and phase timeline to the ``generate`` event as ``attrs.tries``; the
+    loop totals travel as ``attrs.encode_loop_timing`` from ``outcome``.
     """
     writer = RunLogWriter(run_id, log_dir=log_dir)
     generation_ok = bool(getattr(result, "success", False)) or getattr(
@@ -267,6 +294,8 @@ def emit_live_encode_events(
             ),
             "retry_count": getattr(result, "retry_count", None),
             "generation_escalation": (outcome or {}).get("generation_escalation"),
+            "tries": _try_timings(iterations),
+            "encode_loop_timing": (outcome or {}).get("encode_loop_timing"),
         },
     )
     for kwargs in _gate_events_from_metrics(getattr(result, "metrics", None)):
@@ -404,6 +433,8 @@ def synthesize_backfill_events(
             "corpus_context_ref": (manifest or {}).get("context_manifest_file"),
             "corpus_context_sha256": (manifest or {}).get("context_manifest_sha256"),
             "generation_escalation": outcome.get("generation_escalation"),
+            "tries": _try_timings(getattr(run, "iterations", None)),
+            "encode_loop_timing": outcome.get("encode_loop_timing"),
             "backfilled": True,
         },
     )
@@ -543,9 +574,15 @@ def _iter_db_runs(db_path: Path, limit: int) -> Iterable[Any]:
 
     conn = sqlite3.connect(str(db_path))
     try:
+        # Older or minimal DBs may lack iterations_json; timing is then absent.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(encoding_runs)")}
+        iterations_column = (
+            "iterations_json" if "iterations_json" in columns else "NULL"
+        )
         cursor = conn.execute(
             "SELECT id, timestamp, citation, agent_type, agent_model, "
-            "total_duration_ms, review_results_json, outcome_json "
+            "total_duration_ms, review_results_json, outcome_json, "
+            f"{iterations_column} "
             "FROM encoding_runs ORDER BY timestamp DESC LIMIT ?",
             (limit,),
         )
@@ -556,6 +593,14 @@ def _iter_db_runs(db_path: Path, limit: int) -> Iterable[Any]:
                 outcome = {}
             if not isinstance(outcome, dict):
                 outcome = {}
+            # Only the timing fields are read here, and only from well-formed
+            # dict entries, so a malformed legacy row still backfills.
+            try:
+                iterations = json.loads(row[8]) if row[8] else []
+            except (TypeError, json.JSONDecodeError):
+                iterations = []
+            if not isinstance(iterations, list):
+                iterations = []
             # A malformed/legacy timestamp must not abort the whole backfill; this
             # runs inside the generator, outside the caller's per-run try/except.
             try:
@@ -571,6 +616,7 @@ def _iter_db_runs(db_path: Path, limit: int) -> Iterable[Any]:
                 total_duration_ms=row[5],
                 review_results=_parse_review_results(row[6]),
                 outcome=outcome,
+                iterations=[it for it in iterations if isinstance(it, dict)],
             )
     finally:
         conn.close()

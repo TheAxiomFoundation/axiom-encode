@@ -3179,6 +3179,96 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     )
 
 
+def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
+    """Inside an encode try, one generation walks prepare -> model call ->
+    staging -> validation -> result recording, each a timeline phase."""
+    from datetime import datetime, timezone
+
+    from axiom_encode.encode_timing import (
+        EncodeLoopTimer,
+        activate_encode_loop_timer,
+    )
+
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/income_tax/pilot_liability_pipeline.yaml")
+    output_root = tmp_path / "out"
+
+    class TickingClock:
+        now = 100.0
+
+        def __call__(self) -> float:
+            self.now += 1.0
+            return self.now
+
+    clock = TickingClock()
+    timer = EncodeLoopTimer(
+        monotonic=clock,
+        origin=(clock.now, datetime(2026, 10, 7, tzinfo=timezone.utc)),
+        emit=None,
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        activate_encode_loop_timer(timer),
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            return_value=EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=True,
+                ci_issues=[],
+                embedded_source_present=False,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            ),
+        ),
+    ):
+        timer.start_try(1)
+        run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=output_root,
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )
+        timing = timer.finish_try()
+
+    assert [phase.name for phase in timing.phases] == [
+        "other",
+        "prepare",
+        "model_call",
+        "stage_candidate",
+        "candidate_validation",
+        "record_result",
+    ]
+    assert sum(phase.duration_ms for phase in timing.phases) == (
+        timing.wall_duration_ms
+    )
+
+
 def test_resolve_corpus_source_unit_concatenates_descendant_text_rows(tmp_path):
     rows = [
         {

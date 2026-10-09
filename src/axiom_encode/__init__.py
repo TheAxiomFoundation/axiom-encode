@@ -1,8 +1,10 @@
-__version__ = "0.2.2155"
+__version__ = "0.2.2157"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
-
+# Imported first: its import time is the clock origin of the first encode loop,
+# so a loop's recorded setup includes the package import (stdlib-only module).
+from . import encode_timing as _encode_timing  # noqa: F401  # isort: skip
 from .constants import (
     DEFAULT_CLI_MODEL,
     DEFAULT_MODEL,

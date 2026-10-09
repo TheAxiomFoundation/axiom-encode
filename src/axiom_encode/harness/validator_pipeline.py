@@ -80,6 +80,16 @@ from axiom_encode.corpus_resolver import (
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
+from axiom_encode.encode_timing import (
+    PHASE_REVIEW_MODEL_CALL,
+    TOOL_CI_STATIC_CHECKS,
+    TOOL_CI_TEST_CASES,
+    TOOL_POLICYENGINE_ORACLE,
+    TOOL_RULES_ENGINE_COMPILE,
+    TOOL_SOURCE_COMPLETENESS_CHECKS,
+    timed_phase,
+    timed_tool,
+)
 from axiom_encode.engine_binding import (
     ENGINE_PIN_FIELD,
     EnginePin,
@@ -35171,6 +35181,7 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
+    @timed_tool(TOOL_SOURCE_COMPLETENESS_CHECKS)
     def _complete_source_unit_issues(
         self,
         content: str,
@@ -35636,6 +35647,7 @@ class ValidatorPipeline:
         )
         return binary
 
+    @timed_tool(TOOL_RULES_ENGINE_COMPILE)
     def _compile_rulespec_to_artifact(
         self,
         rules_file: Path,
@@ -37007,6 +37019,7 @@ class ValidatorPipeline:
             and str(item.get("name") or "") == self.policyengine_rule_hint
         )
 
+    @timed_tool(TOOL_CI_TEST_CASES)
     def _run_rulespec_test_cases(
         self,
         *,
@@ -37605,6 +37618,7 @@ class ValidatorPipeline:
             "rules"
         )
 
+    @timed_tool(TOOL_CI_STATIC_CHECKS)
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
         with (
@@ -39769,6 +39783,7 @@ class ValidatorPipeline:
                 return Path(parts[statutes_idx + 2]).stem
         return None
 
+    @timed_phase(PHASE_REVIEW_MODEL_CALL)
     def _run_reviewer(
         self,
         reviewer_type: str,
@@ -40078,6 +40093,7 @@ Output ONLY valid JSON:
                 return stripped[:200]
         return "unknown error"
 
+    @timed_tool(TOOL_POLICYENGINE_ORACLE)
     def _run_policyengine(self, rulespec_file: Path) -> ValidationResult:
         """Run PolicyEngine and reject any runtime mutation across the execution."""
 

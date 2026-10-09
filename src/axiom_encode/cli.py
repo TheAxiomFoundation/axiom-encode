@@ -36,6 +36,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -144,6 +145,17 @@ from .corpus_resolver import (
     resolve_local_corpus_source,
     split_proof_evidence_text,
     validate_corpus_release_name,
+)
+from .encode_timing import (
+    PHASE_APPLY_REPAIR,
+    PHASE_APPLY_WRITE,
+    PHASE_OVERLAY_VALIDATION,
+    PHASE_PREPARE,
+    PHASE_RETRY_HANDOFF,
+    EncodeLoopTimer,
+    activate_encode_loop_timer,
+    mark_encode_phase,
+    timed_phase,
 )
 from .engine_binding import (
     ENGINE_PIN_FIELD,
@@ -10470,6 +10482,7 @@ def _emit_run_log_events_safe(
     outcome,
     *,
     total_duration_ms: int | None = None,
+    iterations: Sequence[Iteration] | None = None,
 ):
     """Emit run-log events for a just-completed encode run; never fatal.
 
@@ -10485,6 +10498,7 @@ def _emit_run_log_events_safe(
             run_id,
             outcome or {},
             total_duration_ms=total_duration_ms,
+            iterations=iterations,
         )
     except Exception:  # noqa: BLE001 - run-log emission must never break a run
         pass
@@ -31143,20 +31157,68 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             backend=args.backend,
             model=config.escalation_model,
         )
-    with LiveRunTelemetry(
-        citation=str(args.citation),
-        backend=str(getattr(args, "backend", "") or ""),
-        model=str(config.initial_model or ""),
-        encoder_version=__version__,
-        enabled=getattr(args, "sync", True) is True,
-    ) as live_run:
+    with (
+        activate_encode_loop_timer(EncodeLoopTimer()) as loop_timer,
+        LiveRunTelemetry(
+            citation=str(args.citation),
+            backend=str(getattr(args, "backend", "") or ""),
+            model=str(config.initial_model or ""),
+            encoder_version=__version__,
+            enabled=getattr(args, "sync", True) is True,
+        ) as live_run,
+    ):
         return _run_encode_attempts_with_retries(
             args,
             config=config,
             live_run=live_run,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            loop_timer=loop_timer,
         )
+
+
+def _stamp_encode_loop_timing(
+    run: EncodingRun,
+    outcome: dict,
+    *,
+    loop_timer: EncodeLoopTimer,
+    db_path: Path,
+) -> None:
+    """Copy each try's wall time and phases onto the run, and the loop totals
+    into its outcome, before the outcome is recorded and synced.
+
+    Telemetry only: a failure here is reported and never fails the encode.
+    """
+    try:
+        tries = {timing.attempt: timing for timing in loop_timer.tries}
+        stamps = {
+            attempt: {
+                "started_at": timing.started_at,
+                "finished_at": timing.finished_at,
+                "wall_duration_ms": timing.wall_duration_ms,
+                "phases": timing.phase_dicts(),
+            }
+            for attempt, timing in tries.items()
+        }
+        loop_timing = loop_timer.loop_timing()
+        # The local row is written first: the run and its outcome take the
+        # timing only once it is stored, so a failed write leaves the local
+        # row, the Supabase sync and the run log all without it.
+        EncodingDB(db_path).update_run_iterations(
+            run.id,
+            [
+                dataclass_replace(iteration, **stamps[iteration.attempt])
+                if iteration.attempt in stamps
+                else iteration
+                for iteration in run.iterations
+            ],
+        )
+        for iteration in run.iterations:
+            for name, value in stamps.get(iteration.attempt, {}).items():
+                setattr(iteration, name, value)
+        outcome["encode_loop_timing"] = loop_timing
+    except Exception as exc:  # noqa: BLE001 - timing must never fail an encode
+        print(f"  encode_timing=failed:{type(exc).__name__}")
 
 
 def _run_encode_attempts_with_retries(
@@ -31166,8 +31228,13 @@ def _run_encode_attempts_with_retries(
     live_run: LiveRunTelemetry,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    loop_timer: EncodeLoopTimer | None = None,
 ):
     """Bounded validator-retry loop for one encode invocation."""
+    if loop_timer is None:
+        # Callers outside ``_cmd_encode_with_authoritative_rulespec_roots``
+        # still get per-try wall time; phases need an active timer.
+        loop_timer = EncodeLoopTimer()
     raw_emit_destination = getattr(args, "emit_final_rejected_candidate", None)
     emit_destination = (
         _resolve_final_rejected_candidate_destination(raw_emit_destination)
@@ -31181,6 +31248,8 @@ def _run_encode_attempts_with_retries(
     current_model = config.initial_model
 
     while True:
+        # A try runs until the next one starts or the loop stops judging it.
+        loop_timer.start_try(len(failed_attempts) + 1)
         execution = _run_encode_attempt(
             args,
             model=current_model,
@@ -31191,6 +31260,7 @@ def _run_encode_attempts_with_retries(
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
         )
+        loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
         if _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31250,6 +31320,8 @@ def _run_encode_attempts_with_retries(
                 live_run.set_attempt(len(failed_attempts) + 1, str(current_model))
                 continue
 
+        # The last candidate is judged; what follows is the loop's finalization.
+        loop_timer.finish_try()
         outcome = execution.outcome
         final_validator_rejected = _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31317,6 +31389,12 @@ def _run_encode_attempts_with_retries(
                 final_attempt_error=final_attempt_error,
             )
             print(f"  run_id={logged_run.id}")
+        _stamp_encode_loop_timing(
+            logged_run,
+            outcome,
+            loop_timer=loop_timer,
+            db_path=db_path,
+        )
         repair_manifest = _record_encode_outcome(
             db_path=db_path,
             result=execution.result,
@@ -31328,6 +31406,7 @@ def _run_encode_attempts_with_retries(
             logged_run.id,
             outcome,
             total_duration_ms=logged_run.total_duration_ms,
+            iterations=logged_run.iterations,
         )
         apply_requested = getattr(args, "apply", False) is True
         if apply_requested:
@@ -31379,6 +31458,9 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    # Phases advance inside run_model_eval (model_call, stage_candidate,
+    # candidate_validation, record_result) and below under --apply.
+    mark_encode_phase(PHASE_PREPARE)
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     axiom_compose_path = _resolve_optional_axiom_compose_path(
@@ -31460,6 +31542,7 @@ def _run_encode_attempt(
     deferred_output_review_contract = getattr(args, "review_contract_json", None)
     amendment_source_texts: dict[str, str] | None = None
 
+    @timed_phase(PHASE_OVERLAY_VALIDATION)
     def _validate_generated_encoding_in_policy_overlay(
         result,
         *,
@@ -31719,6 +31802,9 @@ def _run_encode_attempt(
             ci_issues,
         )
     if apply_requested:
+        # Overlay validations run as nested phases; the rest of this branch
+        # is apply-time repairs and checks until the signed apply starts.
+        mark_encode_phase(PHASE_APPLY_REPAIR)
         if not _can_attempt_apply(result):
             detail = str(getattr(result, "error", None) or "generation failed")
             outcome["status"] = "apply_blocked_generation"
@@ -34489,6 +34575,7 @@ def _run_encode_attempt(
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
                 else:
+                    mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
                             result,
