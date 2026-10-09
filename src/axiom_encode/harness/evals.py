@@ -12248,8 +12248,14 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer:
-            parts.append(f"producer `{concept.producer_anchor}`")
+        if concept.has_producer and len(concept.producer_anchors) == 1:
+            parts.append(f"producer `{concept.producer_anchors[0]}`")
+        elif concept.has_producer:
+            producers = ", ".join(f"`{a}`" for a in concept.producer_anchors)
+            parts.append(
+                "one producer per vintage, only at "
+                f"{producers}; reference the producer of the vintage you mean"
+            )
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")

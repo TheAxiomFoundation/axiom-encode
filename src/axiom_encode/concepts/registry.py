@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,10 +11,30 @@ import yaml
 
 REGISTRY_FORMAT = "axiom-encode/concepts/v1"
 
+# A producer anchor must be a string the anchored-reference scanners can
+# match (`<jurisdiction>:<path>` in validator/auto_repair/audit
+# ANCHORED_REF_RE). An anchor those scanners cannot see could never be
+# accepted, so it is rejected at load time instead.
+PRODUCER_ANCHOR_RE = re.compile(r"[a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+")
+
 
 @dataclass(frozen=True)
 class Concept:
-    """One canonical legal concept with its approved variable name."""
+    """One canonical legal concept with its approved variable name.
+
+    ``producer_anchors`` is the complete set of modules allowed to define the
+    canonical name. Most concepts have exactly one. A concept whose value is
+    republished per period (for example the SNAP cost-of-living adjustment,
+    one module per fiscal year) lists one anchor per vintage. Validation,
+    test auto-repair and the corpus audit all decide against this set.
+
+    ``producer_anchor`` is the legacy single-anchor field, kept so existing
+    registry entries and callers keep working. When only it is given,
+    ``producer_anchors`` is ``(producer_anchor,)``. When both are given,
+    ``producer_anchor`` must be one of ``producer_anchors``; it is then only a
+    label (the vintage current consumers import) and is never used to choose
+    among vintages.
+    """
 
     id: str
     canonical_name: str
@@ -22,10 +43,49 @@ class Concept:
     producer_missing: bool = False
     description: str | None = None
     source_file: Path | None = None
+    producer_anchors: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        anchors = tuple(self.producer_anchors)
+        if not anchors and self.producer_anchor is not None:
+            anchors = (self.producer_anchor,)
+        for anchor in anchors:
+            if not isinstance(anchor, str) or not PRODUCER_ANCHOR_RE.fullmatch(anchor):
+                raise ValueError(
+                    f"concept {self.id}: producer anchor {anchor!r} is not a "
+                    "<jurisdiction>:<path> RuleSpec anchor"
+                )
+        duplicates = sorted({a for a in anchors if anchors.count(a) > 1})
+        if duplicates:
+            raise ValueError(
+                f"concept {self.id}: duplicate producer anchors {duplicates}"
+            )
+        if self.producer_anchor is not None and self.producer_anchor not in anchors:
+            raise ValueError(
+                f"concept {self.id}: producer_anchor {self.producer_anchor!r} "
+                "must be one of producer_anchors"
+            )
+        object.__setattr__(self, "producer_anchors", anchors)
 
     @property
     def has_producer(self) -> bool:
-        return self.producer_anchor is not None and not self.producer_missing
+        return bool(self.producer_anchors) and not self.producer_missing
+
+    @property
+    def unique_producer_anchor(self) -> str | None:
+        """The one producer anchor, or ``None`` when there are zero or several.
+
+        Auto-repair may redirect a reference only to this anchor. With several
+        vintages there is no safe default, so callers must leave the
+        reference alone and let validation flag it.
+        """
+        if len(self.producer_anchors) == 1:
+            return self.producer_anchors[0]
+        return None
+
+    def accepts_producer_anchor(self, anchor: str | None) -> bool:
+        """Whether a module at ``anchor`` may define this canonical name."""
+        return anchor is not None and anchor in self.producer_anchors
 
 
 @dataclass(frozen=True)
@@ -136,14 +196,35 @@ def _concept_from_payload(payload: Any, *, source_file: Path) -> Concept:
         blocked = (blocked,)
     if not isinstance(blocked, (list, tuple)):
         raise ValueError(f"{source_file}: blocked_synonyms must be a list")
-    return Concept(
-        id=str(payload["id"]),
-        canonical_name=str(payload["canonical_name"]),
-        producer_anchor=(
-            str(payload["producer_anchor"]) if payload.get("producer_anchor") else None
-        ),
-        blocked_synonyms=tuple(str(s) for s in blocked),
-        producer_missing=bool(payload.get("producer_missing", False)),
-        description=payload.get("description"),
-        source_file=source_file,
-    )
+    raw_anchors = payload.get("producer_anchors")
+    if raw_anchors is None:
+        producer_anchors: tuple[str, ...] = ()
+    else:
+        if not isinstance(raw_anchors, list) or not raw_anchors:
+            raise ValueError(
+                f"{source_file}: concept {payload['id']!r} producer_anchors "
+                "must be a non-empty list"
+            )
+        if not all(isinstance(anchor, str) for anchor in raw_anchors):
+            raise ValueError(
+                f"{source_file}: concept {payload['id']!r} producer_anchors "
+                "must contain only strings"
+            )
+        producer_anchors = tuple(raw_anchors)
+    try:
+        return Concept(
+            id=str(payload["id"]),
+            canonical_name=str(payload["canonical_name"]),
+            producer_anchor=(
+                str(payload["producer_anchor"])
+                if payload.get("producer_anchor")
+                else None
+            ),
+            blocked_synonyms=tuple(str(s) for s in blocked),
+            producer_missing=bool(payload.get("producer_missing", False)),
+            description=payload.get("description"),
+            source_file=source_file,
+            producer_anchors=producer_anchors,
+        )
+    except ValueError as exc:
+        raise ValueError(f"{source_file}: {exc}") from exc

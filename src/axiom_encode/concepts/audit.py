@@ -24,7 +24,7 @@ from axiom_encode.repo_routing import (
 )
 
 from .jurisdiction import jurisdiction_prefix
-from .registry import ConceptRegistry
+from .registry import Concept, ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
 ANCHORED_REF_RE = re.compile(
@@ -42,6 +42,10 @@ class DriftFinding:
     site_paths: tuple[Path, ...]
     detail: str
     nearby_producers: tuple[str, ...] = ()
+    # Every producer anchor the registry accepts for the finding's concept
+    # (one per vintage). `anchor` keeps its legacy meaning; for a vintaged
+    # concept it is only one of these.
+    accepted_producers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -216,6 +220,7 @@ def audit_corpus(
                         f"(canonical: {concept.canonical_name})"
                     ),
                     nearby_producers=(concept.canonical_name,),
+                    accepted_producers=concept.producer_anchors,
                 )
             )
 
@@ -231,7 +236,7 @@ def audit_corpus(
         if name in produced_here:
             continue
         registry_canonical = registry.lookup_canonical(name)
-        if registry_canonical and registry_canonical.producer_anchor == anchor:
+        if registry_canonical and registry_canonical.accepts_producer_anchor(anchor):
             continue  # registry says this is correct; producer just hasn't been re-encoded yet
         nearby = tuple(sorted(n for n in produced_here if _similar(name, n)))
         findings.append(
@@ -242,6 +247,9 @@ def audit_corpus(
                 site_paths=tuple(files),
                 detail=f"{anchor}#{name} references a name not produced by {anchor}",
                 nearby_producers=nearby,
+                accepted_producers=(
+                    registry_canonical.producer_anchors if registry_canonical else ()
+                ),
             )
         )
 
@@ -270,12 +278,15 @@ def audit_corpus(
             )
         )
 
-    # Canonical-name conflicts: registered canonical produced under a different anchor
+    # Canonical-name conflicts: registered canonical produced under an anchor
+    # that is not one of its accepted producers (any listed vintage is fine).
     for canonical, concept in registry.canonical_to_concept.items():
         producer_sites = graph.producers.get(canonical, [])
         if not producer_sites or not concept.has_producer:
             continue
-        bad = [(a, p) for a, p in producer_sites if a != concept.producer_anchor]
+        bad = [
+            (a, p) for a, p in producer_sites if not concept.accepts_producer_anchor(a)
+        ]
         if not bad:
             continue
         bad_anchors = ", ".join(sorted({a for a, _ in bad}))
@@ -287,12 +298,20 @@ def audit_corpus(
                 site_paths=tuple(p for _, p in bad),
                 detail=(
                     f"{canonical} produced under {bad_anchors} but registry "
-                    f"expects {concept.producer_anchor}"
+                    f"expects {_expected_producers_text(concept)}"
                 ),
+                accepted_producers=concept.producer_anchors,
             )
         )
 
     return findings
+
+
+def _expected_producers_text(concept: Concept) -> str:
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return anchors[0]
+    return "one of " + ", ".join(anchors)
 
 
 def _anchor_for(path: Path, root: Path) -> str:

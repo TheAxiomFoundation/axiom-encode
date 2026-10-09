@@ -1,41 +1,31 @@
-"""Pre-write validator: reject generated RuleSpec that uses blocked synonyms
-or conflicts with the canonical-concept registry.
+"""Single-anchor concept registry semantics, frozen as a differential oracle.
 
-Hook into `cli.py:_apply_generated_encoding_result` before `shutil.copy2` so
-the encoder can't install drift into a live rules repo.
+These are the validator and test auto-repair from axiom-encode origin/main
+436cf3044 (src/axiom_encode/concepts/validator.py lines 38-188 and
+auto_repair.py lines 71-109), copied verbatim apart from the function names.
+They read only `Concept.producer_anchor`. For a registry in which every
+concept has at most one producer, the multi-producer implementation must
+agree with them exactly (tests/test_concepts_vintage_producers.py).
+Do not update this file to track the live implementation.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 import yaml
 
-from .registry import Concept, ConceptRegistry
-
-IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
-ANCHORED_REF_RE = re.compile(
-    r"([a-z][a-z0-9-]*:[A-Za-z0-9_\-/\.]+)#(input\.)?([a-z][a-z0-9_]*)"
+from axiom_encode.concepts.registry import ConceptRegistry
+from axiom_encode.concepts.validator import (
+    ANCHORED_REF_RE,
+    IDENT_RE,
+    CanonicalNameViolation,
 )
 
 
-@dataclass(frozen=True)
-class CanonicalNameViolation:
-    kind: str  # "blocked_synonym" | "canonical_conflict" | "anchored_ref_miss" | "parse_error"
-    name: str
-    where: str  # file:rule or file:anchored-ref
-    concept_id: str | None
-    detail: str
-
-    def __str__(self) -> str:
-        cid = f" ({self.concept_id})" if self.concept_id else ""
-        return f"[{self.kind}] {self.name} at {self.where}{cid}: {self.detail}"
-
-
-def validate_generated_against_registry(
+def legacy_validate_generated_against_registry(
     yaml_paths: Iterable[Path],
     registry: ConceptRegistry,
     *,
@@ -47,10 +37,6 @@ def validate_generated_against_registry(
     generated content will live under once applied. It identifies producer
     conflicts and distinguishes candidate-owned input slots from legacy slots
     exposed by imported modules. The latter are validated by overlay execution.
-
-    A registered canonical may have several accepted producers (one per
-    vintage, `Concept.producer_anchors`). A module may define the name, and a
-    non-input reference may target it, iff its anchor is one of them.
     """
     violations: list[CanonicalNameViolation] = []
     for path in yaml_paths:
@@ -79,7 +65,7 @@ def validate_generated_against_registry(
             blocked = registry.lookup_synonym(name)
             if blocked is not None:
                 if is_input_ref and (
-                    blocked.accepts_producer_anchor(anchor)
+                    blocked.producer_anchor == anchor
                     or (apply_anchor is not None and anchor != apply_anchor)
                 ):
                     continue
@@ -97,7 +83,7 @@ def validate_generated_against_registry(
             if (
                 canonical is not None
                 and canonical.has_producer
-                and not canonical.accepts_producer_anchor(anchor)
+                and canonical.producer_anchor != anchor
                 and not is_input_ref
             ):
                 violations.append(
@@ -106,7 +92,10 @@ def validate_generated_against_registry(
                         name=name,
                         where=f"{path}:{anchor}#{name}",
                         concept_id=canonical.id,
-                        detail=_anchored_ref_miss_detail(canonical, anchor),
+                        detail=(
+                            f"canonical {name!r} is anchored at "
+                            f"{canonical.producer_anchor}, not {anchor}"
+                        ),
                     )
                 )
 
@@ -138,7 +127,7 @@ def validate_generated_against_registry(
                     canonical is not None
                     and apply_anchor is not None
                     and canonical.has_producer
-                    and not canonical.accepts_producer_anchor(apply_anchor)
+                    and canonical.producer_anchor != apply_anchor
                     and not path.name.endswith(".test.yaml")
                 ):
                     violations.append(
@@ -147,7 +136,10 @@ def validate_generated_against_registry(
                             name=rname,
                             where=f"{path}:rule {rname}",
                             concept_id=canonical.id,
-                            detail=_canonical_conflict_detail(canonical, apply_anchor),
+                            detail=(
+                                f"canonical anchor is {canonical.producer_anchor}, "
+                                f"applying under {apply_anchor}"
+                            ),
                         )
                     )
 
@@ -186,26 +178,42 @@ def validate_generated_against_registry(
     return deduped
 
 
-def _anchored_ref_miss_detail(concept: Concept, anchor: str) -> str:
-    anchors = concept.producer_anchors
-    if len(anchors) == 1:
-        return (
-            f"canonical {concept.canonical_name!r} is anchored at "
-            f"{anchors[0]}, not {anchor}"
+def legacy_rewrite_anchored_refs(
+    text: str,
+    registry: ConceptRegistry,
+    *,
+    apply_anchor: str | None = None,
+) -> str:
+    def repl(match: re.Match[str]) -> str:
+        anchor, input_prefix, name = (
+            match.group(1),
+            match.group(2) or "",
+            match.group(3),
         )
-    return (
-        f"canonical {concept.canonical_name!r} has {len(anchors)} accepted "
-        f"producers ({', '.join(anchors)}), and {anchor} is not one of them; "
-        "reference the producer of the intended vintage explicitly "
-        "(auto-repair never chooses a vintage)"
-    )
+        is_input_ref = bool(input_prefix)
+        blocked = registry.lookup_synonym(name)
+        if blocked is not None:
+            # An imported module's input slots must match the names that module
+            # actually exposes. Renaming a legacy external slot in the
+            # companion test without migrating the imported module makes a
+            # previously executable test silently lose its scenario-setting
+            # value. The overlay validator proves that preserved external refs
+            # resolve; canonical naming remains mandatory for the candidate's
+            # own input slots.
+            if is_input_ref and apply_anchor is not None and anchor != apply_anchor:
+                return match.group(0)
+            if is_input_ref and blocked.producer_anchor == anchor:
+                return match.group(0)
+            new_anchor = anchor if is_input_ref else (blocked.producer_anchor or anchor)
+            return f"{new_anchor}#{input_prefix}{blocked.canonical_name}"
+        canonical = registry.lookup_canonical(name)
+        if (
+            canonical is not None
+            and canonical.has_producer
+            and canonical.producer_anchor != anchor
+            and not is_input_ref
+        ):
+            return f"{canonical.producer_anchor}#{input_prefix}{name}"
+        return match.group(0)
 
-
-def _canonical_conflict_detail(concept: Concept, apply_anchor: str) -> str:
-    anchors = concept.producer_anchors
-    if len(anchors) == 1:
-        return f"canonical anchor is {anchors[0]}, applying under {apply_anchor}"
-    return (
-        f"accepted producer anchors are {', '.join(anchors)}; "
-        f"applying under {apply_anchor}"
-    )
+    return ANCHORED_REF_RE.sub(repl, text)

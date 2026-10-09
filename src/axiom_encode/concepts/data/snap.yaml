@@ -6,6 +6,16 @@ format: axiom-encode/concepts/v1
 # RuleSpec file that owns the producer rule; `blocked_synonyms` lists the
 # alternative names that have appeared in drifting encoder output.
 #
+# A concept republished per period lists every accepted producer, one per
+# vintage, in `producer_anchors` (the cost-of-living allotment concepts
+# below have one module per fiscal year). A module may define the name only
+# at a listed anchor, and test auto-repair never moves a reference from one
+# vintage to another. `producer_anchor`, when also present, must be one of
+# the listed anchors; it is kept for back-compat and is never used to pick
+# a vintage. Add the next fiscal year's producer here when its module path
+# is fixed (for an encoder-produced module, the canonical path of its
+# corpus citation).
+#
 # Source of truth for canonical names is the federal regulation/statute
 # producer. Where no federal producer exists yet, set `producer_missing: true`
 # so the validator allows the canonical name in consumers while the producer
@@ -205,11 +215,20 @@ concepts:
   - id: snap.allotment.max_for_household_size
     canonical_name: snap_maximum_allotment
     producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
+    producer_anchors:
+      - us:policies/usda/snap/fy-2024-cola/maximum-allotments
+      - us:policies/usda/snap/fy-2026-cola/maximum-allotments
+      - us:policies/usda/fns/snap-fy2027-cola/page-4
     description: >-
       Maximum monthly SNAP allotment for the household's size in the
-      applicable region. The fy-2026-cola/maximum-allotments policy file
-      owns the producer via a parameter_lookup keyed on household_size;
-      the 48-states-DC table is the default. Multi-region selection
+      applicable region. Each fiscal year's cost-of-living module owns its
+      own producer: FY2024 and FY2026 at the legacy
+      fy-<year>-cola/maximum-allotments paths, FY2027 at the encoder's
+      canonical path for the FNS memorandum page that carries the 48
+      states/DC, Guam and Virgin Islands table (corpus citation
+      us/guidance/usda/fns/snap-fy2027-cola/page-4). In the FY2026 module
+      the producer is a parameter_lookup keyed on household_size, and the
+      48-states-DC table is the default. Multi-region selection
       (Alaska urban/rural, Hawaii, Guam, Virgin Islands) is encoded as
       sibling snap_maximum_allotment_<region> rules; the region-aware
       selector that picks among them is not yet encoded — that gap
@@ -224,11 +243,15 @@ concepts:
   - id: snap.allotment.max_for_one_person
     canonical_name: snap_one_person_thrifty_food_plan_cost
     producer_anchor: us:policies/usda/snap/fy-2026-cola/maximum-allotments
+    producer_anchors:
+      - us:policies/usda/snap/fy-2024-cola/maximum-allotments
+      - us:policies/usda/snap/fy-2026-cola/maximum-allotments
+      - us:policies/usda/fns/snap-fy2027-cola/page-4
     description: >-
       Maximum allotment for a one-person household, used to compute the
-      minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). The FY COLA
-      maximum-allotments file owns this as the one-person Thrifty Food Plan
-      cost.
+      minimum benefit per 7 CFR 273.10(e)(2)(ii)(C). Each fiscal year's
+      COLA maximum-allotments module (FY2027: memorandum page 4) owns this
+      as the one-person Thrifty Food Plan cost.
     blocked_synonyms:
       - snap_maximum_allotment_for_one_person_household
 
