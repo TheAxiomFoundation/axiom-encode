@@ -7667,6 +7667,7 @@ def cmd_concepts_audit(args):
                 "site_paths": [str(p) for p in f.site_paths],
                 "detail": f.detail,
                 "nearby_producers": list(f.nearby_producers),
+                "accepted_producers": list(f.accepted_producers),
             }
             for f in findings
         ]
@@ -7687,7 +7688,10 @@ def cmd_concepts_audit(args):
             continue
         print(f"\n[{kind}] {len(items)}")
         for f in items:
-            anchor = f" @ {f.anchor}" if f.anchor else ""
+            if len(f.accepted_producers) > 1 and kind != "anchored_ref_miss":
+                anchor = " @ one of " + ", ".join(f.accepted_producers)
+            else:
+                anchor = f" @ {f.anchor}" if f.anchor else ""
             nearby = (
                 f" (nearby: {', '.join(f.nearby_producers[:4])})"
                 if f.nearby_producers
