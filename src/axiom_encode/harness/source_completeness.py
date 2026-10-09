@@ -23962,13 +23962,35 @@ def _parse_formula_expression(text: str) -> ast.expr | None:
     """Parse one expression, including Axiom's multiline continuations."""
 
     stripped = text.strip()
-    try:
-        return ast.parse(stripped, mode="eval").body
-    except SyntaxError:
+    for source in (stripped, f"(\n{stripped}\n)"):
         try:
-            return ast.parse(f"(\n{stripped}\n)", mode="eval").body
+            expression = ast.parse(source, mode="eval").body
         except SyntaxError:
-            return None
+            continue
+        # Python's AST rounds decimal literals. Retain the original lexemes for
+        # evidence-bearing runtime evaluation with the pinned RuleSpec parser.
+        for node in ast.walk(expression):
+            if isinstance(node, ast.expr):
+                node._rulespec_source_text = source
+        return expression
+    return None
+
+
+def _formula_expression_source(expression: ast.expr) -> str:
+    source = getattr(expression, "_rulespec_source_text", None)
+    if source is not None:
+        segment = ast.get_source_segment(source, expression)
+        if segment is not None:
+            return segment
+    return ast.unparse(expression)
+
+
+def _evaluate_rulespec_expression(
+    expression: ast.expr, environment: dict[str, Any]
+) -> Any:
+    return _evaluate_rulespec_formula(
+        _formula_expression_source(expression), environment=environment
+    )
 
 
 def _formula_comparisons_with_polarity(
@@ -27676,7 +27698,9 @@ def _greater_alternative_definition_comparison_is_executed(
 
     Numeric cases must implement the source maximum in both executions.
     Named Judgment repairs instead implement the ordinary/alternative arms
-    selected by that authenticated Judgment, including its polarity.
+    selected by that authenticated Judgment, including its polarity. In each
+    real execution the matching comparison must itself change the output when
+    its Boolean result alone is flipped; another clause cannot lend its effect.
     """
 
     text = _collapse_text(_strip_source_clause_marker(branch.text))
@@ -27802,9 +27826,12 @@ def _greater_alternative_definition_comparison_is_executed(
             if (
                 operand_matches
                 and _boolean_value(
-                    _evaluate_condition_expression(comparison, environment)
+                    _evaluate_rulespec_expression(comparison, environment)
                 )
                 is required
+                and _formula_comparison_changes_boolean_output(
+                    expression, comparison, environment
+                )
             ):
                 matched = True
         if not matched:
@@ -27822,9 +27849,68 @@ def _reached_formula_boolean_comparisons(
     elif isinstance(expression, ast.BoolOp):
         for value in expression.values:
             yield from _reached_formula_boolean_comparisons(value, environment)
-            boolean = _boolean_value(_evaluate_condition_expression(value, environment))
+            boolean = _boolean_value(_evaluate_rulespec_expression(value, environment))
             if boolean is None or boolean == isinstance(expression.op, ast.Or):
                 break
+    elif isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.Not):
+        yield from _reached_formula_boolean_comparisons(expression.operand, environment)
+    elif (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id in {"holds", "not_holds"}
+        and len(expression.args) == 1
+        and not expression.keywords
+    ):
+        yield from _reached_formula_boolean_comparisons(expression.args[0], environment)
+
+
+def _formula_comparison_changes_boolean_output(
+    expression: ast.expr,
+    comparison: ast.Compare,
+    environment: dict[str, Any],
+) -> bool:
+    """Flip one reached comparison, holding its Boolean siblings fixed.
+
+    All numeric values come from the actual assignment. Only the comparison's
+    Boolean result is intervened on, so no invented max() value or changed
+    sibling can supply causal credit. Unresolved siblings fail closed.
+    """
+
+    actual = _boolean_value(_evaluate_rulespec_expression(expression, environment))
+    compared = _boolean_value(_evaluate_rulespec_expression(comparison, environment))
+    if actual is None or compared is None:
+        return False
+
+    def freeze(node: ast.expr) -> ast.expr | None:
+        if node is comparison:
+            return ast.Constant(not compared)
+        if not any(child is comparison for child in ast.walk(node)):
+            value = _boolean_value(_evaluate_rulespec_expression(node, environment))
+            return ast.Constant(value) if value is not None else None
+        if isinstance(node, ast.BoolOp):
+            children = [freeze(value) for value in node.values]
+            if any(child is None for child in children):
+                return None
+            return ast.BoolOp(op=node.op, values=children)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            child = freeze(node.operand)
+            return ast.UnaryOp(op=node.op, operand=child) if child is not None else None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"holds", "not_holds"}
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            child = freeze(node.args[0])
+            if child is not None:
+                return ast.Call(func=node.func, args=[child], keywords=[])
+        return None
+
+    frozen = freeze(expression)
+    return frozen is not None and _boolean_value(
+        _evaluate_condition_expression(frozen, environment)
+    ) is (not actual)
 
 
 def _exception_witnesses_for_branch(
@@ -30207,7 +30293,6 @@ def _toggled_formula_numeric_selectors(
                 ) = _formula_relational_transitions(
                     left_execution,
                     right_execution,
-                    rule=rule,
                     left_case=left_case,
                     right_case=right_case,
                     left_dependencies=left_dependencies,
@@ -30390,7 +30475,6 @@ def _formula_relational_transitions(
     left_execution: _FormulaExecution,
     right_execution: _FormulaExecution,
     *,
-    rule: dict[str, Any],
     left_case: dict[str, Any],
     right_case: dict[str, Any],
     left_dependencies: dict[str, Any],
@@ -30435,14 +30519,9 @@ def _formula_relational_transitions(
     for first, second in maximum_pairs:
         if not changed_names.intersection((first, second)):
             continue
-        if not _maximum_changes_principal_output(
-            rule,
-            names=(first, second),
-            cases=(left_case, right_case),
-            executions=(left_execution, right_execution),
-            environments=(left_environment, right_environment),
-        ):
-            continue
+        # These are operand-binding observations from real executions only.
+        # The source-owned comparison gate authenticates their causal effect
+        # separately for each clause; never replay an invented maximum here.
         for left, right in ((first, second), (second, first)):
             comparison = ast.Compare(
                 left=ast.Name(id=left),
@@ -30510,91 +30589,6 @@ def _formula_execution_maximum_pairs(
             expression, environment=environment
         )
     }
-
-
-def _maximum_changes_principal_output(
-    rule: dict[str, Any],
-    *,
-    names: tuple[str, str],
-    cases: tuple[dict[str, Any], dict[str, Any]],
-    executions: tuple[_FormulaExecution, _FormulaExecution],
-    environments: tuple[dict[str, Any], dict[str, Any]],
-) -> bool:
-    """Freeze only max() and replay the full output, including guarded arms.
-
-    Changing a numeric input can affect unrelated arithmetic in the same
-    formula.  The maximum itself must explain an output change; an inert
-    ``0 * max(A, B) + B`` is not a witness for the maximum's binding. A guard
-    such as ``max(A, B) > A`` may need a value outside the pair's maxima to
-    select its other arm. Source comparison binding separately authenticates
-    the real winning operands and results, never these counterfactual values.
-    """
-
-    formula = _rule_formula_text_for_case(rule, cases[0])
-    if formula is None or formula != _rule_formula_text_for_case(rule, cases[1]):
-        return False
-    masked = _mask_formula_strings_and_comments(formula)
-    spans: list[tuple[int, int]] = []
-    for match in re.finditer(r"\bmax\s*\(", masked):
-        depth = 1
-        end = match.end()
-        while end < len(masked) and depth:
-            depth += (masked[end] == "(") - (masked[end] == ")")
-            end += 1
-        if depth:
-            continue
-        expression = _parse_formula_expression(masked[match.start() : end])
-        if (
-            isinstance(expression, ast.Call)
-            and len(expression.args) == 2
-            and not expression.keywords
-            and all(isinstance(argument, ast.Name) for argument in expression.args)
-            and {argument.id for argument in expression.args} == set(names)
-        ):
-            spans.append((match.start(), end))
-    if not spans:
-        return False
-    maximum_values = tuple(
-        _rulespec_runtime_decimal(
-            _evaluate_rulespec_formula(
-                f"max({names[0]}, {names[1]})", environment=environment
-            )
-        )
-        for environment in environments
-    )
-    if any(value is None or not value.is_finite() for value in maximum_values):
-        return False
-    operand_values = tuple(
-        _rulespec_runtime_decimal(environment.get(name))
-        for environment in environments
-        for name in names
-    )
-    if any(value is None or not value.is_finite() for value in operand_values):
-        return False
-    lower, upper = min(operand_values), max(operand_values)
-    margin = max(abs(lower), abs(upper), Decimal(1))
-    for index, (execution, environment) in enumerate(zip(executions, environments)):
-        for value in (maximum_values[1 - index], lower - margin, upper + margin):
-            rewritten = formula
-            # Freeze all occurrences, including reversed arguments, so duplicated
-            # terms that cancel cannot manufacture an isolated max effect.
-            frozen = f"({value:f})"
-            for start, end in reversed(spans):
-                rewritten = rewritten[:start] + frozen + rewritten[end:]
-            counterfactual = _apply_currency_output_rounding(
-                rule,
-                _execute_formula_text(
-                    rewritten,
-                    environment=environment,
-                    constant_environment=execution.constant_environment,
-                ),
-            )
-            if counterfactual is not None and _exception_effect_changes(
-                _formula_execution_runtime_value(execution),
-                _formula_execution_runtime_value(counterfactual),
-            ):
-                return True
-    return False
 
 
 def _formula_case_runtime_environment(
@@ -30702,7 +30696,7 @@ def _formula_maximum_operands(
     if isinstance(expression, ast.BoolOp) and environment is not None:
         for value in expression.values:
             yield from _formula_maximum_operands(value, environment=environment)
-            boolean = _boolean_value(_evaluate_condition_expression(value, environment))
+            boolean = _boolean_value(_evaluate_rulespec_expression(value, environment))
             if boolean is None or boolean == isinstance(expression.op, ast.Or):
                 break
         return
@@ -30711,9 +30705,23 @@ def _formula_maximum_operands(
         yield from _formula_maximum_operands(left, environment=environment)
         for operator, right in zip(expression.ops, expression.comparators):
             yield from _formula_maximum_operands(right, environment=environment)
-            comparison = ast.Compare(left=left, ops=[operator], comparators=[right])
+            symbol = {
+                ast.Eq: "==",
+                ast.NotEq: "!=",
+                ast.Gt: ">",
+                ast.GtE: ">=",
+                ast.Lt: "<",
+                ast.LtE: "<=",
+            }.get(type(operator))
             if (
-                _boolean_value(_evaluate_condition_expression(comparison, environment))
+                symbol is None
+                or _boolean_value(
+                    _evaluate_rulespec_formula(
+                        f"({_formula_expression_source(left)}) {symbol} "
+                        f"({_formula_expression_source(right)})",
+                        environment=environment,
+                    )
+                )
                 is not True
             ):
                 break
