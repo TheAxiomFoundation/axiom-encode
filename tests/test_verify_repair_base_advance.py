@@ -113,7 +113,9 @@ def test_accepts_state_jurisdiction_repository_path(tmp_path: Path) -> None:
     )
 
 
-def test_accepts_advanced_base_for_legacy_target_without_manifest(tmp_path: Path) -> None:
+def test_accepts_advanced_base_for_legacy_target_without_manifest(
+    tmp_path: Path,
+) -> None:
     repository, source_ref = _repository(
         tmp_path,
         candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
