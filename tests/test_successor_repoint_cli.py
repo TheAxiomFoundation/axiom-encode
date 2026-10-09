@@ -1188,6 +1188,26 @@ class TestRepointModePreSigningSteps:
             == ()
         )
 
+    def test_repair_mode_resolution_accepts_the_repoint_envelope(self):
+        # "Verify existing signed imports" runs in repoint mode and resolves
+        # the failed-repair mode from the same bounded source input.
+        from axiom_encode.prepare_signed_backfill import resolve_atomic_repair_mode
+
+        assert resolve_atomic_repair_mode(REPOINT_ENVELOPE_REAL, {}) == {
+            "mode": "full_artifact",
+            "tests_only": False,
+        }
+        # A repoint envelope can never ride the authenticated v6 repair wrapper.
+        wrapped = json.dumps(
+            {
+                "schema": "axiom-encode/atomic-source-transaction/v6",
+                "transaction": json.loads(REPOINT_ENVELOPE_REAL),
+                "repair_mode": "full_artifact",
+            }
+        )
+        with pytest.raises(ValueError, match="v6 transaction must be"):
+            resolve_atomic_repair_mode(wrapped, {"REPAIR_RUN_ID": "1"})
+
 
 REPOINT_ENVELOPE_REAL = json.dumps(
     {

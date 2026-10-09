@@ -1535,6 +1535,18 @@ jobs:
           # never invokes a backend. The supervisor refuses a private key in
           # its environment, so the key reaches it only through the same
           # workflow-bound apply signer the model lane uses.
+          repoint_args=(
+            /opt/axiom-verification/axiom-encode
+            repoint-legacy-successor
+            --request "$RUNNER_TEMP/successor-repoint-request.json"
+            --policy-repo-path "$RULESPEC_CHECKOUT"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+          )
+          if [ -x /opt/axiom-compose-verification/axiom-compose ]; then
+            repoint_args+=(--axiom-compose-path \
+              /opt/axiom-compose-verification/axiom-compose)
+          fi
           /opt/axiom-verification/axiom-encode-apply-signer run \
             --scope apply_ed25519 \
             --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
@@ -1546,11 +1558,7 @@ jobs:
             --expected-github-repository TheAxiomFoundation/axiom-encode \
             --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
             --allowed-event-name workflow_dispatch \
-            -- /opt/axiom-verification/axiom-encode repoint-legacy-successor \
-            --request "$RUNNER_TEMP/successor-repoint-request.json" \
-            --policy-repo-path "$RULESPEC_CHECKOUT" \
-            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
-            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            -- "${repoint_args[@]}"
 
       - name: Encode, review, validate, and apply
         id: encode_apply

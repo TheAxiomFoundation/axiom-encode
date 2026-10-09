@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
@@ -20,6 +21,7 @@ from axiom_encode.cli import (
     _load_verified_applied_encoding_manifest_payload,
     _successor_repoint_manifest_issues,
     cmd_guard_generated,
+    cmd_repoint_legacy_successor,
     guard_generated_change_issues,
 )
 from tests.successor_repoint_fixtures import (
@@ -38,6 +40,7 @@ from tests.successor_repoint_fixtures import (
     SUCCESSOR_IDENTITY,
     SUCCESSOR_MANIFEST,
     TRANSITIVE,
+    _passing_overlay_validation,
     build_repoint_fixture,
     git,
     run_repoint,
@@ -384,6 +387,67 @@ class TestRepointEndToEnd:
         git(repointed.repo, "commit", "-q", "-m", "repoint")
         with pytest.raises(SystemExit, match="refused"):
             run_repoint(repointed)
+
+
+class TestRepointComposerValidation:
+    """Main's explicit composer reaches every validator the repoint builds.
+
+    Without it a composition importer of a dependent fails identically on the
+    overlay and the baseline, which the dependent regression pipeline would
+    tolerate as baseline debt instead of composing it.
+    """
+
+    def _run(self, fixture, args) -> MagicMock:
+        pipelines = MagicMock()
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", pipelines),
+            patch(
+                "axiom_encode.cli._validate_overlay_files",
+                side_effect=_passing_overlay_validation,
+            ),
+        ):
+            cmd_repoint_legacy_successor(args)
+        return pipelines
+
+    def test_passes_the_explicit_composer_to_every_validator(
+        self, tmp_path, monkeypatch
+    ):
+        fixture = build_repoint_fixture(tmp_path, monkeypatch)
+        composer = tmp_path / "axiom-compose"
+        composer.write_text("#!/bin/sh\nexit 0\n")
+        composer.chmod(0o755)
+        args = fixture.args()
+        args.axiom_compose_path = composer
+        pipelines = self._run(fixture, args)
+        assert pipelines.call_count == 3
+        assert [
+            call.kwargs["axiom_compose_path"] for call in pipelines.call_args_list
+        ] == [composer.resolve()] * 3
+
+    def test_omits_the_composer_when_none_is_supplied(self, tmp_path, monkeypatch):
+        fixture = build_repoint_fixture(tmp_path, monkeypatch)
+        pipelines = self._run(fixture, fixture.args())
+        assert pipelines.call_count == 3
+        assert [
+            call.kwargs["axiom_compose_path"] for call in pipelines.call_args_list
+        ] == [None] * 3
+
+    def test_refuses_a_composer_that_is_not_executable(self, tmp_path, monkeypatch):
+        fixture = build_repoint_fixture(tmp_path, monkeypatch)
+        composer = tmp_path / "axiom-compose"
+        composer.write_text("not executable\n")
+        composer.chmod(0o644)
+        args = fixture.args()
+        args.axiom_compose_path = composer
+        recover = MagicMock()
+        with (
+            patch("axiom_encode.cli._recover_apply_transaction", recover),
+            pytest.raises(ValueError, match="executable regular file"),
+        ):
+            self._run(fixture, args)
+        # Refused before journal recovery or anything else may write.
+        recover.assert_not_called()
+        assert git(fixture.repo, "status", "--porcelain") == ""
 
 
 # ---------------------------------------------------------------------------

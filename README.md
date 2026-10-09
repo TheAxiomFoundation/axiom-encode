@@ -374,6 +374,11 @@ axiom-encode repoint-legacy-successor \
   --corpus-path ~/TheAxiomFoundation/axiom-corpus
 ```
 
+Add `--axiom-compose-path <axiom-compose executable>` when a dependent or any
+module that imports one is a `module.kind: composition` module, as for
+`validate` and `encode`; the protected workflow passes its provisioned composer
+whenever one is installed.
+
 Every declared rename is proved before anything is written: identical
 `kind`/`dtype`/`unit`/`entity`/`period`, identical table key sets, and equal
 values at every version boundary **inside the successor's validity window**.
