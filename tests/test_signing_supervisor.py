@@ -2732,6 +2732,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     ) + 1 == steps.index(failure_package_step)
     assert failure_package_step["if"] == "${{ failure() && !cancelled() }}"
     assert set(failure_package_step["env"]) == {
+        "RETIRED_SOURCE_METADATA_REQUEST_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_REQUEST_OUTCOME",
+        "RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_CONCLUSION",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_OUTCOME",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_CONCLUSION",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_OUTCOME",
         "ATOMIC_SOURCE_JSON",
         "CITATION",
         "CORPUS_REF",
@@ -3000,7 +3010,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
-    assert secret_steps == [apply_step]
+    metadata_migration_step = next(
+        step for step in steps if step.get("name") == "Migrate retired source metadata"
+    )
+    assert secret_steps == [metadata_migration_step, apply_step]
 
     publish_step = next(
         step
@@ -3008,7 +3021,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Push lane branch and open draft pull request"
     )
     assert publish_step["id"] == "publish_lane_pull_request"
-    assert publish_step["if"] == "${{ inputs.open_pr }}"
+    assert publish_step["if"] == (
+        "${{ inputs.open_pr && "
+        "steps.retired_source_metadata_request.outputs.enabled != 'true' }}"
+    )
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
