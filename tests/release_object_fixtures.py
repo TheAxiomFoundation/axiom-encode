@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from base64 import b64encode
+from collections.abc import Sequence
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
@@ -44,8 +45,14 @@ def write_test_release_object(
     scopes: list[tuple[str, str, str]],
     *,
     git_commit: str = "a" * 40,
+    unmaterialized_scopes: Sequence[tuple[str, str, str]] = (),
+    unmaterialized_sources_per_scope: int = 1,
 ) -> str:
-    """Write a production-shaped signed release object and return its identity."""
+    """Write a production-shaped signed release object and return its identity.
+
+    ``unmaterialized_scopes`` are signed into the object without local files,
+    like the scopes a partial corpus checkout does not resolve against.
+    """
 
     artifact_rows: list[dict[str, object]] = []
     scope_rows: list[dict[str, object]] = []
@@ -69,13 +76,6 @@ def write_test_release_object(
             raise AssertionError(
                 f"test release provisions artifact must contain rows: {provisions}"
             )
-        scope_identity = f"{jurisdiction}/{document_class}/{version}"
-        provision_projection_sha256 = hashlib.sha256(
-            f"{scope_identity}:provision-projection".encode()
-        ).hexdigest()
-        navigation_projection_sha256 = hashlib.sha256(
-            f"{scope_identity}:navigation-projection".encode()
-        ).hexdigest()
         inventory = (
             corpus_root / "data" / "corpus" / "inventory" / prefix.with_suffix(".json")
         )
@@ -93,17 +93,7 @@ def write_test_release_object(
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(body, encoding="utf-8")
-        scope_rows.append(
-            {
-                "jurisdiction": jurisdiction,
-                "document_class": document_class,
-                "version": version,
-                "provision_rows": row_count,
-                "navigation_rows": row_count,
-                "provision_projection_sha256": provision_projection_sha256,
-                "navigation_projection_sha256": navigation_projection_sha256,
-            }
-        )
+        scope_rows.append(_scope_row(jurisdiction, document_class, version, row_count))
         for artifact_class, paths in (
             ("inventory", [inventory]),
             ("provisions", [provisions]),
@@ -115,18 +105,38 @@ def write_test_release_object(
         ):
             for path in paths:
                 raw = path.read_bytes()
-                digest = hashlib.sha256(raw).hexdigest()
-                entry: dict[str, object] = {
-                    "artifact_class": artifact_class,
-                    "path": path.relative_to(corpus_root).as_posix(),
-                    "sha256": digest,
-                    "bytes": len(raw),
-                    "r2_bucket": "axiom-corpus",
-                    "r2_key": f"objects/sha256/{digest[:2]}/{digest}",
-                }
-                if artifact_class == "provisions":
-                    entry["rows"] = row_count
-                artifact_rows.append(entry)
+                artifact_rows.append(
+                    _artifact_row(
+                        artifact_class,
+                        path.relative_to(corpus_root).as_posix(),
+                        hashlib.sha256(raw).hexdigest(),
+                        len(raw),
+                        row_count,
+                    )
+                )
+    for jurisdiction, document_class, version in unmaterialized_scopes:
+        prefix_text = f"{jurisdiction}/{document_class}/{version}"
+        row_count = 1
+        scope_rows.append(_scope_row(jurisdiction, document_class, version, row_count))
+        for artifact_class, relative in (
+            ("inventory", f"inventory/{prefix_text}.json"),
+            ("provisions", f"provisions/{prefix_text}.jsonl"),
+            ("coverage", f"coverage/{prefix_text}.json"),
+            *(
+                ("sources", f"sources/{prefix_text}/source-{index:05d}.html")
+                for index in range(unmaterialized_sources_per_scope)
+            ),
+        ):
+            path = f"data/corpus/{relative}"
+            artifact_rows.append(
+                _artifact_row(
+                    artifact_class,
+                    path,
+                    hashlib.sha256(path.encode()).hexdigest(),
+                    4096,
+                    row_count,
+                )
+            )
     artifact_rows.sort(key=lambda item: str(item["path"]))
     selector = {
         "name": name,
@@ -212,6 +222,48 @@ def write_test_release_object(
         encoding="utf-8",
     )
     return str(payload["content_sha256"])
+
+
+def _scope_row(
+    jurisdiction: str,
+    document_class: str,
+    version: str,
+    row_count: int,
+) -> dict[str, object]:
+    scope_identity = f"{jurisdiction}/{document_class}/{version}"
+    return {
+        "jurisdiction": jurisdiction,
+        "document_class": document_class,
+        "version": version,
+        "provision_rows": row_count,
+        "navigation_rows": row_count,
+        "provision_projection_sha256": hashlib.sha256(
+            f"{scope_identity}:provision-projection".encode()
+        ).hexdigest(),
+        "navigation_projection_sha256": hashlib.sha256(
+            f"{scope_identity}:navigation-projection".encode()
+        ).hexdigest(),
+    }
+
+
+def _artifact_row(
+    artifact_class: str,
+    path: str,
+    digest: str,
+    byte_count: int,
+    row_count: int,
+) -> dict[str, object]:
+    entry: dict[str, object] = {
+        "artifact_class": artifact_class,
+        "path": path,
+        "sha256": digest,
+        "bytes": byte_count,
+        "r2_bucket": "axiom-corpus",
+        "r2_key": f"objects/sha256/{digest[:2]}/{digest}",
+    }
+    if artifact_class == "provisions":
+        entry["rows"] = row_count
+    return entry
 
 
 def _canonical_sha256(value: dict[str, object]) -> str:
