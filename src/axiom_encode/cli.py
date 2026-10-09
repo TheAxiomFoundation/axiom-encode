@@ -60011,7 +60011,7 @@ def _resolve_scheduled_proof_hash_dependents(
     overlay_content_root: Path,
     dependents: Sequence[Path],
 ) -> set[Path]:
-    """Authenticate dependents deferred to separately source-bound apply lanes."""
+    """Authenticate proof-pinned dependents for separately source-bound lanes."""
 
     if not scheduled_paths:
         return set()
@@ -60054,10 +60054,42 @@ def _resolve_scheduled_proof_hash_dependents(
             repo_path=overlay_content_root,
         )
         if repair_count <= 0 or repaired == content:
-            raise ValueError(
-                "Scheduled dependent has no stale proof import hash after target "
-                f"replacement: {path}"
-            )
+            if len(scheduled) != 1:
+                raise ValueError(
+                    "Scheduled dependent has no stale proof import hash after target "
+                    f"replacement: {path}"
+                )
+            first = next(iter(scheduled))
+            first_relative = first.relative_to(overlay_content_root)
+            first_import = _relative_rulespec_import_target(first_relative)
+            if not _rulespec_file_imports_target(
+                candidate,
+                target=first_import,
+                jurisdiction=overlay_content_root.name,
+            ):
+                raise ValueError(
+                    "Scheduled second dependent is not a direct importer of the "
+                    f"first scheduled proof-hash dependent: {path}"
+                )
+            try:
+                payload = yaml.safe_load(content)
+            except (ValueError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Cannot inspect scheduled dependent proof: {path}"
+                ) from exc
+            from .prepare_signed_backfill import _payload_has_proof_import_for_target
+
+            if not isinstance(
+                payload, dict
+            ) or not _payload_has_proof_import_for_target(
+                payload,
+                target_import=first_import,
+                canonical_target_import=(f"{overlay_content_root.name}:{first_import}"),
+            ):
+                raise ValueError(
+                    "Scheduled second dependent lacks a proof import pinned to "
+                    f"the first scheduled dependent: {path}"
+                )
         scheduled.add(candidate)
     return scheduled
 

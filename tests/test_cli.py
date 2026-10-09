@@ -42041,6 +42041,51 @@ class TestEncodeReplacementTarget:
         assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
         assert resolved.context_paths == (target,)
 
+    def test_accepts_existing_child_module_from_its_exact_parent_source(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        args.replace_rulespec_path = Path("us-nc/statutes/105/105-153.7/a.yaml")
+        target = content_root / "statutes" / "105" / "105-153.7" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-nc/statute/105/105-153.7\n"
+            "rules: []\n"
+        )
+        source_unit.requested = "us-nc/statute/105/105-153.7"
+        source_unit.citation_path = source_unit.requested
+        replacement_source = SimpleNamespace(
+            requested=source_unit.requested,
+            citation_path=source_unit.citation_path,
+            body=source_unit.body,
+            resolved_source=source_unit.resolved_source,
+        )
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
+        assert resolved.context_paths == (target,)
+
     def test_rejects_non_direct_source_refinement(self, tmp_path):
         (
             args,
@@ -50024,6 +50069,115 @@ rules:
                 (Path("us/regulations/7-cfr/273/10.yaml"),),
                 overlay_content_root=content_root,
                 dependents=[dependent],
+            )
+
+    def test_scheduled_two_hop_proof_chain_is_authenticated(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        sibling = content_root / "policies/usda/snap/state-plan-composition.yaml"
+        for module in (target, first, second, sibling):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        first_sha = hashlib.sha256(first.read_bytes()).hexdigest()
+        second.write_text(
+            f"""format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/10
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:{first_sha}
+"""
+        )
+        sibling.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        resolved = _resolve_scheduled_proof_hash_dependents(
+            (
+                Path("us/regulations/7-cfr/273/10.yaml"),
+                Path("us/regulations/7-cfr/273/11/c.yaml"),
+            ),
+            overlay_content_root=content_root,
+            dependents=[first, second],
+        )
+
+        assert resolved == {first, second}
+        assert f"hash: sha256:{first_sha}" in second.read_text()
+        # The first dependent has now been regenerated; only its proof-pinned
+        # second dependent may be deferred, not an ordinary sibling importer.
+        first.write_text(first.read_text() + "# signed re-encode\n")
+        first_closure_skip = _resolve_scheduled_proof_hash_dependents(
+            (Path("us/regulations/7-cfr/273/11/c.yaml"),),
+            overlay_content_root=content_root,
+            dependents=[second, sibling],
+        )
+        assert first_closure_skip == {second}
+        assert [
+            path for path in (second, sibling) if path not in first_closure_skip
+        ] == [sibling]
+
+    def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        for module in (target, first, second):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        second.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        with pytest.raises(ValueError, match="lacks a proof import pinned"):
+            _resolve_scheduled_proof_hash_dependents(
+                (
+                    Path("us/regulations/7-cfr/273/10.yaml"),
+                    Path("us/regulations/7-cfr/273/11/c.yaml"),
+                ),
+                overlay_content_root=content_root,
+                dependents=[first, second],
             )
 
     def test_missing_input_parser_accepts_relation_warning_before_error(self):
