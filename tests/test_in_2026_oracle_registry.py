@@ -11,7 +11,7 @@ MODULE = "us-in:policies/income_tax/pilot_liability_pipeline"
 OUTPUT_NAME = "in_pit_pilot_income_tax_liability"
 POLICYENGINE_VARIABLE = "in_agi_tax"
 ORACLE_MERGE = "d3419010d9c8de6a790220bf47912d85aadc2588"
-ENCODER_VERSION = "0.2.2144"
+ENCODER_VERSION = "0.2.2146"
 FALLBACK_TEXT = """  - legal_id_prefix: "us-in:"
     country: us
     mapping_type: not_comparable
