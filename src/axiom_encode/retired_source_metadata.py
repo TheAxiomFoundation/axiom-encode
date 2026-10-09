@@ -247,6 +247,31 @@ def _last_content_end(node: Node) -> int:
     return node.end_mark.index
 
 
+def _require_canonical_value_node(node: Node, *, column: int, text: str) -> None:
+    """Require two-space block nesting for the values history we remove."""
+
+    error = "values does not have canonical block YAML indentation"
+    if isinstance(node, MappingNode):
+        if node.flow_style or node.start_mark.column != column:
+            raise RetiredSourceMetadataError(error)
+        for key, value in node.value:
+            if not isinstance(key, ScalarNode) or key.start_mark.column != column:
+                raise RetiredSourceMetadataError(error)
+            _require_canonical_value_node(value, column=column + 2, text=text)
+    elif isinstance(node, SequenceNode):
+        if node.flow_style or node.start_mark.column != column:
+            raise RetiredSourceMetadataError(error)
+        for value in node.value:
+            if value.start_mark.column != column + 2:
+                raise RetiredSourceMetadataError(error)
+            _require_canonical_value_node(value, column=column + 2, text=text)
+    elif isinstance(node, ScalarNode) and node.style in {"|", ">"}:
+        lines = text.splitlines()[node.start_mark.line + 1 : node.end_mark.line]
+        indents = [len(line) - len(line.lstrip(" ")) for line in lines if line.strip()]
+        if indents and min(indents) != column:
+            raise RetiredSourceMetadataError(error)
+
+
 def _block_span(
     text: str, key: ScalarNode, value: Node, *, field: str
 ) -> tuple[int, int]:
@@ -260,6 +285,8 @@ def _block_span(
         or value.flow_style
     ):
         raise RetiredSourceMetadataError(f"{field} does not have canonical block YAML")
+    if field == "values":
+        _require_canonical_value_node(value, column=6, text=text)
     content_end = _last_content_end(value)
     # A literal scalar's terminal newline is part of its payload. Ordinary
     # scalar marks precede their newline; preserve unrelated trailing blank lines.

@@ -214,6 +214,29 @@ class TestStructureAndLocality:
 
 
 class TestRefusal:
+    @pytest.mark.parametrize("indent", [5, 7, 8])
+    def test_values_children_must_use_exactly_six_spaces(self, indent):
+        raw = _module(
+            "    corpus_citation_path: us/statute/26/1\n    values:\n"
+            + " " * indent
+            + "amount: 1\n"
+        )
+        with pytest.raises(
+            RetiredSourceMetadataError, match="canonical block YAML indentation"
+        ):
+            rewrite_source_metadata(raw)
+
+    @pytest.mark.parametrize("indent", [7, 9, 10])
+    def test_nested_values_mapping_requires_two_space_indentation(self, indent):
+        raw = _module(
+            "    corpus_citation_path: us/statute/26/1\n    values:\n"
+            "      household_size:\n" + " " * indent + "1: 100\n"
+        )
+        with pytest.raises(
+            RetiredSourceMetadataError, match="canonical block YAML indentation"
+        ):
+            rewrite_source_metadata(raw)
+
     # I4: failure is pure; even a values deletion cannot escape an R2 refusal.
     @settings(max_examples=50, deadline=None)
     @given(st.integers(1, 100000), st.integers(1, 100000))
@@ -290,6 +313,30 @@ class TestRefusal:
 
 
 class TestReplay:
+    def test_canonical_nested_values_lists_and_multiline_history_stay_exact(self):
+        block = (
+            "    values:\n"
+            "      household_size:\n"
+            "        1: 100\n"
+            "      rates:\n"
+            "        - 0.25\n"
+            "        - amount: 42\n"
+            "          explanation: |-\n"
+            "            first line\n"
+            "            second line\n"
+            "      description: >-\n"
+            "        wrapped first line\n"
+            "        wrapped second line\n"
+        )
+        raw = _module("    corpus_citation_path: us/statute/26/1\n" + block)
+        migration = build_migration(_plan(), base_tree=TREE, base_files={PRIMARY: raw})
+        assert migration.receipt["primaries"][0]["removed_values_yaml"] == block
+        assert migration.files[0].after == raw.replace(block.encode(), b"", 1)
+        assert (
+            verify_migration_replay(migration.receipt_bytes, base_files={PRIMARY: raw})
+            == migration
+        )
+
     # I3: a migrated primary is refused; authenticated base replay produces
     # exactly the same transaction and preserves removed history in its receipt.
     def test_i3_idempotent_refusal_and_exact_base_replay(self):
