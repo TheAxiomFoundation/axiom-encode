@@ -193,6 +193,9 @@ class _OpenTry:
         self.tools: list[str] = []
         self.cursor_ms = start_ms
         self.segments: list[_Segment] = [_Segment(PHASE_OTHER, start_ms, start_ms)]
+        # When the effective phase last changed: a progress line's ``prev``
+        # counts from here, also after a sub-ms phase merged back.
+        self.last_transition_ms = start_ms
 
     def effective_phase(self) -> str:
         return self.frames[-1].name if self.frames else self.base
@@ -302,7 +305,7 @@ class EncodeLoopTimer:
         assert open_try is not None
         open_try.advance(now_ms)
         previous = open_try.effective_phase()
-        previous_ms = self._segment_ms(open_try, now_ms)
+        previous_ms = self._since_transition(open_try, now_ms)
         segments = [
             segment
             for segment in open_try.segments
@@ -340,8 +343,8 @@ class EncodeLoopTimer:
         )
 
     @staticmethod
-    def _segment_ms(open_try: _OpenTry, now_ms: int) -> int:
-        return now_ms - open_try.segments[-1].start_ms
+    def _since_transition(open_try: _OpenTry, now_ms: int) -> int:
+        return now_ms - open_try.last_transition_ms
 
     @staticmethod
     def _previous_suffix(previous: str, previous_ms: int) -> str:
@@ -353,8 +356,9 @@ class EncodeLoopTimer:
         after = open_try.effective_phase()
         if after == before:
             return
-        previous_ms = self._segment_ms(open_try, now_ms)
+        previous_ms = self._since_transition(open_try, now_ms)
         open_try.open_segment(after, now_ms)
+        open_try.last_transition_ms = now_ms
         self._line(
             f"  try={open_try.attempt} phase={after} at={self._at(now_ms)}"
             + self._previous_suffix(before, previous_ms)

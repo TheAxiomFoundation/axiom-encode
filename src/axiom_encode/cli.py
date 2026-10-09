@@ -36,6 +36,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -31190,16 +31191,32 @@ def _stamp_encode_loop_timing(
     """
     try:
         tries = {timing.attempt: timing for timing in loop_timer.tries}
+        stamps = {
+            attempt: {
+                "started_at": timing.started_at,
+                "finished_at": timing.finished_at,
+                "wall_duration_ms": timing.wall_duration_ms,
+                "phases": timing.phase_dicts(),
+            }
+            for attempt, timing in tries.items()
+        }
+        loop_timing = loop_timer.loop_timing()
+        # The local row is written first: the run and its outcome take the
+        # timing only once it is stored, so a failed write leaves the local
+        # row, the Supabase sync and the run log all without it.
+        EncodingDB(db_path).update_run_iterations(
+            run.id,
+            [
+                dataclass_replace(iteration, **stamps[iteration.attempt])
+                if iteration.attempt in stamps
+                else iteration
+                for iteration in run.iterations
+            ],
+        )
         for iteration in run.iterations:
-            timing = tries.get(iteration.attempt)
-            if timing is None:
-                continue
-            iteration.started_at = timing.started_at
-            iteration.finished_at = timing.finished_at
-            iteration.wall_duration_ms = timing.wall_duration_ms
-            iteration.phases = timing.phase_dicts()
-        outcome["encode_loop_timing"] = loop_timer.loop_timing()
-        EncodingDB(db_path).update_run_iterations(run.id, run.iterations)
+            for name, value in stamps.get(iteration.attempt, {}).items():
+                setattr(iteration, name, value)
+        outcome["encode_loop_timing"] = loop_timing
     except Exception as exc:  # noqa: BLE001 - timing must never fail an encode
         print(f"  encode_timing=failed:{type(exc).__name__}")
 

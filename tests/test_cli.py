@@ -14799,6 +14799,86 @@ class TestCmdEncode:
         assert loop["try_count"] == 1
         assert loop["tries_ms"] == iteration.wall_duration_ms
 
+    def test_encode_survives_a_failed_timing_write(self, tmp_path, capsys):
+        """Telemetry never fails an encode: when the local timing write fails,
+        the run still records and syncs its outcome, and no copy carries the
+        per-try timing the local row lacks."""
+        import sqlite3
+
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            patch.object(
+                EncodingDB,
+                "update_run_iterations",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(SystemExit) as failed_write,
+        ):
+            cmd_encode(args)
+
+        assert "  encode_timing=failed:OperationalError" in capsys.readouterr().out
+        synced_run = mock_sync.call_args.args[0]
+        assert synced_run.outcome["status"]
+        assert "encode_loop_timing" not in synced_run.outcome
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at is None and iteration.phases is None
+        stored = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert stored.outcome["status"] == synced_run.outcome["status"]
+        assert stored.iterations[0].phases is None
+
+        # The same encode without the failure exits the same way.
+        (tmp_path / "baseline").mkdir()
+        baseline_args = self._make_args(tmp_path / "baseline", backend="codex")
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ),
+            pytest.raises(SystemExit) as baseline,
+        ):
+            cmd_encode(baseline_args)
+        assert failed_write.value.code == baseline.value.code
+
+    def test_encode_try_error_passes_through_and_clears_the_timer(self, tmp_path):
+        """An error inside a try reaches the caller unchanged, and the loop
+        timer is no longer active afterwards."""
+        from axiom_encode.encode_timing import active_encode_loop_timer
+
+        args = self._make_args(tmp_path, backend="codex")
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                side_effect=RuntimeError("model backend exploded"),
+            ),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            pytest.raises(RuntimeError, match="model backend exploded"),
+        ):
+            cmd_encode(args)
+
+        assert active_encode_loop_timer() is None
+
     def test_encode_retries_from_best_candidate_when_later_attempt_regresses(
         self, tmp_path
     ):

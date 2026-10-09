@@ -11,6 +11,7 @@ import pytest
 from axiom_encode import encode_timing
 from axiom_encode.encode_timing import (
     ENCODE_LOOP_TIMING_SCHEMA,
+    PHASE_ARTIFACT_REPAIR,
     PHASE_CANDIDATE_VALIDATION,
     PHASE_MODEL_CALL,
     PHASE_OTHER,
@@ -324,6 +325,37 @@ def test_progress_lines_mark_each_phase_change_with_the_try_number():
         f"  try=2 phase=prepare at={_iso(42_500)} prev=model_call:40000ms",
         f"  try=2 phase=stage_candidate at={_iso(42_500)}",
         f"  try=2 end at={_iso(42_700)} wall_ms=41700 prev=stage_candidate:200ms",
+    ]
+
+
+def test_progress_line_prev_counts_from_the_last_phase_change():
+    # A sub-ms scoped phase rounds to zero and merges back into the phase
+    # around it; the next line's prev counts from that change, so the prev
+    # values add up to the try's wall time like the stored phases do.
+    clock = FakeClock()
+    lines: list[str] = []
+    timer = _timer(clock, lines)
+    timer.start_try(1)
+    timer.mark(PHASE_CANDIDATE_VALIDATION)
+    clock.tick(0.1)
+    with timer.phase(PHASE_ARTIFACT_REPAIR):
+        clock.tick(0.0003)
+    clock.tick(0.0997)
+    timer.mark(PHASE_RECORD_RESULT)
+    clock.tick(0.01)
+    timing = timer.finish_try()
+
+    assert lines == [
+        f"  try=1 start at={_iso(0)}",
+        f"  try=1 phase=candidate_validation at={_iso(0)}",
+        f"  try=1 phase=artifact_repair at={_iso(100)} prev=candidate_validation:100ms",
+        f"  try=1 phase=candidate_validation at={_iso(100)}",
+        f"  try=1 phase=record_result at={_iso(200)} prev=candidate_validation:100ms",
+        f"  try=1 end at={_iso(210)} wall_ms=210 prev=record_result:10ms",
+    ]
+    assert [(phase.name, phase.duration_ms) for phase in timing.phases] == [
+        ("candidate_validation", 200),
+        ("record_result", 10),
     ]
 
 
