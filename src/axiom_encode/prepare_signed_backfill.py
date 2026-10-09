@@ -1779,7 +1779,7 @@ def validate_dependent_cascade(
     target_rulespec_path: str | None = None,
     allow_proof_import_subset: bool = False,
 ) -> tuple[PurePosixPath, ...]:
-    """Require all direct dependents, or the exact proof-pinned subset when allowed."""
+    """Require all direct dependents or an exact source-bound proof chain."""
 
     dependents, _mode = _classify_dependent_cascade(
         repo,
@@ -1848,7 +1848,16 @@ def _classify_dependent_cascade(
     target_path = content_root / target_relative
     if not _is_regular_file_beneath(content_root, target_relative):
         raise ValueError("target citation has no regular baseline RuleSpec module")
-    for dependent_relative in dependent_relatives:
+    source_parent_second = (
+        allow_proof_import_subset
+        and len(dependent_relatives) == 2
+        and not (content_root / dependent_relatives[1]).exists()
+        and not (content_root / dependent_relatives[1]).is_symlink()
+        and not _is_regular_file_beneath(content_root, dependent_relatives[1])
+    )
+    for index, dependent_relative in enumerate(dependent_relatives):
+        if index == 1 and source_parent_second:
+            continue
         if not _is_regular_file_beneath(content_root, dependent_relative):
             raise ValueError(
                 "dependent citation has no regular baseline RuleSpec module"
@@ -1858,6 +1867,11 @@ def _classify_dependent_cascade(
     canonical_target_import = f"{target_jurisdiction}:{target_import}"
     direct_dependents: set[PurePosixPath] = set()
     proof_import_dependents: set[PurePosixPath] = set()
+    first_dependent_proof: set[PurePosixPath] = set()
+    first_dependent_payloads: dict[PurePosixPath, dict[str, object]] = {}
+    first_relative = dependent_relatives[0]
+    first_import = first_relative.with_suffix("").as_posix()
+    canonical_first_import = f"{target_jurisdiction}:{first_import}"
     for atomic_root in sorted(RULESPEC_ATOMIC_ROOTS):
         root = content_root / atomic_root
         if not root.exists():
@@ -1896,12 +1910,66 @@ def _classify_dependent_cascade(
                     canonical_target_import=canonical_target_import,
                 ):
                     proof_import_dependents.add(relative_candidate)
+            if candidate != content_root / first_relative and any(
+                isinstance(raw_import, str)
+                and raw_import.split("#", 1)[0].strip().strip("/")
+                in {first_import, canonical_first_import}
+                for raw_import in imports
+            ):
+                relative_candidate = PurePosixPath(
+                    candidate.relative_to(content_root).as_posix()
+                )
+                if _payload_has_proof_import_for_target(
+                    payload,
+                    target_import=first_import,
+                    canonical_target_import=canonical_first_import,
+                ):
+                    first_dependent_proof.add(relative_candidate)
+                    first_dependent_payloads[relative_candidate] = payload
+
+    if source_parent_second:
+        source_parent = dependent_relatives[1].with_suffix("")
+        source_citation = dependent_citations[1]
+        matching_children = [
+            relative
+            for relative, payload in first_dependent_payloads.items()
+            if relative.parts[: len(source_parent.parts)] == source_parent.parts
+            and _is_regular_file_beneath(content_root, relative)
+            and isinstance(payload.get("module"), dict)
+            and isinstance(payload["module"].get("source_verification"), dict)
+            and payload["module"]["source_verification"].get("corpus_citation_path")
+            == source_citation
+        ]
+        if len(matching_children) != 1:
+            raise ValueError(
+                "source-parent dependent must identify exactly one proof-pinned "
+                "child module with its own source verification"
+            )
+        dependent_relatives[1] = matching_children[0]
+        if len(set(dependent_relatives)) != len(dependent_relatives):
+            raise ValueError("dependent modules must be unique")
 
     expected = set(dependent_relatives)
     if direct_dependents == expected:
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
+            return tuple(dependent_relatives), "all-direct-proof-chain"
         return tuple(dependent_relatives), "all-direct"
     if allow_proof_import_subset and proof_import_dependents == expected:
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
+            return tuple(dependent_relatives), "proof-import-subset-chain"
         return tuple(dependent_relatives), "proof-import-subset"
+    if (
+        allow_proof_import_subset
+        and len(dependent_relatives) == 2
+        and proof_import_dependents == {first_relative}
+        and first_dependent_proof == {dependent_relatives[1]}
+        and dependent_relatives[1] not in direct_dependents
+    ):
+        return tuple(dependent_relatives), "proof-import-chain"
     rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
     raise ValueError(
         "target direct-dependent set does not exactly match supplied dependents: "
@@ -4550,6 +4618,7 @@ def main() -> None:
     cascade_parser.add_argument("target_citation")
     cascade_parser.add_argument("--target-rulespec-path")
     cascade_parser.add_argument("--allow-proof-import-subset", action="store_true")
+    cascade_parser.add_argument("--json", action="store_true")
     cascade_parser.add_argument("dependent_citations", nargs="+")
     citation_path_parser = subparsers.add_parser("citation-rulespec-path")
     citation_path_parser.add_argument("citation")
@@ -4706,14 +4775,29 @@ def main() -> None:
                 )
             )
         elif args.command == "validate-dependent-cascade":
-            _dependents, mode = _classify_dependent_cascade(
+            dependents, mode = _classify_dependent_cascade(
                 args.repo,
                 args.target_citation,
                 *args.dependent_citations,
                 target_rulespec_path=args.target_rulespec_path,
                 allow_proof_import_subset=args.allow_proof_import_subset,
             )
-            print(mode)
+            if args.json:
+                jurisdiction, _target = _citation_rulespec_path(args.target_citation)
+                print(
+                    json.dumps(
+                        {
+                            "mode": mode,
+                            "paths": [
+                                f"{jurisdiction}/{relative.as_posix()}"
+                                for relative in dependents
+                            ],
+                        },
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(mode)
         elif args.command == "citation-rulespec-path":
             print(citation_rulespec_path(args.citation))
         elif args.command == "authorize-legacy-index-manifest-shrink":

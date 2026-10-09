@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2138"
+version = "0.2.2155"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -50,7 +50,14 @@ observability = [
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
 ]
+# TypeSafe System One SDK for the statutory-fidelity screen
+# (judges/system_one.py). Imported lazily; exact pin because the screen's
+# recorded pilot evidence and answer shapes are tied to this SDK version.
+typesafe = [
+    "typesafe-sdk==0.6.0",
+]
 dev = [
+    "hypothesis>=6.100.0",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",

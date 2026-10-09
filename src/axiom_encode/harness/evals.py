@@ -8182,10 +8182,12 @@ def _apply_generated_eval_repairs(
         )
     repairs.extend(
         f"derived_output:{name}"
-        for name in cli_helpers._append_generated_derived_output_tests_if_missing(
+        for name in cli_helpers._append_generated_derived_output_tests_in_overlay(
             rules_file=rulespec_file,
             test_file=test_file,
-            repo_path=policy_repo_root,
+            policy_repo_path=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             relative_output=relative_output,
             issues=companion_issues,
         )
@@ -10314,7 +10316,10 @@ companion test file required by the task and deterministic validation.
             "obsolete named input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
-            "accepted only after no repaired rule or companion case references it. "
+            "accepted only after no repaired rule or companion case references "
+            "it as an input. A same-named derived or parameter rule is not an "
+            "input reference, but companion `#input.<name>` assignments must "
+            "still be replaced with factual inputs. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -10616,6 +10621,7 @@ Import and context rules:
         source_text,
         workspace,
         rulespec_context_files,
+        target_anchor=target_ref_prefix,
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
@@ -11788,6 +11794,11 @@ RuleSpec requirements:
      may assert every canonical parameter output directly in one source-period
      snapshot case. For other artifacts, do not assert raw `kind: parameter`
      rules directly; assert derived outputs that consume the parameters instead.
+     A local `#input.<fact>` cannot have the same name as a local derived rule:
+     that name resolves to the computed rule, not an independently assignable
+     fact. In a `#relation.<name>` row, assign source-grounded factual child
+     inputs needed by the derived member rule; never put a fabricated
+     `#input.<derived_rule_name>` in the row or declare a duplicate input slot.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
@@ -12217,6 +12228,7 @@ def _format_canonical_concept_registry_guidance(
     context_files: list[EvalContextFile],
     *,
     registry: ConceptRegistry | None = None,
+    target_anchor: str | None = None,
 ) -> str:
     """Inject canonical-concept registry directives scoped to mentioned concepts.
 
@@ -12224,6 +12236,11 @@ def _format_canonical_concept_registry_guidance(
     blocked synonym in the registry; emits a terse "use these exact names"
     block for the matched concepts only. Concepts that never appear in any
     text are omitted so the prompt does not pay tokens for irrelevant rules.
+
+    ``target_anchor`` is the RuleSpec anchor of the module being encoded (the
+    prompt's ``target_ref_prefix``). It only changes the line for a concept
+    with several producer vintages: the line then says whether this module
+    is one of those producers. Single-producer lines do not depend on it.
     """
     if registry is None:
         try:
@@ -12263,8 +12280,11 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer:
-            parts.append(f"producer `{concept.producer_anchor}`")
+        producer_guidance = _canonical_concept_producer_guidance(
+            concept, target_anchor=target_anchor
+        )
+        if producer_guidance:
+            parts.append(producer_guidance)
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")
@@ -12275,6 +12295,58 @@ Canonical concept names:
 Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
 {lines}
 """.format(lines="\n".join(lines))
+
+
+def _canonical_concept_producer_guidance(
+    concept: Concept, *, target_anchor: str | None = None
+) -> str | None:
+    """Describe where a registered concept's producer lives, for the prompt.
+
+    One producer: ``producer `<anchor>```, as before vintages existed. Several
+    producers (one per vintage, e.g. per fiscal year): every vintage is
+    listed with its registered period, and when the module being encoded is
+    known the line says whether it is one of them, so a producer encode
+    defines the name locally and any other module references the vintage
+    whose dates it encodes instead of defining it.
+    """
+    if not concept.has_producer:
+        return None
+
+    def labelled(anchor: str) -> str:
+        period = concept.producer_period(anchor)
+        return f"`{anchor}` ({period.describe()})" if period else f"`{anchor}`"
+
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"producer {labelled(anchors[0])}"
+    if concept.accepts_producer_anchor(target_anchor):
+        period = concept.producer_period(target_anchor)
+        vintage = (
+            f"the {period.label} producer ({period.effective_from.isoformat()} "
+            f"to {period.effective_to.isoformat()})"
+            if period
+            else "one of its vintage producers"
+        )
+        others = ", ".join(labelled(a) for a in anchors if a != target_anchor)
+        return (
+            f"this module, `{target_anchor}`, is {vintage}: when this source "
+            "sets it, define it here under this exact name rather than "
+            f"importing another vintage; other vintages: {others}"
+        )
+    listed = ", ".join(labelled(a) for a in anchors)
+    choice = (
+        "when importing it, reference the producer whose period covers the "
+        "dates you encode"
+        if concept.producer_periods
+        else "when importing it, reference the producer of the vintage you mean"
+    )
+    guidance = f"one producer per vintage, only at {listed}; {choice}"
+    if target_anchor is not None:
+        guidance += (
+            "; this module is not one of them, so do not define a rule with "
+            "this name here"
+        )
+    return guidance
 
 
 def _format_existing_target_contract_guidance(
@@ -17415,11 +17487,20 @@ def _merge_named_yaml_items(
 def _repair_overlay_removed_input_references(
     payload: object,
     removed_inputs: Sequence[str],
+    *,
+    computed_rule_names: set[str] | None = None,
 ) -> list[str]:
     """Return removed input names still referenced by the repaired artifact."""
 
+    computed_rule_names = computed_rule_names or set()
     patterns = {
-        name: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        name: re.compile(
+            (
+                rf"#input\.{re.escape(name)}(?![A-Za-z0-9_])"
+                if name in computed_rule_names
+                else rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])"
+            )
+        )
         for name in removed_inputs
     }
     referenced: set[str] = set()
@@ -17745,6 +17826,13 @@ def _overlay_validation_retry_candidate(
         referenced_removed_inputs = _repair_overlay_removed_input_references(
             reference_payload,
             removed_inputs,
+            computed_rule_names={
+                str(rule.get("name"))
+                for rule in rules
+                if isinstance(rule, dict)
+                and rule.get("kind") in {"derived", "parameter"}
+                and isinstance(rule.get("name"), str)
+            },
         )
         if referenced_removed_inputs:
             raise ValueError(

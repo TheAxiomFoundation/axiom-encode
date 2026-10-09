@@ -33,7 +33,11 @@ MAX_LOCAL_CORPUS_ROWS = 1_000_000
 MAX_COMPOSED_CORPUS_BYTES = 64 * 1024 * 1024
 MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
+# A 25.2 MiB pretty-printed size (1,042 scopes, 45,880 artifacts) was reported
+# for the us-rulespec-2026-09-14-wave4-r2-union object. At that reported size,
+# 64 MiB provides ~2.5x headroom.
+# The current verification API constructs complete canonical byte strings.
+MAX_RELEASE_OBJECT_BYTES = 64 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
 PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
@@ -1512,6 +1516,11 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             return successful_slice
         if errors:
             raise errors[0]
+        pinned_slice = _pinned_cfr_273_11_c_slice(
+            text, requested_path=requested_path, resolved_path=resolved_path
+        )
+        if pinned_slice is not None:
+            return pinned_slice
         missing = "/".join(fragments)
         raise CorpusSourceSliceError(
             f"Could not isolate {requested_path!r} from active parent "
@@ -1530,6 +1539,46 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             f"{resolved_path!r}; missing structural marker path {missing!r}"
         )
     return sliced.strip()
+
+
+_PINNED_CFR_273_11_PARENT_SHA256 = (
+    "6808e0468eac7a775882c2abf9218c810347ba9edcddaa5c0c58dc694fe3dbce"
+)
+
+
+def _pinned_cfr_273_11_c_slice(
+    text: str, *, requested_path: str, resolved_path: str
+) -> str | None:
+    """Recover one independently checked parent span without generalizing ambiguity."""
+
+    if (
+        requested_path != "us/regulation/7/273/11/c"
+        or resolved_path != "us/regulation/7/273/11"
+        or hashlib.sha256(text.encode("utf-8")).hexdigest()
+        != _PINNED_CFR_273_11_PARENT_SHA256
+    ):
+        return None
+    c_heading = re.compile(
+        r"(?m)^\(c\) Treatment of income and resources of certain "
+        r"nonhousehold members\."
+    )
+    d_heading = re.compile(
+        r"(?m)^\(d\) Treatment of income and resources of other "
+        r"nonhousehold members\."
+    )
+    c_matches = tuple(c_heading.finditer(text))
+    d_matches = tuple(d_heading.finditer(text))
+    if len(c_matches) != 1 or len(d_matches) != 1:
+        raise CorpusSourceSliceError(
+            "Pinned 7 CFR 273.11(c) source has ambiguous structural boundaries"
+        )
+    start = c_matches[0].start()
+    end = d_matches[0].start()
+    if not 0 < start < end < len(text):
+        raise CorpusSourceSliceError(
+            "Pinned 7 CFR 273.11(c) source has invalid structural order"
+        )
+    return text[start:end].strip()
 
 
 def _us_legal_hierarchy_fragments(
