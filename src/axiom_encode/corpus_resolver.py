@@ -33,7 +33,11 @@ MAX_LOCAL_CORPUS_ROWS = 1_000_000
 MAX_COMPOSED_CORPUS_BYTES = 64 * 1024 * 1024
 MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
+# A 25.2 MiB pretty-printed size (1,042 scopes, 45,880 artifacts) was reported
+# for the us-rulespec-2026-09-14-wave4-r2-union object. At that reported size,
+# 64 MiB provides ~2.5x headroom.
+# The current verification API constructs complete canonical byte strings.
+MAX_RELEASE_OBJECT_BYTES = 64 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
 PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
