@@ -2533,7 +2533,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'cascade_args+=("${dependent_citations[@]}")' in cascade_step["run"]
     assert "--allow-proof-import-subset" in cascade_step["run"]
     assert (
-        "all-direct|all-direct-proof-chain|proof-import-subset|proof-import-chain"
+        "all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain"
         in cascade_step["run"]
     )
     assert 'cascade_result="$("${cascade_args[@]}")"' in cascade_step["run"]
@@ -2681,6 +2681,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'local scheduled_dependent_paths_json="${11:-[]}"' in command
     assert "--scheduled-dependent-rulespec-path" in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
@@ -5071,6 +5072,7 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (2, "", "target-existing"),
         (2, "all-direct", "target-existing"),
         (2, "all-direct-proof-chain", "target-existing"),
+        (2, "proof-import-subset-chain", "target-existing"),
         (2, "proof-import-chain", "target-existing"),
     ],
 )
@@ -5234,6 +5236,7 @@ if sys.argv[-1] == os.environ["CITATION"]:
                         if cascade_mode in {
                             "all-direct",
                             "all-direct-proof-chain",
+                            "proof-import-subset-chain",
                             "proof-import-chain",
                         }
                         else "us/regulations/42-cfr/435/561.yaml",
@@ -5285,19 +5288,32 @@ if sys.argv[-1] == os.environ["CITATION"]:
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
         dependent_count > 0
-        and cascade_mode not in {"proof-import-subset", "proof-import-chain"}
+        and cascade_mode not in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode in {"proof-import-subset", "proof-import-chain"}
+        cascade_mode in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
-    if cascade_mode in {"proof-import-subset", "proof-import-chain"}:
+    if cascade_mode in {
+        "proof-import-subset",
+        "proof-import-subset-chain",
+        "proof-import-chain",
+    }:
         assert encode_args[0][encode_args[0].index(scheduled_option) + 1] == (
             "us/regulations/42-cfr/435/559.yaml"
         )
         if cascade_mode in {
             "all-direct",
             "all-direct-proof-chain",
+            "proof-import-subset-chain",
             "proof-import-chain",
         }:
             assert encode_args[0].count(scheduled_option) == 2
@@ -5329,9 +5345,17 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
         assert "--apply-target-only" not in encode_args[1]
         assert (scheduled_option in encode_args[1]) is (
-            cascade_mode in {"proof-import-chain", "all-direct-proof-chain"}
+            cascade_mode in {
+                "proof-import-chain",
+                "all-direct-proof-chain",
+                "proof-import-subset-chain",
+            }
         )
-        if cascade_mode in {"proof-import-chain", "all-direct-proof-chain"}:
+        if cascade_mode in {
+            "proof-import-chain",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+        }:
             assert encode_args[1].count(scheduled_option) == 1
             assert encode_args[1][encode_args[1].index(scheduled_option) + 1] == (
                 "us/regulations/42-cfr/435/561/c.yaml"
@@ -5349,6 +5373,7 @@ if sys.argv[-1] == os.environ["CITATION"]:
         if cascade_mode in {
             "all-direct",
             "all-direct-proof-chain",
+            "proof-import-subset-chain",
             "proof-import-chain",
         }:
             assert (

@@ -1234,7 +1234,7 @@ jobs:
             'type == "array" and length == $count and all(.[]; type == "string" and length > 0)' \
             <<< "$dependent_paths_json" > /dev/null
           case "$cascade_mode" in
-            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-chain) ;;
+            all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain) ;;
             *)
               echo "dependent cascade returned an invalid scheduling mode" >&2
               exit 1
@@ -1848,6 +1848,7 @@ jobs:
           fi
           scheduled_dependent_paths_json="[]"
           if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+             [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
              [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
             scheduled_dependent_paths_json="$(
               jq -cn \
@@ -2346,6 +2347,7 @@ jobs:
             if [ -n "$DEPENDENT_CITATION" ]; then
               primary_target_only=true
               if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset" ] || \
+                 [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain" ] || \
                  [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ]; then
                 primary_target_only=false
               fi
@@ -2360,13 +2362,14 @@ jobs:
               # In a proof chain only the scheduled second dependent may retain
               # a stale proof hash until its own signed re-encode below.
               first_dependent_scheduled_paths_json="[]"
-              if [ "${DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain" ] || \
-                 [ "${DEPENDENT_CASCADE_MODE:-}" = "all-direct-proof-chain" ]; then
+              case "${DEPENDENT_CASCADE_MODE:-}" in
+                *-chain)
                 first_dependent_scheduled_paths_json="$(
                   jq -cn --arg second "$second_dependent_rulespec_path" \
                     '[$second]'
                 )"
-              fi
+                  ;;
+              esac
               dependent_replacement_path=""
               if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                  [ "$REPAIR_RUN_LANE" = "dependent" ]; then
