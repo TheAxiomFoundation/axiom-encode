@@ -6185,6 +6185,10 @@ _IRS_REV_PROC_2025_32_DEFINITION_EXPORTS = {
         "us:statutes/26/32#eitc_reduction",
     ),
 }
+_IRS_REV_PROC_2025_32_DEFINITION_WITNESS_OUTPUTS = {
+    "threshold_phaseout_amount": "earned_income_credit_maximum_amount_begins_to_phase_out",
+    "completed_phaseout_amount": "earned_income_credit_is_fully_phased_out",
+}
 _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS = frozenset(
     target
     for targets in _IRS_REV_PROC_2025_32_DEFINITION_EXPORTS.values()
@@ -27588,6 +27592,8 @@ def _source_owned_greater_alternative_witness(
     witness: _ExceptionWitness,
     *,
     rule: dict[str, Any],
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
     asserted_cases: Sequence[dict[str, Any]],
     source_text: str,
     corpus_citation_path: str,
@@ -27609,6 +27615,7 @@ def _source_owned_greater_alternative_witness(
         source_text, corpus_citation_path=corpus_citation_path
     )
     citation = corpus_citation_path.strip("/").casefold()
+    condition_clauses: set[_SourceConditionClause] = set()
     for path, atom_citation, excerpt in _rule_source_excerpt_atoms(rule):
         if (
             _formula_proof_version_index(path) != selected
@@ -27622,16 +27629,160 @@ def _source_owned_greater_alternative_witness(
             branches=branches,
             corpus_citation_path=corpus_citation_path,
         )
-        if not ambiguous and any(
-            owned.branch_path == branch.path
-            and owned.start <= branch.start
-            and branch.end <= owned.end
-            and _normalized_formula_clause_text(owned.text)
-            == _normalized_formula_clause_text(branch.text)
+        owned_conditions = {
+            owned
             for owned in owned_clauses
+            if _source_exception_or_applicability_matches(owned.text)
+        }
+        if ambiguous and owned_conditions:
+            return False
+        condition_clauses.update(owned_conditions)
+    # A witness certifies only the source clause whose affected output it
+    # actually exercises, on the formula version it executed. Separate exact
+    # atoms cannot avoid ambiguous ownership by claiming sibling definitions
+    # on the same formula; duplicate atoms for one clause remain harmless.
+    if len(condition_clauses) != 1:
+        return False
+    owned = next(iter(condition_clauses))
+    if not (
+        owned.branch_path == branch.path
+        and owned.start <= branch.start
+        and branch.end <= owned.end
+        and _normalized_formula_clause_text(owned.text)
+        == _normalized_formula_clause_text(branch.text)
+    ):
+        return False
+    return _greater_alternative_definition_comparison_is_executed(
+        branch,
+        corpus_citation_path=corpus_citation_path,
+        rule=rule,
+        selector_name=witness.selector_name,
+        principal_rules=principal_rules,
+        cases=cases,
+        formula_environment=formula_environment,
+    )
+
+
+def _greater_alternative_definition_comparison_is_executed(
+    branch: SourceStructureBranch,
+    *,
+    corpus_citation_path: str,
+    rule: dict[str, Any],
+    selector_name: str,
+    principal_rules: dict[str, dict[str, Any]],
+    cases: Sequence[dict[str, Any]],
+    formula_environment: dict[str, Any],
+) -> bool:
+    """Bind a defined amount to the comparison producing the asserted output.
+
+    Even a lone exact atom can be moved onto a sibling's formula. For a quoted
+    amount definition, both reached leaves must compare its own named amount
+    with the source income operands, at the source's strict/inclusive boundary.
+    A comparison hidden in unrelated arithmetic or an unreached branch cannot
+    certify this definition. Other clauses retain unique proof ownership.
+    """
+
+    text = _collapse_text(branch.text)
+    if re.match(r'The ["“][^"”]+["”] is the amount\b', text, re.I) is None:
+        return True
+    definition = re.match(
+        r'The ["“](?P<amount>[^"”]+)["”] is the amount of '
+        r"(?P<ordinary>[^()]+) \(or, if greater, (?P<alternative>[^()]+)\) "
+        r"(?P<inclusive>at or )?above which\b",
+        text,
+        re.I,
+    )
+    if definition is None:
+        return False
+    amount, ordinary, alternative = (
+        re.sub(r"[^a-z0-9]+", "_", definition[group].lower()).strip("_")
+        for group in ("amount", "ordinary", "alternative")
+    )
+    # This closed source profile authenticates the affected output independently
+    # of candidate proof placement and formula text. Moving both a comparison
+    # and its exact atom to a sibling cannot rename the source-defined outcome.
+    # Unsupported quoted definition owners retain their witness obligations.
+    if not (
+        corpus_citation_path == "us/guidance/irs/rev-proc-2025-32/page-14"
+        and branch.path == ("06", "1")
+        and _IRS_REV_PROC_2025_32_DEFINITION_WITNESS_OUTPUTS.get(amount)
+        == rule.get("name")
+    ):
+        return False
+    for case in cases:
+        dependencies = _case_asserted_dependency_environment(
+            principal_rules, case, formula_environment=formula_environment
+        )
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=dependencies,
+        )
+        expression = (
+            _parse_formula_expression(execution.leaf) if execution is not None else None
+        )
+        if isinstance(expression, ast.BoolOp) and isinstance(expression.op, ast.Or):
+            # Judgment repair expresses an if/else as two complementary guarded
+            # comparisons. Select its reached arm, never an arbitrary comparison
+            # nested in arithmetic or a short-circuited Boolean expression.
+            environment = _formula_case_runtime_environment(
+                case,
+                dependency_environment=dependencies,
+                formula_environment=formula_environment,
+            )
+            arms: dict[bool, ast.expr] = {}
+            for arm in expression.values:
+                if not (
+                    isinstance(arm, ast.BoolOp)
+                    and isinstance(arm.op, ast.And)
+                    and len(arm.values) == 2
+                ):
+                    return False
+                guard, comparison = arm.values
+                positive = isinstance(guard, ast.Name) and guard.id == selector_name
+                negative = (
+                    isinstance(guard, ast.UnaryOp)
+                    and isinstance(guard.op, ast.Not)
+                    and isinstance(guard.operand, ast.Name)
+                    and guard.operand.id == selector_name
+                )
+                if not (positive or negative) or positive in arms:
+                    return False
+                arms[positive] = comparison
+            choice = _boolean_value((environment or {}).get(selector_name))
+            if set(arms) != {False, True} or choice is None:
+                return False
+            expression = arms[choice]
+        if not (
+            isinstance(expression, ast.Compare)
+            and len(expression.ops) == len(expression.comparators) == 1
         ):
-            return True
-    return False
+            return False
+        left, right = expression.left, expression.comparators[0]
+        operator = type(expression.ops[0])
+        if isinstance(left, ast.Name) and left.id == amount:
+            left, right = right, left
+            operator = {ast.Lt: ast.Gt, ast.LtE: ast.GtE}.get(operator)
+        if not (
+            isinstance(right, ast.Name)
+            and right.id == amount
+            and operator == (ast.GtE if definition["inclusive"] else ast.Gt)
+        ):
+            return False
+        if isinstance(left, ast.Name) and left.id in {ordinary, alternative}:
+            continue
+        if not (
+            isinstance(left, ast.Call)
+            and isinstance(left.func, ast.Name)
+            and left.func.id == "max"
+            and len(left.args) == 2
+            and not left.keywords
+            and all(isinstance(argument, ast.Name) for argument in left.args)
+            and {argument.id for argument in left.args} == {ordinary, alternative}
+        ):
+            return False
+    return True
 
 
 def _exception_witnesses_for_branch(
@@ -27675,6 +27826,8 @@ def _exception_witnesses_for_branch(
                 branch,
                 witness,
                 rule=principal_rules[witness.rule_name],
+                principal_rules=principal_rules,
+                formula_environment=formula_environment or {},
                 asserted_cases=asserted_by_rule.get(witness.rule_name, ()),
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,

@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 
 from axiom_encode.cli import _rewrite_judgment_conditional_formulas
 from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 from axiom_encode.harness.validator_pipeline import (
     extract_named_scalar_occurrences,
     extract_typed_numeric_inventory_occurrences_from_text,
@@ -360,6 +361,217 @@ def test_max_pair_does_not_cover_another_source_condition(
     assert issues
     assert 'The "completed phaseout amount"' in issues[0]
     assert 'The "threshold phaseout amount"' not in issues[0]
+
+
+def test_max_threshold_pairs_with_split_exact_atoms_leave_completed_unwitnessed():
+    payload, cases = _candidate()
+    name, threshold_name, threshold, _ = OUTPUTS[0]
+    pair = _binding_pair(name, threshold_name, threshold)
+    alternative = copy.deepcopy(pair[1])
+    alternative["name"] = "another_threshold_alternative"
+    alternative["input"][REFERENCE + "input.earned_income"] = threshold + 2
+    cases.extend(pair + [alternative])
+    threshold_rule, completed_rule = [
+        next(rule for rule in payload["rules"] if rule["name"] == output[0])
+        for output in OUTPUTS
+    ]
+    completed_rule["versions"][0]["formula"] = (
+        "adjusted_gross_income >= completed_phaseout_amount"
+    )
+    threshold_rule["metadata"]["proof"]["atoms"].insert(
+        1, copy.deepcopy(completed_rule["metadata"]["proof"]["atoms"][0])
+    )
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={CITATION: source},
+    )
+    assert proof.passed
+    assert proof.atoms_checked == 23
+    assert not proof.issues
+    environment = {
+        "adjusted_gross_income": 51590,
+        "earned_income": 52000,
+        "completed_phaseout_amount": 51593,
+    }
+    assert (
+        sc._evaluate_rulespec_formula(
+            completed_rule["versions"][0]["formula"], environment=environment
+        )
+        is False
+    )
+    assert (
+        sc._evaluate_rulespec_formula(
+            "max(adjusted_gross_income, earned_income) >= completed_phaseout_amount",
+            environment=environment,
+        )
+        is True
+    )
+    issues = _paired_issues(payload, cases)
+    assert any('The "completed phaseout amount"' in issue for issue in issues)
+
+
+@pytest.mark.parametrize("output_index", [0, 1])
+def test_max_clause_witness_stays_with_defined_output_when_formula_and_atom_move(
+    output_index,
+):
+    payload, cases = _candidate()
+    definition_rules = [
+        next(rule for rule in payload["rules"] if rule["name"] == output[0])
+        for output in OUTPUTS
+    ]
+    missing_index = 1 - output_index
+    witnessed_rule, missing_rule = (
+        definition_rules[output_index],
+        definition_rules[missing_index],
+    )
+    # Copying the comparison and proof cannot change which output the source
+    # clause defines: these companion pairs still assert only its sibling.
+    witnessed_rule["metadata"]["proof"]["atoms"][0] = copy.deepcopy(
+        missing_rule["metadata"]["proof"]["atoms"][0]
+    )
+    witnessed_rule["versions"][0]["formula"] = missing_rule["versions"][0]["formula"]
+    _, missing_threshold, threshold, comparison = OUTPUTS[missing_index]
+    missing_rule["versions"][0]["formula"] = (
+        f"adjusted_gross_income {comparison} {missing_threshold}"
+    )
+    pair = _binding_pair(OUTPUTS[output_index][0], missing_threshold, threshold)
+    alternative = copy.deepcopy(pair[1])
+    alternative["name"] = OUTPUTS[output_index][0] + "_another_alternative"
+    alternative["input"][REFERENCE + "input.earned_income"] = threshold + 2
+    cases.extend(pair + [alternative])
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={CITATION: source},
+    )
+    assert proof.passed
+    assert proof.atoms_checked == 22
+    assert not proof.issues
+    missing_term = ("threshold", "completed")[missing_index]
+    issues = _paired_issues(payload, cases)
+    assert any(f'The "{missing_term} phaseout amount"' in issue for issue in issues)
+
+
+@settings(
+    max_examples=30,
+    deadline=None,
+    phases=tuple(phase for phase in Phase if phase != Phase.explain),
+)
+@example(
+    output_index=0,
+    atom_placement=(1 << 7, (1 << 7) | (1 << 8)),
+    incorrect_unwitnessed_formula=True,
+    witnessed_formula_defines_missing_output=False,
+)
+@example(
+    output_index=0,
+    atom_placement=(0, 1 << 7),
+    incorrect_unwitnessed_formula=True,
+    witnessed_formula_defines_missing_output=False,
+)
+@example(
+    output_index=1,
+    atom_placement=(1 << 8, 0),
+    incorrect_unwitnessed_formula=True,
+    witnessed_formula_defines_missing_output=False,
+)
+@example(
+    output_index=0,
+    atom_placement=(0, 1 << 7),
+    incorrect_unwitnessed_formula=True,
+    witnessed_formula_defines_missing_output=True,
+)
+@example(
+    output_index=1,
+    atom_placement=(1 << 8, 0),
+    incorrect_unwitnessed_formula=True,
+    witnessed_formula_defines_missing_output=True,
+)
+@given(
+    output_index=st.integers(min_value=0, max_value=1),
+    atom_placement=st.tuples(
+        st.integers(min_value=0, max_value=(1 << 10) - 1),
+        st.integers(min_value=0, max_value=(1 << 10) - 1),
+    ),
+    incorrect_unwitnessed_formula=st.booleans(),
+    witnessed_formula_defines_missing_output=st.booleans(),
+)
+def test_max_clause_obligations_survive_arbitrary_exact_atom_placement(
+    output_index,
+    atom_placement,
+    incorrect_unwitnessed_formula,
+    witnessed_formula_defines_missing_output,
+):
+    payload, cases = _candidate()
+    definition_rules = [
+        next(rule for rule in payload["rules"] if rule["name"] == output[0])
+        for output in OUTPUTS
+    ]
+    exact_atoms = [
+        copy.deepcopy(rule["metadata"]["proof"]["atoms"][0])
+        for rule in definition_rules
+    ]
+    assert len(payload["rules"]) == 10
+    # Place either clause's exact atom on any subset of the fixture's rules.
+    # Moving proof text cannot provide a pair on the clause's affected output.
+    for rule_index, rule in enumerate(payload["rules"]):
+        atoms = rule["metadata"]["proof"]["atoms"]
+        atoms[:] = [atom for atom in atoms if atom not in exact_atoms]
+        for atom, placement in zip(exact_atoms, atom_placement, strict=True):
+            if placement & (1 << rule_index):
+                atoms.append(copy.deepcopy(atom))
+    missing_index = 1 - output_index
+    name = OUTPUTS[output_index][0]
+    pair_index = (
+        missing_index if witnessed_formula_defines_missing_output else output_index
+    )
+    _, threshold_name, threshold, _ = OUTPUTS[pair_index]
+    if witnessed_formula_defines_missing_output:
+        definition_rules[output_index]["versions"][0]["formula"] = definition_rules[
+            missing_index
+        ]["versions"][0]["formula"]
+    pair = _binding_pair(name, threshold_name, threshold)
+    alternative = copy.deepcopy(pair[1])
+    alternative["name"] = name + "_another_alternative"
+    alternative["input"][REFERENCE + "input.earned_income"] = threshold + 2
+    cases.extend(pair + [alternative])
+    if incorrect_unwitnessed_formula:
+        _, missing_threshold, _, comparison = OUTPUTS[missing_index]
+        definition_rules[missing_index]["versions"][0]["formula"] = (
+            f"adjusted_gross_income {comparison} {missing_threshold}"
+        )
+    missing_term = ("threshold", "completed")[missing_index]
+    issues = _paired_issues(payload, cases)
+    assert any(f'The "{missing_term} phaseout amount"' in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "extra_atom", ["same_clause", "metadata_clause", "inactive_version_clause"]
+)
+def test_max_witness_ownership_ignores_duplicate_or_unexecuted_atoms(extra_atom):
+    payload, cases = _candidate()
+    for name, threshold_name, threshold, _ in OUTPUTS:
+        cases.extend(_binding_pair(name, threshold_name, threshold))
+    threshold_rule, completed_rule = [
+        next(rule for rule in payload["rules"] if rule["name"] == output[0])
+        for output in OUTPUTS
+    ]
+    copied_rule = threshold_rule if extra_atom == "same_clause" else completed_rule
+    atom = copy.deepcopy(copied_rule["metadata"]["proof"]["atoms"][0])
+    if extra_atom == "metadata_clause":
+        threshold_rule["metadata"]["summary"] = atom["source"]["excerpt"]
+        atom["path"] = "metadata.summary"
+    elif extra_atom == "inactive_version_clause":
+        inactive = copy.deepcopy(threshold_rule["versions"][0])
+        inactive["effective_from"] = "2027-01-01"
+        inactive["effective_to"] = "2027-12-31"
+        threshold_rule["versions"].append(inactive)
+        atom["path"] = "versions[1].formula"
+    threshold_rule["metadata"]["proof"]["atoms"].append(atom)
+    assert not _paired_issues(payload, cases)
 
 
 @settings(
