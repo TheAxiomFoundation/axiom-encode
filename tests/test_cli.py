@@ -50137,9 +50137,9 @@ rules:
             dependents=[second, sibling],
         )
         assert first_closure_skip == {second}
-        assert [path for path in (second, sibling) if path not in first_closure_skip] == [
-            sibling
-        ]
+        assert [
+            path for path in (second, sibling) if path not in first_closure_skip
+        ] == [sibling]
 
     def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
         content_root = tmp_path / "rulespec-us" / "us"

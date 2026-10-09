@@ -4030,9 +4030,7 @@ rules:
         allow_proof_import_subset=True,
     )
 
-    expected_mode = (
-        "all-direct-proof-chain" if also_direct else "proof-import-chain"
-    )
+    expected_mode = "all-direct-proof-chain" if also_direct else "proof-import-chain"
     assert mode == expected_mode
     assert dependents == (
         first.relative_to(repo / "us"),

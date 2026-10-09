@@ -5233,7 +5233,8 @@ if sys.argv[-1] == os.environ["CITATION"]:
                     [
                         "us/regulations/42-cfr/435/559.yaml",
                         "us/regulations/42-cfr/435/561/c.yaml"
-                        if cascade_mode in {
+                        if cascade_mode
+                        in {
                             "all-direct",
                             "all-direct-proof-chain",
                             "proof-import-subset-chain",
@@ -5288,7 +5289,8 @@ if sys.argv[-1] == os.environ["CITATION"]:
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
         dependent_count > 0
-        and cascade_mode not in {
+        and cascade_mode
+        not in {
             "proof-import-subset",
             "proof-import-subset-chain",
             "proof-import-chain",
@@ -5296,7 +5298,8 @@ if sys.argv[-1] == os.environ["CITATION"]:
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode in {
+        cascade_mode
+        in {
             "proof-import-subset",
             "proof-import-subset-chain",
             "proof-import-chain",
@@ -5345,7 +5348,8 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
         assert "--apply-target-only" not in encode_args[1]
         assert (scheduled_option in encode_args[1]) is (
-            cascade_mode in {
+            cascade_mode
+            in {
                 "proof-import-chain",
                 "all-direct-proof-chain",
                 "proof-import-subset-chain",

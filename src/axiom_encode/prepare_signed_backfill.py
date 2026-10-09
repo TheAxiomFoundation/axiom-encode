@@ -1951,17 +1951,15 @@ def _classify_dependent_cascade(
 
     expected = set(dependent_relatives)
     if direct_dependents == expected:
-        if (
-            len(dependent_relatives) == 2
-            and first_dependent_proof == {dependent_relatives[1]}
-        ):
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
             return tuple(dependent_relatives), "all-direct-proof-chain"
         return tuple(dependent_relatives), "all-direct"
     if allow_proof_import_subset and proof_import_dependents == expected:
-        if (
-            len(dependent_relatives) == 2
-            and first_dependent_proof == {dependent_relatives[1]}
-        ):
+        if len(dependent_relatives) == 2 and first_dependent_proof == {
+            dependent_relatives[1]
+        }:
             return tuple(dependent_relatives), "proof-import-subset-chain"
         return tuple(dependent_relatives), "proof-import-subset"
     if (
