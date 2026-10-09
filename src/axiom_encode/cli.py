@@ -2879,6 +2879,11 @@ def main():
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
+    repoint_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_required_corpus_path_argument(repoint_parser)
 
     # test command
@@ -22877,6 +22882,9 @@ def _cmd_repoint_legacy_successor(args) -> None:
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     signing_broker = _require_applied_encoding_manifest_signer()
     local_corpus_release = load_rulespec_local_corpus_release(
         repo_path,
@@ -23026,6 +23034,7 @@ def _cmd_repoint_legacy_successor(args) -> None:
         plan=plan,
         repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         signing_broker=signing_broker,
         local_corpus_release=local_corpus_release,
         waiver_sha256=waiver_sha256,
@@ -23040,6 +23049,7 @@ def _finish_successor_repoint(
     plan: _SuccessorRepointPlan,
     repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     signing_broker: SigningBroker,
     local_corpus_release: LocalCorpusRelease,
     waiver_sha256: str,
@@ -23074,6 +23084,7 @@ def _finish_successor_repoint(
         overlay_pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
             local_corpus_release=local_corpus_release,
@@ -23083,6 +23094,7 @@ def _finish_successor_repoint(
             overlay_pipeline=ValidatorPipeline(
                 policy_repo_path=overlay_content_root,
                 axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
                 enable_oracles=False,
                 enforce_repository_layout=False,
                 local_corpus_release=local_corpus_release,
@@ -23091,6 +23103,7 @@ def _finish_successor_repoint(
             baseline_pipeline=ValidatorPipeline(
                 policy_repo_path=baseline_content_root,
                 axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
                 enable_oracles=False,
                 enforce_repository_layout=False,
                 local_corpus_release=local_corpus_release,
