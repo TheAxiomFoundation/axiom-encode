@@ -53,8 +53,8 @@ def _unique_manifest_identity(
     manifest_paths: tuple[PurePosixPath, ...],
     *,
     label: str,
-) -> str:
-    """Resolve one legacy or canonical manifest path, rejecting ambiguity."""
+) -> str | None:
+    """Resolve an optional legacy or canonical manifest, rejecting ambiguity."""
 
     identities = tuple(
         identity
@@ -62,10 +62,7 @@ def _unique_manifest_identity(
         if (identity := _blob_identity(repository, commit, path)) is not None
     )
     if not identities:
-        raise ValueError(
-            f"repair replay target identity is missing at its {label} RuleSpec base: "
-            "ownership manifest"
-        )
+        return None
     if len(identities) != 1:
         raise ValueError(
             f"repair replay target identity is ambiguous at its {label} RuleSpec "
@@ -199,6 +196,8 @@ def verify_base_advance(
         manifest_paths,
         label="current",
     )
+    # A legacy target can be unsigned at both bases. Its RuleSpec and test
+    # blobs are still pinned above; reject any ownership transition or drift.
     if source_manifest_identity != current_manifest_identity:
         raise ValueError(
             "repair replay target identity changed after its source RuleSpec base"

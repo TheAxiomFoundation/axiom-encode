@@ -113,7 +113,7 @@ def test_accepts_state_jurisdiction_repository_path(tmp_path: Path) -> None:
     )
 
 
-def test_accepts_exact_base_for_legacy_target_without_manifest(tmp_path: Path) -> None:
+def test_accepts_advanced_base_for_legacy_target_without_manifest(tmp_path: Path) -> None:
     repository, source_ref = _repository(
         tmp_path,
         candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
@@ -140,17 +140,14 @@ def test_accepts_exact_base_for_legacy_target_without_manifest(tmp_path: Path) -
 
     (repository / "unrelated.txt").write_text("advance\n", encoding="utf-8")
     current_ref = _commit(repository, "advance without manifest")
-    with pytest.raises(ValueError, match="missing at its source RuleSpec base"):
-        verify_base_advance(
-            repository,
-            country="us",
-            source_ref=source_ref,
-            current_ref=current_ref,
-            candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
-            rulespec_path=(
-                "us-az/policies/des/faa5/basic-categorical-eligibility.yaml"
-            ),
-        )
+    verify_base_advance(
+        repository,
+        country="us",
+        source_ref=source_ref,
+        current_ref=current_ref,
+        candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
+        rulespec_path=("us-az/policies/des/faa5/basic-categorical-eligibility.yaml"),
+    )
 
 
 def test_rejects_mismatched_state_candidate_repository_path(
@@ -245,7 +242,6 @@ def test_rejects_target_identity_missing_at_source_base(
     [
         "us/statutes/42/1437c-1.yaml",
         "us/statutes/42/1437c-1.test.yaml",
-        ".axiom/encoding-manifests/us/statutes/42/1437c-1.json",
     ],
 )
 def test_rejects_advance_that_changes_repair_target_identity(
@@ -461,6 +457,57 @@ def test_rejects_current_ref_that_is_not_checkout_head(tmp_path: Path) -> None:
             country="us",
             source_ref=source_ref,
             current_ref=source_ref,
+            candidate_path="statutes/42/1437c-1.yaml",
+        )
+
+
+def test_accepts_unchanged_unsigned_repair_target(tmp_path: Path) -> None:
+    repository, _ = _repository(tmp_path)
+    manifest_path = ".axiom/encoding-manifests/us/statutes/42/1437c-1.json"
+    subprocess.run(
+        ["git", "-C", str(repository), "rm", "-q", "--", manifest_path],
+        check=True,
+    )
+    source_ref = _commit(repository, "unsigned source")
+    (repository / "unrelated.txt").write_text("advance\n", encoding="utf-8")
+    current_ref = _commit(repository, "unrelated advance")
+
+    verify_base_advance(
+        repository,
+        country="us",
+        source_ref=source_ref,
+        current_ref=current_ref,
+        candidate_path="statutes/42/1437c-1.yaml",
+    )
+
+
+@pytest.mark.parametrize("manifest_present_at_source", [False, True])
+def test_rejects_ownership_change_for_repair_target(
+    tmp_path: Path, manifest_present_at_source: bool
+) -> None:
+    repository, source_ref = _repository(tmp_path)
+    manifest_path = ".axiom/encoding-manifests/us/statutes/42/1437c-1.json"
+    if not manifest_present_at_source:
+        subprocess.run(
+            ["git", "-C", str(repository), "rm", "-q", "--", manifest_path],
+            check=True,
+        )
+        source_ref = _commit(repository, "unsigned source")
+        (repository / manifest_path).parent.mkdir(parents=True, exist_ok=True)
+        (repository / manifest_path).write_text("{}\n", encoding="utf-8")
+    else:
+        subprocess.run(
+            ["git", "-C", str(repository), "rm", "-q", "--", manifest_path],
+            check=True,
+        )
+    current_ref = _commit(repository, "ownership changed")
+
+    with pytest.raises(ValueError, match="target identity changed"):
+        verify_base_advance(
+            repository,
+            country="us",
+            source_ref=source_ref,
+            current_ref=current_ref,
             candidate_path="statutes/42/1437c-1.yaml",
         )
 
