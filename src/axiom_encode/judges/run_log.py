@@ -60,6 +60,9 @@ class JudgeStage(str, Enum):
     """The judge stage that produced an event (carried in ``attrs.judge_stage``)."""
 
     STATUTORY_FIDELITY = "statutory_fidelity"
+    # Typed-probability pre-screen (TypeSafe System One) that runs before the
+    # statutory-fidelity referee. Advisory only; it never gates.
+    STATUTORY_FIDELITY_SCREEN = "statutory_fidelity_screen"
     GRID_ADEQUACY = "grid_adequacy"
     DISPOSITION = "disposition"
     WORKLIST_PRECLASSIFY = "worklist_preclassify"
@@ -131,12 +134,18 @@ class Finding:
     ``clause_ref`` locates the provision; ``rule_path`` locates the generated
     artifact locus; ``kind`` is drawn from :data:`FINDING_KINDS`. Mapped onto a
     canonical :class:`~axiom_encode.run_log.Finding` at emission time.
+
+    ``probability`` is set only by the statutory-fidelity screen, which returns
+    a per-kind probability and no locators: its findings carry empty
+    ``clause_ref``/``rule_path`` (never a fabricated locus) and surface the
+    probability in the canonical finding's ``evidence``.
     """
 
     clause_ref: str
     rule_path: str
     kind: str
     explanation: str
+    probability: Optional[float] = None
 
     def to_run_log_finding(self) -> RunLogFinding:
         message = self.explanation
@@ -144,12 +153,15 @@ class Finding:
             message = (
                 f"[{self.clause_ref}] {message}" if message else f"[{self.clause_ref}]"
             )
+        evidence = None
+        if self.probability is not None:
+            evidence = f"probability={float(self.probability):.4f}"
         return RunLogFinding(
             code=self.kind,
             severity=_SEVERITY_BY_KIND.get(self.kind, Severity.info),
             message=message,
             locator=self.rule_path or self.clause_ref or None,
-            evidence=None,
+            evidence=evidence,
         )
 
 

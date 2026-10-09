@@ -929,6 +929,21 @@ As of 2026-04-10:
   - axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707 (`../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-asset-limit-tx-20260414t154707`)
   - axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013 (`../artifacts/eval-suites/axiom_encode-snap-tanf-non-cash-gross-income-limit-fpg-ratio-tx-20260414t155013`)
 
+### 2026-09-17: TypeSafe System One pre-screen ahead of the statutory-fidelity referee
+
+- Hypothesis:
+  - An unreproduced internal synthetic pilot whose raw scores are not yet published suggests that a typed-probability model may screen generations for changed amounts and flipped boundaries in under a second and for a fraction of a cent, so the LLM referee could be requested selectively once a verifier-track threshold exists.
+- Effect:
+  - Added the `statutory_fidelity_screen` judge stage and the `judges/system_one.py` client (TypeSafe System One, family `typesafe`), wired as `judge-fidelity --screen` and `judge-fidelity-screen`. Advisory by default; `AXIOM_JUDGE_SCREEN_MODE=cascade` lets a below-threshold screen skip the referee, and an errored screen always requests it.
+  - Findings carry a kind and a probability with empty locators; the screen never produces `needs-review`.
+  - The default threshold (0.25) is a marked placeholder from the unreproduced internal 2026-09-17 planted-defect pilot, whose raw scores are not yet published; both judges were reported near chance on the calibration harness's apply/blocked labels in an unreproduced calibration pilot whose raw scores are not yet published, so those results cannot set it.
+- Primary evidence paths:
+  - [statutory_fidelity_screen.py](../src/axiom_encode/judges/statutory_fidelity_screen.py)
+  - [system_one.py](../src/axiom_encode/judges/system_one.py)
+  - [test_statutory_fidelity_screen.py](../tests/test_statutory_fidelity_screen.py)
+  - [judge-stages.md](judge-stages.md)
+  - The reported pilot figures will be linked to published evidence when the pilot artifacts are released.
+
 ## Open Documentation Debt
 
 - Add before/after metric snapshots for every kept harness change rather than relying on commit messages.
