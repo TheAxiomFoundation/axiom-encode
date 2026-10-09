@@ -428,6 +428,24 @@ from .repo_routing import (
     jurisdiction_subdir_names,
     monorepo_checkout_name,
 )
+from .retired_source_metadata import (
+    MIGRATION_TOOL as RETIRED_SOURCE_METADATA_TOOL,
+)
+from .retired_source_metadata import (
+    RECEIPT_DIR as RETIRED_SOURCE_METADATA_RECEIPT_DIR,
+)
+from .retired_source_metadata import (
+    RetiredSourceMetadataError,
+)
+from .retired_source_metadata import (
+    build_migration as build_retired_source_metadata_migration,
+)
+from .retired_source_metadata import (
+    load_plan_bytes as load_retired_source_metadata_plan_bytes,
+)
+from .retired_source_metadata import (
+    verify_migration_replay as verify_retired_source_metadata_replay,
+)
 from .retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_ITEMS,
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
@@ -642,6 +660,19 @@ _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS = frozenset(
         "applied_files",
         "legacy_migration",
         "retained_successor_manifest",
+        "signature",
+    }
+)
+_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "applied_files",
+        "retired_source_metadata",
         "signature",
     }
 )
@@ -2750,6 +2781,21 @@ def main():
     )
     _add_required_corpus_path_argument(path_migration_parser)
 
+    retired_metadata_parser = subparsers.add_parser(
+        "migrate-retired-source-metadata",
+        help="Deterministically remove retired source-verification metadata",
+    )
+    retired_metadata_parser.add_argument("--plan", type=Path, required=True)
+    retired_metadata_parser.add_argument(
+        "--policy-repo-path", type=Path, required=True,
+        help="Exact canonical rulespec-<country> checkout",
+    )
+    retired_metadata_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Write replayable postimages and an unsigned receipt in a scratch checkout",
+    )
+    _add_required_corpus_path_argument(retired_metadata_parser)
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -3740,6 +3786,8 @@ def main():
         cmd_retire(args)
     elif args.command == "migrate-rulespec-paths":
         cmd_migrate_rulespec_paths(args)
+    elif args.command == "migrate-retired-source-metadata":
+        cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
     elif args.command == "stage-signed-backfill":
@@ -21099,6 +21147,625 @@ def cmd_migrate_rulespec_paths(args) -> None:
         _cmd_migrate_rulespec_paths(args)
 
 
+def _retired_source_metadata_base_files(
+    repo_path: Path,
+    commit: str,
+) -> dict[str, bytes]:
+    """Read the full atomic YAML inventory from immutable regular Git blobs."""
+
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RetiredSourceMetadataError(
+            "migration base_commit must be an exact Git SHA"
+        )
+    raw_listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-z",
+        commit,
+    )
+    inventory: list[tuple[str, str]] = []
+    roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+    for record in raw_listing.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, kind, object_id = metadata.decode("ascii").split()
+            path_text = encoded_path.decode("utf-8")
+        except (ValueError, UnicodeError) as exc:
+            raise RetiredSourceMetadataError("malformed migration base tree") from exc
+        relative = Path(path_text)
+        if not _is_protected_rulespec_yaml_path(relative, roots=roots):
+            continue
+        if (
+            mode != "100644"
+            or kind != "blob"
+            or relative.is_absolute()
+            or relative.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
+        ):
+            raise RetiredSourceMetadataError(
+                f"migration base module is not a canonical regular 0644 blob: {path_text}"
+            )
+        inventory.append((path_text, object_id))
+    if not inventory:
+        raise RetiredSourceMetadataError("migration base has no atomic YAML modules")
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "cat-file", "--batch"],
+        input="".join(f"{object_id}\n" for _, object_id in inventory).encode("ascii"),
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode:
+        raise RetiredSourceMetadataError("cannot read migration base blobs")
+    result: dict[str, bytes] = {}
+    offset = 0
+    for path_text, object_id in inventory:
+        end = completed.stdout.find(b"\n", offset)
+        if end < 0:
+            raise RetiredSourceMetadataError("truncated migration base blob inventory")
+        try:
+            actual_id, kind, size_text = (
+                completed.stdout[offset:end].decode("ascii").split()
+            )
+            size = int(size_text)
+        except (ValueError, UnicodeError) as exc:
+            raise RetiredSourceMetadataError("malformed migration base blob") from exc
+        if (
+            actual_id != object_id
+            or kind != "blob"
+            or not 0 <= size <= 16 * 1024 * 1024
+        ):
+            raise RetiredSourceMetadataError(
+                f"unbounded or mismatched base blob: {path_text}"
+            )
+        offset = end + 1
+        result[path_text] = completed.stdout[offset : offset + size]
+        offset += size
+        if completed.stdout[offset : offset + 1] != b"\n":
+            raise RetiredSourceMetadataError("truncated migration base blob")
+        offset += 1
+    if offset != len(completed.stdout):
+        raise RetiredSourceMetadataError(
+            "unexpected migration base blob inventory data"
+        )
+    return result
+
+
+def _retired_source_metadata_manifest_entries(migration, base_files):
+    """Preserve each rewritten module's unchanged companion ownership."""
+
+    result: dict[Path, list[dict[str, str]]] = {}
+    for item in migration.files:
+        entries = [
+            {
+                "path": item.path.as_posix(),
+                "sha256": hashlib.sha256(item.after).hexdigest(),
+            }
+        ]
+        companion = companion_path(item.path).as_posix()
+        if companion in base_files:
+            entries.append(
+                {
+                    "path": companion,
+                    "sha256": hashlib.sha256(base_files[companion]).hexdigest(),
+                }
+            )
+        result[_applied_encoding_manifest_path(item.path)] = sorted(
+            entries, key=lambda entry: entry["path"]
+        )
+    return result
+
+
+def _retired_source_metadata_owner_scope_issues(
+    repo_path: Path, migration, base_files
+) -> list[str]:
+    """Refuse migrations that would leave or shrink an existing v5 owner."""
+
+    expected = _retired_source_metadata_manifest_entries(migration, base_files)
+    affected = {item.path.as_posix() for item in migration.files}
+    records: set[bytes] = set()
+    affected_paths = sorted(affected)
+    for offset in range(0, len(affected_paths), 64):
+        arguments = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
+        for path in affected_paths[offset : offset + 64]:
+            arguments.extend(["-e", path])
+        arguments.extend([migration.plan.base_commit, "--"])
+        completed = subprocess.run(
+            arguments,
+            capture_output=True,
+            env=_rulespec_migration_git_environment(),
+            check=False,
+        )
+        if completed.returncode not in (0, 1):
+            return ["cannot inspect immutable migration manifest ownership"]
+        records.update(record for record in completed.stdout.split(b"\0") if record)
+    issues: list[str] = []
+    for record in sorted(records):
+        try:
+            text = record.decode("utf-8")
+            prefix = migration.plan.base_commit + ":"
+            if not text.startswith(prefix):
+                raise ValueError("unexpected Git manifest identity")
+            relative = Path(text[len(prefix) :])
+            if not _is_applied_encoding_manifest_path(
+                relative, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+            ):
+                continue
+            payload = json.loads(
+                _rulespec_migration_base_blob(
+                    repo_path, migration.plan.base_commit, relative
+                )
+            )
+        except (UnicodeError, ValueError, RuntimeError) as exc:
+            issues.append(f"cannot inspect migration prior manifest: {exc}")
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+        ):
+            continue
+        entries = payload.get("applied_files")
+        if not isinstance(entries, list):
+            continue
+        live_paths = {
+            entry["path"]
+            for entry in entries
+            if isinstance(entry, dict)
+            and isinstance(entry.get("path"), str)
+            and entry.get("deleted") is not True
+        }
+        if not live_paths & affected:
+            continue
+        if relative not in expected:
+            issues.append(
+                f"migration would leave an existing v5 owner stale: {relative}"
+            )
+        elif live_paths != {entry["path"] for entry in expected[relative]}:
+            issues.append(
+                f"migration would change existing v5 owner coverage: {relative}"
+            )
+    return issues
+
+
+_RETIRED_SOURCE_METADATA_REPLAY_CACHE: dict[
+    tuple[str, str, str], tuple[object, dict[str, bytes]]
+] = {}
+
+
+def _retired_source_metadata_replay(repo_path: Path, receipt_relative: Path):
+    """Replay an exact canonical receipt against its immutable Git base."""
+
+    directory = Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+    if (
+        receipt_relative.parent != directory
+        or re.fullmatch(
+            r"[0-9a-f]{64}\.json",
+            receipt_relative.name,
+        )
+        is None
+    ):
+        raise RetiredSourceMetadataError(
+            "noncanonical retired source metadata receipt path"
+        )
+    raw = read_bounded_regular_file(
+        repo_path,
+        repo_path / receipt_relative,
+        label="retired source metadata receipt",
+        max_bytes=16 * 1024 * 1024,
+    )
+    cache_key = (
+        str(repo_path.resolve()),
+        receipt_relative.as_posix(),
+        hashlib.sha256(raw).hexdigest(),
+    )
+    if cache_key in _RETIRED_SOURCE_METADATA_REPLAY_CACHE:
+        return _RETIRED_SOURCE_METADATA_REPLAY_CACHE[cache_key]
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise RetiredSourceMetadataError("migration receipt must be an object")
+    commit = payload.get("base_commit")
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RetiredSourceMetadataError("migration receipt base_commit is malformed")
+    actual_tree = _rulespec_migration_git(
+        repo_path, "rev-parse", f"{commit}^{{tree}}"
+    ).strip()
+    if payload.get("base_tree") != actual_tree:
+        raise RetiredSourceMetadataError(
+            "migration receipt base tree does not match its base commit"
+        )
+    base_files = _retired_source_metadata_base_files(repo_path, commit)
+    migration = verify_retired_source_metadata_replay(raw, base_files=base_files)
+    if migration.receipt_relative != receipt_relative:
+        raise RetiredSourceMetadataError(
+            "migration receipt filename does not match its identity"
+        )
+    if len(_RETIRED_SOURCE_METADATA_REPLAY_CACHE) >= 2:
+        _RETIRED_SOURCE_METADATA_REPLAY_CACHE.clear()
+    _RETIRED_SOURCE_METADATA_REPLAY_CACHE[cache_key] = (migration, base_files)
+    return migration, base_files
+
+
+def retired_source_metadata_change_set(
+    repo_path: Path, receipt_relative: Path
+) -> dict[str, object]:
+    """Return the exact replayed, live transaction for protected packaging."""
+
+    repo_path = Path(repo_path).resolve()
+    receipt_relative = Path(receipt_relative)
+    migration, base_files = _retired_source_metadata_replay(repo_path, receipt_relative)
+    manifest_entries = _retired_source_metadata_manifest_entries(migration, base_files)
+    binding = {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": migration.receipt_sha256,
+    }
+    for item in migration.files:
+        live = read_bounded_regular_file(
+            repo_path,
+            repo_path / item.path,
+            label="migration live postimage",
+            max_bytes=16 * 1024 * 1024,
+        )
+        if live != item.after:
+            raise RetiredSourceMetadataError(
+                f"migration live postimage differs from replay: {item.path}"
+            )
+    for manifest_path, entries in manifest_entries.items():
+        manifest = json.loads(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / manifest_path,
+                label="migration apply manifest",
+                max_bytes=1024 * 1024,
+            )
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("tool") != RETIRED_SOURCE_METADATA_TOOL
+            or manifest.get("retired_source_metadata") != binding
+            or manifest.get("applied_files") != entries
+        ):
+            raise RetiredSourceMetadataError(
+                f"migration manifest differs from replay: {manifest_path}"
+            )
+    manifest_paths = sorted(path.as_posix() for path in manifest_entries)
+    return {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": migration.receipt_sha256,
+        "files": migration.receipt["files"],
+        "manifest_paths": manifest_paths,
+        "changed_paths": sorted(
+            [
+                receipt_relative.as_posix(),
+                *manifest_paths,
+                *(item.path.as_posix() for item in migration.files),
+            ]
+        ),
+    }
+
+
+def _retired_source_metadata_manifest_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+) -> list[str]:
+    """Authorize this manifest's files only by deterministic base-blob replay."""
+
+    if payload.get("tool") != RETIRED_SOURCE_METADATA_TOOL:
+        return []
+    binding = payload.get("retired_source_metadata")
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"receipt_path", "receipt_sha256"}
+        or not isinstance(binding.get("receipt_path"), str)
+        or not isinstance(binding.get("receipt_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", binding["receipt_sha256"]) is None
+    ):
+        return [
+            f"{manifest_label} has no exact retired source metadata receipt binding"
+        ]
+    try:
+        migration, base_files = _retired_source_metadata_replay(
+            repo_path, Path(binding["receipt_path"])
+        )
+        if migration.receipt_sha256 != binding["receipt_sha256"]:
+            raise RetiredSourceMetadataError(
+                "receipt digest does not match manifest binding"
+            )
+        entries = _retired_source_metadata_manifest_entries(migration, base_files)
+        expected = entries.get(Path(manifest_label))
+        if expected is None or payload.get("applied_files") != expected:
+            raise RetiredSourceMetadataError(
+                "manifest file scope does not match deterministic replay"
+            )
+        owner_issues = _retired_source_metadata_owner_scope_issues(
+            repo_path, migration, base_files
+        )
+        if owner_issues:
+            raise RetiredSourceMetadataError("; ".join(owner_issues))
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+        return [f"{manifest_label} retired source metadata replay failed: {exc}"]
+    return []
+
+
+def _retired_source_metadata_change_set_issues(
+    repo_path: Path, changed: list[str], *, base_ref: str | None = None,
+) -> list[str]:
+    """A new receipt and every file and manifest it records land together."""
+
+    changed_set = {Path(path).as_posix() for path in changed}
+    receipt_dir = Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+    receipts = sorted(
+        path
+        for path in changed_set
+        if Path(path).parts[: len(receipt_dir.parts)] == receipt_dir.parts
+    )
+    issues: list[str] = []
+    for path in sorted(changed_set):
+        if not _is_applied_encoding_manifest_path(
+            Path(path), roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+        ):
+            continue
+        try:
+            payload = json.loads(
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / path,
+                    label="changed apply manifest",
+                    max_bytes=1024 * 1024,
+                )
+            )
+        except (OSError, ValueError, UnsafeCorpusPathError):
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("tool") != RETIRED_SOURCE_METADATA_TOOL
+        ):
+            continue
+        binding = payload.get("retired_source_metadata")
+        receipt_path = (
+            binding.get("receipt_path") if isinstance(binding, dict) else None
+        )
+        if receipt_path not in receipts:
+            issues.append(
+                f"{path} changed without introducing its retired source metadata receipt {receipt_path}"
+            )
+    for path in receipts:
+        try:
+            expected = retired_source_metadata_change_set(repo_path, Path(path))
+            if changed_set != set(expected["changed_paths"]):
+                missing = sorted(set(expected["changed_paths"]) - changed_set)
+                extra = sorted(changed_set - set(expected["changed_paths"]))
+                raise RetiredSourceMetadataError(
+                    f"receipt must land with its exact change set (missing={missing}, extra={extra})"
+                )
+            migration, _ = _retired_source_metadata_replay(repo_path, Path(path))
+            if _rulespec_migration_git_bytes(
+                repo_path,
+                "ls-tree",
+                "-z",
+                "--full-tree",
+                migration.receipt["base_commit"],
+                "--",
+                path,
+            ):
+                raise RetiredSourceMetadataError(
+                    "historical migration receipts cannot be edited or removed"
+                )
+            if base_ref is not None:
+                protected_base = _rulespec_migration_git(
+                    repo_path, "rev-parse", "--verify", f"{base_ref}^{{commit}}",
+                ).strip()
+                if protected_base != migration.plan.base_commit:
+                    raise RetiredSourceMetadataError("migration receipt base_commit does not match the protected base")
+        except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+            issues.append(
+                f"{path} retired source metadata change set is invalid: {exc}"
+            )
+    return issues
+
+
+def cmd_migrate_retired_source_metadata(args) -> None:
+    """Install a deterministic migration through the existing apply journal."""
+
+    with _rulespec_migration_clean_ambient_git():
+        _cmd_migrate_retired_source_metadata(args)
+
+
+def _cmd_migrate_retired_source_metadata(args) -> None:
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.policy_repo_path, label="RuleSpec checkout"
+    )
+    _recover_apply_transaction(repo_path)
+    commit, tree = _rulespec_migration_base_identity(repo_path)
+    try:
+        plan_path = Path(os.path.abspath(Path(args.plan).expanduser()))
+        if plan_path.resolve(strict=True) != plan_path:
+            raise UnsafeCorpusPathError("migration plan contains a symlink")
+        plan = load_retired_source_metadata_plan_bytes(
+            read_bounded_regular_file(
+                Path(plan_path.anchor),
+                plan_path,
+                label="retired source metadata plan",
+                max_bytes=1024 * 1024,
+            )
+        )
+        if plan.base_commit != commit:
+            raise RetiredSourceMetadataError(
+                "migration plan base_commit does not match RuleSpec HEAD"
+            )
+        base_files = _retired_source_metadata_base_files(repo_path, commit)
+        migration = build_retired_source_metadata_migration(
+            plan, base_tree=tree, base_files=base_files
+        )
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+        raise SystemExit(
+            f"Cannot plan retired source metadata migration: {exc}"
+        ) from exc
+    dry_run = bool(getattr(args, "dry_run", False))
+    planned = {item.path: item.after for item in migration.files}
+    planned[migration.receipt_relative] = migration.receipt_bytes
+    expected_identity = None
+    waiver_sha256 = None
+    release_identity = None
+    signer = None
+    if not dry_run:
+        owner_issues = _retired_source_metadata_owner_scope_issues(
+            repo_path, migration, base_files
+        )
+        if owner_issues:
+            raise SystemExit(
+                "Cannot preserve migration manifest ownership: "
+                + "; ".join(owner_issues)
+            )
+        signer = _require_applied_encoding_manifest_signer()
+        local_release = load_rulespec_local_corpus_release(
+            repo_path, Path(args.corpus_path)
+        )
+        release_identity = (
+            local_release.root,
+            local_release.name,
+            local_release.content_sha256,
+            local_release.selector_sha256,
+        )
+        waiver_sha256 = verify_rulespec_validation_waiver_set(repo_path)
+        expected_identity = _current_guard_encoder_execution_identity()
+        provenance = _require_clean_axiom_encode_git_provenance()
+        generated_at = datetime.now(timezone.utc).isoformat()
+        for manifest_path, entries in _retired_source_metadata_manifest_entries(
+            migration, base_files
+        ).items():
+            payload = {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "generated_at": generated_at,
+                "tool": RETIRED_SOURCE_METADATA_TOOL,
+                "axiom_encode_version": __version__,
+                "axiom_encode_git": dict(provenance),
+                VALIDATION_WAIVER_SET_SHA256_FIELD: waiver_sha256,
+                "applied_files": entries,
+                "retired_source_metadata": {
+                    "receipt_path": migration.receipt_relative.as_posix(),
+                    "receipt_sha256": migration.receipt_sha256,
+                },
+            }
+            _sign_applied_encoding_manifest(payload, signer)
+            planned[manifest_path] = (
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            ).encode()
+    tracked = _rulespec_migration_tracked_files(repo_path)
+    expected_originals: dict[Path, str | None] = {}
+    for relative in planned:
+        if relative == migration.receipt_relative and (
+            relative in tracked
+            or (repo_path / relative).exists()
+            or (repo_path / relative).is_symlink()
+        ):
+            raise SystemExit(f"Migration receipt already exists: {relative}")
+        expected_originals[repo_path / relative] = (
+            hashlib.sha256(
+                _rulespec_migration_base_blob(repo_path, commit, relative)
+            ).hexdigest()
+            if relative in tracked
+            else None
+        )
+
+    def pre_install_check() -> None:
+        if _rulespec_migration_base_identity(repo_path) != (commit, tree):
+            raise RuntimeError("RuleSpec base changed after migration planning")
+        if not dry_run:
+            current_release = load_rulespec_local_corpus_release(
+                repo_path, Path(args.corpus_path)
+            )
+            if (
+                current_release.root,
+                current_release.name,
+                current_release.content_sha256,
+                current_release.selector_sha256,
+            ) != release_identity:
+                raise RuntimeError("migration corpus binding changed after planning")
+            if verify_rulespec_validation_waiver_set(repo_path) != waiver_sha256:
+                raise RuntimeError("migration waiver set changed after planning")
+
+    def post_install_check() -> None:
+        replay, _ = _retired_source_metadata_replay(
+            repo_path, migration.receipt_relative
+        )
+        for item in replay.files:
+            if (
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / item.path,
+                    label="migration postimage",
+                    max_bytes=16 * 1024 * 1024,
+                )
+                != item.after
+            ):
+                raise RuntimeError(
+                    f"migration postimage differs from replay: {item.path}"
+                )
+        if not dry_run:
+            for relative in planned:
+                if (
+                    relative.parent == Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+                    or relative.suffix != ".json"
+                ):
+                    continue
+                verified, _, _, issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        repo_path,
+                        relative.as_posix(),
+                        signing_broker=signer,
+                        expected_waiver_set_sha256=waiver_sha256,
+                        expected_encoder_identity=expected_identity,
+                    )
+                )
+                if verified is None or issues:
+                    raise RuntimeError(
+                        "migration manifest failed verification: " + "; ".join(issues)
+                    )
+            retired_source_metadata_change_set(repo_path, migration.receipt_relative)
+
+    _install_apply_transaction(
+        [
+            (repo_path / relative, raw)
+            for relative, raw in sorted(
+                planned.items(), key=lambda pair: pair[0].as_posix()
+            )
+        ],
+        checkout_root=repo_path,
+        expected_originals=expected_originals,
+        pre_install_check=pre_install_check,
+        post_install_check=post_install_check,
+    )
+    print(
+        json.dumps(
+            {
+                "dry_run": dry_run,
+                "base_commit": commit,
+                "base_tree": tree,
+                "receipt_path": migration.receipt_relative.as_posix(),
+                "receipt_sha256": migration.receipt_sha256,
+                "files": migration.receipt["files"],
+                "primaries": migration.receipt["primaries"],
+                "cascade_rewrites": list(migration.cascade_rewrites),
+                "manifest_paths": sorted(
+                    relative.as_posix()
+                    for relative in planned
+                    if _is_applied_encoding_manifest_path(
+                        relative, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+                    )
+                ),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def _cmd_migrate_rulespec_paths(args) -> None:
     """Implementation under a command-wide sanitized Git environment."""
 
@@ -22012,6 +22679,9 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
+    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(repo_path, changed, base_ref=base_ref)
+    if retired_metadata_change_issues:
+        return retired_metadata_change_issues
     if not protected:
         return []
 
@@ -22562,6 +23232,7 @@ def _manifest_coverage_by_file(
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL
             or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+            or payload.get("tool") == RETIRED_SOURCE_METADATA_TOOL
         )
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list):
@@ -22614,6 +23285,7 @@ def _applied_manifest_source_attestation_issues(
     if payload.get("tool") in {
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+        RETIRED_SOURCE_METADATA_TOOL,
     }:
         return []
     backend = _normalized_manifest_backend(payload)
@@ -23110,6 +23782,22 @@ def _applied_manifest_tool_execution_issues(
         return issues
     if backend is None:
         applied_files = payload.get("applied_files")
+        if tool == RETIRED_SOURCE_METADATA_TOOL:
+            if (
+                not isinstance(applied_files, list) or not applied_files
+                or any(not isinstance(item, dict) or set(item) != {"path", "sha256"} for item in applied_files)
+            ):
+                issues.append(f"{manifest_label} retired source metadata migration has malformed file entries")
+            provenance = payload.get("axiom_encode_git")
+            if not isinstance(provenance, dict) or (
+                provenance.get("commit") != expected_encoder_identity.get("commit")
+                or provenance.get("version") != expected_encoder_identity.get("version")
+                or provenance.get("dirty_tracked") is not False
+            ):
+                issues.append(f"{manifest_label} retired source metadata migration does not match the running pinned encoder")
+            if any(field in payload for field in ("source_attestation", "validation_execution", "deterministic_execution")):
+                issues.append(f"{manifest_label} retired source metadata migration may claim only receipt-bound replay")
+            return issues
         if tool == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL:
             if not isinstance(applied_files, list) or any(
                 not isinstance(item, dict) or set(item) != {"path", "sha256"}
@@ -23330,6 +24018,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "legacy retained successor"
+    elif backend is None and tool == RETIRED_SOURCE_METADATA_TOOL:
+        expected_fields = _RETIRED_SOURCE_METADATA_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "retired source metadata migration"
     else:
         return []
 
@@ -26791,6 +27483,7 @@ def _load_verified_applied_encoding_manifest_payload(
             rulespec_snapshots=applied_file_snapshots,
         )
     )
+    issues.extend(_retired_source_metadata_manifest_issues(payload, repo_path=repo_path, manifest_label=manifest_label))
     source_attestation = payload.get("source_attestation")
     if isinstance(source_attestation, dict):
         toolchain = load_rulespec_toolchain(repo_path)
@@ -55262,6 +55955,7 @@ def _is_canonical_apply_transaction_target(
     for receipt_dir in (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
     ):
         receipt_prefix = receipt_dir.parts
         if relative.parts[: len(receipt_prefix)] == receipt_prefix:
