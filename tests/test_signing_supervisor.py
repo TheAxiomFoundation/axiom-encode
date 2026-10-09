@@ -3122,20 +3122,46 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "RULESPEC_CHECKOUT",
     }
     assert "CITATION" not in repoint_step["run"]
-    assert _apply_signer_commands(repoint_step["run"]) == [
-        [
-            "/opt/axiom-verification/axiom-encode",
-            "repoint-legacy-successor",
-            "--request",
-            "$RUNNER_TEMP/successor-repoint-request.json",
-            "--policy-repo-path",
-            "$RULESPEC_CHECKOUT",
-            "--axiom-rules-engine-path",
-            "$GITHUB_WORKSPACE/axiom-rules-engine",
-            "--corpus-path",
-            "$GITHUB_WORKSPACE/axiom-corpus",
-        ]
+    assert _apply_signer_commands(repoint_step["run"]) == [["${repoint_args[@]}"]]
+    repoint_words = shlex.split(repoint_step["run"].replace("\\\n", " "), comments=True)
+    assert repoint_words.count("repoint_args=(") == 1
+    opened = repoint_words.index("repoint_args=(")
+    assert repoint_words[opened + 1 : repoint_words.index(")", opened)] == [
+        "/opt/axiom-verification/axiom-encode",
+        "repoint-legacy-successor",
+        "--request",
+        "$RUNNER_TEMP/successor-repoint-request.json",
+        "--policy-repo-path",
+        "$RULESPEC_CHECKOUT",
+        "--axiom-rules-engine-path",
+        "$GITHUB_WORKSPACE/axiom-rules-engine",
+        "--corpus-path",
+        "$GITHUB_WORKSPACE/axiom-corpus",
     ]
+    # The only later addition is main's explicit composer at its provisioned
+    # root-owned path, exactly as the model, promotion and manifest-refresh
+    # lanes pass it; no expansion may choose another composer.
+    composer = "/opt/axiom-compose-verification/axiom-compose"
+    assert repoint_words.count("repoint_args+=(--axiom-compose-path") == 1
+    appended = repoint_words.index("repoint_args+=(--axiom-compose-path")
+    assert repoint_words[appended - 6 : appended + 3] == [
+        "if",
+        "[",
+        "-x",
+        composer,
+        "];",
+        "then",
+        "repoint_args+=(--axiom-compose-path",
+        f"{composer})",
+        "fi",
+    ]
+    assert (
+        f"if [ -x {composer} ]; then\n"
+        "  repoint_args+=(--axiom-compose-path \\\n"
+        f"    {composer})\n"
+        "fi\n"
+    ) in repoint_step["run"]
+    assert repoint_step["run"].count("repoint_args") == 3
     assert _direct_supervisor_lines(repoint_step["run"]) == []
 
     request_step = next(
@@ -3399,8 +3425,10 @@ def test_apply_signer_contract_rejects_an_unbound_signing_step() -> None:
     assert _inside_key_free_subshell(substitution, 6)
 
 
+@pytest.mark.parametrize("compose_available", [False, True])
 def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
     tmp_path: Path,
+    compose_available: bool,
 ) -> None:
     step = _targeted_step("Repoint legacy successor")
     stub = tmp_path / "apply-signer-stub"
@@ -3414,10 +3442,19 @@ def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
         "}))\n"
     )
     stub.chmod(0o755)
+    compose = tmp_path / "axiom-compose-verification/axiom-compose"
+    if compose_available:
+        compose.parent.mkdir()
+        compose.write_text("#!/bin/sh\nexit 0\n")
+        compose.chmod(0o755)
     script = step["run"].replace(
         "/opt/axiom-verification/axiom-encode-apply-signer run", f"{stub} run"
     )
     assert f"{stub} run" in script
+    assert script.count("/opt/axiom-compose-verification/axiom-compose") == 2
+    script = script.replace(
+        "/opt/axiom-compose-verification/axiom-compose", str(compose)
+    )
     environment = {
         "PATH": os.environ["PATH"],
         "RUNNER_TEMP": str(tmp_path / "runner"),
@@ -3449,6 +3486,7 @@ def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
         f"{tmp_path}/workspace/axiom-rules-engine",
         "--corpus-path",
         f"{tmp_path}/workspace/axiom-corpus",
+        *(["--axiom-compose-path", str(compose)] if compose_available else []),
     ]
 
 
