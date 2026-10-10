@@ -117,6 +117,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -186,7 +187,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3111",
+        "quote": "there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ",
+        "span": [
+          77,
+          182
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/3111",
+        "quote": "means an employer that is an organization described in section 501(c) and exempt from taxation under section 501(a)",
+        "span": [
+          3019,
+          3134
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The tax is imposed on every employer, and subsection (e) treats tax-exempt 501(c) organizations as employers subject to the subsection (a) tax. The pre-fix rule attaches the tax to a Business entity, which leaves out employers that are not businesses. The post-fix Employer entity matches the text.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-abc82d7a-e47ca77d5c5b",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -200,11 +255,10 @@
     "verifier_notes": "The first reader's quote (\"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...\") is generic PR boilerplate and proves nothing by itself; the decisive evidence is the diff line plus the source text, not the PR body. Neither the commit (subject \"Refresh payroll generated rules\", empty body) nor the PR contains any reviewer text calling the old entity wrong, and the PR has zero reviews/comments — the defect reading is inferred from the statute and the repo's own entity convention, which is why I did not go above ~0.87. Companion test statutes/26/3111/a.test.yaml changed only rule-case names and dropped two redundant rate assertions; it never pins an entity, so the entity error was not test-observable. Worth flagging for the corpus: the identical scope defect survives untouched at the same commit in statutes/26/3111/c.yaml (`entity: Business` on wages_exempt_by_international_social_security_agreement, grounded on 3111(c) which also speaks of taxes imposed on employers), so this fix was partial. Module index 3 of 16; sibling module 3111/b.yaml carries the same Business->Employer change and would be a duplicate of this case if screened separately.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n)."
+    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus (us/statute/26/3111): '(a) ... there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ, equal to 6.2 percent of the wages ... paid by the employer with respect to employment'. Decisive change entity: Business -> Employer. Remaining hunks are summary paraphrase, proof-atom key rename text->excerpt, replacement of a 'definition' atom by an import atom for the rate, and a blank-line reflow; all provenance. No maintainer text names the entity fix (empty commit body, no PR reviews), so confidence is in the 0.5-0.79 band. This entity change is what forced the dependent import-hash refresh in index 5. | verifier confirmed at 0.87",
-  "family_id": "us-abc82d7a-e47ca77d5c5b",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus (us/statute/26/3111): '(a) ... there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ, equal to 6.2 percent of the wages ... paid by the employer with respect to employment'. Decisive change entity: Business -> Employer. Remaining hunks are summary paraphrase, proof-atom key rename text->excerpt, replacement of a 'definition' atom by an import atom for the rate, and a blank-line reflow; all provenance. No maintainer text names the entity fix (empty commit body, no PR reviews), so confidence is in the 0.5-0.79 band. This entity change is what forced the dependent import-hash refresh in index 5. | verifier confirmed at 0.87"
 }

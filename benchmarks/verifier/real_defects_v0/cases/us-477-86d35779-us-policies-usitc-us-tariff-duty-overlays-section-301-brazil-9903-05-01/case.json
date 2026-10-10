@@ -155,6 +155,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -250,7 +251,41 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt (HTS 9903.05.01) gives the product-of-Brazil scope under U.S. note 50(a), the 9903.05.02–9903.05.09 exception and the +25% rates. It has no date, so it cannot show that the pre-fix 2026-07-23 start is a day late compared with the post-fix 2026-07-22 start. The bundle has no other citation files.",
+    "missing_basis": "The DATES paragraph and Annex I of FR 2026-14542 (the USTR notice of 2026-07-20), which make the duty apply to entries on or after 12:01 eastern time on July 22, 2026. Neither module cites it, and it is not in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-86d35779-bbce65c0da72",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -264,11 +299,10 @@
     "verifier_notes": "Independent in-repo corroboration: at this same commit the composition's `brazil_section_301_component_rate` carries a proof atom whose excerpt is the FR DATES clause (\"...on or after 12:01 eastern time on July 22, 2026\") while its own window still ran `effective_to: '2026-07-22'` / `effective_from: '2026-07-23'` — a self-contradicting encoding, and the merged PR body records it as a judgment call: \"Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22 (grid has no 07-22 date; not exercised).\" Two caveats for the reviewer, neither of which defeats the classification. (1) The repair is module-only: composition.yaml is not in this commit, so at 86d35779d9 the composed program still gated Brazil 301 from 07-23; the composition was only moved to `effective_from: '2026-07-22'` in the later commit 65997b4e4. So the reader's phrasing \"entries on 07-22 escaped the duty\" is exactly right about the module but was still true at program level after this commit. (2) The module's own cited source (us/statute/hts/9903.05.01) is timeless HTS text with no date in it; the July 22 basis lives in FR 2026-14542, which the module's proof atoms never cite. The date is therefore correct but ungrounded within the module — a provenance gap worth a separate note, not a reason to reclassify. The companion test brazil-9903-05-01.test.yaml was not touched, so the corrected boundary remains unexercised at module level.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Four identical effective_from edits (rate parameter, heading predicate, general-rate and special-rate derived rules); formulas and the 9903.05.02-9903.05.09 exception are unchanged. Source verified: resolve_provision.py on us/rulemaking/federal-register/2026-07-20/2026-14542 (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) returns 'DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.' The PR body's 'Judgment calls' section notes the composition grid still opens the Brazil window on 07-23 because the grid has no 07-22 date, so the composition-level window was not aligned by this commit (composition rework landed in follow-up 3c991acc0). Companion test unchanged. | verifier confirmed at 0.95",
-  "family_id": "us-86d35779-bbce65c0da72",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Four identical effective_from edits (rate parameter, heading predicate, general-rate and special-rate derived rules); formulas and the 9903.05.02-9903.05.09 exception are unchanged. Source verified: resolve_provision.py on us/rulemaking/federal-register/2026-07-20/2026-14542 (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) returns 'DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.' The PR body's 'Judgment calls' section notes the composition grid still opens the Brazil window on 07-23 because the grid has no 07-22 date, so the composition-level window was not aligned by this commit (composition rework landed in follow-up 3c991acc0). Companion test unchanged. | verifier confirmed at 0.95"
 }

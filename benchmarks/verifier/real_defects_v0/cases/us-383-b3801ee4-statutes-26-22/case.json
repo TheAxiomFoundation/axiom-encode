@@ -517,6 +517,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -558,7 +559,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/22",
+        "quote": "there shall be allowed as a credit against the tax imposed by this chapter for the taxable year an amount equal to 15 percent of such individual’s section 22 amount for such taxable year.",
+        "span": [
+          56,
+          243
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 22(a) sets the credit as 15 percent of the section 22 amount. Nothing in section 22 (a) through (f) caps it at tax before credits minus a listed set of preceding credits. The pre-fix rule takes min(elderly_disabled_credit_credit_limit, potential) over a Schedule 3 ordering of seven other credits; that invented limit is absent from the governing text, while the post-fix 15% × section 22 amount matches it.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.65,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b3801ee4-0f630300c0d8",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -572,11 +619,10 @@
     "verifier_notes": "Refutation attempts that failed: (1) \"It is a scope reduction, not a correction\" — the kind definition explicitly covers a branch the fix removes or re-grounds, and the branch's own source field concedes it came from a form's line ordering, not from 26 USC 22; section 26(a) limits the aggregate of subpart A credits but never prescribes this ordering, and the foreign tax credit (sec. 27, subpart B) is not even a subpart A credit, so the ordering is pure Form 1040 Schedule 3 mechanics. (2) \"It is incidental to a wholesale regeneration\" — the test file change independently confirms intent. (3) \"A different kind fits better\" — untraceable_branch fits the flagged rule_path best. Caveat for the reviewer: this module diff carries at least two other independent fidelity deltas that a single label will not capture, so if the corpus wants one case per defect it may be worth splitting. Those are (a) `section_22_married_filing_requirement_satisfied`, pre `filing_status != 2 or spouses_lived_apart_all_year` vs post `not married_at_close_of_taxable_year or filing_status == 1 or spouses_lived_apart_all_year` — the pre-fix gate let a married-but-not-joint filer in any status other than MFS take the credit, which 22(e)(1) forbids (unrepresented_clause / polarity_or_logic); and (b) `section_22_nontaxable_pension_benefit_reduction`, re-grounded from generic received-minus-taxable terms onto the enumerated 22(c)(3)(A) sources plus the previously absent 22(c)(3)(B) section 86(d)(3) workers-compensation clause (unrepresented_clause). The `section_22_initial_amount_cap` rewrite, by contrast, is behaviorally near-equivalent to the pre-fix `(aged_count * 5000) + under_65_disability_income` and should not be counted as a separate defect. The commit body is empty and the PR (#25) is about 26 USC 63(c), so the commit/PR text gives no independent corroboration; all weight here is on the diff, the test diff, and the pinned source text.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "The quote is the removed `source:` line on `elderly_disabled_preceding_credits`; the companion removed rule carried `source: Credit against tax imposed by this chapter; IRS Schedule 3 ordering`. Both rules are deleted and the post-fix output is simply `section_22_amount * section_22_credit_rate` when eligible. Two further fidelity gains in the same diff that a reviewer could prefer as the headline: (a) the 22(c)(3)(A) reduction was rewritten from three generic received-minus-taxable differences to the statute's enumerated categories (title II Social Security Act, Railroad Retirement Act of 1974, VA-administered, any other non-title exclusion) and now adds the 22(c)(3)(B) workmen's-compensation clause ('any amount treated as a social security benefit under section 86(d)(3)'), which was entirely absent pre-fix — that part is unrepresented_clause; (b) `section_22_initial_amount_cap` was rewritten from `aged_count * 5000 + under_65_disability_income` to the actual 22(c)(2)(B) structure (no cap when all qualified individuals are 65+, $5,000 + the under-65 spouse's disability income on a joint return with one aged spouse, otherwise the disability-income cap). Also the aggregation relation changed from an unconstrained `elderly_disabled_member_of_tax_unit` to `taxpayer_or_spouse_of_tax_unit`, which narrows a scope the pre-fix module had only asserted in a prose comment. Provision text for 26 USC 22 was read only through the module's added verbatim summary, not a separate resolver call. | verifier confirmed at 0.82",
-  "family_id": "us-b3801ee4-0f630300c0d8",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "The quote is the removed `source:` line on `elderly_disabled_preceding_credits`; the companion removed rule carried `source: Credit against tax imposed by this chapter; IRS Schedule 3 ordering`. Both rules are deleted and the post-fix output is simply `section_22_amount * section_22_credit_rate` when eligible. Two further fidelity gains in the same diff that a reviewer could prefer as the headline: (a) the 22(c)(3)(A) reduction was rewritten from three generic received-minus-taxable differences to the statute's enumerated categories (title II Social Security Act, Railroad Retirement Act of 1974, VA-administered, any other non-title exclusion) and now adds the 22(c)(3)(B) workmen's-compensation clause ('any amount treated as a social security benefit under section 86(d)(3)'), which was entirely absent pre-fix — that part is unrepresented_clause; (b) `section_22_initial_amount_cap` was rewritten from `aged_count * 5000 + under_65_disability_income` to the actual 22(c)(2)(B) structure (no cap when all qualified individuals are 65+, $5,000 + the under-65 spouse's disability income on a joint return with one aged spouse, otherwise the disability-income cap). Also the aggregation relation changed from an unconstrained `elderly_disabled_member_of_tax_unit` to `taxpayer_or_spouse_of_tax_unit`, which narrows a scope the pre-fix module had only asserted in a prose comment. Provision text for 26 USC 22 was read only through the module's added verbatim summary, not a separate resolver call. | verifier confirmed at 0.82"
 }

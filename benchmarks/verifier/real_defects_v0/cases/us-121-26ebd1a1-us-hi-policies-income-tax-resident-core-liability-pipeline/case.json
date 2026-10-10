@@ -159,8 +159,8 @@
   },
   "pre_fix_artifact_sha256": "2c8cc0a48a64a299256e21012d75ea19e2ec972b6e031b8985789924ab2e01a9",
   "post_fix_artifact_sha256": "c5adb2e733cda8c0fb752003e405b66d39ac13176aa93c3dfc9c8becd46eb676",
-  "provision_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
-  "provision_chars": 9910,
+  "provision_sha256": "8790fcab78a3e3983f9efa189e900d2480276ad147f227a6772e48802309b052",
+  "provision_chars": 11675,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-hi/statute/235-2.3",
@@ -182,7 +182,34 @@
     "requested_citation_path": "us-hi/statute/235-2.3",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "first_citation_chars": 9910,
+    "added": [
+      {
+        "citation_path": "us-hi/statute/235-53",
+        "text_sha256": "af53064f5b577b40c8fe75855a968f2913a1095d38403da1865d496982b92317",
+        "chars": 1688,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-hi/statute/235-53",
+          "provision_file": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+          "provision_file_sha256": "dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b",
+          "line_number": 63,
+          "record_id": "614a8435-1b3d-5429-93c1-68e7a3071bc1",
+          "stored_body_sha256": "af53064f5b577b40c8fe75855a968f2913a1095d38403da1865d496982b92317",
+          "resolved_text_sha256": "af53064f5b577b40c8fe75855a968f2913a1095d38403da1865d496982b92317",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-05-09",
+          "source_as_of": "2026-05-09",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -231,7 +258,7 @@
           "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula"
         ],
         "cites": "us-hi/statute/235-53",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -275,7 +302,7 @@
           "hi_pit_2026_tax_table_source_hold_applies.versions[0].formula"
         ],
         "cites": "us-hi/statute/235-53",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -479,7 +506,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -499,7 +526,7 @@
         "where": [
           "triage.pre_fix_wrong_because"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -509,7 +536,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -524,12 +551,66 @@
       }
     ],
     "post_side_tested": 11,
-    "post_side_matched": 0,
+    "post_side_matched": 3,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-hi/statute/235-53",
+        "quote": "Whose taxable income for such taxable year does not exceed the ceiling amount, a tax determined under tables, applicable to such taxable year, which shall be prescribed by the director.",
+        "span": [
+          10254,
+          10439
+        ]
+      },
+      {
+        "citation_path": "us-hi/statute/235-53",
+        "quote": "amount (not less than $20,000) determined by the director",
+        "span": [
+          10688,
+          10745
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 235-53 makes table applicability depend on a Director-determined ceiling, with $20,000 only its minimum. The pre-fix rule treats $20,000 as the actual ceiling and publishes schedule-based tax above it; the post-fix hold avoids that unsupported assumption. The packaged section 235-2.3 provision does not contain the governing tax-table text.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.99,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-26ebd1a1-9f53fb56ed8e",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -543,11 +624,10 @@
     "verifier_notes": "Verified against the pinned provision (corpus release us-rulespec-2026-07-22-current-la-status-fix, us-hi/statute/235-53, body sha256 af53064f5b577b40c8fe75855a968f2913a1095d38403da1865d496982b92317): \"(2) Ceiling amount defined. ... the term \\\"ceiling amount\\\" means, with respect to any taxpayer, the amount (not less than $20,000) determined by the director for the tax rate category in which such taxpayer falls.\" Pre-state (a8ca13ee) lines 837-854 pin the parameter to '20000'; lines 1217-1238 hold rule; line 999 places the hold inside supported_profile_applies. Post-state (26ebd1a18c) lines 2139/2184/2207/2231 add `and not hi_pit_2026_tax_table_source_hold_applies` to tax_before_credits, tax_after_nonrefundable_credits, net_income_tax_liability, refundable_excess_before_payments, while supported_profile_taxable_income (2099) and supported_profile_refundable_credits (2144) stay published — the hold is targeted at table-dependent stages, not blanket. Residual issues for a reviewer: (1) the parameter hi_pit_2026_statutory_minimum_tax_table_ceiling ('20000') survives at post line 836 but is referenced by no formula (dead parameter); (2) moving the hold out of supported_profile_applies also newly publishes refundable credits for nonitemizers with taxable income <= $20,000, which is added coverage, not the defect; (3) the commit bundles other, separate fidelity changes outside this rule_path (MFS bar on food/renter credits, §235-55.6 living-apart exception for CDCC, §235-55.85 DHS/SSA-survivor minor-child counts, new input-domain bounds) that would classify as unrepresented_clause / wrong_entity_or_scope if scored on their own; (4) this is a review repair round inside PR #1035, the PR that introduced the module, so the defective state never landed on main. The first reader's PR-body quote (\"rather than assuming $20,000 is the ceiling or substituting continuous §235-51 schedules\") describes exactly the pre-state this commit removed, so the quote corroborates rather than merely restates.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Tightens Hawaii tax-table and MFS holds: scope tightening of an existing module."
+    "screen_reason": "Tightens Hawaii tax-table and MFS holds: scope tightening of an existing module.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read HRS 235-53, 235-55.6, 235-55.7 and 235-55.85 through the pinned corpus release (resolve_provision.py succeeded for all four). 235-53(a)(1)-(2) confirms the ceiling is a Director-determined amount with only a $20,000 floor, so the pre-fix ceiling value and the branch it gated had no source basis; the fix deletes the conjunct (hold now = `not hi_pit_2026_elects_itemized_deductions`) and re-gates the four public tax/liability stages on `not hi_pit_2026_tax_table_source_hold_applies`. Companion-test deltas corroborate the behavior change: supported_profile_tax_before_credits goes 2024.632 -> 0 (and 3401.264 -> 0, 13046.056 -> 0) with tax_table_source_hold_applies flipping not_holds -> holds, and the 2024.632 value survives only in the new private hi_pit_2026_profile_candidate_* rules. MULTI-DEFECT COMMIT: the same module diff also fixes at least three further fidelity gaps, each an unrepresented_clause if scored separately - (a) hi_pit_2026_refundable_child_and_dependent_care_credit had no marital restriction at all, and the fix adds `(not MFS or mfs_is_legally_separated or mfs_living_apart_conditions_met)` matching 235-55.6(e)(2) \"the credit shall be allowed under subsection (a) only if the taxpayer and the taxpayer's spouse file a joint return\" with the (e)(3)/(e)(4) exceptions; (b) hi_pit_2026_food_credit_qualified_exemption_count omitted 235-55.85(c) \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption\", and the fix adds the DHS and SSA-survivor counts plus a hold on the open-ended \"and the like\" category; (c) the food/excise and renter credits ignored the 235-55.85(b) and 235-55.7(e) provisos that separate filers \"shall claim only the tax credit to which they would have been entitled had a joint return been filed\", and the fix fails closed for MFS rather than encoding the counterfactual. I chose the tax-table item as the decisive path because it is first in the commit subject, drives the largest behavioral change, and is the one the PR body explains verbatim; a reviewer preferring the clause-level view could reclassify the kind as unrepresented_clause (or amount_mismatch for the $20,000 ceiling parameter, which the fix leaves in the file at 20000 but no longer uses in the hold). Direction caveat: because the tax-table hold left supported_profile_applies, this commit also NEWLY publishes supported_profile_taxable_income and supported_profile_refundable_credits for nonitemizers (test deltas 0 -> 9000, 0 -> 570, 0 -> 100); that widening is added grounded coverage, not a defect fix. Domain-bound additions to hi_pit_2026_input_domain_is_valid (failure counts bounded by exemption counts, incapable_spouse_count <= 1) are fail-closed hardening rather than a source disagreement. Commit message body is empty; PR #1035 has no reviews or review comments, so the PR body is the only narrative evidence, and it describes the PR's end state rather than this commit alone - hence confidence below 0.8. | verifier confirmed at 0.78",
-  "family_id": "us-26ebd1a1-9f53fb56ed8e",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read HRS 235-53, 235-55.6, 235-55.7 and 235-55.85 through the pinned corpus release (resolve_provision.py succeeded for all four). 235-53(a)(1)-(2) confirms the ceiling is a Director-determined amount with only a $20,000 floor, so the pre-fix ceiling value and the branch it gated had no source basis; the fix deletes the conjunct (hold now = `not hi_pit_2026_elects_itemized_deductions`) and re-gates the four public tax/liability stages on `not hi_pit_2026_tax_table_source_hold_applies`. Companion-test deltas corroborate the behavior change: supported_profile_tax_before_credits goes 2024.632 -> 0 (and 3401.264 -> 0, 13046.056 -> 0) with tax_table_source_hold_applies flipping not_holds -> holds, and the 2024.632 value survives only in the new private hi_pit_2026_profile_candidate_* rules. MULTI-DEFECT COMMIT: the same module diff also fixes at least three further fidelity gaps, each an unrepresented_clause if scored separately - (a) hi_pit_2026_refundable_child_and_dependent_care_credit had no marital restriction at all, and the fix adds `(not MFS or mfs_is_legally_separated or mfs_living_apart_conditions_met)` matching 235-55.6(e)(2) \"the credit shall be allowed under subsection (a) only if the taxpayer and the taxpayer's spouse file a joint return\" with the (e)(3)/(e)(4) exceptions; (b) hi_pit_2026_food_credit_qualified_exemption_count omitted 235-55.85(c) \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption\", and the fix adds the DHS and SSA-survivor counts plus a hold on the open-ended \"and the like\" category; (c) the food/excise and renter credits ignored the 235-55.85(b) and 235-55.7(e) provisos that separate filers \"shall claim only the tax credit to which they would have been entitled had a joint return been filed\", and the fix fails closed for MFS rather than encoding the counterfactual. I chose the tax-table item as the decisive path because it is first in the commit subject, drives the largest behavioral change, and is the one the PR body explains verbatim; a reviewer preferring the clause-level view could reclassify the kind as unrepresented_clause (or amount_mismatch for the $20,000 ceiling parameter, which the fix leaves in the file at 20000 but no longer uses in the hold). Direction caveat: because the tax-table hold left supported_profile_applies, this commit also NEWLY publishes supported_profile_taxable_income and supported_profile_refundable_credits for nonitemizers (test deltas 0 -> 9000, 0 -> 570, 0 -> 100); that widening is added grounded coverage, not a defect fix. Domain-bound additions to hi_pit_2026_input_domain_is_valid (failure counts bounded by exemption counts, incapable_spouse_count <= 1) are fail-closed hardening rather than a source disagreement. Commit message body is empty; PR #1035 has no reviews or review comments, so the PR body is the only narrative evidence, and it describes the PR's end state rather than this commit alone - hence confidence below 0.8. | verifier confirmed at 0.78"
 }

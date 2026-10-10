@@ -63,6 +63,7 @@
     "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -120,7 +121,46 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
+        "quote": "(F) $27 Telephone allowance"
+      }
+    ],
+    "why": "This is the nearest passage. Page 159 prints the $27 telephone allowance, and both pre-fix and post-fix modules already encode $27; the fix changes no formula, amount or date in this module. The defect is how the modules compose: page-369's 2009 $33 setter could override this one when the two pages are combined. That cannot be seen from page 159's text and this module alone.",
+    "missing_basis": "The page-369 module (its unconditional 2009-09-01 $33 setter) and the engine's last-setter-wins import-ordering semantics in axiom-rules-engine. Neither the page-369 manual text nor its module is in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-11672877-cc0a6d31bed7",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -131,14 +171,13 @@
     "verifier_confidence": 0.74,
     "verifier_justification": "I tried to refute this as mechanical (only a summary sentence and one import line changed) and failed: engine code shows the import edge changes composed meaning. `load_rulespec_document_from_source` merges every import's rules before the module's own rules, and `apply_source_relation_sets` overwrites the target hook's versions/derivation for each `sets` rule in merged order, so the last setter wins — adding page-369 as an import forces page-159's conditional $27 setter to bind `us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option` after page-369's. Page-369 is verifiably a superseded September 2009 change record (\"TE from 27 to 33\") whose setter is unconditional with a single version `effective_from: '2009-09-01'` and no end date, while the pinned corpus for page 159 (expression date 2026-01-01) reads \"(F) $27 Telephone allowance\" — so before the fix the 2009 vintage could bind current periods, which is the taxonomy's \"timeless encoding of superseded text\". The companion test in the same commit adds composed expectations (`snap_individual_utility_allowance_state_option: 27` / `0` while page-369's own value stays 33), confirming behavior, not bookkeeping, changed.",
     "verifier_quote": "+    The current setters supersede page 369's historical September 2009\n+  - us-sc:policies/dss/snap-policy-manual/page-369",
-    "verifier_notes": "Verification trail: diff is 3 added lines in us-sc/policies/dss/snap-policy-manual/page-159.yaml (summary sentence + one import); no formula, parameter, version, or date inside page-159 changed. Mechanism verified in code, not from the PR comment: /Users/maxghenis/TheAxiomFoundation/axiom-rules-engine src/rulespec.rs — imports merged first in declared order then `document.without_imports()` appended last (~lines 1093-1100), and `apply_source_relation_sets` (~line 2869) assigns `target_derived`/`target_parameter` from each matching `sets` rule, so the final matching rule wins. page-369 (read at 116728773d) sets the same federal hook unconditionally from `telephone_standard_te = 33`, one version `effective_from: '2009-09-01'`, no effective_to; it was left untouched (PR issue comment: \"369 untouched\"). Corpus check via resolve_provision.py: release us-rulespec-2026-07-24-snap-cms-pit-union, provision us-sc/manual/dss/snap-policy-manual/page-159, expression_date 2026-01-01, text contains \"(D) $388 Mandatory utility allowance (MUA)\", \"(E) $265 Basic utility allowance (BUA)\", \"(F) $27 Telephone allowance\". Alternative kind a reviewer might prefer: the fix mechanism is setter precedence/composition ordering rather than an effective_to edit, so \"other (setter-precedence collision)\" is arguable; I keep wrong_period_or_effective_date because the defect substance is superseded 2009 amounts binding current periods, and the commit subject names the revision date (\"order current SC utility setters after 2009 revision\"). Not amount_mismatch: each module's amount is correct for its own vintage. Residual caveats for the reviewer: (1) the root defect arguably lives in page-369's open-ended window, and this fix patches the downstream module instead; (2) programs/us-sc/snap/fy-2026.yaml lists page-369 but still does not list page-159 (lexically it would sort between page-158 and page-160, i.e. before 369), so the collision was latent at merge time and the fix is pre-emptive; (3) I did not verify that axiom-compose dedups a module already pulled in as an import when the program spec also lists it later — the import-first guarantee depends on that dedup, which I confirmed only for the atomic loader's SourceLoadContext.",
+    "verifier_notes": "Verification trail: diff is 3 added lines in us-sc/policies/dss/snap-policy-manual/page-159.yaml (summary sentence + one import); no formula, parameter, version, or date inside page-159 changed. Mechanism verified in code, not from the PR comment: axiom-rules-engine src/rulespec.rs — imports merged first in declared order then `document.without_imports()` appended last (~lines 1093-1100), and `apply_source_relation_sets` (~line 2869) assigns `target_derived`/`target_parameter` from each matching `sets` rule, so the final matching rule wins. page-369 (read at 116728773d) sets the same federal hook unconditionally from `telephone_standard_te = 33`, one version `effective_from: '2009-09-01'`, no effective_to; it was left untouched (PR issue comment: \"369 untouched\"). Corpus check via resolve_provision.py: release us-rulespec-2026-07-24-snap-cms-pit-union, provision us-sc/manual/dss/snap-policy-manual/page-159, expression_date 2026-01-01, text contains \"(D) $388 Mandatory utility allowance (MUA)\", \"(E) $265 Basic utility allowance (BUA)\", \"(F) $27 Telephone allowance\". Alternative kind a reviewer might prefer: the fix mechanism is setter precedence/composition ordering rather than an effective_to edit, so \"other (setter-precedence collision)\" is arguable; I keep wrong_period_or_effective_date because the defect substance is superseded 2009 amounts binding current periods, and the commit subject names the revision date (\"order current SC utility setters after 2009 revision\"). Not amount_mismatch: each module's amount is correct for its own vintage. Residual caveats for the reviewer: (1) the root defect arguably lives in page-369's open-ended window, and this fix patches the downstream module instead; (2) programs/us-sc/snap/fy-2026.yaml lists page-369 but still does not list page-159 (lexically it would sort between page-158 and page-160, i.e. before 369), so the collision was latent at merge time and the fix is pre-emptive; (3) I did not verify that axiom-compose dedups a module already pulled in as an import when the program spec also lists it later — the import-first guarantee depends on that dedup, which I confirmed only for the atomic loader's SourceLoadContext.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Module diff is only two things: the added import `us-sc:policies/dss/snap-policy-manual/page-369` and a summary sentence ('The current setters supersede page 369's historical September 2009 utility-standard setters when both pages are composed.'). No formula, parameter, version, effective date, input, output, or scope changed inside the module, so a reviewer could argue 'mechanical' on the module-local text alone; I classified fidelity because the import genuinely changes composed meaning and the companion test was updated to pin it. Mechanism verified in code, not assumed: axiom-rules-engine `src/rulespec.rs` `load_...` merges every import first and then `merge_rules_documents(combined, document.without_imports())` appends the local document last (~line 1008-1013), and `apply_source_relation_sets` (~line 2869+) walks rules in order overwriting `target_derived.versions` / `target_parameter.versions`, i.e. last setter wins — so importing page-369 forces page-159's setter to be applied after it. Pre-fix companion test (parent 991bfb2ace) contained no reference to page-369 or to `us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option`; the fix adds `page-369#snap_individual_utility_allowance_state_value: 33` and `7-cfr/273/9#snap_individual_utility_allowance_state_option: 27|0` assertions to four cases, which is what pins the precedence. Provision read through the pinned corpus release: page 159 states '(F) $27 Telephone allowance' alongside '$388 Mandatory utility allowance (MUA)' and '$265 Basic utility allowance (BUA)', confirming $27 as the current standard; page-369's own summary is a 2009 change-log entry ('TE from 27 to 33'). Collision existed only on the individual/telephone target — page-369 has just one `sets` rule (sets_snap_individual_utility_allowance); its MU/BU parameters bind nothing. Defect was introduced and fixed within PR #1139 (module created in d5394fc03; repairs 991bfb2ace, this commit, 198f20b05, 48da39b87), never on main, and was caught by the maintainer's blind review. The reviewer text, verbatim from the PR issue comments (bundle field `issue_comments`, not the `reviews` array, which is why I used the commit message for description_quote): round 1 flagged 'page-369 $33 unconditional setter collision with the new $27 hook'; round 2 reported \"page 159's current $27 telephone allowance takes precedence over page 369's 2009-era $33 via import-first ordering (369 untouched)\". Kind choice: wrong_period_or_effective_date under the 'timeless encoding of superseded text' clause — page-369's open-ended 2009 setter governing current periods; an alternative reading is 'other: setter-precedence/composition collision', and a weaker one is amount_mismatch ($33 vs $27), which I rejected because no literal amount in either module is wrong. page-369 itself was deliberately left untouched. Follow-up commits 198f20b05 ('limit SC rent exclusion to basic allowance') and 48da39b87 ('preserve SC heating and cooling qualifications') are separate repair rounds on other pages/findings in the same PR. | verifier confirmed at 0.74",
-  "family_id": "us-11672877-cc0a6d31bed7",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Module diff is only two things: the added import `us-sc:policies/dss/snap-policy-manual/page-369` and a summary sentence ('The current setters supersede page 369's historical September 2009 utility-standard setters when both pages are composed.'). No formula, parameter, version, effective date, input, output, or scope changed inside the module, so a reviewer could argue 'mechanical' on the module-local text alone; I classified fidelity because the import genuinely changes composed meaning and the companion test was updated to pin it. Mechanism verified in code, not assumed: axiom-rules-engine `src/rulespec.rs` `load_...` merges every import first and then `merge_rules_documents(combined, document.without_imports())` appends the local document last (~line 1008-1013), and `apply_source_relation_sets` (~line 2869+) walks rules in order overwriting `target_derived.versions` / `target_parameter.versions`, i.e. last setter wins — so importing page-369 forces page-159's setter to be applied after it. Pre-fix companion test (parent 991bfb2ace) contained no reference to page-369 or to `us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option`; the fix adds `page-369#snap_individual_utility_allowance_state_value: 33` and `7-cfr/273/9#snap_individual_utility_allowance_state_option: 27|0` assertions to four cases, which is what pins the precedence. Provision read through the pinned corpus release: page 159 states '(F) $27 Telephone allowance' alongside '$388 Mandatory utility allowance (MUA)' and '$265 Basic utility allowance (BUA)', confirming $27 as the current standard; page-369's own summary is a 2009 change-log entry ('TE from 27 to 33'). Collision existed only on the individual/telephone target — page-369 has just one `sets` rule (sets_snap_individual_utility_allowance); its MU/BU parameters bind nothing. Defect was introduced and fixed within PR #1139 (module created in d5394fc03; repairs 991bfb2ace, this commit, 198f20b05, 48da39b87), never on main, and was caught by the maintainer's blind review. The reviewer text, verbatim from the PR issue comments (bundle field `issue_comments`, not the `reviews` array, which is why I used the commit message for description_quote): round 1 flagged 'page-369 $33 unconditional setter collision with the new $27 hook'; round 2 reported \"page 159's current $27 telephone allowance takes precedence over page 369's 2009-era $33 via import-first ordering (369 untouched)\". Kind choice: wrong_period_or_effective_date under the 'timeless encoding of superseded text' clause — page-369's open-ended 2009 setter governing current periods; an alternative reading is 'other: setter-precedence/composition collision', and a weaker one is amount_mismatch ($33 vs $27), which I rejected because no literal amount in either module is wrong. page-369 itself was deliberately left untouched. Follow-up commits 198f20b05 ('limit SC rent exclusion to basic allowance') and 48da39b87 ('preserve SC heating and cooling qualifications') are separate repair rounds on other pages/findings in the same PR. | verifier confirmed at 0.74"
 }

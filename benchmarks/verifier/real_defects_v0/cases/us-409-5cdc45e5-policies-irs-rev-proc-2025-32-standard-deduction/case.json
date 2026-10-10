@@ -80,6 +80,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -138,7 +139,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "no",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "quote": "The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse."
+      }
+    ],
+    "why": "The nearest passage gates the $2,050 amount on 'unmarried and not a surviving spouse'. The pre-fix input individual_is_unmarried_and_not_surviving_spouse restates that condition exactly. The text does not say that heads of households, or any filing_status codes, satisfy it, so nothing in the bundle makes the pre-fix rule less faithful than the post-fix mapping (filing_status 0 or 3).",
+    "missing_basis": "An encoder or validator policy that filing-status classifications must be derived rather than taken as free inputs (find_tax_status_component_local_input_issues), plus consistency with the module's own filing_status enum. No source text supports it.",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "no",
+        "confidence": 0.8,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "no",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-5cdc45e5-f5b257059526",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -149,14 +189,13 @@
     "verifier_confidence": 0.82,
     "verifier_justification": "I tried to refute this as a mere modeling preference and could not: the pre-fix branch gating the higher aged/blind amount was an undefined, free boolean input (`individual_is_unmarried_and_not_surviving_spouse`) that no rule in the module defined and no import supplied, so the encoding did not itself determine the source's condition and could pay $2,050 to a joint filer or $1,650 to a single filer depending on an exogenous flag. The pinned corpus text (\"The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.\", us/guidance/irs/rev-proc-2025-32/page-18) ties the increase to the same marital/surviving-spouse status the module already encodes as `filing_status`, and the fix re-grounds the gate on that enum (0 unmarried, 3 head of household; excluding 1 joint, 2 MFS, 4 surviving spouse, which the module's own basic-deduction `match` and companion tests fix as the mapping), so the new predicate is itself faithful and the change is a correction rather than a lateral rewrite. This is not mechanical (a derived rule's formula and the module's input surface both changed), and the alternative kinds fit worse: no amount, boundary, date, or polarity changed, no source clause was added, and pre-fix there was no wrong population stated — only an ungrounded one — so untraceable_branch (\"the fix removes or re-grounds it\") is the right kind.",
     "verifier_quote": "-          additional_standard_deduction_entitlement_count_under_subsection_f * (if individual_is_unmarried_and_not_surviving_spouse: additional_standard_deduction_amount_unmarried_not_surviving_spouse else: additional_standard_deduction_amount)\n+          additional_standard_deduction_entitlement_count_under_subsection_f * (if filing_status == 0 or filing_status == 3: additional_standard_deduction_amount_unmarried_not_surviving_spouse else: additional_standard_deduction_amount)",
-    "verifier_notes": "Evidence trail: bundle diff 000.diff (one formula line in rules[additional_standard_deduction_for_aged_or_blind].versions[0].formula); post file `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 5cdc45e555:policies/irs/rev-proc-2025-32/standard-deduction.yaml`; provision resolved through us-rulespec-2026-07-13 (corpus commit 612d20ca43, record 229d5117-ab80-57cd-973e-a0cd3f467b93).\n\nEnum grounding is internal to the module and unambiguous: `basic_standard_deduction_by_filing_status` maps 1/4 => joint_or_surviving_spouse, 3 => head_of_household, 2 => married_filing_separately, 0 => unmarried, and the four companion test cases use 1 (joint), 3 (HoH), 0 (single dependent), 2 (MFS). So `filing_status == 0 or filing_status == 3` is exactly \"unmarried and not a surviving spouse\" (MFS filers are married, correctly excluded; test 4 expects 2 x 1650 = 3300).\n\nCaveat a reviewer should weigh: the defect was latent under the committed tests. The companion test diff only deletes the now-unused `#input.individual_is_unmarried_and_not_surviving_spouse` lines; not a single expected output changed, because every test set the flag consistently with its filing_status. The behavioral divergence only appears on flag/filing-status combinations the source forbids, which is why this is \"encoding does not determine the condition\" rather than \"encoding computes a wrong number\".\n\nCorroborating (tooling, not source): axiom-encode's own validator treats this exact pattern as an error — src/axiom_encode/harness/validator_pipeline.py:23871 `find_tax_status_component_local_input_issues`, message \"Tax filing-status component is a derived legal classification, not a local factual input\", and src/axiom_encode/prompts/encoder.py:1326 prohibits \"compound status predicates such as `individual_is_not_married_and_is_not_surviving_spouse`\" and prescribes the structural enum. That is repo-tooling evidence for the defect class, not source evidence; the source basis is the sentence quoted above.\n\nNo PR reviews or comments exist on rulespec-us#47, so the only narrative evidence is the PR body line the first reader quoted, which is verbatim and accurate.\n\nResidual uncertainty (why 0.82, not higher): one could argue the module legitimately takes other status-ish facts as free inputs (`may_be_claimed_as_dependent_by_another_taxpayer`, `additional_standard_deduction_entitlement_count_under_subsection_f` remain free), so \"free input\" alone is not automatically a fidelity defect. The distinguishing fact I relied on is that this particular predicate was redundant with, and could contradict, a source-backed determinant already present in the same module.",
+    "verifier_notes": "Evidence trail: bundle diff 000.diff (one formula line in rules[additional_standard_deduction_for_aged_or_blind].versions[0].formula); post file `git -C rulespec-us show 5cdc45e555:policies/irs/rev-proc-2025-32/standard-deduction.yaml`; provision resolved through us-rulespec-2026-07-13 (corpus commit 612d20ca43, record 229d5117-ab80-57cd-973e-a0cd3f467b93).\n\nEnum grounding is internal to the module and unambiguous: `basic_standard_deduction_by_filing_status` maps 1/4 => joint_or_surviving_spouse, 3 => head_of_household, 2 => married_filing_separately, 0 => unmarried, and the four companion test cases use 1 (joint), 3 (HoH), 0 (single dependent), 2 (MFS). So `filing_status == 0 or filing_status == 3` is exactly \"unmarried and not a surviving spouse\" (MFS filers are married, correctly excluded; test 4 expects 2 x 1650 = 3300).\n\nCaveat a reviewer should weigh: the defect was latent under the committed tests. The companion test diff only deletes the now-unused `#input.individual_is_unmarried_and_not_surviving_spouse` lines; not a single expected output changed, because every test set the flag consistently with its filing_status. The behavioral divergence only appears on flag/filing-status combinations the source forbids, which is why this is \"encoding does not determine the condition\" rather than \"encoding computes a wrong number\".\n\nCorroborating (tooling, not source): axiom-encode's own validator treats this exact pattern as an error — src/axiom_encode/harness/validator_pipeline.py:23871 `find_tax_status_component_local_input_issues`, message \"Tax filing-status component is a derived legal classification, not a local factual input\", and src/axiom_encode/prompts/encoder.py:1326 prohibits \"compound status predicates such as `individual_is_not_married_and_is_not_surviving_spouse`\" and prescribes the structural enum. That is repo-tooling evidence for the defect class, not source evidence; the source basis is the sentence quoted above.\n\nNo PR reviews or comments exist on rulespec-us#47, so the only narrative evidence is the PR body line the first reader quoted, which is verbatim and accurate.\n\nResidual uncertainty (why 0.82, not higher): one could argue the module legitimately takes other status-ish facts as free inputs (`may_be_claimed_as_dependent_by_another_taxpayer`, `additional_standard_deduction_entitlement_count_under_subsection_f` remain free), so \"free input\" alone is not automatically a fidelity defect. The distinguishing fact I relied on is that this particular predicate was redundant with, and could contradict, a source-backed determinant already present in the same module.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single-module commit; only one formula line changed (13 diff lines). Provision was read through the pinned corpus release (us/guidance/irs/rev-proc-2025-32/page-18): '.14 ... (3) Aged or blind. For taxable years beginning in 2026, the additional standard deduction amount under Sec. 63(f) for the aged or the blind is $1,650. The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.' The module's own enum (from rules[basic_standard_deduction_by_filing_status].versions[0].formula) is 1=joint, 4=surviving spouse, 3=head of household, 2=MFS, 0=unmarried, so the post-fix predicate (0 or 3) matches 'unmarried and not a surviving spouse' and excludes joint, MFS, and surviving spouse. Kind is a judgment call between untraceable_branch (chosen: the branch condition had no grounded derivation in the encoding and the fix re-grounds it on the filing-status table the source states) and 'other' (ungrounded free input for a derived legal classification); the classification 'fidelity' itself is well supported. Caveat a reviewer should weigh: the four companion test cases only lost the removed input line, no expected output changed, so the repair is behavior-preserving on the shipped tests and a reviewer could read it as structural rather than a wrong-answer defect. Corroborating mechanism read in axiom-encode src/axiom_encode/harness/validator_pipeline.py (find_tax_status_component_local_input_issues, ~line 23871): 'Tax filing-status component is a derived legal classification, not a local factual input'. The commit also touched non-module files (.axiom/encoding-manifests/.../standard-deduction.json re-signed under backend 'deterministic', tool 'axiom-encode repair-tax-status-components'; tests/test_repository_layout.py). Later commits 095d680d4 (refresh) and 86ec136fd (move under us/) did not revisit the predicate: the fix is still present at HEAD in us/policies/irs/rev-proc-2025-32/standard-deduction.yaml:281. PR #47 has no reviews or review comments. | verifier confirmed at 0.82",
-  "family_id": "us-5cdc45e5-f5b257059526",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single-module commit; only one formula line changed (13 diff lines). Provision was read through the pinned corpus release (us/guidance/irs/rev-proc-2025-32/page-18): '.14 ... (3) Aged or blind. For taxable years beginning in 2026, the additional standard deduction amount under Sec. 63(f) for the aged or the blind is $1,650. The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.' The module's own enum (from rules[basic_standard_deduction_by_filing_status].versions[0].formula) is 1=joint, 4=surviving spouse, 3=head of household, 2=MFS, 0=unmarried, so the post-fix predicate (0 or 3) matches 'unmarried and not a surviving spouse' and excludes joint, MFS, and surviving spouse. Kind is a judgment call between untraceable_branch (chosen: the branch condition had no grounded derivation in the encoding and the fix re-grounds it on the filing-status table the source states) and 'other' (ungrounded free input for a derived legal classification); the classification 'fidelity' itself is well supported. Caveat a reviewer should weigh: the four companion test cases only lost the removed input line, no expected output changed, so the repair is behavior-preserving on the shipped tests and a reviewer could read it as structural rather than a wrong-answer defect. Corroborating mechanism read in axiom-encode src/axiom_encode/harness/validator_pipeline.py (find_tax_status_component_local_input_issues, ~line 23871): 'Tax filing-status component is a derived legal classification, not a local factual input'. The commit also touched non-module files (.axiom/encoding-manifests/.../standard-deduction.json re-signed under backend 'deterministic', tool 'axiom-encode repair-tax-status-components'; tests/test_repository_layout.py). Later commits 095d680d4 (refresh) and 86ec136fd (move under us/) did not revisit the predicate: the fix is still present at HEAD in us/policies/irs/rev-proc-2025-32/standard-deduction.yaml:281. PR #47 has no reviews or review comments. | verifier confirmed at 0.82"
 }

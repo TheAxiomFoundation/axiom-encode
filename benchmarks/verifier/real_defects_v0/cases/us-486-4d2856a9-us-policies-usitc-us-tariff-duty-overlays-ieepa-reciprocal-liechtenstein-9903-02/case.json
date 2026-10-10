@@ -165,8 +165,8 @@
   },
   "pre_fix_artifact_sha256": "e83c7a97be4067e29488e61e6d47cd19c1e38020590e816516f08ca53b997d9f",
   "post_fix_artifact_sha256": "307a8690c81fc84fed0717e9787142333bc38f6dad722431c663ae92668cc17b",
-  "provision_sha256": "e39d2570a833228e5a65ede43c921b9eb9708ad1b9099b735ee5c3b799941ba0",
-  "provision_chars": 898,
+  "provision_sha256": "404bbb5e8a9d7fb95a808d1dcebd4a9204bacd10adeea61cf65e68f84d708ef5",
+  "provision_chars": 337875,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/9903.02.36",
@@ -253,6 +253,33 @@
       }
     ]
   },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "e39d2570a833228e5a65ede43c921b9eb9708ad1b9099b735ee5c3b799941ba0",
+    "first_citation_chars": 898,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+        "chars": 336864,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 12,
+          "record_id": "e36a6a5a-a64b-506e-88c2-3ce5dad1de30",
+          "stored_body_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "resolved_text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-18",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -286,7 +313,7 @@
           "reciprocal_liechtenstein_column_2_duty_change.versions[0].effective_to"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -361,7 +388,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -391,7 +418,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -406,12 +433,58 @@
       }
     ],
     "post_side_tested": 7,
-    "post_side_matched": 1,
+    "post_side_matched": 4,
     "pre_side_tested": 1,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows: 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.",
+        "span": [
+          295407,
+          295648
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Annex II of 90 FR 59281 terminates heading 9903.02.36 for goods entered on or after 12:01 a.m. on November 14, 2025, so the last effective day is 2025-11-13. The pre-fix rules all run to 2026-02-14, keeping the +15% duty live for three more months. provision.txt carries only the compiler's note 'provision terminated. See 90 Fed. Reg. 59281.', with no date, so it cannot show which end date is right.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.95,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.95,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-2fdd4f1b563c",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -422,14 +495,13 @@
     "verifier_confidence": 0.94,
     "verifier_justification": "The only meaning-bearing change is the version window: all nine rules move `versions[0].effective_to` from '2026-02-14' to '2025-11-13' while every formula, input, output, and `effective_from` is untouched. Reading the sources through the pinned release settles that the pre-fix window disagreed with the law: the HTS text for 9903.02.36 carries only \"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\" with no date, and that notice's Annex II states the modifications are \"effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025\" and that \"Headings 9903.02.36 and 9903.02.58 are hereby terminated.\" The pre-fix encoding thus kept the terminated heading's +15% duty live three months past termination, so this is a source disagreement, not added precision, and not mechanical (dates changed, not only excerpts or citation strings). The competing kind untraceable_branch (a placeholder value with no source basis) is subsumed by the more specific effective-date kind, since nothing but the period bound moved.",
     "verifier_quote": "-        effective_to: '2026-02-14'\n+        effective_to: '2025-11-13'",
-    "verifier_notes": "Verified end to end, read-only. Diff bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/4d2856a958/002.diff. git diff --stat vs parent 75a3677870: 58 insertions, 11 deletions, one file; the 11 deletions are the summary line plus the single old corpus_citation_path plus the nine old effective_to lines, so no formula, input, output, or scope changed. Refutations tried and rejected: (1) mechanical fails because effective_to is a version-window value, not an excerpt or citation string; the provenance edits (corpus_citation_paths, nine new effective_period proof atoms, summary rewrite) ride along with a real date change. (2) not_a_defect (\"new source, old bound was a documented placeholder\") fails because the module positively asserted a window through 2026-02-14 that the cited HTS note's own referenced notice contradicts; the pre-fix summary even admits the bound was invented (\"a conservative no-later-than bound, the last day before the successor floor headings' 2026-02-15 panel domain\"). (3) reclassify to untraceable_branch is defensible in the abstract but loses to the more specific date/version-window kind. (4) boundary_direction fails: the inclusive-end convention (\"effective_to 2025-11-13 is the last effective day (inclusive end)\") is a representation choice, not the defect; the defect is the three-month overrun. Source confirmation used resolve_provision.py at --rulespec-commit 4d2856a958, corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provisions file line 1196 (HTS 9903.02.36) and line 12 (FR 2025-12-18/2025-23316); the Annex II excerpt in the new proof atoms matches the corpus text modulo the FR hard-wrap normalization the commit message discloses. Materiality note for a reviewer: the successor headings 9903.02.87/.88 (also in this commit) use the 15%-floor mechanic rather than a flat +15% additive, so the corrected handoff changes computed duty, not just labels.",
+    "verifier_notes": "Verified end to end, read-only. Diff bundle: <scratch>/diffs/us/4d2856a958/002.diff. git diff --stat vs parent 75a3677870: 58 insertions, 11 deletions, one file; the 11 deletions are the summary line plus the single old corpus_citation_path plus the nine old effective_to lines, so no formula, input, output, or scope changed. Refutations tried and rejected: (1) mechanical fails because effective_to is a version-window value, not an excerpt or citation string; the provenance edits (corpus_citation_paths, nine new effective_period proof atoms, summary rewrite) ride along with a real date change. (2) not_a_defect (\"new source, old bound was a documented placeholder\") fails because the module positively asserted a window through 2026-02-14 that the cited HTS note's own referenced notice contradicts; the pre-fix summary even admits the bound was invented (\"a conservative no-later-than bound, the last day before the successor floor headings' 2026-02-15 panel domain\"). (3) reclassify to untraceable_branch is defensible in the abstract but loses to the more specific date/version-window kind. (4) boundary_direction fails: the inclusive-end convention (\"effective_to 2025-11-13 is the last effective day (inclusive end)\") is a representation choice, not the defect; the defect is the three-month overrun. Source confirmation used resolve_provision.py at --rulespec-commit 4d2856a958, corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provisions file line 1196 (HTS 9903.02.36) and line 12 (FR 2025-12-18/2025-23316); the Annex II excerpt in the new proof atoms matches the corpus text modulo the FR hard-wrap normalization the commit message discloses. Materiality note for a reviewer: the successor headings 9903.02.87/.88 (also in this commit) use the 15%-floor mechanic rather than a flat +15% additive, so the corrected handoff changes computed duty, not just labels.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the source: resolve_provision.py on us/rulemaking/federal-register/2025-12-18/2025-23316 confirms 'Annex II Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.' effective_to 2025-11-13 is the correct inclusive last day. Diff changes only effective_to (9x), the module summary, module source_verification (single corpus_citation_path -> corpus_citation_paths with the FR notice added), and adds one effective_period proof atom per rule; no formula, rate, input or scope change. | verifier confirmed at 0.94",
-  "family_id": "us-4d2856a9-2fdd4f1b563c",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the source: resolve_provision.py on us/rulemaking/federal-register/2025-12-18/2025-23316 confirms 'Annex II Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.' effective_to 2025-11-13 is the correct inclusive last day. Diff changes only effective_to (9x), the module summary, module source_verification (single corpus_citation_path -> corpus_citation_paths with the FR notice added), and adds one effective_period proof atom per rule; no formula, rate, input or scope change. | verifier confirmed at 0.94"
 }

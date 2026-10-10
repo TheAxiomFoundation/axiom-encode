@@ -1,12 +1,11 @@
 {
+  "flags": {
+    "drop_unclear": true,
+    "family_members": "representatives"
+  },
+  "built": 520,
+  "kept": 171,
   "dropped": [
-    {
-      "jurisdiction": "uk",
-      "commit": "2ad8f8025a",
-      "module_path": "uk-coventry/policies/coventry/council-tax-reduction.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
     {
       "jurisdiction": "uk",
       "commit": "829ab1a255",
@@ -43,9 +42,37 @@
       "detail": null
     },
     {
+      "jurisdiction": "uk",
+      "commit": "2ad8f8025a",
+      "module_path": "uk-coventry/policies/coventry/council-tax-reduction.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "ca02796d40",
+      "module_path": "regulations/10-ccr-2506-1/4.408.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
       "jurisdiction": "us",
       "commit": "010774a5de",
       "module_path": "regulations/10-ccr-2506-1/4.407.31.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "34ad146770",
+      "module_path": "statutes/26/63/c/5.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "429c02408a",
+      "module_path": "statutes/26/1401.yaml",
       "reason": "no_corpus_citation_path",
       "detail": null
     },
@@ -79,6 +106,62 @@
     },
     {
       "jurisdiction": "us",
+      "commit": "8bdbf0251e",
+      "module_path": "us-mo/policies/dss/snap/1105-000-00/1105-015-00/1105-015-04/1105-015-04-05/block-1.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "5ea2b6c1a8",
+      "module_path": "us-ga/statutes/48/48-7-20.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "30e2327e4b",
+      "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "e1296d6c1c",
+      "module_path": "us-wi/policies/income_tax/2026_form1es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "26565db8a9",
+      "module_path": "us-ms/policies/income_tax/2026_section_27_7_5_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "26565db8a9",
+      "module_path": "us-ms/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "6e0b21e114",
+      "module_path": "us-nd/policies/income_tax/2026_nd1es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "54ef0d6fe3",
+      "module_path": "us-ne/policies/income_tax/2026_1040n_es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
       "commit": "0d0ab42ada",
       "module_path": "us-or/policies/income_tax/2026_or_estimate_schedule.yaml",
       "reason": "defect_kind_missing",
@@ -93,36 +176,8 @@
     },
     {
       "jurisdiction": "us",
-      "commit": "1f9e440d5a",
-      "module_path": "us-al/policies/income_tax/2026_section_40_18_5_schedule_before_credits.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "34ad146770",
-      "module_path": "statutes/26/63/c/5.yaml",
-      "reason": "no_corpus_citation_path",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
       "commit": "4d10a73d4a",
       "module_path": "us-ky/policies/income_tax/2026_krs_141_020_schedule_before_credits.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "54ef0d6fe3",
-      "module_path": "us-ne/policies/income_tax/2026_1040n_es_estimated_schedule.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "6e0b21e114",
-      "module_path": "us-nd/policies/income_tax/2026_nd1es_estimated_schedule.yaml",
       "reason": "module_added_in_fix_commit",
       "detail": null
     },
@@ -149,48 +204,6 @@
     },
     {
       "jurisdiction": "us",
-      "commit": "ca02796d40",
-      "module_path": "regulations/10-ccr-2506-1/4.408.yaml",
-      "reason": "no_corpus_citation_path",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "e1296d6c1c",
-      "module_path": "us-wi/policies/income_tax/2026_form1es_estimated_schedule.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "429c02408a",
-      "module_path": "statutes/26/1401.yaml",
-      "reason": "no_corpus_citation_path",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "8bdbf0251e",
-      "module_path": "us-mo/policies/dss/snap/1105-000-00/1105-015-00/1105-015-04/1105-015-04-05/block-1.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "5ea2b6c1a8",
-      "module_path": "us-ga/statutes/48/48-7-20.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "30e2327e4b",
-      "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
-      "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
       "commit": "196492ee5d",
       "module_path": "us-ct/policies/income_tax/2026_resident_ordinary_tax_before_personal_credit.yaml",
       "reason": "module_added_in_fix_commit",
@@ -205,16 +218,9 @@
     },
     {
       "jurisdiction": "us",
-      "commit": "26565db8a9",
-      "module_path": "us-ms/policies/income_tax/2026_section_27_7_5_schedule.yaml",
+      "commit": "1f9e440d5a",
+      "module_path": "us-al/policies/income_tax/2026_section_40_18_5_schedule_before_credits.yaml",
       "reason": "module_added_in_fix_commit",
-      "detail": null
-    },
-    {
-      "jurisdiction": "us",
-      "commit": "26565db8a9",
-      "module_path": "us-ms/policies/income_tax/pilot_liability_pipeline.yaml",
-      "reason": "module_deleted_in_fix_commit",
       "detail": null
     },
     {
@@ -232,5 +238,2798 @@
       "detail": null
     }
   ],
-  "built": 520
+  "removed": [
+    {
+      "id": "uk-003-f7184e07-uk-statutes-ukpga-1992-4-13",
+      "jurisdiction": "uk",
+      "commit": "f7184e07e167071e0e9c77156e10dbb63c045231",
+      "module_path": "uk/statutes/ukpga/1992/4/13.yaml",
+      "reason": "triage_unclear",
+      "family_id": "uk-f7184e07-9c6229d86e8c"
+    },
+    {
+      "id": "uk-012-e61a529e-uk-worthing-policies-worthing-council-tax-reduction",
+      "jurisdiction": "uk",
+      "commit": "e61a529e531776fb1c44a60d7bead14ba5cc4324",
+      "module_path": "uk-worthing/policies/worthing/council-tax-reduction.yaml",
+      "reason": "triage_unclear",
+      "family_id": "uk-e61a529e-cb11eacea166"
+    },
+    {
+      "id": "us-397-c36a7900-statutes-7-2015-b-1",
+      "jurisdiction": "us",
+      "commit": "c36a7900e0a106216b4f6e7a654d008018608166",
+      "module_path": "statutes/7/2015/b/1.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-c36a7900-972c79896101"
+    },
+    {
+      "id": "us-380-b3801ee4-regulations-7-cfr-273-10",
+      "jurisdiction": "us",
+      "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+      "module_path": "regulations/7-cfr/273/10.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-b3801ee4-7dda8ef928fd"
+    },
+    {
+      "id": "us-388-b3801ee4-statutes-7-2015-b-1",
+      "jurisdiction": "us",
+      "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+      "module_path": "statutes/7/2015/b/1.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-b3801ee4-efd4a588acce"
+    },
+    {
+      "id": "us-252-86e2549d-statutes-26-63",
+      "jurisdiction": "us",
+      "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+      "module_path": "statutes/26/63.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-86e2549d-f69b4ad8bf11"
+    },
+    {
+      "id": "us-253-86e2549d-statutes-26-63-c",
+      "jurisdiction": "us",
+      "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+      "module_path": "statutes/26/63/c.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-86e2549d-84c448a4fba0"
+    },
+    {
+      "id": "us-254-86e2549d-statutes-26-63-c-5",
+      "jurisdiction": "us",
+      "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+      "module_path": "statutes/26/63/c/5.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-86e2549d-986cd43801b3"
+    },
+    {
+      "id": "us-245-682af97f-statutes-26-32",
+      "jurisdiction": "us",
+      "commit": "682af97f252f071b16006e6dfb77e081731e3961",
+      "module_path": "statutes/26/32.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-682af97f-43767fa8a084"
+    },
+    {
+      "id": "us-005-095d680d-statutes-26-151",
+      "jurisdiction": "us",
+      "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+      "module_path": "statutes/26/151.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-095d680d-69680d0e5f02"
+    },
+    {
+      "id": "us-006-095d680d-statutes-26-163",
+      "jurisdiction": "us",
+      "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+      "module_path": "statutes/26/163.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-095d680d-1331ea6edf83"
+    },
+    {
+      "id": "us-007-095d680d-statutes-26-199a",
+      "jurisdiction": "us",
+      "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+      "module_path": "statutes/26/199A.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-095d680d-da0e55a90f6d"
+    },
+    {
+      "id": "us-010-095d680d-statutes-26-63",
+      "jurisdiction": "us",
+      "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+      "module_path": "statutes/26/63.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-095d680d-a2cca8c6c39c"
+    },
+    {
+      "id": "us-256-89024d70-regulations-10-ccr-2506-1-4-207-2",
+      "jurisdiction": "us",
+      "commit": "89024d705919130b1f14e5361dd1f9121b1ce7be",
+      "module_path": "regulations/10-ccr-2506-1/4.207.2.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-89024d70-8cfbb248407f"
+    },
+    {
+      "id": "us-016-187161db-statutes-26-3231-e-2",
+      "jurisdiction": "us",
+      "commit": "187161db90ae3c7dadc9253d042b30bf172ec9f0",
+      "module_path": "statutes/26/3231/e/2.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-187161db-ecd29d972fd0"
+    },
+    {
+      "id": "us-413-792270d5-statutes-26-3231-d",
+      "jurisdiction": "us",
+      "commit": "792270d54b5aff43bab551fcdb92bd0066479724",
+      "module_path": "statutes/26/3231/d.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-792270d5-008074817e3d"
+    },
+    {
+      "id": "us-012-0a89bda4-statutes-26-3306-b-5",
+      "jurisdiction": "us",
+      "commit": "0a89bda45d7bafb6f48d16d0a3c5766f9792e4bb",
+      "module_path": "statutes/26/3306/b/5.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-0a89bda4-303732245548"
+    },
+    {
+      "id": "us-234-5323ecb4-statutes-26-3232",
+      "jurisdiction": "us",
+      "commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+      "module_path": "statutes/26/3232.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-5323ecb4-25490fa4c8b6"
+    },
+    {
+      "id": "us-375-abc82d7a-statutes-26-3121-b",
+      "jurisdiction": "us",
+      "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+      "module_path": "statutes/26/3121/b.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-abc82d7a-3bdef10ca230"
+    },
+    {
+      "id": "us-376-abc82d7a-statutes-26-3121-b-9",
+      "jurisdiction": "us",
+      "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+      "module_path": "statutes/26/3121/b/9.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-abc82d7a-b96c5a2cf4a7"
+    },
+    {
+      "id": "us-004-0809c368-statutes-26-3306-b-5",
+      "jurisdiction": "us",
+      "commit": "0809c368a78b8be9954760483796a9eb38749a54",
+      "module_path": "statutes/26/3306/b/5.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-0809c368-8cf9e8b60336"
+    },
+    {
+      "id": "us-233-4e6ff080-statutes-26-3511",
+      "jurisdiction": "us",
+      "commit": "4e6ff08087de3ec311067882518d71b6b83c6651",
+      "module_path": "statutes/26/3511.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-4e6ff080-f3941745810f"
+    },
+    {
+      "id": "us-414-acd3fdc7-regulations-7-cfr-273-9",
+      "jurisdiction": "us",
+      "commit": "acd3fdc7f58542c1cb870c2523260937c36df182",
+      "module_path": "regulations/7-cfr/273/9.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-acd3fdc7-cd9ac82d6aff"
+    },
+    {
+      "id": "us-389-b8f1c1db-us-regulations-45-cfr-1302-12",
+      "jurisdiction": "us",
+      "commit": "b8f1c1db728d771a79f7385ff629c3e8b92a8825",
+      "module_path": "us/regulations/45-cfr/1302/12.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-b8f1c1db-6f41b9999fb0"
+    },
+    {
+      "id": "us-418-0c4a1564-us-pa-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "0c4a15643c04624c315c225bbff3b2f898858d20",
+      "module_path": "us-pa/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-0c4a1564-ca3f431b9ed3"
+    },
+    {
+      "id": "us-421-2f99fc5a-us-il-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "2f99fc5a02d12e6e3b5fc6cee3382d7f08f4def8",
+      "module_path": "us-il/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2f99fc5a-7e6c0c02a973"
+    },
+    {
+      "id": "us-120-26969d5f-us-ia-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "26969d5f9159d0f8771fcbe81322ed96b5ee7b8c",
+      "module_path": "us-ia/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-26969d5f-37e4be2e76ca"
+    },
+    {
+      "id": "us-262-9615ec71-us-az-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "9615ec7118971cf6aff8a2d12208edafd4fcd24a",
+      "module_path": "us-az/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-9615ec71-3a61c884ffdc"
+    },
+    {
+      "id": "us-250-804404b1-us-sc-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "804404b13c23599aeb2a90d0f4f3f0aa55bb3025",
+      "module_path": "us-sc/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-804404b1-ae375424b88d"
+    },
+    {
+      "id": "us-232-4c354c6b-us-mt-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "4c354c6b5354905b850122f319566680add274b4",
+      "module_path": "us-mt/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-4c354c6b-d408345dbfd5"
+    },
+    {
+      "id": "us-405-e58bf37f-us-vt-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "e58bf37fec2a755a309aa843d43eb2f59998a895",
+      "module_path": "us-vt/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-e58bf37f-51bd5942ea54"
+    },
+    {
+      "id": "us-264-9ee163e3-us-co-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "9ee163e304eaa69a78f47add4411893f0c30fbce",
+      "module_path": "us-co/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-9ee163e3-2fd0dd1df78b"
+    },
+    {
+      "id": "us-425-063a0832-us-mo-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "063a083250858ed65cd94235cabdb75062b51d97",
+      "module_path": "us-mo/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-063a0832-e8078fe29baf"
+    },
+    {
+      "id": "us-002-07f5517d-us-vt-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "07f5517d7416416a753e57b591f632ae99d310d7",
+      "module_path": "us-vt/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-07f5517d-da60aea8eea3"
+    },
+    {
+      "id": "us-003-07f5517d-us-wa-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "07f5517d7416416a753e57b591f632ae99d310d7",
+      "module_path": "us-wa/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-07f5517d-8e1effdfd1fa"
+    },
+    {
+      "id": "us-231-4bca2b9f-us-ri-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
+      "module_path": "us-ri/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-4bca2b9f-8714639b4721"
+    },
+    {
+      "id": "us-263-9d343d49-us-id-policies-income-tax-pilot-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "9d343d49a3d8355b3801ef5deb9288b97c3a7260",
+      "module_path": "us-id/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-9d343d49-cc66ff120a3f"
+    },
+    {
+      "id": "us-261-915fc7cc-us-mt-policies-income-tax-resident-core-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "915fc7cc88c448db7f49a380c0c0e1f9bb458687",
+      "module_path": "us-mt/policies/income_tax/resident_core_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-915fc7cc-5966a8c95e3e"
+    },
+    {
+      "id": "us-222-2cf80aa9-us-policies-usda-wic-eligibility-pipeline",
+      "jurisdiction": "us",
+      "commit": "2cf80aa9710ae63641af658219ac6e05fcf5f719",
+      "module_path": "us/policies/usda/wic/eligibility_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2cf80aa9-ab0124b6bfb9"
+    },
+    {
+      "id": "us-453-c47477aa-us-ks-policies-income-tax-2026-full-year-resident-core",
+      "jurisdiction": "us",
+      "commit": "c47477aa936450c02f314392a32fa90bb9513417",
+      "module_path": "us-ks/policies/income_tax/2026_full_year_resident_core.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-c47477aa-12964c43eecb"
+    },
+    {
+      "id": "us-440-0f538e6e-us-policies-irs-rev-proc-2025-32-qualified-business-income",
+      "jurisdiction": "us",
+      "commit": "0f538e6e6b8d27f105bf0fc9cd9b2c07025b8390",
+      "module_path": "us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-0f538e6e-f70a478da3e3"
+    },
+    {
+      "id": "us-442-2d032aa8-us-policies-aca-ptc-pipeline",
+      "jurisdiction": "us",
+      "commit": "2d032aa87a117c5548a3cfbd60a6177b5ae74d13",
+      "module_path": "us/policies/aca/ptc_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2d032aa8-cfa02b18f65a"
+    },
+    {
+      "id": "us-445-52224b05-us-policies-aca-ptc-pipeline",
+      "jurisdiction": "us",
+      "commit": "52224b051307802bd677967902456ebed739d692",
+      "module_path": "us/policies/aca/ptc_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-52224b05-edbc0c00c8f1"
+    },
+    {
+      "id": "us-450-903e3436-us-policies-income-tax-self-employment-tax-pipeline",
+      "jurisdiction": "us",
+      "commit": "903e3436a16b13da16b6ac0e634c41c06f8cd185",
+      "module_path": "us/policies/income_tax/self_employment_tax_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-903e3436-6eaad3de2bcc"
+    },
+    {
+      "id": "us-455-c73258bc-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+      "jurisdiction": "us",
+      "commit": "c73258bc3d45af002d80ad455de83ff3673fd4e3",
+      "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-c73258bc-fc5711131336"
+    },
+    {
+      "id": "us-449-7f2603e8-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+      "jurisdiction": "us",
+      "commit": "7f2603e881d61f4d9ee974e83614911802aff016",
+      "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-7f2603e8-3d4f56be7d4a"
+    },
+    {
+      "id": "us-226-3a3f3bf5-us-policies-medicaid-magi-household-income-pipeline",
+      "jurisdiction": "us",
+      "commit": "3a3f3bf5257ffbe0fb4613dfc1b1a660f46ec1f3",
+      "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-3a3f3bf5-d5836ad516bc"
+    },
+    {
+      "id": "us-404-d15442b4-us-policies-medicaid-magi-household-income-pipeline",
+      "jurisdiction": "us",
+      "commit": "d15442b4fd758e46d3b62ae1c56ab0b2f69cc430",
+      "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-d15442b4-9d3373a0b6ac"
+    },
+    {
+      "id": "us-247-6e0b21e1-us-nd-policies-income-tax-resident-core-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "6e0b21e114b0cd589909cbed952e1a13d69b6c5a",
+      "module_path": "us-nd/policies/income_tax/resident_core_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-6e0b21e1-6906153cecfc"
+    },
+    {
+      "id": "us-013-0d0ab42a-us-or-policies-income-tax-resident-core-liability-pipeline",
+      "jurisdiction": "us",
+      "commit": "0d0ab42ada62a3d8870989b72b6626708ccde164",
+      "module_path": "us-or/policies/income_tax/resident_core_liability_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-0d0ab42a-2fb97633001b"
+    },
+    {
+      "id": "us-265-a0a2ec59-us-policies-income-tax-additional-medicare-tax-pipeline",
+      "jurisdiction": "us",
+      "commit": "a0a2ec5940425bc18a31d25089be6c7864faf934",
+      "module_path": "us/policies/income_tax/additional_medicare_tax_pipeline.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a0a2ec59-37caaed3162f"
+    },
+    {
+      "id": "us-243-65997b4e-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-eu-9903-05-39",
+      "jurisdiction": "us",
+      "commit": "65997b4e4960f6d918e498f7d2c8df34855fe971",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-eu-9903-05-39.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-65997b4e-f10f36b5dd54"
+    },
+    {
+      "id": "us-244-65997b4e-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-south-korea-9",
+      "jurisdiction": "us",
+      "commit": "65997b4e4960f6d918e498f7d2c8df34855fe971",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-south-korea-9903-05-71.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-65997b4e-7e643725399b"
+    },
+    {
+      "id": "us-498-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-south-korea-9903-02-7",
+      "jurisdiction": "us",
+      "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-79.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-75a36778-5738fb1602eb"
+    },
+    {
+      "id": "us-499-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-south-korea-9903-02-8",
+      "jurisdiction": "us",
+      "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-80.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-75a36778-a9330e9fab98"
+    },
+    {
+      "id": "us-019-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch02-ch02",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-020-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch03-ch03",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch03/ch03.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-021-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch04-ch04",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch04/ch04.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-022-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch05-ch05",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch05/ch05.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-023-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch06-ch06",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch06/ch06.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-024-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch07-ch07",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch07/ch07.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-025-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch08-ch08",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch08/ch08.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-026-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch09-ch09",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch09/ch09.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-027-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch10-ch10",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch10/ch10.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-028-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch11-ch11",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch11/ch11.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-029-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch12-ch12",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch12/ch12.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-030-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch13-ch13",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch13/ch13.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-031-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch14-ch14",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch14/ch14.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-032-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch15-ch15",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch15/ch15.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-033-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch16-ch16",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch16/ch16.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-034-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch17-ch17",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch17/ch17.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-035-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch18-ch18",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch18/ch18.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-036-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch19-ch19",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch19/ch19.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-037-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch20-ch20",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch20/ch20.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-038-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch21-ch21",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch21/ch21.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-039-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch22-ch22",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch22/ch22.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-040-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch23-ch23",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch23/ch23.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-041-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch24-ch24",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch24/ch24.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-042-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch25-ch25",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch25/ch25.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-043-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch26-ch26",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch26/ch26.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-044-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch27-ch27",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch27/ch27.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-045-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch28-ch28",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch28/ch28.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-046-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch29-ch29",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch29/ch29.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-047-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch30-ch30",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch30/ch30.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-048-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch31-ch31",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch31/ch31.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-049-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch32-ch32",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch32/ch32.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-050-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch33-ch33",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch33/ch33.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-051-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch34-ch34",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch34/ch34.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-052-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch35-ch35",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch35/ch35.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-053-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch36-ch36",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch36/ch36.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-054-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch37-ch37",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch37/ch37.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-055-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch38-ch38",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch38/ch38.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-056-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch39-ch39",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-057-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch40-ch40",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch40/ch40.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-058-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch41-ch41",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch41/ch41.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-059-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch42-ch42",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch42/ch42.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-060-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch43-ch43",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch43/ch43.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-061-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch44-ch44",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch44/ch44.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-062-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch45-ch45",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch45/ch45.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-063-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch46-ch46",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch46/ch46.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-064-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch47-ch47",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch47/ch47.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-065-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch48-ch48",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch48/ch48.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-066-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch49-ch49",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch49/ch49.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-067-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch50-ch50",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch50/ch50.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-068-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch51-ch51",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch51/ch51.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-069-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch52-ch52",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch52/ch52.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-070-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch53-ch53",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch53/ch53.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-071-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch54-ch54",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch54/ch54.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-072-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch55-ch55",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch55/ch55.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-073-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch56-ch56",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch56/ch56.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-074-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch57-ch57",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch57/ch57.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-075-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch58-ch58",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch58/ch58.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-076-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch59-ch59",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch59/ch59.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-077-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch60-ch60",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch60/ch60.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-078-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch61-ch61",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch61/ch61.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-079-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch62-ch62",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch62/ch62.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-080-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch63-ch63",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch63/ch63.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-081-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch64-ch64",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch64/ch64.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-082-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch65-ch65",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch65/ch65.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-083-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch66-ch66",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch66/ch66.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-084-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch67-ch67",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch67/ch67.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-085-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch68-ch68",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch68/ch68.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-086-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch69-ch69",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch69/ch69.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-087-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch70-ch70",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch70/ch70.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-088-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch71-ch71",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch71/ch71.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-089-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch72-ch72",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch72/ch72.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-090-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch73-ch73",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch73/ch73.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-091-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch74-ch74",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch74/ch74.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-092-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch75-ch75",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch75/ch75.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-093-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch76-ch76",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch76/ch76.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-094-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch78-ch78",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch78/ch78.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-095-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch79-ch79",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch79/ch79.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-096-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch80-ch80",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch80/ch80.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-097-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch81-ch81",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch81/ch81.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-098-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch82-ch82",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch82/ch82.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-099-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch83-ch83",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch83/ch83.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-100-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch84-ch84",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch84/ch84.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-101-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch85-ch85",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch85/ch85.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-102-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch86-ch86",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch86/ch86.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-103-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch87-ch87",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch87/ch87.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-104-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch88-ch88",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-105-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch89-ch89",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch89/ch89.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-106-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch90-ch90",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch90/ch90.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-107-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch91-ch91",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch91/ch91.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-108-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch92-ch92",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch92/ch92.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-109-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch93-ch93",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch93/ch93.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-110-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch94-ch94",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch94/ch94.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-111-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch95-ch95",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch95/ch95.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-112-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch96-ch96",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch96/ch96.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-113-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch97-ch97",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch97/ch97.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-114-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch98-ch98",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch98/ch98.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-115-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch99a-ch99a",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99a/ch99a.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-116-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch99b-ch99b",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99b/ch99b.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-117-198bee70-us-policies-cbp-us-tariff-schedule-generated-ch99c-ch99c",
+      "jurisdiction": "us",
+      "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99c/ch99c.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-198bee70-ae51d9d5b290"
+    },
+    {
+      "id": "us-124-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch02-ch02",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-125-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch03-ch03",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch03/ch03.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-126-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch04-ch04",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch04/ch04.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-127-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch05-ch05",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch05/ch05.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-128-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch06-ch06",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch06/ch06.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-129-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch07-ch07",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch07/ch07.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-130-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch08-ch08",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch08/ch08.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-131-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch09-ch09",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch09/ch09.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-132-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch10-ch10",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch10/ch10.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-133-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch11-ch11",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch11/ch11.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-134-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch12-ch12",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch12/ch12.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-135-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch13-ch13",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch13/ch13.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-136-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch14-ch14",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch14/ch14.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-137-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch15-ch15",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch15/ch15.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-138-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch16-ch16",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch16/ch16.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-139-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch17-ch17",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch17/ch17.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-140-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch18-ch18",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch18/ch18.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-141-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch19-ch19",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch19/ch19.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-142-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch20-ch20",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch20/ch20.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-143-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch21-ch21",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch21/ch21.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-144-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch22-ch22",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch22/ch22.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-145-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch23-ch23",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch23/ch23.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-146-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch24-ch24",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch24/ch24.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-147-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch25-ch25",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch25/ch25.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-148-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch26-ch26",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch26/ch26.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-149-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch27-ch27",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch27/ch27.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-150-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch28-ch28",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch28/ch28.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-151-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch29-ch29",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch29/ch29.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-152-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch30-ch30",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch30/ch30.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-153-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch31-ch31",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch31/ch31.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-154-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch32-ch32",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch32/ch32.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-155-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch33-ch33",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch33/ch33.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-156-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch34-ch34",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch34/ch34.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-157-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch35-ch35",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch35/ch35.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-158-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch36-ch36",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch36/ch36.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-159-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch37-ch37",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch37/ch37.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-160-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch38-ch38",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch38/ch38.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-161-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch39-ch39",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-162-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch40-ch40",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch40/ch40.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-163-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch41-ch41",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch41/ch41.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-164-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch42-ch42",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch42/ch42.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-165-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch43-ch43",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch43/ch43.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-166-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch44-ch44",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch44/ch44.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-167-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch45-ch45",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch45/ch45.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-168-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch46-ch46",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch46/ch46.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-169-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch47-ch47",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch47/ch47.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-170-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch48-ch48",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch48/ch48.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-171-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch49-ch49",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch49/ch49.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-172-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch50-ch50",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch50/ch50.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-173-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch51-ch51",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch51/ch51.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-174-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch52-ch52",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch52/ch52.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-175-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch53-ch53",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch53/ch53.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-176-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch54-ch54",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch54/ch54.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-177-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch55-ch55",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch55/ch55.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-178-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch56-ch56",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch56/ch56.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-179-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch57-ch57",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch57/ch57.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-180-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch58-ch58",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch58/ch58.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-181-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch59-ch59",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch59/ch59.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-182-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch60-ch60",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch60/ch60.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-183-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch61-ch61",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch61/ch61.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-184-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch62-ch62",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch62/ch62.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-185-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch63-ch63",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch63/ch63.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-186-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch64-ch64",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch64/ch64.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-187-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch65-ch65",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch65/ch65.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-188-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch66-ch66",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch66/ch66.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-189-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch67-ch67",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch67/ch67.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-190-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch68-ch68",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch68/ch68.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-191-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch69-ch69",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch69/ch69.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-192-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch70-ch70",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch70/ch70.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-193-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch71-ch71",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch71/ch71.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-194-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch72-ch72",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch72/ch72.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-195-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch73-ch73",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch73/ch73.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-196-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch74-ch74",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch74/ch74.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-197-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch75-ch75",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch75/ch75.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-198-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch76-ch76",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch76/ch76.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2a6bdb01-7b28b41dcdb0"
+    },
+    {
+      "id": "us-199-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch78-ch78",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch78/ch78.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-200-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch79-ch79",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch79/ch79.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-201-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch80-ch80",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch80/ch80.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-202-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch81-ch81",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch81/ch81.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-203-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch82-ch82",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch82/ch82.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-204-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch83-ch83",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch83/ch83.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-205-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch84-ch84",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch84/ch84.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-207-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch86-ch86",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch86/ch86.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-208-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch87-ch87",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch87/ch87.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-209-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch88-ch88",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-210-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch89-ch89",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch89/ch89.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-211-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch90-ch90",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch90/ch90.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-212-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch91-ch91",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch91/ch91.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-213-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch92-ch92",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch92/ch92.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-214-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch93-ch93",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch93/ch93.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-215-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch94-ch94",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch94/ch94.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-217-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch96-ch96",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch96/ch96.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-218-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch97-ch97",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch97/ch97.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-219-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch98-ch98",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch98/ch98.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-220-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch99a-ch99a",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99a/ch99a.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-221-2a6bdb01-us-policies-cbp-us-tariff-schedule-generated-ch99c-ch99c",
+      "jurisdiction": "us",
+      "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99c/ch99c.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-2a6bdb01-7331f444c639"
+    },
+    {
+      "id": "us-270-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch02-ch02",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch02/ch02.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-271-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch03-ch03",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch03/ch03.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-272-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch04-ch04",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch04/ch04.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-273-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch05-ch05",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch05/ch05.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-274-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch06-ch06",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch06/ch06.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-275-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch07-ch07",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch07/ch07.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-276-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch08-ch08",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch08/ch08.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-277-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch09-ch09",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch09/ch09.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-278-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch10-ch10",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch10/ch10.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-279-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch11-ch11",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch11/ch11.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-280-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch12-ch12",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch12/ch12.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-281-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch13-ch13",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch13/ch13.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-282-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch14-ch14",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch14/ch14.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-283-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch15-ch15",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch15/ch15.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-284-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch16-ch16",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch16/ch16.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-285-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch17-ch17",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch17/ch17.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-286-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch18-ch18",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch18/ch18.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-287-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch19-ch19",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch19/ch19.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-288-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch20-ch20",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch20/ch20.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-289-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch21-ch21",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch21/ch21.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-290-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch22-ch22",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch22/ch22.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-291-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch23-ch23",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch23/ch23.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-292-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch24-ch24",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch24/ch24.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-293-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch25-ch25",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch25/ch25.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-294-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch26-ch26",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch26/ch26.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-295-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch27-ch27",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch27/ch27.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-296-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch28-ch28",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch28/ch28.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-297-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch29-ch29",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch29/ch29.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-298-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch30-ch30",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch30/ch30.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-299-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch31-ch31",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch31/ch31.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-300-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch32-ch32",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch32/ch32.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-301-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch33-ch33",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch33/ch33.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-302-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch34-ch34",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch34/ch34.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-303-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch35-ch35",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch35/ch35.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-304-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch36-ch36",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch36/ch36.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-305-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch37-ch37",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch37/ch37.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-306-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch38-ch38",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch38/ch38.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-307-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch39-ch39",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-308-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch40-ch40",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch40/ch40.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-309-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch41-ch41",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch41/ch41.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-310-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch42-ch42",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch42/ch42.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-311-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch43-ch43",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch43/ch43.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-312-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch44-ch44",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch44/ch44.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-313-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch45-ch45",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch45/ch45.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-314-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch46-ch46",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch46/ch46.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-315-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch47-ch47",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch47/ch47.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-316-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch48-ch48",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch48/ch48.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-317-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch49-ch49",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch49/ch49.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-318-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch50-ch50",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch50/ch50.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-319-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch51-ch51",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch51/ch51.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-320-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch52-ch52",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch52/ch52.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-321-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch53-ch53",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch53/ch53.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-322-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch54-ch54",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch54/ch54.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-323-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch55-ch55",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch55/ch55.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-324-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch56-ch56",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch56/ch56.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-325-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch57-ch57",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch57/ch57.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-326-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch58-ch58",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch58/ch58.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-327-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch59-ch59",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch59/ch59.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-328-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch60-ch60",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch60/ch60.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-329-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch61-ch61",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch61/ch61.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-330-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch62-ch62",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch62/ch62.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-331-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch63-ch63",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch63/ch63.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-332-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch64-ch64",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch64/ch64.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-333-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch65-ch65",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch65/ch65.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-334-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch66-ch66",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch66/ch66.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-335-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch67-ch67",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch67/ch67.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-336-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch68-ch68",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch68/ch68.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-337-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch69-ch69",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch69/ch69.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-338-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch70-ch70",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch70/ch70.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-339-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch71-ch71",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch71/ch71.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-340-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch72-ch72",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch72/ch72.yaml",
+      "reason": "triage_unclear",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-341-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch73-ch73",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch73/ch73.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-342-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch74-ch74",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch74/ch74.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-343-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch75-ch75",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch75/ch75.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-344-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch76-ch76",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch76/ch76.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-345-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch78-ch78",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch78/ch78.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-346-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch79-ch79",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch79/ch79.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-347-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch80-ch80",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch80/ch80.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-348-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch81-ch81",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch81/ch81.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-349-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch82-ch82",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch82/ch82.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-350-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch83-ch83",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch83/ch83.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-351-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch84-ch84",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch84/ch84.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-352-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch85-ch85",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch85/ch85.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-353-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch86-ch86",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch86/ch86.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-354-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch87-ch87",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch87/ch87.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-355-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch88-ch88",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-356-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch89-ch89",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch89/ch89.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-357-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch90-ch90",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch90/ch90.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-358-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch91-ch91",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch91/ch91.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-359-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch92-ch92",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch92/ch92.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-360-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch93-ch93",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch93/ch93.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-361-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch94-ch94",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch94/ch94.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-362-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch95-ch95",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch95/ch95.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-363-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch96-ch96",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch96/ch96.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-364-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch97-ch97",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch97/ch97.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-365-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch98-ch98",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch98/ch98.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-366-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch99a-ch99a",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99a/ch99a.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-367-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch99b-ch99b",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99b/ch99b.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    },
+    {
+      "id": "us-368-a9562cfd-us-policies-cbp-us-tariff-schedule-generated-ch99c-ch99c",
+      "jurisdiction": "us",
+      "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
+      "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch99c/ch99c.yaml",
+      "reason": "family_non_representative",
+      "family_id": "us-a9562cfd-a47a2c82a367"
+    }
+  ]
 }

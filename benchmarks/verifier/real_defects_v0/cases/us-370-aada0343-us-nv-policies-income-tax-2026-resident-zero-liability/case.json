@@ -276,6 +276,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -454,7 +455,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+        "quote": "No income tax shall be levied upon the wages or personal income of natural persons."
+      }
+    ],
+    "why": "This is the nearest passage, not a decisive one. The provision bars a personal income tax and says nothing about credits. 'No income tax, so no income-tax credit stage' is a defensible reading of it. Both modules output 0 for the three Money outputs, and the post-fix holds cite the same excerpt, so the text does not separate them.",
+    "missing_basis": "The encoder's judgment that the constitutional prohibition does not rule out independently refundable Nevada credits or a signed net-liability surface. No Nevada credit authority is in the bundle; other/001 (amendment history) has no credit content.",
+    "pre_fix_restates_it": true,
+    "basis": "adjudicated",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.55,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.5,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-aada0343-86f5b003b315",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -468,11 +508,10 @@
     "verifier_notes": "Corroborating verbatim lines: in the companion test diff, \"-    us-nv:policies/income_tax/2026_resident_zero_liability#nv_pit_2026_credit_stage_applies: false\" (removed at two cases), and in the test header comment \"+# Credit and net-liability amounts below are fail-closed sentinels guarded by\" / \"+# explicit typed source holds, not substantive zero-liability assertions.\"\n\nCaveat a reviewer should see (why I set confidence at 0.7, not higher): all three downstream Money outputs (`..._after_nonrefundable_credits`, `..._refundable_personal_income_tax_credits`, `..._net_personal_income_tax_liability_before_payments`) keep `formula: 0`, the same entity/dtype/unit, the same effective_from '2026-01-01' with no effective_to, and byte-identical proof atoms; only their `source:` label strings change (e.g. \"-    source: Nev. Const. art. 10, § 1(9), no natural-person personal income-tax system\" → \"+    source: Fail-closed sentinel pending complete refundable-credit authority\"). Taken alone, that part of the diff is provenance/labelling, i.e. mechanical. The fidelity content rests on (a) the deletion of `nv_pit_2026_credit_stage_applies` (verified fully absent at aada034367 via `git grep` over us-nv and .axiom) and (b) the new module-level `deferred_outputs:` block plus three added `dtype: Judgment` rules (`nv_pit_2026_nonrefundable_credit_source_hold_applies`, `..._refundable_credit_source_hold_applies`, `..._net_liability_source_hold_applies`, each `formula: true`, windowed 2026-01-01..2026-12-31), which the tests now assert as `holds`. I did not read engine code for how `deferred_outputs` or a `Judgment` hold is enforced at runtime, so I do not claim the zeros stop being served — I rely only on the removed rule and the changed test surface.\n\nAlso added, unrelated to the credit question: `nv_pit_2026_constitutional_prohibition_current_for_tax_year` (Boolean true, grounded on the newly pinned source-note block with amendment-history excerpts), and the header change `corpus_citation_path` → `corpus_citation_paths` with `status: complete_current_authority` → `official_parameter_source`. That pairing is period-grounding evidence for tax year 2026, additive coverage rather than a second defect; the pre-fix module already carried effective_from '2026-01-01', so I did not treat it as wrong_period_or_effective_date.\n\nPR #1059 has no reviews or review comments in the bundle, and the commit body is empty, so all fidelity evidence came from the diff itself plus the resolved provision text.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Holds incomplete Nevada credit liability stages in an existing module: scope/retire correction."
+    "screen_reason": "Holds incomplete Nevada credit liability stages in an existing module: scope/retire correction.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single-module commit; only the module file, its companion test, the encoding manifest, the reverse index, and toolchain.toml changed. Provision was read through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, resolver reports fix_time_corpus_match: same_body): 26-word text confirms subsection 9 covers only the wage/personal-income prohibition plus the business-income carve-out, with no credit or net-liability content. The commit is an in-PR self-correction: its parent 825294c6 (\"Complete Nevada 2026 resident zero liability\") introduced the module claiming a \"Complete Nevada full-year-resident natural-person personal-income-tax pipeline\", and both commits landed in merged PR #1059, whose body describes only the corrected end state (\"retain typed source holds for nonrefundable credits, refundable credits, and signed net liability before payments\"; \"downstream credit and net-liability stages remain explicitly held and fail closed\"). The commit message body is empty; the quote used is from the module's own rewritten upstream_source_check rationale in the diff (YAML block scalar, so line wrapping was joined with single spaces). Note the three Money outputs keep formula: 0 — what changed is their status (source strings become \"Fail-closed sentinel pending ...\", plus the new deferred_outputs block and Judgment holds); the only formula/rule existence change is the deletion of nv_pit_2026_credit_stage_applies (was false) and the three added hold rules (formula: true, effective_from 2026-01-01 to 2026-12-31). The companion test drops the `nv_pit_2026_credit_stage_applies: false` expectation and rewrites its header comment from \"deductions, exemptions, surtaxes, and credits cannot change the legal zero\" to exclude credits, confirming that the withdrawn claim was substantive. Alternative kind considered: wrong_entity_or_scope (the module retracted output surface it never had authority for); untraceable_branch was chosen because the decisive edit removes/re-grounds branches and values whose only cited basis was a provision that does not support them. The parallel rules nv_pit_2026_deduction_and_exemption_stage_applies and nv_pit_2026_surtax_stage_applies remain false on the same excerpt and were left untouched, which is a residual inconsistency a reviewer may want to note but is outside this commit. | verifier confirmed at 0.70",
-  "family_id": "us-aada0343-86f5b003b315",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single-module commit; only the module file, its companion test, the encoding manifest, the reverse index, and toolchain.toml changed. Provision was read through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, resolver reports fix_time_corpus_match: same_body): 26-word text confirms subsection 9 covers only the wage/personal-income prohibition plus the business-income carve-out, with no credit or net-liability content. The commit is an in-PR self-correction: its parent 825294c6 (\"Complete Nevada 2026 resident zero liability\") introduced the module claiming a \"Complete Nevada full-year-resident natural-person personal-income-tax pipeline\", and both commits landed in merged PR #1059, whose body describes only the corrected end state (\"retain typed source holds for nonrefundable credits, refundable credits, and signed net liability before payments\"; \"downstream credit and net-liability stages remain explicitly held and fail closed\"). The commit message body is empty; the quote used is from the module's own rewritten upstream_source_check rationale in the diff (YAML block scalar, so line wrapping was joined with single spaces). Note the three Money outputs keep formula: 0 — what changed is their status (source strings become \"Fail-closed sentinel pending ...\", plus the new deferred_outputs block and Judgment holds); the only formula/rule existence change is the deletion of nv_pit_2026_credit_stage_applies (was false) and the three added hold rules (formula: true, effective_from 2026-01-01 to 2026-12-31). The companion test drops the `nv_pit_2026_credit_stage_applies: false` expectation and rewrites its header comment from \"deductions, exemptions, surtaxes, and credits cannot change the legal zero\" to exclude credits, confirming that the withdrawn claim was substantive. Alternative kind considered: wrong_entity_or_scope (the module retracted output surface it never had authority for); untraceable_branch was chosen because the decisive edit removes/re-grounds branches and values whose only cited basis was a provision that does not support them. The parallel rules nv_pit_2026_deduction_and_exemption_stage_applies and nv_pit_2026_surtax_stage_applies remain false on the same excerpt and were left untouched, which is a residual inconsistency a reviewer may want to note but is outside this commit. | verifier confirmed at 0.70"
 }

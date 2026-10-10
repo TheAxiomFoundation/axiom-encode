@@ -333,6 +333,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -408,7 +409,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/24",
+        "quote": "(B) Exception for certain noncitizens Subparagraph (A) shall not apply with respect to any individual who would not be a dependent if subparagraph (A) of section 152(b)(3) were applied",
+        "span": [
+          7092,
+          7276
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/24",
+        "quote": "(C) Certain qualifying children In the case of any qualifying child with respect to whom a credit is not allowed under this section by reason of paragraph (7), such child shall be treated as a dependent to whom subparagraph (A) applies.",
+        "span": [
+          7345,
+          7581
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 24(h)(4)(B) withholds the $500 other-dependent credit from certain noncitizen dependents. The pre-fix `ctc_other_dependent`, which claims source 26 USC 24(h)(4), is just `is_tax_unit_dependent and not ctc_qualifying_child`, so it pays every dependent who is not a qualifying child. The post-fix formula adds the noncitizen carve-out as an explicit conjunct. A reader holding provision.txt can see the exception missing from the pre-fix rule.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b3801ee4-d78a73cf80a3",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -422,11 +477,10 @@
     "verifier_notes": "Confounders a reviewer should weigh. (1) This is a wholesale regeneration of statutes/26/24/h.yaml (173 → 338 lines): every rule renamed with an `_under_subsection_h` suffix, `member_of_tax_unit` replaced by a `dependent_of_tax_unit` data_relation, proof atoms and `proof_validation.required` added, the rev-proc-2025-32 import dropped, and the module summary replaced by the raw statutory text. The noncitizen carve-out is a real added clause inside that rewrite, not a targeted fix commit. (2) The (h)(4)(C) half of the first reader's justification is weaker than it looks: pre-fix `ctc_qualifying_child` was `is_tax_unit_dependent and age < 17 and meets_ctc_child_identification_requirements`, so a child failing identification already fell out of `ctc_qualifying_child` and into `not ctc_qualifying_child`, i.e. (C)'s outcome was already reached by accident. Only (h)(4)(B) is decisive. (3) Possible regression introduced by the same diff, worth a separate look: all versions move from effective_from '2026-01-01' to '2018-01-01' while carrying the current (post-OBBBA) $2,200 credit amount, $2,500 phase-in threshold and $400,000/$200,000 thresholds, which did not apply for taxable years 2018–2024 — a timeless encoding of the current text back over superseded years (wrong_period_or_effective_date in the new file, not fixed by it). (4) The rewrite also drops `ctc_phase_out_amount`, `ctc_phase_out_increment`, `ctc_phase_out` and the final `ctc` rule, so the module no longer computes the credit itself; that is a scope reduction, not part of this defect. (5) The quoted proof-atom line the first reader used (\"Subparagraph (A) shall not apply with respect to certain noncitizens.\") is a paraphrase written into the module's metadata, not the statute's own words; the statutory wording is in the resolver output cited above.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision confirmed from the pinned corpus (us/statute/26/24): (h)(4)(B) and (h)(4)(C) are present verbatim and were absent pre-fix. BUT this module also carries a likely REGRESSION that a reviewer must weigh: every version's effective_from moved 2026-01-01 -> 2018-01-01 while the imported IRS authority `us:policies/irs/rev-proc-2025-32/child-tax-credit` was dropped and the dollar amounts hard-coded as literals (ctc_child_amount 2200, ctc_refundable_per_child_cap 1400). The corpus text of 24(i) says the $1,400 in (h)(5) is indexed for taxable years beginning after 2024 and the $2,200 in (h)(2) is indexed for taxable years beginning after 2025, and the $2,200 figure itself only applies from 2025 (it was $2,000 for 2018-2024) — so dating those two parameters to 2018 encodes superseded/unindexed amounts even though the 2018 date is correct for the structural (h)(3), (h)(4) and (h)(7) provisions. That mix is why I did not make wrong_period_or_effective_date the primary kind. Also re-grounded out of this module: the 24(c)(1) age-17 qualifying-child definition, the 24(b)(1) $50-per-$1,000 phase-out rules, and the `ctc` total — all now expected from elsewhere, leaving the (h) module without a total-credit output. | verifier confirmed at 0.70",
-  "family_id": "us-b3801ee4-d78a73cf80a3",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision confirmed from the pinned corpus (us/statute/26/24): (h)(4)(B) and (h)(4)(C) are present verbatim and were absent pre-fix. BUT this module also carries a likely REGRESSION that a reviewer must weigh: every version's effective_from moved 2026-01-01 -> 2018-01-01 while the imported IRS authority `us:policies/irs/rev-proc-2025-32/child-tax-credit` was dropped and the dollar amounts hard-coded as literals (ctc_child_amount 2200, ctc_refundable_per_child_cap 1400). The corpus text of 24(i) says the $1,400 in (h)(5) is indexed for taxable years beginning after 2024 and the $2,200 in (h)(2) is indexed for taxable years beginning after 2025, and the $2,200 figure itself only applies from 2025 (it was $2,000 for 2018-2024) — so dating those two parameters to 2018 encodes superseded/unindexed amounts even though the 2018 date is correct for the structural (h)(3), (h)(4) and (h)(7) provisions. That mix is why I did not make wrong_period_or_effective_date the primary kind. Also re-grounded out of this module: the 24(c)(1) age-17 qualifying-child definition, the 24(b)(1) $50-per-$1,000 phase-out rules, and the `ctc` total — all now expected from elsewhere, leaving the (h) module without a total-credit output. | verifier confirmed at 0.70"
 }

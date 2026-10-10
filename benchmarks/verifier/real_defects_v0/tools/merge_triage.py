@@ -3,8 +3,8 @@
 
 The workflow (screen, triage, adversarial verify) returns one structured
 record per (commit chunk) and one verifier verdict per kept module. This step
-applies the keep rules below, attaches the merged PR URL from the prepared
-input bundles, and writes ``triage/triage_merged.json`` (one row per module
+applies the keep rules below, attaches the merged PR URL, applies the recorded
+review overrides, and writes ``triage/triage_merged.json`` (one row per module
 touched by a candidate commit, with ``keep`` and ``drop_reason``),
 ``triage/screen.json`` and ``triage/summary.json``.
 
@@ -16,10 +16,11 @@ Keep rules (documented in the corpus README):
   promoted to ``fidelity`` only when the verifier confidence is at least 0.7.
 * Verifier ``reclassify``: keep; the verifier's kind replaces the triage kind
   when the verifier confidence is at least 0.6, otherwise the triage kind
-  stays and the disagreement is noted.
+  stays, the disagreement is noted and the row is ``unclear``.
 * Verifier ``mechanical`` or ``not_a_defect`` at confidence 0.7 or higher:
   drop. Below 0.7: keep as ``unclear``.
-* Verifier ``unclear`` or no verdict: keep with the triage classification.
+* Verifier ``unclear``: keep as ``unclear``. No verdict: keep with the triage
+  classification.
 * Confidence: the lower of the two readers' confidences when they agree;
   capped at 0.49 for anything that stays ``unclear``.
 
@@ -29,6 +30,22 @@ values are not used: for screen-flagged commits the 2026-09 run recorded an
 empty date and ``"(screen-flagged) " + <screen reason>`` as the subject. The
 screen reason stays in ``screen_reason``. The same replacement is applied to
 the flagged entries written to ``triage/screen.json``.
+
+PR URLs come from ``triage/pr_urls.json``, the record of the merged pull
+request per candidate commit. ``--inputs-dir`` names the per-commit bundles
+``tools/prep_commit.py`` wrote; when given, their PR URLs are read and the
+record is rewritten from them.
+
+Review overrides (``triage/review_overrides.json``) are a reviewer's recorded
+corrections to single rows: a promotion of an ``unclear`` row to ``fidelity``,
+or rule names to drop from the locator. Each names its source and reason, and
+must match at least one kept row. An overridden row carries the override in
+``review_override``.
+
+The triage readers wrote absolute paths of the machine they ran on into their
+notes. ``lib.scrub_local_paths`` replaces them in every row, and
+``--scrub-record`` rewrites ``workflow_output.json`` itself the same way
+(text-level, so nothing else in the file changes).
 """
 
 from __future__ import annotations
@@ -36,6 +53,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -94,6 +112,7 @@ def merge_module(
         "triage_status": None,
         "confidence": None,
         "triage_notes_combined": "",
+        "review_override": None,
     }
     if classification not in {"fidelity", "unclear"}:
         row["drop_reason"] = f"triage_{classification}"
@@ -183,7 +202,13 @@ def screen_entry_from_git(
     return entry
 
 
-def pr_url_for(inputs_dir: Path, jur: str, commit: str) -> str | None:
+def bundle_exists(inputs_dir: Path, jur: str, commit: str) -> bool:
+    return (inputs_dir / jur / f"{commit[:10]}.json").exists()
+
+
+def bundle_pr_url(inputs_dir: Path, jur: str, commit: str) -> str | None:
+    """The merged PR's URL from a ``tools/prep_commit.py`` bundle, if any."""
+
     bundle = inputs_dir / jur / f"{commit[:10]}.json"
     if not bundle.exists():
         return None
@@ -192,15 +217,98 @@ def pr_url_for(inputs_dir: Path, jur: str, commit: str) -> str | None:
     return pr.get("url")
 
 
+def promoted_confidence(row: dict[str, Any]) -> float:
+    """A promoted row's confidence: the lower of the two readers', uncapped."""
+
+    values = [float(row.get("triage_confidence") or 0.0)]
+    verifier = row.get("verifier") or {}
+    if verifier.get("confidence") is not None:
+        values.append(float(verifier["confidence"]))
+    return round(min(values), 3)
+
+
+def apply_review_overrides(
+    rows: list[dict[str, Any]], overrides: list[dict[str, Any]]
+) -> list[str]:
+    """Apply each recorded override to the kept rows it matches.
+
+    ``match`` holds row fields that must all be equal. ``set_triage_status``
+    replaces the status (a promotion to ``fidelity`` also lifts the unclear
+    confidence cap); ``drop_rule_names_matching`` is a regular expression
+    whose full matches leave ``rule_names``. Returns the ids applied; an
+    override that matches no kept row is an error.
+    """
+
+    applied: list[str] = []
+    for row in rows:
+        row["review_override"] = None
+    for override in overrides:
+        matched = 0
+        for row in rows:
+            if not row["keep"] or any(
+                row.get(field) != value for field, value in override["match"].items()
+            ):
+                continue
+            matched += 1
+            changed: dict[str, Any] = {}
+            status = override.get("set_triage_status")
+            if status and row["triage_status"] != status:
+                changed["triage_status"] = [row["triage_status"], status]
+                row["triage_status"] = status
+                if status == "fidelity":
+                    confidence = promoted_confidence(row)
+                    changed["confidence"] = [row["confidence"], confidence]
+                    row["confidence"] = confidence
+            pattern = override.get("drop_rule_names_matching")
+            if pattern:
+                kept = [n for n in row["rule_names"] if not re.fullmatch(pattern, n)]
+                if kept != row["rule_names"]:
+                    changed["rule_names_dropped"] = [
+                        n for n in row["rule_names"] if n not in kept
+                    ]
+                    row["rule_names"] = kept
+            if not changed:
+                continue
+            if row["review_override"] is not None:
+                raise ValueError(
+                    f"two review overrides change {row['commit']} {row['module_path']}"
+                )
+            row["review_override"] = {
+                "id": override["id"],
+                "source": override["source"],
+                "reason": override["reason"],
+                "changed": changed,
+            }
+        if not matched:
+            raise ValueError(f"review override {override['id']} matches no kept row")
+        applied.append(override["id"])
+    return applied
+
+
+def _sorted_counts(values: Any) -> dict[str, int]:
+    return dict(sorted(Counter(values).items()))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workflow-output", type=Path, required=True)
-    parser.add_argument("--inputs-dir", type=Path, required=True)
+    parser.add_argument("--inputs-dir", type=Path)
     parser.add_argument("--corpus-dir", type=Path, required=True)
     parser.add_argument("--rulespec-us", type=Path, required=True)
     parser.add_argument("--rulespec-uk", type=Path, required=True)
+    parser.add_argument(
+        "--scrub-record",
+        action="store_true",
+        help="rewrite --workflow-output with local absolute paths replaced",
+    )
     args = parser.parse_args(argv)
-    output = json.loads(args.workflow_output.read_text(encoding="utf-8"))
+    raw = args.workflow_output.read_text(encoding="utf-8")
+    if args.scrub_record and lib.scrub_local_paths(raw) != raw:
+        raw = lib.scrub_local_paths(raw)
+        args.workflow_output.write_text(raw, encoding="utf-8")
+    output = json.loads(raw)
+    triage_dir = args.corpus_dir / "triage"
+    triage_dir.mkdir(parents=True, exist_ok=True)
     repos = {"us": args.rulespec_us, "uk": args.rulespec_uk}
     commits: dict[str, set[str]] = {"us": set(), "uk": set()}
     for bucket in ("keyword", "flagged"):
@@ -210,6 +318,10 @@ def main(argv: list[str] | None = None) -> int:
     for flagged in screen.get("flagged") or []:
         commits[flagged["jur"]].add(flagged["commit"])
     meta = {jur: lib.commit_metadata(repos[jur], commits[jur]) for jur in repos}
+    pr_urls_path = triage_dir / "pr_urls.json"
+    pr_urls: dict[str, dict[str, str | None]] = {"uk": {}, "us": {}}
+    if pr_urls_path.exists():
+        pr_urls.update(json.loads(pr_urls_path.read_text(encoding="utf-8"))["pr_urls"])
     rows: list[dict[str, Any]] = []
     chunks_seen = Counter()
     chunks_missing: list[dict[str, Any]] = []
@@ -230,26 +342,41 @@ def main(argv: list[str] | None = None) -> int:
             verdicts = {
                 v["module_index"]: v["verdict"] for v in entry.get("verdicts") or []
             }
-            pr_url = pr_url_for(args.inputs_dir, item["jur"], item["commit"])
+            if args.inputs_dir is not None and bundle_exists(
+                args.inputs_dir, item["jur"], item["commit"]
+            ):
+                # A bundle is the fresher source; a commit with no bundle
+                # keeps the URL already on record.
+                pr_urls[item["jur"]][item["commit"][:10]] = bundle_pr_url(
+                    args.inputs_dir, item["jur"], item["commit"]
+                )
+            pr_url = pr_urls[item["jur"]].get(item["commit"][:10])
             for module in triage.get("modules") or []:
                 rows.append(
-                    merge_module(
-                        item,
-                        triage,
-                        module,
-                        verdicts.get(module["index"]),
-                        pr_url,
-                        meta[item["jur"]][item["commit"]],
+                    lib.scrub_json(
+                        merge_module(
+                            item,
+                            triage,
+                            module,
+                            verdicts.get(module["index"]),
+                            pr_url,
+                            meta[item["jur"]][item["commit"]],
+                        )
                     )
                 )
     rows.sort(key=row_sort_key)
-    screen = dict(screen)
+    overrides_path = triage_dir / "review_overrides.json"
+    overrides = (
+        json.loads(overrides_path.read_text(encoding="utf-8"))["overrides"]
+        if overrides_path.exists()
+        else []
+    )
+    applied = apply_review_overrides(rows, overrides)
+    screen = lib.scrub_json(dict(screen))
     screen["flagged"] = [
         screen_entry_from_git(flagged, meta[flagged["jur"]][flagged["commit"]])
         for flagged in screen.get("flagged") or []
     ]
-    triage_dir = args.corpus_dir / "triage"
-    triage_dir.mkdir(parents=True, exist_ok=True)
     (triage_dir / "triage_merged.json").write_text(
         json.dumps(rows, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -257,27 +384,45 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(screen, indent=1, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    pr_urls_path.write_text(
+        json.dumps(
+            {
+                "about": (
+                    "The merged pull request that carried each candidate commit "
+                    "(gh api repos/<repo>/commits/<sha>/pulls, read by "
+                    "tools/prep_commit.py during the 2026-09 triage run); null "
+                    "when GitHub listed none."
+                ),
+                "pr_urls": {
+                    jur: dict(sorted(urls.items()))
+                    for jur, urls in sorted(pr_urls.items())
+                },
+            },
+            indent=1,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     kept = [r for r in rows if r["keep"]]
     summary = {
         "module_rows": len(rows),
-        "chunks_with_triage": dict(chunks_seen),
+        "chunks_with_triage": dict(sorted(chunks_seen.items())),
         "chunks_missing": chunks_missing,
-        "by_classification": dict(Counter(r["classification"] for r in rows)),
-        "verifier_verdicts": dict(
-            Counter(
-                (r["verifier"] or {}).get("verdict", "missing")
-                for r in rows
-                if r["classification"] in {"fidelity", "unclear"}
-            )
+        "by_classification": _sorted_counts(r["classification"] for r in rows),
+        "verifier_verdicts": _sorted_counts(
+            (r["verifier"] or {}).get("verdict", "missing")
+            for r in rows
+            if r["classification"] in {"fidelity", "unclear"}
         ),
-        "dropped_by_reason": dict(
-            Counter(r["drop_reason"] for r in rows if not r["keep"])
+        "dropped_by_reason": _sorted_counts(
+            r["drop_reason"] for r in rows if not r["keep"]
         ),
         "kept": len(kept),
-        "kept_by_status": dict(Counter(r["triage_status"] for r in kept)),
-        "kept_by_kind": dict(Counter(r["defect_kind"] for r in kept)),
-        "kept_by_jurisdiction": dict(Counter(r["jurisdiction"] for r in kept)),
-        "kept_by_source": dict(Counter(r["candidate_source"] for r in kept)),
+        "kept_by_status": _sorted_counts(r["triage_status"] for r in kept),
+        "kept_by_kind": _sorted_counts(r["defect_kind"] for r in kept),
+        "kept_by_jurisdiction": _sorted_counts(r["jurisdiction"] for r in kept),
+        "kept_by_source": _sorted_counts(r["candidate_source"] for r in kept),
+        "review_overrides_applied": applied,
     }
     (triage_dir / "summary.json").write_text(
         json.dumps(summary, indent=1) + "\n", encoding="utf-8"

@@ -94,6 +94,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -273,7 +274,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-tn/regulation/1240-01/04/27/block-1",
+        "quote": "Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+        "span": [
+          1066,
+          1142
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Table IV-A's last column is '6+', so households of six or more all get $205. The pre-fix snap_standard_deduction table ends at key 6, leaving sizes 7 to 10 with no value even though the same household_size index runs to 10 in the sibling tables. The post-fix table adds keys 7 to 10 at 205.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.88,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-752ee8e2-a2377532e9dd",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -287,11 +334,10 @@
     "verifier_notes": "Corroborating source line (from the added proof atom and confirmed verbatim in the pinned corpus release us-rulespec-2026-07-13, provision line 208): \"excerpt: Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205\". Caveats a reviewer should weigh: (1) the commit subject (\"Reencode SNAP utility delegated settings\") and PR #402 body say nothing about the standard deduction — they only describe aligning with the delegated-setting `sets` shape from axiom-encode#613, so this meaning change is an unannounced byproduct of a full re-encode; (2) most of the 1012-line diff is not a defect fix — the new `sets_snap_*` source_relation rules and the three `snap_*_utility_allowance_state_value` derived rules are new output surface the module never claimed (per the task rules, enhancement, not a defect), and the rest is re-serialization plus excerpt/source-string provenance edits with unchanged values (SUA 314-419, BUA 126, telephone 25, homeless 143, all Table VIII tables identical); (3) the fix only extends to key 10, so a household of 11+ still hits MissingParameterValue — it mirrors the module's 1-10 index convention (the source's V-A/V-B/telephone/VII tables say \"10 or more\" and are likewise truncated at 10), so the \"6+\" clause is closed only within that domain; (4) the regenerated test file adds no size-7 standard-deduction assertion, so nothing enforces the corrected cells. If a reviewer rejects \"missing key raises an error\" as a fidelity disagreement (as opposed to incomplete coverage), the nearest alternative kind is wrong_entity_or_scope (household-size domain too narrow); I judged unrepresented_clause correct because the task rules assign \"adds coverage the source requires\" to that kind.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Re-encode of merged CA/CO/NC/SC/TN SNAP utility allowance modules to correct their delegation structure; PR #402: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Adds sets_* source_relation rules and per-allowance parameter rules ($594/$377/$71/$97 with effective_from 2025-10-01)."
+    "screen_reason": "Re-encode of merged CA/CO/NC/SC/TN SNAP utility allowance modules to correct their delegation structure; PR #402: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Adds sets_* source_relation rules and per-allowance parameter rules ($594/$377/$71/$97 with effective_from 2025-10-01).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision WAS read, via resolve_provision.py for us-tn/regulation/1240-01/04/27/block-1 (exit 0, 3368 chars). Verbatim source text: 'Table IV-A Standard Deduction\\n\\nHousehold Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205'. Tables I, II and III in the same provision are keyed 'No. of Persons in Household 1 2 3 4 5 6 7 8 9 10' and Tables V-A/V-B run to '10 or more', so the module's shared `household_size` index demonstrably reaches 10; the pre-fix standard-deduction table's keys 1-6 therefore left 7, 8, 9 and 10 unresolvable. The fix adds 7: 205, 8: 205, 9: 205, 10: 205, which is exactly what '6+' requires, and adds the corresponding proof excerpt quoted above. This is the only value-level change anywhere in the five modules of this chunk. CAVEATS for a reviewer: (a) the commit subject 'Reencode SNAP utility delegated settings' and the PR body say nothing about the standard deduction, so the message is generic and I capped confidence at 0.6 per the calibration rule; (b) my description_quote is an `excerpt:` string added by this diff inside the module's proof metadata, not a literal YAML comment and not a maintainer statement — I chose quote_source 'module_comment' as the closest available value and flag the imprecision here rather than fabricate a maintainer quote; (c) the fix is incomplete in the same direction, since '6+' is open-ended but the table now stops at 10, so a household of 11+ is still unresolved unless the runtime clamps to the max key — NC in this same commit solves the analogous problem with an explicit cap rule instead (see index 2), and the inconsistency suggests a possible follow-up; (d) an alternative reading is that the pre-fix encoding relied on an implicit top-key clamp in the runtime, in which case this is a no-op and the entry should be pruned to mechanical — I did not read the engine's indexed-lookup semantics, so I cannot rule that out. Everything else in this 1012-line diff is the same plumbing pattern as indices 0/2/3: three `sets_*` source_relation rules, three passthrough `*_state_value` derived rules (SUA indexed by household_size, BUA and telephone as scalars), `imports: [us:regulations/7-cfr/273/9]`, YAML reflow, a rewritten summary, rule-level `source:` strings shortened (e.g. 'Table I \"For each additional member add $406\"' to 'Table I'), proof `table.row_key`/`column_key` changed from snake_case invented labels to the source's literal header text ('No. of Persons in Household', 'Gross Income Standard'), two previously empty proof atoms given excerpts, and long AFDC excerpts elided with '...'. All other tables (gross income, max net income, coupon allotment, SUA, BUA 126, telephone 25, homeless 143, shelter 458, the three 20-row AFDC tables, minimum AFDC payment 10) and every effective_from '0001-01-01' are unchanged. | verifier confirmed at 0.72",
-  "family_id": "us-752ee8e2-a2377532e9dd",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision WAS read, via resolve_provision.py for us-tn/regulation/1240-01/04/27/block-1 (exit 0, 3368 chars). Verbatim source text: 'Table IV-A Standard Deduction\\n\\nHousehold Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205'. Tables I, II and III in the same provision are keyed 'No. of Persons in Household 1 2 3 4 5 6 7 8 9 10' and Tables V-A/V-B run to '10 or more', so the module's shared `household_size` index demonstrably reaches 10; the pre-fix standard-deduction table's keys 1-6 therefore left 7, 8, 9 and 10 unresolvable. The fix adds 7: 205, 8: 205, 9: 205, 10: 205, which is exactly what '6+' requires, and adds the corresponding proof excerpt quoted above. This is the only value-level change anywhere in the five modules of this chunk. CAVEATS for a reviewer: (a) the commit subject 'Reencode SNAP utility delegated settings' and the PR body say nothing about the standard deduction, so the message is generic and I capped confidence at 0.6 per the calibration rule; (b) my description_quote is an `excerpt:` string added by this diff inside the module's proof metadata, not a literal YAML comment and not a maintainer statement — I chose quote_source 'module_comment' as the closest available value and flag the imprecision here rather than fabricate a maintainer quote; (c) the fix is incomplete in the same direction, since '6+' is open-ended but the table now stops at 10, so a household of 11+ is still unresolved unless the runtime clamps to the max key — NC in this same commit solves the analogous problem with an explicit cap rule instead (see index 2), and the inconsistency suggests a possible follow-up; (d) an alternative reading is that the pre-fix encoding relied on an implicit top-key clamp in the runtime, in which case this is a no-op and the entry should be pruned to mechanical — I did not read the engine's indexed-lookup semantics, so I cannot rule that out. Everything else in this 1012-line diff is the same plumbing pattern as indices 0/2/3: three `sets_*` source_relation rules, three passthrough `*_state_value` derived rules (SUA indexed by household_size, BUA and telephone as scalars), `imports: [us:regulations/7-cfr/273/9]`, YAML reflow, a rewritten summary, rule-level `source:` strings shortened (e.g. 'Table I \"For each additional member add $406\"' to 'Table I'), proof `table.row_key`/`column_key` changed from snake_case invented labels to the source's literal header text ('No. of Persons in Household', 'Gross Income Standard'), two previously empty proof atoms given excerpts, and long AFDC excerpts elided with '...'. All other tables (gross income, max net income, coupon allotment, SUA, BUA 126, telephone 25, homeless 143, shelter 458, the three 20-row AFDC tables, minimum AFDC payment 10) and every effective_from '0001-01-01' are unchanged. | verifier confirmed at 0.72"
 }

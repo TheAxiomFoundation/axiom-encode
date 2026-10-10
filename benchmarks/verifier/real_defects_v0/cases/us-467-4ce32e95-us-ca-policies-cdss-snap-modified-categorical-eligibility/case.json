@@ -154,8 +154,8 @@
   },
   "pre_fix_artifact_sha256": "2abfefc07238748bf03cf175097c312ff3d963af0034e948f7f45641aa39732d",
   "post_fix_artifact_sha256": "e119bb7abc2dd05d698b41e854a7b9c4a1b17e00defd559ee0258958beea5c71",
-  "provision_sha256": "6d449e85065884251b743c955a88d78adec29e444e3762d1f9608580efddc615",
-  "provision_chars": 1154,
+  "provision_sha256": "09545e90db1fa3781bd842175150f18e0dbf3aad218fd21ce4a7e3436c5d5227",
+  "provision_chars": 155118,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-ca/statute/wic/18901.5",
@@ -242,7 +242,34 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "6d449e85065884251b743c955a88d78adec29e444e3762d1f9608580efddc615",
+    "first_citation_chars": 1154,
+    "added": [
+      {
+        "citation_path": "us/regulation/7/273/2",
+        "text_sha256": "5170032c722b16cdaec6ae942be6f7b5cb2bb18bfb564b2813551e940cc2dadc",
+        "chars": 153882,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/regulation/7/273/2",
+          "provision_file": "data/corpus/provisions/us/regulation/2026-05-10-snap-7-cfr-273-r2026-07-15-self-contained.jsonl",
+          "provision_file_sha256": "de25d2b32f261e92405a553f65dfc90b47b032a4d1a80b1b585857b7fd342d1e",
+          "line_number": 7,
+          "record_id": "b0cc3cc4-1c8d-50c6-b9d1-99e4660b1de1",
+          "stored_body_sha256": "5170032c722b16cdaec6ae942be6f7b5cb2bb18bfb564b2813551e940cc2dadc",
+          "resolved_text_sha256": "5170032c722b16cdaec6ae942be6f7b5cb2bb18bfb564b2813551e940cc2dadc",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-04-29",
+          "source_as_of": "2026-04-29",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -262,7 +289,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -273,7 +300,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -295,7 +322,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -306,7 +333,7 @@
           "calfresh_mce_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -317,7 +344,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -339,7 +366,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -350,7 +377,7 @@
           "calfresh_mce_member_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -361,7 +388,7 @@
           "calfresh_mce_federal_drug_felony_exclusion_before_state_opt_out.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -372,7 +399,7 @@
           "calfresh_mce_household_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/regulation/7/273/2",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -397,7 +424,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -417,17 +444,63 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 13,
-    "post_side_matched": 0,
+    "post_side_matched": 9,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/regulation/7/273/2",
+        "quote": "(D) Any member of that household is ineligible under § 273.11(m) by virtue of a conviction for a drug-related felony, ... or under § 273.11(s) for having a conviction of certain crimes and not being in compliance with the sentence.",
+        "span": [
+          118295,
+          118601
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "7 CFR 273.2(j)(2)(vii)(D) says one member must both have the conviction and be out of compliance with the sentence. The pre-fix rule ANDed two separate household-wide facts (some member convicted, some member noncompliant), so it fires when member A is convicted and member B is noncompliant. The post-fix rule tests the conjunction for each member and then aggregates. provision.txt (WIC 18901.5) does not mention these bars.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4ce32e95-8e202d85405d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -441,11 +514,10 @@
     "verifier_notes": "Verified against the pinned release (corpus_release us-rulespec-2026-07-24-snap-cms-pit-union, corpus_commit 0fd35bfbda98836c406ec539a492c4e661c6695d, provision us/regulation/7/273/2): \"(D) Any member of that household is ineligible under § 273.11(m) ... or under § 273.11(s) for having a conviction of certain crimes and not being in compliance with the sentence.\" Refutations tried and rejected: (1) mechanical — no, `entity: Household` -> `entity: Person` on calfresh_wic_18901_3_drug_felony_opt_out_applies, calfresh_mce_federal_drug_felony_exclusion_before_state_opt_out, and the renamed member rule, plus formula rewrites; the upstream_source_check block is only the metadata part of the diff. (2) not_a_defect/new coverage — no, the pre-fix rule already carried a proof atom quoting the exact § 273.11(s) clause, so the module claimed that meaning. (3) polarity_or_logic — no operator was inverted or recombined; only the quantification entity changed, and the kind list explicitly places \"household member set\" under wrong_entity_or_scope; the commit subject is \"fix(ca): validate CalFresh MCE source scope\". Scoping caveat for the corpus: the serious-crime conjunction is the ONLY clause whose truth value actually changes. The IPV/monthly-reporting/fleeing-felon/probation clauses are disjunctions of existentials and flatten equivalently; the head-of-household clause becomes member_is_household_head and member_disqualified_for_work_requirement_noncompliance, equivalent to the old household-level input; the drug-felony branch is inert in both versions because calfresh_wic_18901_3_drug_felony_opt_out_applies has `formula: true` before and after; and the (vii)(B) workfare clause is correctly hoisted to the household rule since the source says \"The entire household is disqualified\". Anchor the corpus entry on rules[calfresh_mce_member_household_exclusion_applies].versions[0].formula (serious-crime conjunction), which matches the first reader's rule_path. Separately: module index 0 of this same commit (us-ca/policies/cdss/snap/fy-2026-benefit-calculation.yaml) adds nothing but the upstream_source_check metadata block and should be scored mechanical if scored as its own case. All commands run were read-only (git show, cat, sed, grep on a single file, resolve_provision.py).",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read: I resolved us/regulation/7/273/2 through the pinned corpus and confirmed (vii)(A)/(D) are 'any member' tests, (B) is 'the entire household is disqualified ... workfare', and (C) is 'the head of the household'. The fix re-levels entity Household -> Person on calfresh_wic_18901_3_drug_felony_opt_out_applies, calfresh_mce_federal_drug_felony_exclusion_before_state_opt_out, and the renamed calfresh_mce_member_household_exclusion_applies, then aggregates with count_where(calfresh_mce_member_of_household, ...) > 0 in the household-level rule that takes over the old name calfresh_mce_household_exclusion_applies; note the rename shuffle (old calfresh_mce_drug_felony_exclusion_applies deleted, old calfresh_mce_household_exclusion_applies renamed to ..._member_household_...), so diff line matching is misleading without reading both file versions. Decisive evidence is the new companion case 'different_members_cannot_split_serious_crime_conviction_and_sentence_noncompliance' (member 1 has the conviction, member 2 is out of compliance, expected calfresh_mce_household_exclusion_applies: not_holds), which the pre-fix formula would have failed; two more new cases (federal_drug_felony_member_exclusion_exists_before_the_state_opt_out, member_ipv_bar_applies_before_household_aggregation) pin the member-level layer. PROGRESS.md in the same commit states verbatim: 'Moved all member-triggered paragraph-(vii) bars to `Person` scope and aggregates them through the MCE household relation; only the whole-household workfare bar remains a direct household fact. This both matches source scope and prevents split-witness false positives.' — I did not use it as description_quote because PROGRESS.md is not one of the allowed quote sources; the commit subject's 'source scope' is the in-scope paraphrase of the same thing. Secondary changes bundled here: the added upstream_source_check block (provenance, mechanical), one proof atom moved between rules, and removal of the intermediate calfresh_mce_drug_felony_exclusion_applies, described in PROGRESS.md as 'Removed the unreachable current-law effective drug-felony intermediate' — that removal is behaviour-neutral today because calfresh_wic_18901_3_drug_felony_opt_out_applies is the constant `true`, so the drug-felony branch was and remains dead under current California law; the live defect corrected is the serious-crime split witness. Single-predicate bars (IPV, monthly reporting, fleeing felon, probation/parole) and the head-of-household work bar are semantically unchanged by the re-leveling. An alternative kind of polarity_or_logic is defensible (any(A) and any(B) vs any(A and B)), but the entity fields literally changed and the message says 'scope', so wrong_entity_or_scope is the better fit. | verifier confirmed at 0.88",
-  "family_id": "us-4ce32e95-8e202d85405d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read: I resolved us/regulation/7/273/2 through the pinned corpus and confirmed (vii)(A)/(D) are 'any member' tests, (B) is 'the entire household is disqualified ... workfare', and (C) is 'the head of the household'. The fix re-levels entity Household -> Person on calfresh_wic_18901_3_drug_felony_opt_out_applies, calfresh_mce_federal_drug_felony_exclusion_before_state_opt_out, and the renamed calfresh_mce_member_household_exclusion_applies, then aggregates with count_where(calfresh_mce_member_of_household, ...) > 0 in the household-level rule that takes over the old name calfresh_mce_household_exclusion_applies; note the rename shuffle (old calfresh_mce_drug_felony_exclusion_applies deleted, old calfresh_mce_household_exclusion_applies renamed to ..._member_household_...), so diff line matching is misleading without reading both file versions. Decisive evidence is the new companion case 'different_members_cannot_split_serious_crime_conviction_and_sentence_noncompliance' (member 1 has the conviction, member 2 is out of compliance, expected calfresh_mce_household_exclusion_applies: not_holds), which the pre-fix formula would have failed; two more new cases (federal_drug_felony_member_exclusion_exists_before_the_state_opt_out, member_ipv_bar_applies_before_household_aggregation) pin the member-level layer. PROGRESS.md in the same commit states verbatim: 'Moved all member-triggered paragraph-(vii) bars to `Person` scope and aggregates them through the MCE household relation; only the whole-household workfare bar remains a direct household fact. This both matches source scope and prevents split-witness false positives.' — I did not use it as description_quote because PROGRESS.md is not one of the allowed quote sources; the commit subject's 'source scope' is the in-scope paraphrase of the same thing. Secondary changes bundled here: the added upstream_source_check block (provenance, mechanical), one proof atom moved between rules, and removal of the intermediate calfresh_mce_drug_felony_exclusion_applies, described in PROGRESS.md as 'Removed the unreachable current-law effective drug-felony intermediate' — that removal is behaviour-neutral today because calfresh_wic_18901_3_drug_felony_opt_out_applies is the constant `true`, so the drug-felony branch was and remains dead under current California law; the live defect corrected is the serious-crime split witness. Single-predicate bars (IPV, monthly reporting, fleeing felon, probation/parole) and the head-of-household work bar are semantically unchanged by the re-leveling. An alternative kind of polarity_or_logic is defensible (any(A) and any(B) vs any(A and B)), but the entity fields literally changed and the message says 'scope', so wrong_entity_or_scope is the better fit. | verifier confirmed at 0.88"
 }

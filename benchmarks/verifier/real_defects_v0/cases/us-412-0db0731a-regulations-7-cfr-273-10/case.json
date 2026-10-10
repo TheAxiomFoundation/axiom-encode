@@ -63,6 +63,7 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -130,7 +131,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/regulation/7/273/10",
+        "quote": "The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar."
+      }
+    ],
+    "why": "This is the closest passage, and it does not discriminate. The pre-fix input name `snap_maximum_allotment_for_one_person_household` says what the text says, arguably more closely than the post-fix `snap_one_person_thrifty_food_plan_cost`. The defect is that the symbol is never defined anywhere in the corpus, and the provision cannot show that.",
+    "missing_basis": "The imported module us:policies/usda/snap/fy-2026-cola/maximum-allotments (FY2026 COLA guidance), which defines `snap_one_person_thrifty_food_plan_cost` as the table's one-person entry; the defect is a dangling, ungrounded input, not a mismatch with the regulation text.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-0db0731a-398cd98282ca",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -144,11 +184,10 @@
     "verifier_notes": "Verification trail: the pinned corpus release us-sc-snap-2026-07-15 (provision file data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl, line 15) contains the (e)(2)(ii)(C) sentence verbatim, and the rule's existing proof excerpt matches it exactly, so the module's cited basis was already correct while its base symbol was not bound to it. The companion test diff deletes the five orphan `us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298` fixture lines, confirming the old symbol lived only in fixtures. `snap_one_person_thrifty_food_plan_cost` and the `us:policies/usda/snap/fy-2026-cola/maximum-allotments` import both pre-existed at the parent commit, so this commit only re-points an ungrounded symbol at an existing canonical rule. Residual tension for a reviewer: the removed symbol's NAME describes exactly the source concept, so one could argue this was broken import wiring rather than a mis-stated meaning — that is the main reason confidence is 0.8 rather than higher, and the fallback kind would be `other` (dangling/ungrounded input) rather than any of the other listed kinds. Secondary observation, not part of the verdict: the post-fix rule still carries no `kind: import` proof atom for the new base, unlike the neighboring snap_excess_shelter_deduction_for_net_income rule which has both a formula atom and an import atom, so provenance coverage for this rule remains thinner than its siblings.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single-module commit; the only module hunk is the one-symbol operand swap at rules[snap_minimum_benefit].versions[0].formula (line 410): `floor((snap_maximum_allotment_for_one_person_household * snap_minimum_benefit_rate) + 0.5)` -> `floor((snap_one_person_thrifty_food_plan_cost * snap_minimum_benefit_rate) + 0.5)`. Provision WAS read through the pinned corpus release (us/regulation/7/273/10): 273.10(e)(2)(ii)(C) reads \"The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar.\" Verified with `git grep` at the parent commit that `snap_maximum_allotment_for_one_person_household` appears ONLY in 273/10.yaml and in test files -- it is an orphan free input with no defining rule and no import proof atom -- while `snap_one_person_thrifty_food_plan_cost` already existed at the parent in policies/usda/snap/fy-2026-cola/maximum-allotments.yaml as `snap_maximum_allotment_table[1]`. Because table[1] = 298 equals the value the fixtures injected, the test file change is pure deletion (0 added, 5 removed lines) with no expected-output changes; the behavioral effect shows up outside the fixtures, which matches the PR's \"NY SNAP ECPS comparison now has 92/92 eligibility matches; the prior ecps-9901 minimum-benefit mismatch is gone\". Kind judgment: the rubric's untraceable_branch covers \"a value with no basis in the cited source (the fix removes or re-grounds it)\"; a reviewer could alternatively read this as a wiring/dangling-input defect ('other'), which is the only reason confidence is not higher. Also changed in the commit but outside this module: the test file and .axiom/encoding-manifests/regulations/7-cfr/273/10.json (encoder version/hash/signature bookkeeping only). No proof atom was added for the new import; the atom list for snap_minimum_benefit is unchanged. Later commits touching this module: acd3fdc7f 'Repair SNAP income eligibility backbone' and 86ec136fd (path move to us/). | verifier confirmed at 0.80",
-  "family_id": "us-0db0731a-398cd98282ca",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single-module commit; the only module hunk is the one-symbol operand swap at rules[snap_minimum_benefit].versions[0].formula (line 410): `floor((snap_maximum_allotment_for_one_person_household * snap_minimum_benefit_rate) + 0.5)` -> `floor((snap_one_person_thrifty_food_plan_cost * snap_minimum_benefit_rate) + 0.5)`. Provision WAS read through the pinned corpus release (us/regulation/7/273/10): 273.10(e)(2)(ii)(C) reads \"The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar.\" Verified with `git grep` at the parent commit that `snap_maximum_allotment_for_one_person_household` appears ONLY in 273/10.yaml and in test files -- it is an orphan free input with no defining rule and no import proof atom -- while `snap_one_person_thrifty_food_plan_cost` already existed at the parent in policies/usda/snap/fy-2026-cola/maximum-allotments.yaml as `snap_maximum_allotment_table[1]`. Because table[1] = 298 equals the value the fixtures injected, the test file change is pure deletion (0 added, 5 removed lines) with no expected-output changes; the behavioral effect shows up outside the fixtures, which matches the PR's \"NY SNAP ECPS comparison now has 92/92 eligibility matches; the prior ecps-9901 minimum-benefit mismatch is gone\". Kind judgment: the rubric's untraceable_branch covers \"a value with no basis in the cited source (the fix removes or re-grounds it)\"; a reviewer could alternatively read this as a wiring/dangling-input defect ('other'), which is the only reason confidence is not higher. Also changed in the commit but outside this module: the test file and .axiom/encoding-manifests/regulations/7-cfr/273/10.json (encoder version/hash/signature bookkeeping only). No proof atom was added for the new import; the atom list for snap_minimum_benefit is unchanged. Later commits touching this module: acd3fdc7f 'Repair SNAP income eligibility backbone' and 86ec136fd (path move to us/). | verifier confirmed at 0.80"
 }

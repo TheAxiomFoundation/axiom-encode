@@ -88,8 +88,8 @@
   },
   "pre_fix_artifact_sha256": "d6747bd2a87c8e315ad309a08632efaad69c4e621d22d383bc83833e859cffe9",
   "post_fix_artifact_sha256": "6061eee3994dd483776a8413e90289072a883b89098b5d5b98feedf8588766c9",
-  "provision_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
-  "provision_chars": 477,
+  "provision_sha256": "b8cfeeba965aef88b867a24d256e4379e22669c33b9088986498860cac2a5a01",
+  "provision_chars": 12923,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/9903.01.13",
@@ -176,7 +176,54 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "first_citation_chars": 477,
+    "added": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-174",
+        "text_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+        "chars": 6207,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-174",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 184,
+          "record_id": "d03e745a-fbae-5f19-9014-d498ec2e453c",
+          "stored_body_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+          "resolved_text_sha256": "29a067fce87385a044d3e8eed42f17c2332e6be42756da78d1dd7c2d4a674f92",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-175",
+        "text_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+        "chars": 6091,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-175",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 185,
+          "record_id": "1c5fb19a-f791-505b-a9d8-a9a27628acc7",
+          "stored_body_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+          "resolved_text_sha256": "b8505f63805d929872ed7be902021e726fbc180a6cfacdc0a1d4b964fda7ac89",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -196,7 +243,7 @@
           "fentanyl_energy_additional_duty_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-174",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -207,7 +254,7 @@
           "fentanyl_energy_transshipment_in_lieu_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-175",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -218,7 +265,7 @@
           "fentanyl_energy_additional_duty_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-175",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -229,7 +276,7 @@
           "fentanyl_energy_transshipment_in_lieu_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-175",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -295,7 +342,7 @@
           "fentanyl_energy_additional_duty_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-174",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -317,7 +364,7 @@
           "fentanyl_energy_chapter_98_exclusion_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-174",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -328,7 +375,7 @@
           "fentanyl_energy_additional_duty_applies.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-174",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -353,7 +400,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -373,7 +420,7 @@
         "where": [
           "triage.pre_fix_wrong_because"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -383,7 +430,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -393,17 +440,71 @@
         "where": [
           "triage.pre_fix_wrong_because"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 10,
-    "post_side_matched": 0,
+    "post_side_matched": 8,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-174",
+        "quote": "shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule pursuant to applicable regulations of U.S. Customs and Border Protection (\"CBP\"), and whenever CBP agrees that entry under such a provision is appropriate",
+        "span": [
+          1834,
+          2104
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-175",
+        "quote": "products of Canada that do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA) and are determined by U.S. Customs and Border Protection",
+        "span": [
+          10619,
+          10796
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Note 2(j) grants the chapter 98 exclusion only when CBP also agrees the entry is appropriate. Note 2(m) moves goods to the 40% in-lieu rate only if they are non-USMCA-originating as well as found to be transshipped. The pre-fix formulas test only the chapter 98 claim and only the transshipment finding, dropping both conjuncts. provision.txt (heading 9903.01.13: product list and rates) covers neither exception.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.92,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-1716a4a0-5fb424915344",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -417,11 +518,10 @@
     "verifier_notes": "Refutation attempts that failed: (1) \"mechanical/excerpt-only\" — the excerpt extensions on both proof atoms are indeed provenance-only, but two formula bodies changed and a new derived judgment rule was added, so the change is not excerpt-only; (2) \"not_a_defect / new coverage\" — the module's pre-fix summary already asserted both the note 2(j) chapter 98 exclusion and the note 2(m) in-lieu carve-out, so the omitted conjuncts are missing parts of claims the module made, not new scope; (3) \"polarity_or_logic\" — no boolean was inverted or mis-combined, conjuncts the source states were simply absent, which is unrepresented_clause by the given definitions. One caveat worth a reviewer's eye: for the main rule fentanyl_energy_additional_duty_applies, the new non-USMCA conjunct is partly shadowed by the pre-existing \"and not article_is_usmca_duty_free_good\" conjunct, so the transshipment half of the fix may be behaviorally near-inert on that one output (it is live on the new fentanyl_energy_transshipment_in_lieu_applies judgment, and the two predicates are not identical — USMCA-originating is not the same as claiming USMCA duty-free treatment under 9903.01.14). The chapter 98 CBP-agreement conjunct has no such shadow and is unambiguously live, which alone carries the confirmed verdict. Note the first reader's quote is from the commit body and is verbatim; the PR (#1195) predates the fix and says nothing about these antecedents, so the commit message is the only narrative evidence, but the diff plus corpus text is self-sufficient.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Subject says Encode but body: \"Sol r4 found two omitted antecedents\" — existing chapter 98 exclusion judgment gains the missing CBP-agreement conjunct; transshipment gains the non-USMCA conjunct (PR #1195)."
+    "screen_reason": "Subject says Encode but body: \"Sol r4 found two omitted antecedents\" — existing chapter 98 exclusion judgment gains the missing CBP-agreement conjunct; transshipment gains the non-USMCA conjunct (PR #1195).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release (us/statute/hts/chapter-99/page-174 for note 2(j), page-175 for note 2(m)); both omitted antecedents are verbatim in the source, so this is a confirmed fidelity defect, not a scope expansion. Two distinct defects in one module, both of the same kind (a required conjunct absent from the encoding): (1) rules[fentanyl_energy_chapter_98_exclusion_applies].versions[0].formula gains `and cbp_agrees_chapter_98_entry_is_appropriate`; (2) a new rule fentanyl_energy_transshipment_in_lieu_applies = `not article_qualifies_as_usmca_originating and article_is_cbp_determined_transshipped_to_evade` replaces the bare `not article_is_cbp_determined_transshipped_to_evade` conjunct in rules[fentanyl_energy_additional_duty_applies].versions[0].formula. Direction of pre-fix error: both omissions made the exclusions fire too readily, so goods that the source keeps subject to the 10% additional duty were let out (a USMCA-originating but CBP-determined-transshipped article escaped .13 without landing in .16's 40% in-lieu rate; a chapter 98 claim without CBP agreement escaped the duty). Also changed in the same module, but provenance-only and not defect-bearing on their own: the module summary sentence and three proof-atom excerpt strings extended to the full source sentences. Non-module files in the commit (the .test.yaml with two new witness cases, the encoding manifest, and oracle-coverage-pending.yaml ledger +1 to 2289) are companion/bookkeeping. The PR body (#1195) is the umbrella PR description for the three-overlay encode and does not itself describe this defect; no PR reviews or review comments exist in the bundle, so the commit message is the only quotable statement of the defect. | verifier confirmed at 0.94",
-  "family_id": "us-1716a4a0-5fb424915344",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/hts/chapter-99/page-174 for note 2(j), page-175 for note 2(m)); both omitted antecedents are verbatim in the source, so this is a confirmed fidelity defect, not a scope expansion. Two distinct defects in one module, both of the same kind (a required conjunct absent from the encoding): (1) rules[fentanyl_energy_chapter_98_exclusion_applies].versions[0].formula gains `and cbp_agrees_chapter_98_entry_is_appropriate`; (2) a new rule fentanyl_energy_transshipment_in_lieu_applies = `not article_qualifies_as_usmca_originating and article_is_cbp_determined_transshipped_to_evade` replaces the bare `not article_is_cbp_determined_transshipped_to_evade` conjunct in rules[fentanyl_energy_additional_duty_applies].versions[0].formula. Direction of pre-fix error: both omissions made the exclusions fire too readily, so goods that the source keeps subject to the 10% additional duty were let out (a USMCA-originating but CBP-determined-transshipped article escaped .13 without landing in .16's 40% in-lieu rate; a chapter 98 claim without CBP agreement escaped the duty). Also changed in the same module, but provenance-only and not defect-bearing on their own: the module summary sentence and three proof-atom excerpt strings extended to the full source sentences. Non-module files in the commit (the .test.yaml with two new witness cases, the encoding manifest, and oracle-coverage-pending.yaml ledger +1 to 2289) are companion/bookkeeping. The PR body (#1195) is the umbrella PR description for the three-overlay encode and does not itself describe this defect; no PR reviews or review comments exist in the bundle, so the commit message is the only quotable statement of the defect. | verifier confirmed at 0.94"
 }

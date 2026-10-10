@@ -208,6 +208,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -304,7 +305,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/9903.02.56",
+        "quote": "This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964",
+        "span": [
+          566,
+          640
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The compiler's note states the heading was terminated on November 14, 2025. Every pre-fix rule version runs open-ended from 2025-08-07, so the +15% keeps applying after termination. The post-fix ends all versions at 2025-11-13.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-75a36778-366b00161c98",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -318,11 +365,10 @@
     "verifier_notes": "Refutation attempts and residual risk for the reviewer. (1) Mechanical? No — nine `effective_to` additions at `versions[0]`, verified by diffing pre/post: pre-fix every rule had `effective_from: '2025-08-07'` with no `effective_to`; post-fix every one has `effective_to: '2025-11-13'`. (2) Enhancement rather than correction? No — the pre-fix summary line already stated the November 14, 2025 termination, so the module's own header disagreed with its encoded windows. (3) Boundary_direction instead? Tempting because 2025-11-13 versus a stated termination date of November 14 encodes an inclusive-end convention, but the pre-fix defect was an absent bound, not a mis-sided one; the inclusive-end choice is the fix's convention, documented in the new summary text. (4) Residual open question worth flagging, not a refutation: whether the last effective day is 2025-11-13 or 2025-11-14 depends on whether termination \"on November 14\" bites at the start or the end of that day — the compiler's note does not say, and the module asserts the start-of-day reading. Corroborating context: commit body F3 says the four superseded modules \"now carry effective_to termination matching their compiler's-note termination dates\", and the same commit (F2) completes the successor South Korea floor modules 9903.02.79/.80, so the predecessor's open-ended window would have overlapped its successor. This is module index 6 of commit 75a3677870; the same F3 pattern presumably recurs in the Japan 9903.02.30, Liechtenstein 9903.02.36, and Switzerland 9903.02.58 modules in this commit, so treat those as the same kind if they appear separately in the corpus.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read and confirms '[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]'. This is the only one of the four terminated predecessors whose end date is source-stated (effective_to 2025-11-13 as the inclusive last day), hence higher confidence than indices 2, 3, 9. The pre-fix summary already recited the termination date while the versions ran open-ended. Nine rules each gain effective_to plus an effective_period proof atom; nothing else changed. | verifier confirmed at 0.93",
-  "family_id": "us-75a36778-366b00161c98",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read and confirms '[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]'. This is the only one of the four terminated predecessors whose end date is source-stated (effective_to 2025-11-13 as the inclusive last day), hence higher confidence than indices 2, 3, 9. The pre-fix summary already recited the termination date while the versions ran open-ended. Nine rules each gain effective_to plus an effective_period proof atom; nothing else changed. | verifier confirmed at 0.93"
 }

@@ -87,8 +87,8 @@
   },
   "pre_fix_artifact_sha256": "47ec43c6cc03fb99b1d89af5de191fe270f2ac470b7af2f6e5a11a96a3edfb3e",
   "post_fix_artifact_sha256": "1a4ca8c47965b220316d028b9b07f90658e089d4e92492e945402338dad9a0f7",
-  "provision_sha256": "4b33c5daf52abf89a1adaf7dd19161723ddf4049ca541130865c6f07ba495ed0",
-  "provision_chars": 11882,
+  "provision_sha256": "478211c1d6fbdf54303d4abb3cce473ee343f78e8ed1af80d778de9f58e56cc7",
+  "provision_chars": 31958,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-ga/statute/48/48-7-26",
@@ -159,7 +159,34 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "4b33c5daf52abf89a1adaf7dd19161723ddf4049ca541130865c6f07ba495ed0",
+    "first_citation_chars": 11882,
+    "added": [
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "text_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+        "chars": 19968,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+          "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-pit-session-laws.jsonl",
+          "provision_file_sha256": "c6b232170d7be1e7ef03ed431224cc466514c8638b3da30b583b6f083d0e21cd",
+          "line_number": 8,
+          "record_id": "348081bf-ed64-51ef-b727-ff185d689469",
+          "stored_body_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+          "resolved_text_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-05-11",
+          "source_as_of": "2026-05-11",
+          "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -215,7 +242,7 @@
           "December 31, 2026",
           "31 December 2026"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -250,12 +277,66 @@
       }
     ],
     "post_side_tested": 7,
-    "post_side_matched": 0,
+    "post_side_matched": 1,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "quote": "$5,000.00 for each dependent of 70 such taxpayer; provided, however, that such deduction shall be increased by $125.00 71 annually beginning on January 1, 2027, until such deduction reaches $6,000.00",
+        "span": [
+          17729,
+          17928
+        ]
+      },
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "quote": "shall be subject to the same delays as those applied 73 to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 74 48-7-27",
+        "span": [
+          17980,
+          18134
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "HB 463 sets the dependent exemption at $5,000 but raises it by $125 a year from January 1, 2027, subject to the paragraph (1.1) delays. The pre-fix module leaves the $5,000 version open-ended, asserting $5,000 for 2027 and later. The post-fix module ends that version at 2026-12-31 and defers later years. provision.txt (codified § 48-7-26) shows only the 2003 $3,000 dependent exemption, so it cannot decide this case.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-5474dca0-0d1181d3bbdd",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -269,11 +350,10 @@
     "verifier_notes": "Decisive diff hunk (000.diff): \"      - effective_from: '2026-01-01'\" / \"+        effective_to: '2026-12-31'\" / \"        formula: |-\" / \"          5000\". The rest of the module diff is mechanical provenance: seven added proof-atom `excerpt` strings and a citation-string correction `source: O.C.G.A. § 48-7-26(b)(3)` -> `(b)`; the module summary rewrite is a comment. Those alone would be mechanical, but the effective_to line changes what the engine returns for TY2027. Verified against the pinned release: resolve_provision.py on us-ga/statute/session-laws/2026/hb463/document-1 at rulespec commit 5474dca0ea resolved corpus release us-rulespec-2026-07-22-current (corpus commit c5af541326e024e04cb533bbf5709ae04e6305f6, fix_time_corpus_match: same_body), confirming the $125.00 annual increase to $6,000.00 and the paragraph (1.1) delay tests. Runner-up kind for a reviewer: unrepresented_clause (the $125/delay proviso was absent pre-fix); I ranked it second because the fix expresses the proviso as a deferred_outputs entry plus a window bound rather than as encoded logic. Minor unverified detail: the added deferred_outputs reason says \"Act 465\" while the citation path is hb463 (bill number vs. act number); I did not verify that mapping and it does not affect the classification. The same commit applies the identical pattern to 48-7-27 standard deductions (module index 1), consistent with the PR body line \"repair Georgia PIT law through 2027\".",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10."
+    "screen_reason": "Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Verified against the pinned corpus: the 2026 HB 463 text reads '$4,000.00 $5,000.00 for each dependent; provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00 ... subject to the same delays as those applied to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 48-7-27'. Pre-fix file (git show c6db535b:us-ga/statutes/48/48-7-26.yaml) confirms versions[2] had effective_from 2026-01-01 and no effective_to. The commit body is empty; the quote is the deferred_outputs 'reason:' text added by this diff (a YAML rationale field, not a '#' comment). The same commit also makes mechanical changes in this file (source string 48-7-26(b)(3) -> 48-7-26(b), added effective-period proof-atom excerpts on unrelated personal-exemption rules); those do not change meaning. Same contingent-2027 pattern as index 1. | verifier confirmed at 0.91",
-  "family_id": "us-5474dca0-0d1181d3bbdd",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Verified against the pinned corpus: the 2026 HB 463 text reads '$4,000.00 $5,000.00 for each dependent; provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00 ... subject to the same delays as those applied to standard deductions as provided in paragraph (1.1) of subsection (a) of Code Section 48-7-27'. Pre-fix file (git show c6db535b:us-ga/statutes/48/48-7-26.yaml) confirms versions[2] had effective_from 2026-01-01 and no effective_to. The commit body is empty; the quote is the deferred_outputs 'reason:' text added by this diff (a YAML rationale field, not a '#' comment). The same commit also makes mechanical changes in this file (source string 48-7-26(b)(3) -> 48-7-26(b), added effective-period proof-atom excerpts on unrelated personal-exemption rules); those do not change meaning. Same contingent-2027 pattern as index 1. | verifier confirmed at 0.91"
 }

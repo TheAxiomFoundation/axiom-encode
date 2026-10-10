@@ -333,8 +333,8 @@
   },
   "pre_fix_artifact_sha256": "63d452f21dac93731278a5e0a4ead0fcee8f5843b115d20b8c715192155cf437",
   "post_fix_artifact_sha256": "ebd4120231e2f0eed7838e230cbc472e3347e60efeef707fdaa68ab5972d99eb",
-  "provision_sha256": "4f80d254ac62a466aa78e5a04e0dc7cfe1b4f7ff85610e1ee8dc80f975872614",
-  "provision_chars": 4824,
+  "provision_sha256": "ebd7653872b510cd06d6b26c255c0c11225babb8db7582aad03326b5aebf6f76",
+  "provision_chars": 5540,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-nj/statute/54a:1-2",
@@ -356,7 +356,54 @@
     "requested_citation_path": "us-nj/statute/54a:1-2",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "4f80d254ac62a466aa78e5a04e0dc7cfe1b4f7ff85610e1ee8dc80f975872614",
+    "first_citation_chars": 4824,
+    "added": [
+      {
+        "citation_path": "us-nj/statute/54a:6-11",
+        "text_sha256": "79a74db42e3053387251761dde1faf5af18a6d6592eb6a0ece9c060f338ca39e",
+        "chars": 223,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-nj/statute/54a:6-11",
+          "provision_file": "data/corpus/provisions/us-nj/statute/2026-07-16-pit-central-us-nj-title-54a.jsonl",
+          "provision_file_sha256": "9380644d3d7e5055241baff7188cfd8ff34d184019b3aac78ee4d9d9cb243570",
+          "line_number": 99,
+          "record_id": "bc3ab878-b022-5095-a694-8e0bf6753767",
+          "stored_body_sha256": "79a74db42e3053387251761dde1faf5af18a6d6592eb6a0ece9c060f338ca39e",
+          "resolved_text_sha256": "79a74db42e3053387251761dde1faf5af18a6d6592eb6a0ece9c060f338ca39e",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-16",
+          "source_as_of": "2026-07-16",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      },
+      {
+        "citation_path": "us-nj/statute/54a:5-2",
+        "text_sha256": "e2085a9906907928c578a8948ae4df4cc290d695155c8e495e01921c31ba6ea1",
+        "chars": 374,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-nj/statute/54a:5-2",
+          "provision_file": "data/corpus/provisions/us-nj/statute/2026-07-16-pit-central-us-nj-title-54a.jsonl",
+          "provision_file_sha256": "9380644d3d7e5055241baff7188cfd8ff34d184019b3aac78ee4d9d9cb243570",
+          "line_number": 70,
+          "record_id": "52f8b8ea-ba6b-51c6-bf8e-47626be959d5",
+          "stored_body_sha256": "e2085a9906907928c578a8948ae4df4cc290d695155c8e495e01921c31ba6ea1",
+          "resolved_text_sha256": "e2085a9906907928c578a8948ae4df4cc290d695155c8e495e01921c31ba6ea1",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-16",
+          "source_as_of": "2026-07-16",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -420,7 +467,7 @@
           "nj_pit_2026_supported_profile_applies.versions[0].formula"
         ],
         "cites": "us-nj/statute/54a:6-11",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -683,7 +730,7 @@
           "10000",
           "10,000"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -732,7 +779,7 @@
           "triage.triage_notes",
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -742,7 +789,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -757,12 +804,66 @@
       }
     ],
     "post_side_tested": 16,
-    "post_side_matched": 0,
+    "post_side_matched": 4,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-nj/statute/54a:6-11",
+        "quote": "Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income.",
+        "span": [
+          4903,
+          5098
+        ]
+      },
+      {
+        "citation_path": "us-nj/statute/54a:5-2",
+        "quote": "Losses which occur within one category of gross income may be applied against other sources of gross income within the same category of gross income during the taxable year.",
+        "span": [
+          5166,
+          5339
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "54A:6-11 excludes New Jersey Lottery winnings from gross income unless they come from a single prize over $10,000, and 54A:5-2 lets losses offset gains within the same category. The pre-fix formula adds raw nj_pit_2026_gambling_winnings to gross income with no lottery exclusion and no wagering-loss offset. The post-fix module adds the $10,000 lottery limit and splits gambling receipts from losses, and it fails such returns closed through typed holds. provision.txt (the 54A:1-2 definitions) only says excludable income is listed in chapter 6 and never mentions gambling or lottery, so it cannot decide the case.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.88,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-16dfb94d-fdfd863e935d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -776,11 +877,10 @@
     "verifier_notes": "Decisive evidence spans three places in the diff: the removal `-          + nj_pit_2026_gambling_winnings` from rules[nj_pit_2026_profile_candidate_gross_income].versions[0].formula; the new parameter `+  - name: nj_pit_2026_new_jersey_lottery_prize_exclusion_limit` with `+      - {effective_from: '2026-01-01', effective_to: '2026-12-31', formula: '10000'}` and excerpt \"New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; and the new gate line `+          and not nj_pit_2026_has_gambling_or_new_jersey_lottery_activity` in nj_pit_2026_no_deferred_income_branch_applies. Two caveats for a reviewer. (1) The remedy is a typed hold (deferral) plus a threshold parameter rather than encoding the exclusion arithmetic, so a reviewer who reads \"the fix adds it\" strictly could prefer wrong_entity_or_scope (the supported population was re-scoped); I judge unrepresented_clause better because the pre-fix output disagreed with 54A:6-11/54A:5-2 for taxpayers the module claimed to support, and the fix does add representation of the $10,000 boundary. (2) This commit is a bundle: the same formula also lost `- nj_pit_2026_exempt_us_or_nj_obligation_interest`, `- nj_pit_2026_exempt_qualified_investment_fund_dividends`, and `+ nj_pit_2026_alimony_received` (removal of caller-completed legal classifications), and the commit separately repairs MFS property/credit halving (new nj_pit_2026_mfs_property_benefit_share = 0.5 citing \"shall each be entitled to one-half of the deduction\"), medical-expense disallowances (new nj_pit_2026_profile_candidate_allowable_medical_expenses), and the 54A:11-3 shared-responsibility-tax boundary. If the corpus wants one defect per module change, this file supports several distinct fidelity entries; the gambling/lottery one is the best evidenced. Statutes read through the pinned release us-rulespec-2026-07-22-current-la-status-fix (corpus commit 01e00777cb), fix_time_corpus_match=same_body. Incidental tooling note: two sequential `git show` redirects chained with && into the scratchpad produced truncated/mixed files on the first attempt; re-running each show separately gave the correct 1654-line pre-image.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the provisions through the pinned corpus: 54A:6-11 is verbatim \"Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; 54A:5-1(g) is bare \"Gambling winnings\" and 54A:5-2 allows within-category loss offsets; 54A:3-3(c) lists the three disallowances (household/dependent care, excluded MSA distributions, self-employed health insurance) the fix now encodes; 54A:3A-17(c)/(d) give the title-interest proportion and the MFS tenants-by-entirety one-half share; 54A:4-17(c) reads \"Married couples shall file a joint return in order to claim the credit\" with the section 21(e)(3)/(4) exception the fix adds. Pre-fix citation list did not even contain 54a:6-11, 54a:11-3, or 54a:11-4. This is a multi-defect repair round and one kind had to be chosen: unrepresented_clause covers the largest group (missing lottery exclusion and loss netting, missing 54A:3-3(c) disallowances, missing MFS half-share and title-interest proportion, missing CDCC married-living-apart exception, missing 54A:4-17.1 joint-return bar). Two other findings arguably fall elsewhere: the new `nj_pit_2026_service_remuneration_excludes_employer_housing_value` guard fixes a double-count (employer-furnished housing was both inside total service remuneration and added again as its own gross-income term), and the new 54A:11-3/11-4 typed hold plus `nj_pit_2026_total_return_tax_liability` deferred output is a wrong_entity_or_scope-style correction (the net output was presented as a return-level candidate without the separate State shared responsibility tax). Note the remedy for gambling/alimony/exempt-interest/qualified-fund facts is removal plus a typed hold rather than encoding the clause, so the post-fix module is narrower; the pre-fix defect is still real because those facts were inside the claimed supported profile and produced a wrong number. The commit body is empty, so the quote is from the PR body. The five-way split of `nj_pit_2026_input_domain_is_valid` into filing/income/deferred-income/deduction/property sub-rules is structural, not itself a defect. Follow-up commit 15f982991 \"Complete New Jersey credit boundary coverage\" in the same PR also touches this file; the PR records the final reviewed head as 15f982991ad36e24a6472d1a03c9ce0a640d5d4c. PR has no review or comment records in the bundle (reviews/review_comments/issue_comments all empty), so the findings list in the PR body is the only reviewer evidence. | verifier confirmed at 0.80",
-  "family_id": "us-16dfb94d-fdfd863e935d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the provisions through the pinned corpus: 54A:6-11 is verbatim \"Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; 54A:5-1(g) is bare \"Gambling winnings\" and 54A:5-2 allows within-category loss offsets; 54A:3-3(c) lists the three disallowances (household/dependent care, excluded MSA distributions, self-employed health insurance) the fix now encodes; 54A:3A-17(c)/(d) give the title-interest proportion and the MFS tenants-by-entirety one-half share; 54A:4-17(c) reads \"Married couples shall file a joint return in order to claim the credit\" with the section 21(e)(3)/(4) exception the fix adds. Pre-fix citation list did not even contain 54a:6-11, 54a:11-3, or 54a:11-4. This is a multi-defect repair round and one kind had to be chosen: unrepresented_clause covers the largest group (missing lottery exclusion and loss netting, missing 54A:3-3(c) disallowances, missing MFS half-share and title-interest proportion, missing CDCC married-living-apart exception, missing 54A:4-17.1 joint-return bar). Two other findings arguably fall elsewhere: the new `nj_pit_2026_service_remuneration_excludes_employer_housing_value` guard fixes a double-count (employer-furnished housing was both inside total service remuneration and added again as its own gross-income term), and the new 54A:11-3/11-4 typed hold plus `nj_pit_2026_total_return_tax_liability` deferred output is a wrong_entity_or_scope-style correction (the net output was presented as a return-level candidate without the separate State shared responsibility tax). Note the remedy for gambling/alimony/exempt-interest/qualified-fund facts is removal plus a typed hold rather than encoding the clause, so the post-fix module is narrower; the pre-fix defect is still real because those facts were inside the claimed supported profile and produced a wrong number. The commit body is empty, so the quote is from the PR body. The five-way split of `nj_pit_2026_input_domain_is_valid` into filing/income/deferred-income/deduction/property sub-rules is structural, not itself a defect. Follow-up commit 15f982991 \"Complete New Jersey credit boundary coverage\" in the same PR also touches this file; the PR records the final reviewed head as 15f982991ad36e24a6472d1a03c9ce0a640d5d4c. PR has no review or comment records in the bundle (reviews/review_comments/issue_comments all empty), so the findings list in the PR body is the only reviewer evidence. | verifier confirmed at 0.80"
 }

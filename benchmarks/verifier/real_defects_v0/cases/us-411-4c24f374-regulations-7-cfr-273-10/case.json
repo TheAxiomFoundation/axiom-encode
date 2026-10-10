@@ -67,6 +67,7 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -125,7 +126,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/regulation/7/273/10",
+        "quote": "the household's monthly allotment shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income"
+      }
+    ],
+    "why": "This is the closest passage, and it does not discriminate. The pre-fix input `snap_maximum_allotment_for_household_size` names exactly what the text requires. Its fault is being an unbound caller input, not tied to the published table; the post-fix `snap_maximum_allotment` comes from an import whose source is not in the bundle.",
+    "missing_basis": "The imported module us:policies/usda/snap/fy-2026-cola/maximum-allotments and its source, the FNS FY2026 COLA guidance (household-size allotment table), which neither the bundle nor provision.txt contains.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-4c24f374-10f16ad5280f",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -139,11 +179,10 @@
     "verifier_notes": "Evidence trail: module diff also adds `+  - us:policies/usda/snap/fy-2026-cola/maximum-allotments` to `imports`. The test diff is the decisive proof that the pre-fix symbol was an undefined free input rather than an imported rule: `-    us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_household_size: 298` becomes `+    us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1`. `policies/usda/snap/fy-2026-cola/maximum-allotments.yaml` already existed at the parent commit 4e7910fe23, so the canonical size-indexed table was available and simply unwired. Provision text read through corpus release us-sc-snap-2026-07-15 (body sha256 c23a70d7...): 7 CFR 273.10(e)(2)(ii)(A).\n\nTwo residual points a reviewer should weigh, which is why I hold confidence at 0.7 rather than higher. First, no expected test output changed — all five cases are household_size 1, where the old free input (298) equals the new table lookup, so the behavioral divergence only appears for households of size != 1 and is not demonstrated by the companion tests. Second, the sibling `snap_maximum_allotment_for_one_person_household` in `snap_minimum_benefit` remains an ungrounded free input after this fix (`us:regulations/7-cfr/273/10#input.snap_maximum_allotment_for_one_person_household: 298` still in the post tests), so the repo evidently tolerates the same ungrounded-allotment-input pattern elsewhere in this very module. That supports a reading of this commit as a grounding/provenance rewire rather than a meaning correction. I still land on confirmed because the cited clause's operative content is \"for the household's size\", and the pre-fix encoding had no household-size dependence in the allotment at all despite the module already carrying `household_size` as an input.\n\nOn kind: I considered reclassifying to unrepresented_clause (the source's \"for the household's size\" dependence was absent and the fix adds it), but the formula's shape already matched the source (maximum allotment minus 30 percent of net income, with both rounding options); what was wrong was that the referenced value had no traceable definition, which is the \"value with no basis in the cited source ... the fix re-grounds it\" case. amount_mismatch does not fit because no encoded number was wrong — there was no encoded number at all.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Module diff is exactly two lines: adds `us:policies/usda/snap/fy-2026-cola/maximum-allotments` to `imports` and swaps `snap_maximum_allotment_for_household_size` -> `snap_maximum_allotment` in the one formula. No numeric values, effective dates, entity/period, proof excerpts, or other rules changed. Verified against the parent (4e7910fe) that `snap_maximum_allotment_for_household_size` appeared only in that formula, was not a declared rule, and was not supplied by either pre-fix import (`fy-2026-cola/deductions`, `7-cfr/273/9`); the companion test diff confirms the engine treated it as a module input (`...#input.snap_maximum_allotment_for_household_size: 298` replaced by `us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1`). The imported `snap_maximum_allotment` is `snap_maximum_allotment_table[max(min(household_size, 8), 1)] + (max(household_size - 8, 0) * snap_maximum_allotment_additional_member)`, grounded on `us/guidance/usda/fns/snap-fy2026-cola/page-1`. Provision was read via resolve_provision.py (corpus release resolved cleanly): (e)(2)(ii)(A) reads \"the household's monthly allotment shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income\". Kind judgment: no number inside the module changed, so this is not amount_mismatch; I classed it untraceable_branch under the taxonomy's \"a ... value with no basis in the cited source (the fix ... re-grounds it)\" clause, which is the main source of the sub-0.8 confidence (a reviewer could reasonably argue for 'other: dangling/ungrounded symbol reference'). Follow-up worth noting: `snap_minimum_benefit` still uses the same style of ungrounded free input `snap_maximum_allotment_for_one_person_household` after this commit, even though the newly imported module exposes `snap_one_person_thrifty_food_plan_cost` = `snap_maximum_allotment_table[1]`; that half of the reference was left unrepaired here. Other files in the commit (`.axiom/encoding-manifests/regulations/7-cfr/273/10.json`, the .test.yaml) are companion bookkeeping/tests, not modules. No PR reviews or comments exist on #323. | verifier confirmed at 0.70",
-  "family_id": "us-4c24f374-10f16ad5280f",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Module diff is exactly two lines: adds `us:policies/usda/snap/fy-2026-cola/maximum-allotments` to `imports` and swaps `snap_maximum_allotment_for_household_size` -> `snap_maximum_allotment` in the one formula. No numeric values, effective dates, entity/period, proof excerpts, or other rules changed. Verified against the parent (4e7910fe) that `snap_maximum_allotment_for_household_size` appeared only in that formula, was not a declared rule, and was not supplied by either pre-fix import (`fy-2026-cola/deductions`, `7-cfr/273/9`); the companion test diff confirms the engine treated it as a module input (`...#input.snap_maximum_allotment_for_household_size: 298` replaced by `us:policies/usda/snap/fy-2026-cola/maximum-allotments#input.household_size: 1`). The imported `snap_maximum_allotment` is `snap_maximum_allotment_table[max(min(household_size, 8), 1)] + (max(household_size - 8, 0) * snap_maximum_allotment_additional_member)`, grounded on `us/guidance/usda/fns/snap-fy2026-cola/page-1`. Provision was read via resolve_provision.py (corpus release resolved cleanly): (e)(2)(ii)(A) reads \"the household's monthly allotment shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income\". Kind judgment: no number inside the module changed, so this is not amount_mismatch; I classed it untraceable_branch under the taxonomy's \"a ... value with no basis in the cited source (the fix ... re-grounds it)\" clause, which is the main source of the sub-0.8 confidence (a reviewer could reasonably argue for 'other: dangling/ungrounded symbol reference'). Follow-up worth noting: `snap_minimum_benefit` still uses the same style of ungrounded free input `snap_maximum_allotment_for_one_person_household` after this commit, even though the newly imported module exposes `snap_one_person_thrifty_food_plan_cost` = `snap_maximum_allotment_table[1]`; that half of the reference was left unrepaired here. Other files in the commit (`.axiom/encoding-manifests/regulations/7-cfr/273/10.json`, the .test.yaml) are companion bookkeeping/tests, not modules. No PR reviews or comments exist on #323. | verifier confirmed at 0.70"
 }

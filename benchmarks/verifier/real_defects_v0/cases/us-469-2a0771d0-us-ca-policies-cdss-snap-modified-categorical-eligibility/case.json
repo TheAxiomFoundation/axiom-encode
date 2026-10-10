@@ -149,6 +149,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -294,7 +295,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/regulation/7/273/2",
+        "quote": "(vii) Under no circumstances shall any household be considered categorically eligible if: (A) Any member of that household is disqualified for an intentional Program violation"
+      }
+    ],
+    "why": "The fix only changes which membership relation the household bar and the eligible-member count range over: the module-local calfresh_mce_member_of_household becomes the canonical member_of_household. Both versions scan 'any member of that household', and the quoted 273.2(j)(2)(vii) text fits both. No text shows that the local relation could differ from the real SNAP member set. provision.txt (WIC 18901.5) does not reach the member bar at all.",
+    "missing_basis": "Consistency with the canonical SNAP household-member relation (member_of_household, defined in us/statutes/7/2012/j and used by the rest of the SNAP composition). It is a wiring/data-binding fix, not a difference in text.",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.7,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-2a0771d0-5522efe04d46",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -308,11 +348,10 @@
     "verifier_notes": "Kind is the only thing I dispute; fidelity and the defect's reality are solid. Evidence checked: (1) module diff removes the `kind: data_relation` rule `calfresh_mce_member_of_household` (arity 2, Person/Household) and rewires both scan sites; (2) `member_of_household` is the canonical arity-2 data_relation declared in us/statutes/7/2012/j.yaml at 2a0771d025 and consumed by the SNAP composition, so pre-fix the MCE module scored its categorical bar on a roster independent of the roster driving `snap_member_eligible` and benefit calculation; (3) the companion test diff replaces `us-ca:...#relation.calfresh_mce_member_of_household` with `us:policies/usda/snap/state-plan-composition#relation.member_of_household` in every existing case and adds two regressions (`canonical_membership_closes_divergent_ipv_omission`, `canonical_membership_closes_divergent_probation_omission`) expecting `calfresh_mce_household_exclusion_applies: holds` / `calfresh_mce_status_conferred: not_holds`; (4) provision text resolved at corpus release us-rulespec-2026-07-24-snap-cms-pit-union (body sha256 5170032c722b16cdaec6ae942be6f7b5cb2bb18bfb564b2813551e940cc2dadc) reads \"(vii) Under no circumstances shall any household be considered categorically eligible if: (A) Any member of that household is disqualified for an intentional Program violation in accordance with § 273.16 or for failure to comply with monthly reporting requirements...\" and (D) covers drug-felony/fleeing-felon/probation-violator, matching the first reader's provision reading. A reviewer who treats the subject line's \"fail-open\" as dispositive would keep polarity_or_logic; I weight the diff (a member-set substitution with no logical-operator change) over the message word. Not mechanical: a rule was deleted and two formulas changed. Not not_a_defect: the fix is a repair round inside PR #1176, whose maintainer comment describes a fixture that \"exercises the engine-only union path that the integrity guard defends,\" i.e. a real vulnerability that was reproduced and closed.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read: the module diff, pre-fix module at e4d561a243, post-fix module at 2a0771d025, the companion-test diff, the PROGRESS.md diff, the PR #1176 body/comments, and the cited provision text (resolve_provision.py on us/regulation/7/273/2 succeeded; paragraph (j)(2)(vii)(A)-(D) and (ix)(A)-(E) confirmed verbatim as quoted in the module's proof atoms).\n\nEvidence for the kind: the commit subject names a \"fail-open\", and the PROGRESS.md diff in the same commit states \"Removed the PR-new California membership relation and ranged both MCE aggregations over the imported federal state-plan `member_of_household`\" plus \"Traced every MCE member scan. Only the household-bar and eligible-member aggregations scan members\". The three added companion cases are named canonical_membership_closes_divergent_ipv_omission, ..._probation_omission, ..._eligible_member_omission, i.e. exactly the households that previously slipped past the bar. (PROGRESS.md is not one of the allowed quote_source values, so the quote above is the commit subject fragment.)\n\nKind is genuinely three-way and a reviewer may prefer a different label: (a) polarity_or_logic — chosen, because the stated reason literally says \"fail-open\", the only kind whose definition names that; (b) wrong_entity_or_scope — the count_where ranged over the wrong household member set, which that definition lists explicitly, and nothing about the boolean structure was inverted; (c) untraceable_branch — the deleted relation is a California-only \"MCE member\" concept with no basis in 273.2(j)(2), and the fix re-grounds the scan on the canonical relation. Confidence is 0.6 for classification+kind jointly; classification as fidelity is much firmer (~0.9) than the kind.\n\nScope of the change: the module hunks are only the relation deletion and two identical `calfresh_mce_member_of_household` -> `member_of_household` substitutions; no parameter, threshold, effective date, import, or proof atom changed, so nothing unrelated rides along. The two other files in the commit are companion tests (relation key migrated, California-only bar facts merged into the benefit companion's federal rows, three divergent cases added) and PROGRESS.md.\n\nDirection of the defect is asymmetric and worth flagging: in `calfresh_mce_household_exclusion_applies` an under-populated relation suppresses the bar (fail-open, the named defect); in `calfresh_mce_status_conferred` the same under-population would zero the eligible-member count and deny MCE (fail-closed). The commit title describes the first.\n\nFollow-ups on the same issue, both after this commit and before merge: bfadb9559 \"fix: bind MCE gates to canonical member projection\" re-wraps the same canonical relation in a private `calfresh_mce_canonical_member_of_household` derived_relation projection (binding/plumbing, same member set, no meaning change), and 5db993493 \"fix: fail closed on injected canonical SNAP members\" hardens against injected members. A corpus curator may want to treat 2a0771d025 as the fidelity-bearing commit of that trio and the other two as hardening. Caveat for the corpus: the pre-fix state is a within-PR-branch state (the module was introduced earlier on the same branch by c0487985b/a350ed6ba), so this defect was caught in review and never shipped on main. | verifier reclassified polarity_or_logic -> wrong_entity_or_scope at 0.70; verifier kind used",
-  "family_id": "us-2a0771d0-5522efe04d46",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read: the module diff, pre-fix module at e4d561a243, post-fix module at 2a0771d025, the companion-test diff, the PROGRESS.md diff, the PR #1176 body/comments, and the cited provision text (resolve_provision.py on us/regulation/7/273/2 succeeded; paragraph (j)(2)(vii)(A)-(D) and (ix)(A)-(E) confirmed verbatim as quoted in the module's proof atoms).\n\nEvidence for the kind: the commit subject names a \"fail-open\", and the PROGRESS.md diff in the same commit states \"Removed the PR-new California membership relation and ranged both MCE aggregations over the imported federal state-plan `member_of_household`\" plus \"Traced every MCE member scan. Only the household-bar and eligible-member aggregations scan members\". The three added companion cases are named canonical_membership_closes_divergent_ipv_omission, ..._probation_omission, ..._eligible_member_omission, i.e. exactly the households that previously slipped past the bar. (PROGRESS.md is not one of the allowed quote_source values, so the quote above is the commit subject fragment.)\n\nKind is genuinely three-way and a reviewer may prefer a different label: (a) polarity_or_logic — chosen, because the stated reason literally says \"fail-open\", the only kind whose definition names that; (b) wrong_entity_or_scope — the count_where ranged over the wrong household member set, which that definition lists explicitly, and nothing about the boolean structure was inverted; (c) untraceable_branch — the deleted relation is a California-only \"MCE member\" concept with no basis in 273.2(j)(2), and the fix re-grounds the scan on the canonical relation. Confidence is 0.6 for classification+kind jointly; classification as fidelity is much firmer (~0.9) than the kind.\n\nScope of the change: the module hunks are only the relation deletion and two identical `calfresh_mce_member_of_household` -> `member_of_household` substitutions; no parameter, threshold, effective date, import, or proof atom changed, so nothing unrelated rides along. The two other files in the commit are companion tests (relation key migrated, California-only bar facts merged into the benefit companion's federal rows, three divergent cases added) and PROGRESS.md.\n\nDirection of the defect is asymmetric and worth flagging: in `calfresh_mce_household_exclusion_applies` an under-populated relation suppresses the bar (fail-open, the named defect); in `calfresh_mce_status_conferred` the same under-population would zero the eligible-member count and deny MCE (fail-closed). The commit title describes the first.\n\nFollow-ups on the same issue, both after this commit and before merge: bfadb9559 \"fix: bind MCE gates to canonical member projection\" re-wraps the same canonical relation in a private `calfresh_mce_canonical_member_of_household` derived_relation projection (binding/plumbing, same member set, no meaning change), and 5db993493 \"fix: fail closed on injected canonical SNAP members\" hardens against injected members. A corpus curator may want to treat 2a0771d025 as the fidelity-bearing commit of that trio and the other two as hardening. Caveat for the corpus: the pre-fix state is a within-PR-branch state (the module was introduced earlier on the same branch by c0487985b/a350ed6ba), so this defect was caught in review and never shipped on main. | verifier reclassified polarity_or_logic -> wrong_entity_or_scope at 0.70; verifier kind used"
 }

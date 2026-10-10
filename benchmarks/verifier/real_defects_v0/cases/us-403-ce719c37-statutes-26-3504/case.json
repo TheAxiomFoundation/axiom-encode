@@ -104,6 +104,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -173,7 +174,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3504",
+        "quote": "has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees",
+        "span": [
+          44,
+          149
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The statute lists five alternatives, ending with 'or pays the wages'. The pre-fix condition input names only control, receipt, custody or disposal, so a person who only pays wages fails it. The post-fix input adds the payment branch.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-ce719c37-f8bef9e0020d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -184,14 +231,13 @@
     "verifier_confidence": 0.7,
     "verifier_justification": "The pinned corpus text of 26 USC 3504 reads \"has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees\", and the pre-fix formula's second conjunct encoded only the first four alternatives (`person_has_control_receipt_custody_or_disposal_of_employee_wages`), so a fiduciary or agent who merely pays the wages would make the conjunct false and the designation judgment not_holds contrary to the statute. The module declares no `inputs:` block, so this identifier — bound in the companion test as `us:statutes/26/3504#input.<name>` — is the only carrier of that condition's meaning, and the fix widens it to include the statute's fourth disjunct; this is a clause the source states that the encoding omitted, i.e. unrepresented_clause rather than polarity (no operator changed) or scope. The strongest refutation I could build is that the compiled logic is structurally identical (same four AND-ed opaque booleans, no branch or OR added), so the change is arguably a rename of an uninterpreted input; I reject it because the pre-fix module's own summary and its unchanged proof atom already quoted \"or pays the wages\", showing the formula, not the provenance, was the narrow part. The other edits in the same diff (summary rewrite, two proof-atom excerpt strings) are provenance/mechanical, so the single formula line is the meaning-bearing change.",
     "verifier_quote": "-          and person_has_control_receipt_custody_or_disposal_of_employee_wages\n+          and person_has_control_receipt_custody_disposal_or_pays_employee_wages",
-    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/ce719c379f.json; diff: .../scratchpad/diffs/us/ce719c379f/000.diff. Corpus resolution (us-rulespec-2026-07-13, record bac0a189-48ee-55ff-a1df-b2a6eed902cb, body sha256 819c84b0...) confirms the statutory \"or pays the wages\" disjunct. Reviewer caveat worth weighing: the defect lives entirely in an undeclared free-input identifier, since the module has no `inputs:` block and `git grep` at both the parent (f9281ecb) and ce719c379f shows the symbol referenced only by statutes/26/3504.yaml and statutes/26/3504.test.yaml — no cross-module consumer changes behavior, and the engine's output for any fixed input vector is unchanged. If the corpus convention is that only operator/value/branch changes count as encoded meaning, this would fall to \"mechanical (rename)\"; if input identifiers are treated as the semantic contract with fact suppliers (which this encoding style requires, since conditions are never decomposed into OR-chains), it is a genuine fidelity narrowing. I take the latter, but that convention call, not the diff, is the whole disagreement. Also note the rest of the diff is provenance-only: the module summary was rewritten from the verbatim statute to a paraphrase, and two proof-atom excerpts were re-cut; the test file change is the matching rename plus one added negative test for the employer exception.",
+    "verifier_notes": "Bundle: <scratch>/inputs/us/ce719c379f.json; diff: .../scratchpad/diffs/us/ce719c379f/000.diff. Corpus resolution (us-rulespec-2026-07-13, record bac0a189-48ee-55ff-a1df-b2a6eed902cb, body sha256 819c84b0...) confirms the statutory \"or pays the wages\" disjunct. Reviewer caveat worth weighing: the defect lives entirely in an undeclared free-input identifier, since the module has no `inputs:` block and `git grep` at both the parent (f9281ecb) and ce719c379f shows the symbol referenced only by statutes/26/3504.yaml and statutes/26/3504.test.yaml — no cross-module consumer changes behavior, and the engine's output for any fixed input vector is unchanged. If the corpus convention is that only operator/value/branch changes count as encoded meaning, this would fall to \"mechanical (rename)\"; if input identifiers are treated as the semantic contract with fact suppliers (which this encoding style requires, since conditions are never decomposed into OR-chains), it is a genuine fidelity narrowing. I take the latter, but that convention call, not the diff, is the whole disagreement. Also note the rest of the diff is provenance-only: the module summary was rewritten from the verbatim statute to a paraphrase, and two proof-atom excerpts were re-cut; the test file change is the matching rename plus one added negative test for the employer exception.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Refresh of 3504 changes the designation condition to person_has_control_receipt_custody_disposal_or_pays_employee_wages, adding the statute's 'or pays the wages' branch (clause/branch correction)."
+    "screen_reason": "Refresh of 3504 changes the designation condition to person_has_control_receipt_custody_disposal_or_pays_employee_wages, adding the statute's 'or pays the wages' branch (clause/branch correction).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision was read through the pinned corpus release: the text is \"In case a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees, employed by one or more employers, the Secretary ... is authorized to designate ...\", confirming the missing disjunct. Single-module commit; the only formula change is the free-input identifier rename (there is no separate input definition block, so the input name is the entire semantic definition of the condition, and the companion test rekeys us:statutes/26/3504#input.person_has_control_receipt_custody_or_disposal_of_employee_wages to the new name, showing downstream callers must now supply the broader condition). The commit also rewrote the module summary into a paraphrase and widened two proof-atom excerpts (both mechanical/provenance-only), and added a generated negative test secretary_provides_employer_exception in statutes/26/3504.test.yaml (test file, not in this chunk). Residual doubt kept confidence at 0.75: a reviewer could read a free-variable rename as cosmetic rather than semantic, but both the screen-flag description and the PR body frame it as a condition correction adding the statutory payment branch. Commit message body is empty; the only quotable text is the PR body. No PR reviews or review comments exist. | verifier confirmed at 0.70",
-  "family_id": "us-ce719c37-f8bef9e0020d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision was read through the pinned corpus release: the text is \"In case a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees, employed by one or more employers, the Secretary ... is authorized to designate ...\", confirming the missing disjunct. Single-module commit; the only formula change is the free-input identifier rename (there is no separate input definition block, so the input name is the entire semantic definition of the condition, and the companion test rekeys us:statutes/26/3504#input.person_has_control_receipt_custody_or_disposal_of_employee_wages to the new name, showing downstream callers must now supply the broader condition). The commit also rewrote the module summary into a paraphrase and widened two proof-atom excerpts (both mechanical/provenance-only), and added a generated negative test secretary_provides_employer_exception in statutes/26/3504.test.yaml (test file, not in this chunk). Residual doubt kept confidence at 0.75: a reviewer could read a free-variable rename as cosmetic rather than semantic, but both the screen-flag description and the PR body frame it as a condition correction adding the statutory payment branch. Commit message body is empty; the only quotable text is the PR body. No PR reviews or review comments exist. | verifier confirmed at 0.70"
 }

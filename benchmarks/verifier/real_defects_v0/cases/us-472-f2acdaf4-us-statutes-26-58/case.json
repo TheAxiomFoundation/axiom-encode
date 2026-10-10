@@ -133,8 +133,8 @@
   },
   "pre_fix_artifact_sha256": "ddff9de55bfb220b242bbe1463fdfdb0e3680c873b33c9b7c8ce0520b8542661",
   "post_fix_artifact_sha256": "b93ffa4fce240ee5d8511502d07e8cee8fc14cd5764683efc820e9e42157ea8e",
-  "provision_sha256": "626ced3a87a9669485aa280538f1924a0c490068ee752c4a1c5729b464e8b91c",
-  "provision_chars": 928,
+  "provision_sha256": "4553626ccf0662a2591362bf32d5f532efe3f7d28013f7e5d7e0fe9f7d36a7a6",
+  "provision_chars": 1763,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/26/58/a",
@@ -221,6 +221,53 @@
       }
     ]
   },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "626ced3a87a9669485aa280538f1924a0c490068ee752c4a1c5729b464e8b91c",
+    "first_citation_chars": 928,
+    "added": [
+      {
+        "citation_path": "us/statute/26/58/c/1",
+        "text_sha256": "d458c771cfe0c954c6b14280f0b01a5034741eb6eb6870c840b7bff0b7a2c799",
+        "chars": 324,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/26/58/c/1",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-title-26-current-union.jsonl",
+          "provision_file_sha256": "37bc1708f5e7f08c8eddcec7bd9db43e83c705c977a05b2f7d9fcbf433987fc2",
+          "line_number": 311,
+          "record_id": "dae99151-aaa8-5b0b-aada-174b587ff8b5",
+          "stored_body_sha256": "d458c771cfe0c954c6b14280f0b01a5034741eb6eb6870c840b7bff0b7a2c799",
+          "resolved_text_sha256": "d458c771cfe0c954c6b14280f0b01a5034741eb6eb6870c840b7bff0b7a2c799",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-12",
+          "source_as_of": "2026-07-12",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      },
+      {
+        "citation_path": "us/statute/26/58/c/2",
+        "text_sha256": "5c756120613124cf66f92b7fdb198d2c2d29aaa4643d174048b46b6f754a8f38",
+        "chars": 398,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/26/58/c/2",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-title-26-current-union.jsonl",
+          "provision_file_sha256": "37bc1708f5e7f08c8eddcec7bd9db43e83c705c977a05b2f7d9fcbf433987fc2",
+          "line_number": 314,
+          "record_id": "50ccbf8e-0a03-5027-a550-9179ae1c86df",
+          "stored_body_sha256": "5c756120613124cf66f92b7fdb198d2c2d29aaa4643d174048b46b6f754a8f38",
+          "resolved_text_sha256": "5c756120613124cf66f92b7fdb198d2c2d29aaa4643d174048b46b6f754a8f38",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-12",
+          "source_as_of": "2026-07-12",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -275,7 +322,7 @@
           "section_58_b_passive_activity_loss_adjustment_after_insolvency.versions[0].formula"
         ],
         "cites": "us/statute/26/58/c/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -286,7 +333,7 @@
           "section_58_completed_loss_domain_is_satisfied.versions[0].formula"
         ],
         "cites": "us/statute/26/58/c/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -308,7 +355,7 @@
           "section_58_a_tax_shelter_farm_loss_adjustment_after_insolvency.versions[0].formula"
         ],
         "cites": "us/statute/26/58/c/2",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -330,7 +377,7 @@
           "section_58_completed_loss_domain_is_satisfied.versions[0].formula"
         ],
         "cites": "us/statute/26/58/c/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -340,7 +387,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -362,7 +409,7 @@
           "triage.verifier_justification",
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -402,17 +449,71 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 16,
-    "post_side_matched": 3,
+    "post_side_matched": 10,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/58/c/1",
+        "quote": "The amount of losses to which subsection (a) or (b) applies shall be reduced by the amount (if any) by which the taxpayer is insolvent as of the close of the taxable year.",
+        "span": [
+          1017,
+          1188
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/58/c/2",
+        "quote": "shall (to the extent otherwise allowable) be allowed for such taxable year in computing alternative minimum taxable income",
+        "span": [
+          1581,
+          1703
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "58(c)(1)(A) governs the changed rule. It states one insolvency reduction applying to subsection (a) or (b) losses. It says nothing about splitting that amount between the legs, capping each leg, or requiring the amounts to be nonnegative, and those are the conditions the pre-fix domain formula required. 58(c)(2) allows the loss in the disposition year, so a signed (allowed-loss) adjustment can occur, and the pre-fix '>= 0' guards would zero it.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-f2acdaf4-ca707432b33b",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -426,11 +527,10 @@
     "verifier_notes": "Source read through the pinned resolver: 58(c)(1)(A) = \"The amount of losses to which subsection (a) or (b) applies shall be reduced by the amount (if any) by which the taxpayer is insolvent as of the close of the taxable year\"; 58(c)(2) allows the disposition-year loss \"(to the extent otherwise allowable) ... in computing alternative minimum taxable income\", which is what makes a negative (allowance) adjustment reachable and the removed `>= 0` floors wrong. Resolver note: the fix-time provision file was absent at the toolchain corpus ref, so text came from release us-rulespec-2026-08-03-ecps-pit-tariff-union (expression_date 2026-07-12); section 58's text is long-stable, so this does not affect the reading. Confounds a reviewer should see: the same diff also restructures the input contract from four inputs to two (the arithmetic moves to the caller's attested post-insolvency amounts) and reflows two proof-atom excerpts and two `source:` strings — those parts alone would be mechanical/refactor, so the fidelity finding rests specifically on the six removed unsourced numeric conjuncts and the test flip (negative b-leg adjustment of -300 now exposed rather than zeroed). 58(c)(2) remains an attested Judgment input both before and after, so the fix adds no clause; it declines to infer one. Kinds rejected: unrepresented_clause (nothing source-required is added), polarity_or_logic (no inversion or mis-combination; the guard's fail-closed default is unchanged), boundary_direction (the defect is the existence of the cap, not its strictness). Confidence held at 0.78 rather than higher only because the commit body is empty and the PR body describes §58 at one line (\"completed-loss domain judgment + the two post-insolvency adjustments\"), so the meaning change is inferred from the diff and tests rather than stated.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release for us/statute/26/58/a, /b, /c/1 and /c/2. 58(c)(1)(A) reads 'The amount of losses to which subsection (a) or (b) applies shall be reduced by the amount (if any) by which the taxpayer is insolvent as of the close of the taxable year' - one amount, no allocation or ordering between the legs, which is exactly what the pre-fix formula and the two removed *_insolvency_reduction inputs imposed. 58(a)(1)(B) (disallowed loss deductible in the succeeding year) and 58(c)(2) (entire-interest disposition: the loss 'shall (to the extent otherwise allowable) be allowed') both make a negative net AMTI adjustment possible, so the removed '>= 0' guards were ungrounded too. The companion test diff is the clearest confirmation: the pre-fix case 'negative_pre_insolvency_loss_adjustment_fails_closed' (a = -1 -> all outputs zero) is deleted and replaced by 'signed_completed_adjustments_are_exposed' with b = -300 flowing through unchanged. PROGRESS.md in the same commit states the reason in the maintainers' words ('both downstream loss adjustments are signed completed after-insolvency aliases, and the module infers no allocation or ordering for the single subsection (c)(1) insolvency amount'), but PROGRESS.md is not one of the permitted quote sources so the commit subject is quoted instead; the PR body (#1180) only describes the post-fix state ('the two post-insolvency adjustments') and carries no review comments. Kind is a judgment call between untraceable_branch (chosen: the fix deletes conditions and input values with no basis in 58(c)(1), namely the invented per-leg allocation and the nonnegativity/cap guards) and polarity_or_logic (the same nonnegativity guards made the module fail closed and emit zero on a legitimate negative adjustment); hence confidence 0.62 rather than higher. Same-diff incidentals that are mechanical, not fidelity: one proof-atom excerpt reflowed from a block scalar to an inline string, two rule 'source:' strings reworded to 'guarded signed completed adjustment', and the module summary rewritten. A secondary doubt for the reviewer: the fix also narrows the module's attested input boundary (the caller now supplies the after-insolvency amount instead of the pre-insolvency amount and the reduction), which is partly a boundary re-scope; it still qualifies as fidelity because the pre-fix module produced wrong zeros on a case the statute permits. | verifier confirmed at 0.78",
-  "family_id": "us-f2acdaf4-ca707432b33b",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release for us/statute/26/58/a, /b, /c/1 and /c/2. 58(c)(1)(A) reads 'The amount of losses to which subsection (a) or (b) applies shall be reduced by the amount (if any) by which the taxpayer is insolvent as of the close of the taxable year' - one amount, no allocation or ordering between the legs, which is exactly what the pre-fix formula and the two removed *_insolvency_reduction inputs imposed. 58(a)(1)(B) (disallowed loss deductible in the succeeding year) and 58(c)(2) (entire-interest disposition: the loss 'shall (to the extent otherwise allowable) be allowed') both make a negative net AMTI adjustment possible, so the removed '>= 0' guards were ungrounded too. The companion test diff is the clearest confirmation: the pre-fix case 'negative_pre_insolvency_loss_adjustment_fails_closed' (a = -1 -> all outputs zero) is deleted and replaced by 'signed_completed_adjustments_are_exposed' with b = -300 flowing through unchanged. PROGRESS.md in the same commit states the reason in the maintainers' words ('both downstream loss adjustments are signed completed after-insolvency aliases, and the module infers no allocation or ordering for the single subsection (c)(1) insolvency amount'), but PROGRESS.md is not one of the permitted quote sources so the commit subject is quoted instead; the PR body (#1180) only describes the post-fix state ('the two post-insolvency adjustments') and carries no review comments. Kind is a judgment call between untraceable_branch (chosen: the fix deletes conditions and input values with no basis in 58(c)(1), namely the invented per-leg allocation and the nonnegativity/cap guards) and polarity_or_logic (the same nonnegativity guards made the module fail closed and emit zero on a legitimate negative adjustment); hence confidence 0.62 rather than higher. Same-diff incidentals that are mechanical, not fidelity: one proof-atom excerpt reflowed from a block scalar to an inline string, two rule 'source:' strings reworded to 'guarded signed completed adjustment', and the module summary rewritten. A secondary doubt for the reviewer: the fix also narrows the module's attested input boundary (the caller now supplies the after-insolvency amount instead of the pre-insolvency amount and the reduction), which is partly a boundary re-scope; it still qualifies as fidelity because the pre-fix module produced wrong zeros on a case the statute permits. | verifier confirmed at 0.78"
 }

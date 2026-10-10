@@ -92,6 +92,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -153,7 +154,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3211",
+        "quote": "(c) Cross reference For application of different contribution bases with respect to the taxes imposed by subsections (a) and (b), see section 3231(e)(2).",
+        "span": [
+          888,
+          1041
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Subsection (c) says the (b) tier 2 tax on employee representatives uses a different contribution base under 3231(e)(2). The pre-fix rule multiplies max(0, compensation) by the 3241 percentage with no base limit. The post-fix module defers that output, which is consistent with the cross-reference.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-c2f31293-487061714524",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -167,11 +214,10 @@
     "verifier_notes": "Decisive evidence, all verbatim: (1) removed formula lines above; (2) removed import `- us:statutes/26/3241/b#applicable_percentage_for_sections_3211_b_and_3221_b`; (3) added deferral reason for `us:statutes/26/3211/b#tier_2_employee_representative_tax`: \"The copied section 3231(e)(2) context does not provide an executable tier 2 applicable compensation base that can be composed here, so a raw percentage-times-compensation formula would ignore the cross-referenced contribution-base rule.\"; (4) post-fix file ends `status: deferred` / `rules: []`; (5) `statutes/26/3211.test.yaml` goes from two cases (1000 -> 221.0) to `[]`, confirming the pre-fix surface really did tax uncapped compensation. Source verified through the pinned resolver (corpus release us-rulespec-2026-07-13): 3211(c) cross reference text, and 3231(e)(2)(A)(i) \"The term 'compensation' does not include that part of remuneration paid ... after remuneration equal to the applicable base has been paid\" with (B)(ii) naming section 3211(b) among the tier 2 taxes. Caveats for the reviewer: (a) the fix is a fail-closed deferral, not an addition of the missing base clause, so if the corpus later wants a separate label for \"removed an unsafe executable surface\" this case and its siblings (3201, 3221 in the same commit) would move together; within the given kind list, unrepresented_clause is still the best fit because the defect is the absent 3231(e)(2) base exclusion. (b) The hospital-insurance carve-out in 3231(e)(2)(A)(iii) applies to 3211(a), not (b), so the tier 2 claim rests only on (A)(i)+(B)(ii) — which is sufficient. (c) The same module change also defers two tier 1 outputs (3101(b) additional Medicare tax mechanics); that is a distinct missing-clause issue and should not be double-counted against the candidate rule. (d) The commit subject/PR body are generic refresh language; the module-internal reason text, not the commit message, is what carries the defect evidence here.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral)."
+    "screen_reason": "Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 0, on the employee-representative section. Provision read through the pinned corpus release: 26 USC 3211(c) is the identical 'different contribution bases ... see section 3231(e)(2)' cross reference. The module is now fully non-executable (rules: [] plus module status: deferred) with four deferred outputs. The pre-existing 3211(a) deferral was also re-reasoned (now blocked by us:statutes/26/3101/b/2#additional_medicare_tax because a thresholded Medicare rate cannot be flattened into one percentage) and a new deferral for the tier 2 applicable percentage was added; those concern outputs that were already absent pre-fix, so they are not separate defect fixes. The imports list is emptied. | verifier confirmed at 0.79",
-  "family_id": "us-c2f31293-487061714524",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 0, on the employee-representative section. Provision read through the pinned corpus release: 26 USC 3211(c) is the identical 'different contribution bases ... see section 3231(e)(2)' cross reference. The module is now fully non-executable (rules: [] plus module status: deferred) with four deferred outputs. The pre-existing 3211(a) deferral was also re-reasoned (now blocked by us:statutes/26/3101/b/2#additional_medicare_tax because a thresholded Medicare rate cannot be flattened into one percentage) and a new deferral for the tier 2 applicable percentage was added; those concern outputs that were already absent pre-fix, so they are not separate defect fixes. The imports list is emptied. | verifier confirmed at 0.79"
 }

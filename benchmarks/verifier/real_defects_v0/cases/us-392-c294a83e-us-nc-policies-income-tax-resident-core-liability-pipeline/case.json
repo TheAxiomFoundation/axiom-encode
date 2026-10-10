@@ -87,6 +87,7 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -215,7 +216,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "a. Charitable Contribution. - The amount allowed as a deduction for charitable contributions under section 170 of the Code for that taxable year, subject to the following provisions:",
+        "span": [
+          1072,
+          1254
+        ]
+      },
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision.",
+        "span": [
+          2687,
+          2827
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The deduction is the amount allowed under section 170, and the credit-backed donation is made ineligible for that deduction. So the amount to remove is the donation's section 170 deduction, not its full value. The pre-fix module subtracts the donation's value, which can remove more than the donation contributed to the §170 base and wipe out unrelated contributions.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-c294a83e-431713e25dae",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -229,11 +284,10 @@
     "verifier_notes": "Strongest surviving counterargument, which a reviewer should weigh: the change is carried entirely by an input rename plus its `description` and the rule's `source:` string. The arithmetic shape is byte-identical (max(0, contributions - X)), no parameter, version window, effective date, entity, or boolean changed, and the test edits are a pure alpha-rename except the one added fixture, whose expected values would come out the same under the old semantics too (supplying 2000 as a donation value yields 5000 as well). So a strict \"formula/parameter must change\" reading could call this a contract/documentation clarification (mechanical-adjacent) rather than a computed-meaning change. I still land on confirmed because the input's documented quantity is part of the encoded meaning — a binder populating this module from federal data supplies a materially different number after the fix — and both the pre-fix description (\"Qualified real-property donation ... and is therefore excluded from the deduction\") and the post-fix one (\"this deduction amount, rather than the donation's value, is excluded\") state the two incompatible bases explicitly. Secondary notes: the proof atom's excerpt and citation path are unchanged, so this is not an excerpt-only/provenance edit; the commit's parenthetical \"(scope of excluded amount)\" tempts a wrong_entity_or_scope reading, but that kind covers entity/population/program/output scope, not the measurement basis of a money amount. The PR-body quote the first reader used (\"deduction-attribution semantics for credit-backed property\" inside the cycle sentence) is real but generic; the diff and the statute, not that sentence, are what settle the call. Commit also bundles an unrelated MFS-cap fixture addition, which is not part of this rule's defect.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Clarify boundary: NC charitable deduction now excludes the section 170 deduction attributable to a credit-backed donation rather than the donation value (scope of excluded amount)."
+    "screen_reason": "Clarify boundary: NC charitable deduction now excludes the section 170 deduction attributable to a credit-backed donation rather than the donation value (scope of excluded amount).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-07-22-current-la-status-fix, corpus commit 01e00777cb, provision us-nc/statute/105/105-153.5); the operative text is quoted in pre_fix_wrong_because. The diff is a three-part semantic change to one rule: source string, formula subtrahend, and the renamed input nc_pit_2026_credit_backed_qualified_real_property_donation -> nc_pit_2026_section_170_deduction_attributable_to_credit_backed_donation, whose new description reads \"Current-year federal section 170 deduction amount attributable to a qualified real-property donation that is the basis for an allocated section 105-153.11 credit; this deduction amount, rather than the donation's value, is excluded from the North Carolina charitable deduction.\" (usable as a module_comment quote if a reviewer prefers it). Proof-atom excerpt, effective dates, entity, period and outputs are unchanged, so this is not excerpt-only provenance. The subtrahend is a module input, so the fix changes the module's input contract rather than an internal derivation, but it is a genuine meaning change: the new fixture \"limited credit-backed section 170 deduction preserves unrelated charitable deduction\" (contributions 7000, attributable section 170 deduction 2000 -> eligible 5000) exercises exactly that distinction. Kind bucketing is the uncertain part: untraceable_branch is a near miss under its \"value with no basis in the cited source ... re-grounds it\" clause, but the pre-fix subtrahend did trace to carve-out 3 and was merely quantified on the wrong basis; wrong_entity_or_scope's listed senses (entity, population, filing status, geography, program scope, output surface) do not cover a mis-measured amount; so I used other. The commit subject also says \"MFS deductions\", but the MFS cap rule in the YAML is untouched - the MFS part of this commit is a new test fixture only. This is an in-branch fix inside merged PR #1023 (no reviews or review comments recorded). Two later commits touch the file (450ca0144 \"Use canonical NC module source locator\", d1ed1b594 \"Repair NC TY2026 statute source backing\"); both look like source/provenance repairs, not reversals. | verifier confirmed at 0.70",
-  "family_id": "us-c294a83e-431713e25dae",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-07-22-current-la-status-fix, corpus commit 01e00777cb, provision us-nc/statute/105/105-153.5); the operative text is quoted in pre_fix_wrong_because. The diff is a three-part semantic change to one rule: source string, formula subtrahend, and the renamed input nc_pit_2026_credit_backed_qualified_real_property_donation -> nc_pit_2026_section_170_deduction_attributable_to_credit_backed_donation, whose new description reads \"Current-year federal section 170 deduction amount attributable to a qualified real-property donation that is the basis for an allocated section 105-153.11 credit; this deduction amount, rather than the donation's value, is excluded from the North Carolina charitable deduction.\" (usable as a module_comment quote if a reviewer prefers it). Proof-atom excerpt, effective dates, entity, period and outputs are unchanged, so this is not excerpt-only provenance. The subtrahend is a module input, so the fix changes the module's input contract rather than an internal derivation, but it is a genuine meaning change: the new fixture \"limited credit-backed section 170 deduction preserves unrelated charitable deduction\" (contributions 7000, attributable section 170 deduction 2000 -> eligible 5000) exercises exactly that distinction. Kind bucketing is the uncertain part: untraceable_branch is a near miss under its \"value with no basis in the cited source ... re-grounds it\" clause, but the pre-fix subtrahend did trace to carve-out 3 and was merely quantified on the wrong basis; wrong_entity_or_scope's listed senses (entity, population, filing status, geography, program scope, output surface) do not cover a mis-measured amount; so I used other. The commit subject also says \"MFS deductions\", but the MFS cap rule in the YAML is untouched - the MFS part of this commit is a new test fixture only. This is an in-branch fix inside merged PR #1023 (no reviews or review comments recorded). Two later commits touch the file (450ca0144 \"Use canonical NC module source locator\", d1ed1b594 \"Repair NC TY2026 statute source backing\"); both look like source/provenance repairs, not reversals. | verifier confirmed at 0.70"
 }

@@ -62,6 +62,7 @@
     "requested_citation_path": "us/statute/hts/chapter-99/page-236",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -826,7 +827,41 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt is HTS Revision 3 page 99-III-64 (note 16 subdivisions (r)-(t) on derivative products for the UK). None of the other/ files has the note 16(c)(iii) 'Articles of steel' list or any of the headings 7206-7229, 7302.10/.90 or 7304-7306, so nothing shows the pre-fix table to be incomplete.",
+    "missing_basis": "The USITC HTS Revision 15 chapter 99 notes, page 236 (note 16(c)(iii) list). The resolver release holds only Revision 3, so page-236 resolved to unrelated Rev-3 content.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-a70eb634-7467b9323138",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -840,11 +875,10 @@
     "verifier_notes": "Source verification: the Rev-15 notes ingest the generator pins (data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, line 246, citation_path us/statute/hts/chapter-99/page-236) reads verbatim \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\" — exactly the 26 + 2 entries the fix adds plus the 11 retained. Caveat for the reviewer: resolve_provision.py --citation us/statute/hts/chapter-99/page-236 --rulespec-commit a70eb63414 resolves to the Rev-3 notes file (2026-08-01-usitc-hts-2026-rev3-notes.jsonl), whose page-236 is note 16(r)-(t) and does not contain 16(c)(iii); the resolver's release pin does not match the Rev-15 ingest the generator pins, so the resolver output alone would have been misleading here. Alternative kind worth a second look: wrong_entity_or_scope, since what was wrong is the covered population of HTS provisions (nearly all primary steel encoded as non-member) rather than a condition or exception; I kept unrepresented_clause because the omitted material is enumerated content of the cited clause that the fix adds back, which the rubric routes to unrepresented_clause. Corroborating (not quoted as module-diff text): B16-BUILD-REPORT.md in the same commit adds \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b)\" and states it adds 26 steel-heading, two steel-six-digit, and seven aluminum-heading rows while retaining 11 steel 8-digit rows. Module 1 (note19-232-aluminum.yaml) is the same defect in note 19(b) and should classify identically. Companion tests were added for both new tables (hts_line 7206 -> 1; 730210 -> 1).",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read and confirmed. Rev-15 notes page-236 (axiom-corpus commit 60de5efa, data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, the file the generator pins via RELPATH) prints the note 16(c) list \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\". Pre-fix rules[s232_steel_primary_membership].versions[0].values held exactly the 11 dotted 8-digit members of that list and nothing else; post-fix that rule is unchanged and the two new tables carry the missing 4- and 6-digit widths, so the union now equals the printed list. Note the resolver caveat: resolve_provision.py resolves the toolchain pin to release us-rulespec-2026-08-08-obbb-alien-snap, which contains only the Rev-3 notes file, so its page-236 is unrelated Rev-3 content; the Rev-3 prose form of the same note (pages 228/231/235) independently corroborates that the primary list is stated at heading level (7206-7229, 7304-7306) with 7302.10/7302.90 at 6-digit, and I read the Rev-15 file directly from the pinned corpus commit for the decisive check. Root cause is in the same commit's tools/generate_incidence_tables.py diff: the old HTS regex matched only dotted 8/10-digit atoms; the new PRINTED_WIDTH_HTS regex plus per-production widths=(4, 6, 8) preserves printed width. B16-BUILD-REPORT.md in the same commit states verbatim: \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b).\" (the build report is not an allowed quote_source value, so the commit subject is quoted in the field instead). The module diff is pure addition; nothing else in the module changed (module citation paths already listed page-236). The companion test file gained 20 lines of present/absent cases for the new tables. Alternative kind a reviewer may prefer: wrong_entity_or_scope, since what was wrong is the covered population of HTS lines; I chose unrepresented_clause per the instruction that adding coverage the source requires is unrepresented_clause. Caveat for corpus use: this module is generator-produced (tools/generate_incidence_tables.py), not encoder-produced, so the defect is a parser-width bug rather than an LLM encoding error. | verifier confirmed at 0.85",
-  "family_id": "us-a70eb634-7467b9323138",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read and confirmed. Rev-15 notes page-236 (axiom-corpus commit 60de5efa, data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, the file the generator pins via RELPATH) prints the note 16(c) list \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\". Pre-fix rules[s232_steel_primary_membership].versions[0].values held exactly the 11 dotted 8-digit members of that list and nothing else; post-fix that rule is unchanged and the two new tables carry the missing 4- and 6-digit widths, so the union now equals the printed list. Note the resolver caveat: resolve_provision.py resolves the toolchain pin to release us-rulespec-2026-08-08-obbb-alien-snap, which contains only the Rev-3 notes file, so its page-236 is unrelated Rev-3 content; the Rev-3 prose form of the same note (pages 228/231/235) independently corroborates that the primary list is stated at heading level (7206-7229, 7304-7306) with 7302.10/7302.90 at 6-digit, and I read the Rev-15 file directly from the pinned corpus commit for the decisive check. Root cause is in the same commit's tools/generate_incidence_tables.py diff: the old HTS regex matched only dotted 8/10-digit atoms; the new PRINTED_WIDTH_HTS regex plus per-production widths=(4, 6, 8) preserves printed width. B16-BUILD-REPORT.md in the same commit states verbatim: \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b).\" (the build report is not an allowed quote_source value, so the commit subject is quoted in the field instead). The module diff is pure addition; nothing else in the module changed (module citation paths already listed page-236). The companion test file gained 20 lines of present/absent cases for the new tables. Alternative kind a reviewer may prefer: wrong_entity_or_scope, since what was wrong is the covered population of HTS lines; I chose unrepresented_clause per the instruction that adding coverage the source requires is unrepresented_clause. Caveat for corpus use: this module is generator-produced (tools/generate_incidence_tables.py), not encoder-produced, so the defect is a parser-width bug rather than an LLM encoding error. | verifier confirmed at 0.85"
 }

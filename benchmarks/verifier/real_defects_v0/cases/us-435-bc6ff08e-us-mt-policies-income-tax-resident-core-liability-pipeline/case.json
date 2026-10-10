@@ -331,8 +331,8 @@
   },
   "pre_fix_artifact_sha256": "906c9205a0c3f38a7f60e374cbee2b0a46698907e4e14bbf4177e7b27b7421f1",
   "post_fix_artifact_sha256": "12ee2cb860541e4554f37649c16060f505eb7f93a8079e1d74a584c7db65c237",
-  "provision_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
-  "provision_chars": 13326,
+  "provision_sha256": "a3601aa7e4684a11658fc81ced920868cc99e58bc4858e04b7bba530da446eb5",
+  "provision_chars": 17347,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-mt/statute/15-30-2101",
@@ -353,6 +353,53 @@
     "toolchain_corpus_ref": "7b1fc1524ec2373ef9a53f56d1f18c1789be1fa1",
     "requested_citation_path": "us-mt/statute/15-30-2101",
     "release_errors_before_success": []
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "first_citation_chars": 13326,
+    "added": [
+      {
+        "citation_path": "us-mt/statute/15-30-3328",
+        "text_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+        "chars": 1070,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-mt/statute/15-30-3328",
+          "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+          "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+          "line_number": 1444,
+          "record_id": "aace07b5-3d2e-5e80-8f12-25f4d1bb33e6",
+          "stored_body_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+          "resolved_text_sha256": "34feaaa1edef1636788ef53fcc9190f8c2568365618306c3fb07c9a9284ea35f",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-03-24",
+          "source_as_of": "2026-03-24",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      },
+      {
+        "citation_path": "us-mt/statute/15-62-208",
+        "text_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+        "chars": 2825,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-mt/statute/15-62-208",
+          "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+          "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+          "line_number": 2046,
+          "record_id": "44f42723-f9ae-5cc4-aebb-a936caf1544b",
+          "stored_body_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+          "resolved_text_sha256": "937da9d8703a8082dc127c2a2529d176d644b13d08e0bd526151acc3a59e0289",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-03-24",
+          "source_as_of": "2026-03-24",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
   },
   "evidence_in_provision": "present",
   "evidence_check": {
@@ -487,7 +534,7 @@
           "mt_pit_2026_supported_profile_applies.versions[0].formula"
         ],
         "cites": "us-mt/statute/15-62-208",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -630,7 +677,7 @@
           "mt_pit_2026_supported_profile_applies.versions[0].formula"
         ],
         "cites": "us-mt/statute/15-30-3328",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -1121,7 +1168,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -1161,17 +1208,71 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 52,
-    "post_side_matched": 1,
+    "post_side_matched": 5,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-mt/statute/15-30-3328",
+        "quote": "An owner that is not a pass-through entity may claim the distributive share of the owner's entity tax paid by an electing pass-through entity as a refundable credit against the taxes under this chapter.",
+        "span": [
+          13514,
+          13716
+        ]
+      },
+      {
+        "citation_path": "us-mt/statute/15-62-208",
+        "quote": "There is a recapture tax at a rate equal to the highest rate of tax provided in 15-30-2103 on the recapturable withdrawal of amounts that were deducted from income in calculating Montana individual income taxes.",
+        "span": [
+          14593,
+          14804
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "15-30-3328 grants a refundable pass-through-entity credit against the chapter's taxes, and 15-62-208 imposes a separate recapture tax on individuals. Both change a resident's net Montana liability. The pre-fix mt_pit_2026_supported_profile_applies gate has no conjunct or hold for either one, so it admits those taxpayers and reports a net liability that leaves them out. The post-fix gate excludes them through explicit applicability facts.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "adjudicated",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-bc6ff08e-4d2888fb8d15",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -1185,11 +1286,10 @@
     "verifier_notes": "Reviewer caveats. (1) Multi-defect commit: besides the quoted unrepresented clauses it also (a) rewrites the refundable adoption credit from an ungated count product (`mt_pit_2026_foster_care_adoption_amount * ..._count + ...`) to a single child-level claim conditioned on 15-30-2321's \"eligible child\" age-18/self-care test, 2026 finality and \"Only one credit is allowed for each eligible child.\" (all three excerpts verified verbatim) — also unrepresented_clause; (b) gates mt_pit_2026_refundable_earned_income_credit and mt_pit_2026_refundable_public_access_credit on the profile, which is a fail-open→fail-closed fix (polarity_or_logic); (c) splits mt_pit_2026_profile_candidate_montana_taxable_income into a signed 15-30-2101 amount plus a floored 15-30-2103 schedule base, removing an ungrounded max(0) on Montana taxable income (arguably untraceable_branch). If the corpus wants one kind per case, unrepresented_clause is the dominant and the one the quoted comment supports; wrong_entity_or_scope is an adjacent reading (the supported population was too broad) but the cause is the missing clauses. (2) Partial weakness in the first reader's quote: MCA 15-30-2105 (lump-sum distribution tax) carries metadata.status \"repealed\" in the pinned release row (656 of the MT Title-15 rows carry that status, so the flag is meaningful), and `resolve_provision.py` refuses it as \"Active corpus source ... is repealed\" — the lump-sum hold added for it is conservative rather than source-required. The other six items are active sections and carry the fidelity finding on their own. (3) Provenance: this is a review-fix commit inside PR #1031, the PR that first introduced the module, so the defective state never reached main; that is a corpus-curation question (does the corpus admit intra-PR fixes?), not a classification one. (4) Verified read-only via git show, the scratchpad release JSONL, and resolve_provision.py; no repo state touched.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single module file, but this is a multi-defect review-fix commit; at least four distinct fidelity corrections land in the same diff and I had to pick one kind. (1) unrepresented_clause, the dominant pattern: missing separate taxes/recaptures and the PTE credit (now fail-closed applicability holds in mt_pit_2026_supported_profile_applies), the missing 15-30-2120(5)(a) family-education deduction (new caps 4500/9000, child/stepchild Montana-residency test, added into mt_pit_2026_profile_candidate_subtractions and the corresponding hold input mt_pit_2026_has_family_education_contribution_deduction deleted), and the missing 15-30-2321 eligible-child/one-credit conditions on mt_pit_2026_refundable_adoption_credit. (2) untraceable_branch: the pre-fix mt_pit_2026_profile_candidate_montana_taxable_income wrapped fed TI + additions - subtractions in max(0, ...) with no basis in 15-30-2101; the fix renames it to mt_pit_2026_profile_candidate_signed_section_2101_amount without the floor and introduces mt_pit_2026_profile_candidate_schedule_tax_base = max(0, ...) so only the 15-30-2103 schedule base is floored (module summary: \"computes Montana taxable income without forcing a nonnegative floor, floors only the schedule base\"). (3) polarity_or_logic / fail-open: the refundable adoption, EITC, and public-access credit rules previously computed unconditionally and now return 0 when mt_pit_2026_supported_profile_applies is false (PR body: \"transitive fail-closed gates\"). (4) capital character: a new gate requires section_1222_net_long_term_capital_gain == 0 or both additions and subtractions == 0, because Montana modifications can change income character. Also in scope but not a defect: the public-access hold was renamed and NARROWED (mt_pit_2026_has_shared_or_duplicate_public_access_claim -> mt_pit_2026_has_shared_ownership_or_same_property_public_access_allocation, so separate properties under 15-30-2380(4) no longer set the hold), and ~25 cross-title modification inputs gained `== 0` requirements in the profile gate (PR body finding \"caller-completed legal results\"). Provisions read through the pinned release: MCA 15-30-2120(5)(a) confirms the $4,500/$9,000 caps, the taxpayer/spouse/child-or-stepchild account-owner constraint with the Montana-residency condition, and (5)(b) the 15-62-208 recapture tax; MCA 15-30-2321 confirms the $7,500/$5,000 amounts, subsection (5) \"Only one credit is allowed for each eligible child.\" and subsection (7) \"eligible child\" = under 18 or incapable of self-care. MCA 15-30-2105 could NOT be resolved: the resolver reported \"Active corpus source 'us-mt/statute/15-30-2105' is repealed\" for every candidate release, so the lump-sum-distribution excerpt is taken from the module's own proof atom, not independently verified. Commit message body is empty; PR body is the best commit-level evidence (\"Findings covering specialty taxes and recaptures, capital character, transitive fail-closed gates, caller-completed legal results, public-output gating, federal-EITC domain consistency, adoption proof completeness, and generated-artifact minimality were fixed and revalidated.\"). Follow-up: 915fc7cc8 \"Tighten Montana resident core domain\" touches this same module after this commit; a PR comment says that rebase carried no substantive Montana changes, so reviewers should check whether 915fc7cc8 contains further fidelity fixes. Companion test file changed by +3,181 lines in the same commit. | verifier confirmed at 0.82",
-  "family_id": "us-bc6ff08e-4d2888fb8d15",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single module file, but this is a multi-defect review-fix commit; at least four distinct fidelity corrections land in the same diff and I had to pick one kind. (1) unrepresented_clause, the dominant pattern: missing separate taxes/recaptures and the PTE credit (now fail-closed applicability holds in mt_pit_2026_supported_profile_applies), the missing 15-30-2120(5)(a) family-education deduction (new caps 4500/9000, child/stepchild Montana-residency test, added into mt_pit_2026_profile_candidate_subtractions and the corresponding hold input mt_pit_2026_has_family_education_contribution_deduction deleted), and the missing 15-30-2321 eligible-child/one-credit conditions on mt_pit_2026_refundable_adoption_credit. (2) untraceable_branch: the pre-fix mt_pit_2026_profile_candidate_montana_taxable_income wrapped fed TI + additions - subtractions in max(0, ...) with no basis in 15-30-2101; the fix renames it to mt_pit_2026_profile_candidate_signed_section_2101_amount without the floor and introduces mt_pit_2026_profile_candidate_schedule_tax_base = max(0, ...) so only the 15-30-2103 schedule base is floored (module summary: \"computes Montana taxable income without forcing a nonnegative floor, floors only the schedule base\"). (3) polarity_or_logic / fail-open: the refundable adoption, EITC, and public-access credit rules previously computed unconditionally and now return 0 when mt_pit_2026_supported_profile_applies is false (PR body: \"transitive fail-closed gates\"). (4) capital character: a new gate requires section_1222_net_long_term_capital_gain == 0 or both additions and subtractions == 0, because Montana modifications can change income character. Also in scope but not a defect: the public-access hold was renamed and NARROWED (mt_pit_2026_has_shared_or_duplicate_public_access_claim -> mt_pit_2026_has_shared_ownership_or_same_property_public_access_allocation, so separate properties under 15-30-2380(4) no longer set the hold), and ~25 cross-title modification inputs gained `== 0` requirements in the profile gate (PR body finding \"caller-completed legal results\"). Provisions read through the pinned release: MCA 15-30-2120(5)(a) confirms the $4,500/$9,000 caps, the taxpayer/spouse/child-or-stepchild account-owner constraint with the Montana-residency condition, and (5)(b) the 15-62-208 recapture tax; MCA 15-30-2321 confirms the $7,500/$5,000 amounts, subsection (5) \"Only one credit is allowed for each eligible child.\" and subsection (7) \"eligible child\" = under 18 or incapable of self-care. MCA 15-30-2105 could NOT be resolved: the resolver reported \"Active corpus source 'us-mt/statute/15-30-2105' is repealed\" for every candidate release, so the lump-sum-distribution excerpt is taken from the module's own proof atom, not independently verified. Commit message body is empty; PR body is the best commit-level evidence (\"Findings covering specialty taxes and recaptures, capital character, transitive fail-closed gates, caller-completed legal results, public-output gating, federal-EITC domain consistency, adoption proof completeness, and generated-artifact minimality were fixed and revalidated.\"). Follow-up: 915fc7cc8 \"Tighten Montana resident core domain\" touches this same module after this commit; a PR comment says that rebase carried no substantive Montana changes, so reviewers should check whether 915fc7cc8 contains further fidelity fixes. Companion test file changed by +3,181 lines in the same commit. | verifier confirmed at 0.82"
 }

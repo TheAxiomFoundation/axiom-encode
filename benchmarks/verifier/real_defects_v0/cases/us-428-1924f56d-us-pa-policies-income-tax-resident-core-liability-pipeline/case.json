@@ -136,8 +136,8 @@
   },
   "pre_fix_artifact_sha256": "3a901c741d962305beee25ac90178e1ee901942e510dd20dae490e24cca703d1",
   "post_fix_artifact_sha256": "cb154737cd58ba6384a7ab173219c3cbeaebe353aa8efc0745fc6bc7cb2a8e4e",
-  "provision_sha256": "dc96472947efa281cfc68df7934f25a42374d4a65ecabdeb53032943ddf2a28a",
-  "provision_chars": 22025,
+  "provision_sha256": "68c3c9ddaa0a74478491a2d30bf0439d791e297c9937ec42a32ccb5f9b1622d6",
+  "provision_chars": 23907,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-pa/statute/act-1971-2/article-3/section-301",
@@ -159,7 +159,34 @@
     "requested_citation_path": "us-pa/statute/act-1971-2/article-3/section-301",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "dc96472947efa281cfc68df7934f25a42374d4a65ecabdeb53032943ddf2a28a",
+    "first_citation_chars": 22025,
+    "added": [
+      {
+        "citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+        "text_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+        "chars": 1754,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+          "provision_file": "data/corpus/provisions/us-pa/statute/2026-07-16-pit-west-us-pa-act-1971-2-article-3.jsonl",
+          "provision_file_sha256": "21779a88e294a15cd7fb9d9d0915ea492cc665769727ca3eaebf0fe3bd24e93f",
+          "line_number": 4,
+          "record_id": "767cad8e-191b-576c-972f-d4576d72501f",
+          "stored_body_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+          "resolved_text_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-05-29",
+          "source_as_of": "2025-05-29",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -176,7 +203,7 @@
           "pa_pit_resident_income_before_annual_deductions.versions[0].formula"
         ],
         "cites": "us-pa/statute/act-1971-2/article-3/section-302",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -229,7 +256,7 @@
           "triage.triage_notes",
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -239,7 +266,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -259,17 +286,63 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 8,
-    "post_side_matched": 0,
+    "post_side_matched": 4,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+        "quote": "shall pay for the privilege of receiving each of the classes of income hereinafter enumerated in section 303, a tax upon each dollar of income received by that resident",
+        "span": [
+          22263,
+          22431
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 302(a) imposes the tax for receiving each enumerated class, on each dollar of income received. The pre-fix formula adds the eight class totals raw, so a negative class (for example net gains from property) leaves dollars received in another class untaxed. The post-fix floors each class at zero, which fits the per-class, per-dollar imposition. provision.txt (section 301 definitions) says nothing about how classes combine.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-1924f56d-1f8d16d2c5fc",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -283,11 +356,10 @@
     "verifier_notes": "Scope of the change: the rest of the commit (module summary rewrite, deferred_outputs reasons, and the eight input descriptions \"Raw section 303(a)(N)...\" -> \"Caller-computed section 303(a)(N) ... class total\") is prose/boundary metadata and would be mechanical on its own; the one substantive meaning change is the per-class floor, plus the new section 302 proof atom. Provenance caveat for a reviewer: this is an in-branch review fix — parent 3ce0238b3 \"Add Pennsylvania resident income-tax core\" added the module in the same PR #1024, so the defect never reached main; PR body's \"Independent review found six source/scope/test issues ... including per-class nonnegative treatment and a negative-class regression\" is the review evidence, matched line-for-line by this diff and the added test `loss_in_one_income_class_does_not_offset_another_class`. Source caveat: the pinned section 303 text contains no explicit \"a loss in one class may not offset another class\" clause (grepped for offset/other class/net loss); the grounding rests on section 302(a)'s per-class imposition language, which is what the new proof atom cites. If a reviewer insists a defect kind requires a literally stated clause, \"other (per-class loss-offset prohibition implied by the imposition provision)\" would be the fallback label, but the encoded meaning is still wrong against the source either way.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single-module commit, second commit of PR #1024 (parent 3ce0238b adds the module; this commit is the review-fix/boundary-clarification pass). The only meaning-changing hunk is the formula, which becomes max(0, <class>) for all eight class inputs; everything else in the diff is provenance/metadata: module summary rewrite, deferred_output reason rewrite, eight input `description` rewrites (Raw -> Caller-computed), and one added proof atom (path versions[0].formula citing us-pa/statute/act-1971-2/article-3/section-302, excerpt 'a tax upon each dollar of income received by that resident'). Companion test adds case loss_in_one_income_class_does_not_offset_another_class with pa_pit_net_gains_from_property: -5000 and pa_pit_compensation: 10000 expecting base 10000 and tax 307, which pins the behavior change. Provisions read through the pinned corpus release us-rulespec-2026-07-22-current-la-status-fix: section 302(a) does say tax is imposed 'for the privilege of receiving each of the classes of income hereinafter enumerated in section 303, a tax upon each dollar of income received'; section 303 as stored contains no explicit 'a loss in one class may not offset another class' sentence (PA's explicit no-offset statement lives in regulation/case law, not in this Article III text), so the grounding for the fix is section 302's per-class imposition plus section 303's class enumeration. That is why kind could alternatively be argued as 'other: cross-class loss offset'; I kept unrepresented_clause because the fix adds a per-class limitation the source structure requires and the encoding omitted. The commit message body is empty and the subject ('Clarify Pennsylvania core boundary') is generic, so the quote is from the PR body; the PR body's phrase 'per-class nonnegative treatment' names exactly this fix. No PR reviews or review comments were captured in the bundle. | verifier confirmed at 0.88",
-  "family_id": "us-1924f56d-1f8d16d2c5fc",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single-module commit, second commit of PR #1024 (parent 3ce0238b adds the module; this commit is the review-fix/boundary-clarification pass). The only meaning-changing hunk is the formula, which becomes max(0, <class>) for all eight class inputs; everything else in the diff is provenance/metadata: module summary rewrite, deferred_output reason rewrite, eight input `description` rewrites (Raw -> Caller-computed), and one added proof atom (path versions[0].formula citing us-pa/statute/act-1971-2/article-3/section-302, excerpt 'a tax upon each dollar of income received by that resident'). Companion test adds case loss_in_one_income_class_does_not_offset_another_class with pa_pit_net_gains_from_property: -5000 and pa_pit_compensation: 10000 expecting base 10000 and tax 307, which pins the behavior change. Provisions read through the pinned corpus release us-rulespec-2026-07-22-current-la-status-fix: section 302(a) does say tax is imposed 'for the privilege of receiving each of the classes of income hereinafter enumerated in section 303, a tax upon each dollar of income received'; section 303 as stored contains no explicit 'a loss in one class may not offset another class' sentence (PA's explicit no-offset statement lives in regulation/case law, not in this Article III text), so the grounding for the fix is section 302's per-class imposition plus section 303's class enumeration. That is why kind could alternatively be argued as 'other: cross-class loss offset'; I kept unrepresented_clause because the fix adds a per-class limitation the source structure requires and the encoding omitted. The commit message body is empty and the subject ('Clarify Pennsylvania core boundary') is generic, so the quote is from the PR body; the PR body's phrase 'per-class nonnegative treatment' names exactly this fix. No PR reviews or review comments were captured in the bundle. | verifier confirmed at 0.88"
 }

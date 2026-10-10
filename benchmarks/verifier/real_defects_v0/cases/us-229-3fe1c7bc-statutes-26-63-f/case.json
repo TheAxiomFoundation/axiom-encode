@@ -379,6 +379,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -500,7 +501,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/63",
+        "quote": "In the case of an individual who is not married and is not a surviving spouse, paragraphs (1) and (2) shall be applied by substituting “$750” for “$600”.",
+        "span": [
+          7380,
+          7533
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/63",
+        "quote": "(g) Marital status For purposes of this section, marital status shall be determined under section 7703.",
+        "span": [
+          7914,
+          8017
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 63 states the test for the $750 substitution as being 'not married and not a surviving spouse', with marital status determined under section 7703. Nothing in the provision defines filing-status codes. The pre-fix rule decides the substitution with `filing_status == 0 or filing_status == 3`, an undeclared input compared against unexplained integers. A reader can see the branch has no basis in the text. The post-fix rule removes it and defers the output to 7703 and 2(a).",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-3fe1c7bc-78076d77f78f",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -511,14 +566,13 @@
     "verifier_confidence": 0.72,
     "verifier_justification": "I tried to refute this as a mere re-encode or as an entity/scope change, and could not: the decisive meaning change is the deletion of a formula that decided the §63(f)(3) \"$750 for $600\" substitution by testing an undeclared free input against bare integers (`filing_status == 0 or filing_status == 3`), with no enum, import, or in-module declaration giving those codes meaning, while its proof atoms claimed the statutory excerpt \"In the case of an individual who is not married and is not a surviving spouse\" as grounding. The pinned corpus text confirms §63(f)(3) states the test as \"not married and is not a surviving spouse\" and §63(g) routes marital status to §7703 (surviving spouse comes from §2(a)) — nothing in 26 USC 63 supplies a filing-status code; the fix removes the branch and defers the output, blocked by exactly those two provisions. The competing kind wrong_entity_or_scope does not fit better: the spouse rules move from TaxUnit booleans to a Person relation but the TaxUnit output surface is preserved via `count_where(...) > 0`, so that is added precision the module never claimed rather than a corrected entity, and the removal of `additional_standard_deduction_amount_under_subsection_f` is a downstream consequence of the deferral, not an independent scope correction. The parallel replacement of the assumed local input `additional_exemption_allowable_for_spouse_under_section_151_b` with a hashed import of `us:statutes/26/151#exemption_individual_eligible` is the same defect family (ungrounded assumption re-grounded), which reinforces untraceable_branch over the alternatives.",
     "verifier_quote": "-          if filing_status == 0 or filing_status == 3: unmarried_not_surviving_spouse_additional_amount else: aged_or_blind_additional_amount",
-    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/3fe1c7bc3c/000.diff\n\nCaveats a reviewer should weigh:\n1) This commit is a whole-module encoder regeneration, not a targeted fix. The manifest (.axiom/encoding-manifests/statutes/26/63/f.json) shows axiom_encode 0.2.68 -> 0.2.78, same model gpt-5.5, five days later, new run_id. There is no commit body, no PR, and no review text asserting a defect; the only defect evidence internal to the change is the new `deferred_outputs` reason, which is the quote the first reader used.\n2) The commit therefore mixes three layers: genuinely mechanical churn (source strings \"IRC section 63(f)(1), (2)\" -> \"26 USC 63(f)(1), (2)\" on six rules, excerpt trimming of trailing periods, formula reindentation of blind_under_subsection_f with identical logic), added precision (new `aged_additional_amount_age_threshold` = 65 parameter, spouse Person relation), and the one real fidelity change quoted above. Net coverage decreases: the module loses both `applicable_aged_or_blind_additional_amount` and `additional_standard_deduction_amount_under_subsection_f`. If the corpus definition of a \"fix\" requires the post state to compute the right answer rather than to stop asserting a wrong-because-ungrounded one, this case is a removal, not a repair — that is the main reason I did not go above ~0.72.\n3) Behaviorally the old mapping was arguably close to right under the repo's own filing-status convention: policies/irs/rev-proc-2025-32/*.yaml use filing_status codes 0-4 (0 single, 3 head of household, 4 apparently surviving spouse), so 0-or-3 approximates \"not married and not a surviving spouse\". So the defect is grounding/traceability, not a wrong outcome for typical households — which is precisely why untraceable_branch is the right kind and amount_mismatch/polarity are not. Note also that no dollar amount changed: the 600 and 750 parameters both survive untouched and are listed as `source_values` on the deferral.\n4) Corroborating evidence in the test file: the pre-fix tests asserted `input.filing_status: 0 -> applicable_aged_or_blind_additional_amount: 750` and `filing_status: 1 -> 600`; both cases are deleted, and the new spouse test supplies real §151 inputs (`is_spouse_of_taxpayer`, `joint_return_made_by_taxpayer_and_spouse`, `spouse_has_no_gross_income_for_calendar_year`) through the relation, confirming the §151(b) assumption was replaced by a traceable import rather than renamed.\n5) Source read through the pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca, resolved_text_sha256 7fa5f5d7…): §63(f)(3) and §63(g) text as quoted above; \"filing status\" as a concept appears in §63 only in subsection (c) (joint return, head of household, married filing separately), never in subsection (f).",
+    "verifier_notes": "Bundle: <scratch>/diffs/us/3fe1c7bc3c/000.diff\n\nCaveats a reviewer should weigh:\n1) This commit is a whole-module encoder regeneration, not a targeted fix. The manifest (.axiom/encoding-manifests/statutes/26/63/f.json) shows axiom_encode 0.2.68 -> 0.2.78, same model gpt-5.5, five days later, new run_id. There is no commit body, no PR, and no review text asserting a defect; the only defect evidence internal to the change is the new `deferred_outputs` reason, which is the quote the first reader used.\n2) The commit therefore mixes three layers: genuinely mechanical churn (source strings \"IRC section 63(f)(1), (2)\" -> \"26 USC 63(f)(1), (2)\" on six rules, excerpt trimming of trailing periods, formula reindentation of blind_under_subsection_f with identical logic), added precision (new `aged_additional_amount_age_threshold` = 65 parameter, spouse Person relation), and the one real fidelity change quoted above. Net coverage decreases: the module loses both `applicable_aged_or_blind_additional_amount` and `additional_standard_deduction_amount_under_subsection_f`. If the corpus definition of a \"fix\" requires the post state to compute the right answer rather than to stop asserting a wrong-because-ungrounded one, this case is a removal, not a repair — that is the main reason I did not go above ~0.72.\n3) Behaviorally the old mapping was arguably close to right under the repo's own filing-status convention: policies/irs/rev-proc-2025-32/*.yaml use filing_status codes 0-4 (0 single, 3 head of household, 4 apparently surviving spouse), so 0-or-3 approximates \"not married and not a surviving spouse\". So the defect is grounding/traceability, not a wrong outcome for typical households — which is precisely why untraceable_branch is the right kind and amount_mismatch/polarity are not. Note also that no dollar amount changed: the 600 and 750 parameters both survive untouched and are listed as `source_values` on the deferral.\n4) Corroborating evidence in the test file: the pre-fix tests asserted `input.filing_status: 0 -> applicable_aged_or_blind_additional_amount: 750` and `filing_status: 1 -> 600`; both cases are deleted, and the new spouse test supplies real §151 inputs (`is_spouse_of_taxpayer`, `joint_return_made_by_taxpayer_and_spouse`, `spouse_has_no_gross_income_for_calendar_year`) through the relation, confirming the §151(b) assumption was replaced by a traceable import rather than renamed.\n5) Source read through the pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca, resolved_text_sha256 7fa5f5d7…): §63(f)(3) and §63(g) text as quoted above; \"filing status\" as a concept appears in §63 only in subsection (c) (joint return, head of household, married filing separately), never in subsection (f).",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Subject says Encode, but it rewrites the existing 63(f) module: spouse entitlements move from tax-unit booleans to count_where over a spouse Person relation (entity/scope), the additional_standard_deduction_amount_under_subsection_f output is removed, and paragraph (3) becomes a deferred output."
+    "screen_reason": "Subject says Encode, but it rewrites the existing 63(f) module: spouse entitlements move from tax-unit booleans to count_where over a spouse Person relation (entity/scope), the additional_standard_deduction_amount_under_subsection_f output is removed, and paragraph (3) becomes a deferred output.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "No PR (bundle pr=null) and the commit body is empty, so the only stated reason is the new in-module deferred_outputs `reason:` field quoted above, which names the defect directly (\"prohibited local filing-status inputs\"); its blocked_by list points at exactly the two provisions the statute routes to (26 USC 7703 living-apart rule, 26 USC 2(a) surviving spouse). Provision WAS read via resolve_provision on us/statute/26/63: 63(f)(1)-(4) matches the module summary verbatim, 63(g) says \"For purposes of this section, marital status shall be determined under section 7703\", and the text contains no notion of filing status codes, confirming the deleted branch had no basis in the cited source. This is a mixed commit: alongside the re-grounding it carries purely mechanical changes (source strings \"IRC section 63(f)(1)\" -> \"26 USC 63(f)(1)\", excerpt trailing-period/leading-word trims, reindentation of the blind_under_subsection_f formula with no logic change) and one non-defect addition (aged_additional_amount_age_threshold = 65, a new parameter no formula references). Alternate reading a reviewer may prefer: wrong_entity_or_scope, since the screen flag emphasizes the TaxUnit-boolean -> Person + count_where(spouse relation) restructuring and the removal of the additional_standard_deduction_amount_under_subsection_f output surface; I ranked untraceable_branch higher because the entity move is meaning-preserving for a one-spouse tax unit while the filing_status branch had no statutory basis at all. Note the change reduces coverage (paragraph (3) and the aggregate dollar output become deferred rather than encoded), which is why confidence is below 0.8 — it is a removal/deferral of an ungrounded computation, not an added clause. Tests were rewritten to match (filing_status input and the 750/1500/600/2400 expectations dropped, spouse cases moved under a relation list carrying us:statutes/26/151 inputs). Follow-up commit f1ad4f927 \"Refresh 26 USC 63(f) encoder provenance\" ~50 minutes later rewrites this file again (576 changed lines); I did not triage it. | verifier confirmed at 0.72",
-  "family_id": "us-3fe1c7bc-78076d77f78f",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "No PR (bundle pr=null) and the commit body is empty, so the only stated reason is the new in-module deferred_outputs `reason:` field quoted above, which names the defect directly (\"prohibited local filing-status inputs\"); its blocked_by list points at exactly the two provisions the statute routes to (26 USC 7703 living-apart rule, 26 USC 2(a) surviving spouse). Provision WAS read via resolve_provision on us/statute/26/63: 63(f)(1)-(4) matches the module summary verbatim, 63(g) says \"For purposes of this section, marital status shall be determined under section 7703\", and the text contains no notion of filing status codes, confirming the deleted branch had no basis in the cited source. This is a mixed commit: alongside the re-grounding it carries purely mechanical changes (source strings \"IRC section 63(f)(1)\" -> \"26 USC 63(f)(1)\", excerpt trailing-period/leading-word trims, reindentation of the blind_under_subsection_f formula with no logic change) and one non-defect addition (aged_additional_amount_age_threshold = 65, a new parameter no formula references). Alternate reading a reviewer may prefer: wrong_entity_or_scope, since the screen flag emphasizes the TaxUnit-boolean -> Person + count_where(spouse relation) restructuring and the removal of the additional_standard_deduction_amount_under_subsection_f output surface; I ranked untraceable_branch higher because the entity move is meaning-preserving for a one-spouse tax unit while the filing_status branch had no statutory basis at all. Note the change reduces coverage (paragraph (3) and the aggregate dollar output become deferred rather than encoded), which is why confidence is below 0.8 — it is a removal/deferral of an ungrounded computation, not an added clause. Tests were rewritten to match (filing_status input and the 750/1500/600/2400 expectations dropped, spouse cases moved under a relation list carrying us:statutes/26/151 inputs). Follow-up commit f1ad4f927 \"Refresh 26 USC 63(f) encoder provenance\" ~50 minutes later rewrites this file again (576 changed lines); I did not triage it. | verifier confirmed at 0.72"
 }

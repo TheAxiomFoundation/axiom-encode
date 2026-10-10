@@ -171,6 +171,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -356,7 +357,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ga/statute/48/48-7-26",
+        "quote": "Code Section 48-7-26 is set out twice in this Code. This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.",
+        "span": [
+          1653,
+          1819
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "provision.txt says the text it prints ($7,400/$3,700/$2,700 personal exemptions and a $3,000 dependent exemption) is effective only until January 1, 2024. The pre-fix module gives each of these one open-ended version with no effective_to, so it asserts them for 2024 onward. The post-fix module closes them at 2023-12-31, which fits the note.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-c6db535b-3fdabd5fc8d0",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -370,11 +417,10 @@
     "verifier_notes": "Evidence read: bundle JSON, diff 000.diff, parent blob 9ff9a7aa:us-ga/statutes/48/48-7-26.yaml (confirmed zero `effective_to` keys pre-fix), and three provisions resolved through corpus release us-rulespec-2026-07-22-current (us-ga/statute/48/48-7-26, .../session-laws/2024/hb1021/document-1, .../session-laws/2026/hb463/document-1).\n\nThree secondary points for a reviewer. (1) The commit subject names 48-7A-3 as the headline logic fix, but this is module index 0 of four; its own change is the period repair, so the commit message is not the right evidence anchor here — the diff and the PR bullet \"repair Georgia PIT law through 2027, including 2026 standard/dependent amounts\" are. (2) Four of the five named rules (joint/separate/other personal exemption amounts and personal_exemption_deduction) receive ONLY `effective_to: '2023-12-31'` with no successor version, which is consistent with HB 1021/SB 56 replacing subsection (b) entirely with a dependent-only exemption; that asymmetry is why amount_mismatch is the weaker kind. (3) Residual gap not part of this defect, worth a separate look: the new 2026 version is open-ended at 5000, but HB 463 § 2-2 continues \"provided, however, that such deduction shall be increased by $125.00 annually beginning on January 1, 2027, until such deduction reaches $6,000.00, provided that such increases in such deduction shall be subject to the same delays as those applied to standard\" — the PR body describes 2027 deductions as contingent, so the escalator may be deliberately deferred rather than missed.\n\nThe diff also carries genuinely mechanical content (module summary rewrite, single `corpus_citation_path` widened to a `corpus_citation_paths` list, added proof atoms). Those alone would be mechanical/provenance, but they are not what carries the verdict; the version-window and new-version edits are.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10."
+    "screen_reason": "Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the cited session laws through the pinned corpus release: HB 1021 (2024) revises 48-7-26(b) to '$3,000.00 $4,000.00 for each dependent' and is 'applicable to all taxable years beginning on or after January 1, 2024'; HB 463 (2026) revises it to '$4,000.00 $5,000.00 for each dependent'; SB 56 Section 4-1(2) makes Sections 2-2 through 2-6 applicable from TY2024. The fix adds effective_to '2023-12-31' to the three personal-exemption parameters and to the derived personal_exemption_deduction selector (correct: after TY2024 O.C.G.A. 48-7-26(b) contains only the dependent exemption), and adds versions[1] 4000 (2024-2025) and versions[2] 5000 (2026-) to dependent_exemption_amount. It also converts module.source_verification.corpus_citation_path to corpus_citation_paths listing the three acts, which is provenance bookkeeping riding along with the substantive change. Alternative kind: amount_mismatch, since for 2024-2026 the module also returned the wrong dollar amount; I chose wrong_period_or_effective_date because the defect definition explicitly covers 'timeless encoding of superseded text' and the fix's decisive edit is the missing effective_to plus successor versions. Follow-up commit 5474dca0e ('Complete state income tax RuleSpec campaign', same PR) adds SB 56 effective-date excerpts and a deferred_output for 2027+ because HB 463's $125 annual increases are contingent on revenue-condition delay tests. Companion test file gained 24 lines of new-period cases in the same commit. | verifier confirmed at 0.93",
-  "family_id": "us-c6db535b-3fdabd5fc8d0",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the cited session laws through the pinned corpus release: HB 1021 (2024) revises 48-7-26(b) to '$3,000.00 $4,000.00 for each dependent' and is 'applicable to all taxable years beginning on or after January 1, 2024'; HB 463 (2026) revises it to '$4,000.00 $5,000.00 for each dependent'; SB 56 Section 4-1(2) makes Sections 2-2 through 2-6 applicable from TY2024. The fix adds effective_to '2023-12-31' to the three personal-exemption parameters and to the derived personal_exemption_deduction selector (correct: after TY2024 O.C.G.A. 48-7-26(b) contains only the dependent exemption), and adds versions[1] 4000 (2024-2025) and versions[2] 5000 (2026-) to dependent_exemption_amount. It also converts module.source_verification.corpus_citation_path to corpus_citation_paths listing the three acts, which is provenance bookkeeping riding along with the substantive change. Alternative kind: amount_mismatch, since for 2024-2026 the module also returned the wrong dollar amount; I chose wrong_period_or_effective_date because the defect definition explicitly covers 'timeless encoding of superseded text' and the fix's decisive edit is the missing effective_to plus successor versions. Follow-up commit 5474dca0e ('Complete state income tax RuleSpec campaign', same PR) adds SB 56 effective-date excerpts and a deferred_output for 2027+ because HB 463's $125 annual increases are contingent on revenue-condition delay tests. Companion test file gained 24 lines of new-period cases in the same commit. | verifier confirmed at 0.93"
 }

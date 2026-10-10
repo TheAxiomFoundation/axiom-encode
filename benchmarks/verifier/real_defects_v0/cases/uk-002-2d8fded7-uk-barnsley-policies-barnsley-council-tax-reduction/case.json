@@ -361,6 +361,7 @@
     "requested_citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -542,7 +543,61 @@
     "pre_side_matched": 4,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "quote": "Applied to protected groups (see below) 85% £98.05 £153.92 £241.80 £329.68",
+        "span": [
+          779,
+          853
+        ]
+      },
+      {
+        "citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+        "quote": "These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.",
+        "span": [
+          1086,
+          1239
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The page-52 table prints a separate Band 1 ceiling for each household type (Single £98.05, Couple £153.92, one child £241.80, two or more children £329.68). Protected groups are those who 'fall within the band 1 income from the table above'. The pre-fix income_band rule tests protected status against the single-person ceiling (£98.05) for every household type, so it wrongly denies the 90% rate to couples and families inside their own Band 1 ceiling.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "uk-2d8fded7-3b9cba5adffd",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -556,11 +611,10 @@
     "verifier_notes": "Refutation attempts that failed: (1) \"mechanical / restructure only\" — rejected: the added test `barnsley_ctr_protected_couple_at_ceiling` (category 1, income 153.92) expects protected_group holds and rate 0.9, while the pre-fix formula gates on 153.92 <= 98.05 and would yield band 1 → 0.85; the meaning genuinely changed for 3 of 4 household categories. (2) \"not_a_defect / new coverage\" — rejected: all four Band-1 ceilings were already encoded pre-fix as `*_band_1_upper_income_weekly` parameters with correct values, and the ordinary band ladder already indexed by household category, so the module already claimed per-household banding; the protected gate simply used the wrong one. (3) \"unrepresented_clause\" — the fix does newly in-line `receives_qualifying_disability_income and has_no_earnings` (pre-fix these were delegated to an imported `protected_group` input, per the deferred_outputs reason), but that is a relocation of an already-represented condition, not a missing clause. The near-miss kind a reviewer should weigh is wrong_entity_or_scope: no literal number in the file was mis-transcribed, and the mechanism is \"the single-person column applied to all household types,\" which is a parameter-selection error. I kept amount_mismatch because the rule's entity (Household), covered population, and outputs are unchanged pre and post; only the threshold value in force varies, and the taxonomy lists \"threshold\" and \"table cell\" explicitly under amount_mismatch. Source verified through the pinned release: corpus_release uk-rulespec-2026-08-04, provision record 03a6ef4e-c68f-522b-bf11-562a3864cdc0, resolved_text_sha256 782d0352…1699c3. Band-code renumbering check: pre band 5 → rate 0 and post band 0 → rate 0 are equivalent, and pre `min(rate, maximum_support_rate)` equals post `selected_support_rate` on both branches, so neither is a second defect.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Subject says Encode, but the diff reworks the Barnsley module already committed the same day in 598382330d: citations re-anchored (page-51->page-52, page-10->page-11, page-13->page-14), band table changed (0: 0.90 -> 0: 0, band 5 removed) and protected-group logic/summary rewritten; corrects existing encoded semantics and source grounding"
+    "screen_reason": "Subject says Encode, but the diff reworks the Barnsley module already committed the same day in 598382330d: citations re-anchored (page-51->page-52, page-10->page-11, page-13->page-14), band table changed (0: 0.90 -> 0: 0, band 5 removed) and protected-group logic/summary rewritten; corrects existing encoded semantics and source grounding",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release uk-rulespec-2026-08-04 (resolver, corpus commit 029f784d): page-52 carries Appendix 3, the four-column band table, and the sentence 'These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.' — 'the table above' is the per-household-type table, confirming the per-category ceilings. page-51 in the same release is unrelated text (second-adult gross income disregards), so the page-51->52 / 10->11 / 13->14 moves are genuine off-by-one citation re-anchoring; taken alone those are mechanical provenance, but the module also changes meaning, so the module is fidelity. Decisive semantic change: pre-fix `barnsley_council_tax_reduction_protected_group` was an opaque external input gated on the single ceiling; post-fix it is a derived rule `receives_qualifying_disability_income and has_no_earnings and weekly_assessed_income <= band_1_upper_income_weekly_by_household_category[household_income_category]`, with two new inputs and a new indexed parameter {0: 98.05, 1: 153.92, 2: 241.80, 3: 329.68} replacing the four scalar per-type Band 1 parameters. Behaviour change is confirmed by the companion test file: barnsley_ctr_protected_couple_below_ceiling (£153.91, disability income, no earnings) now expects protected_group holds and selected_support_rate 0.9, where the pre-fix module would have treated it as unprotected Band 1 at 0.85. The other changes in the same diff are behaviour-preserving refactors: support_rate_by_income_band 0 moved from 0.90 to 0 and band 5 removed while income_band's no-discount branch moved from 5 to 0 (net rate for a no-discount household is 0 both ways), protected 90% now flows through the new selected_support_rate rule instead of the old min(rate, maximum_support_rate) in the award formula (0.90 either way), and a band_4_code parameter was introduced. maximum_support_rate stays 0.90 — only its citation/excerpt moved, so the PR's '90% max' half of the finding was already correct pre-fix. Commit has exactly one module file; PR #243 has no reviews or review comments and the commit body contains only a Co-Authored-By trailer, so the PR body is the only stated reason. No follow-up commits touch this file (git log shows only 5983823 then 2d8fded). Kind alternative considered: wrong_entity_or_scope, since the single-person threshold was applied to couples and families; I chose amount_mismatch because the entity and population were right and the wrong thing was the threshold number used for three of the four household categories. | verifier confirmed at 0.72",
-  "family_id": "uk-2d8fded7-3b9cba5adffd",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release uk-rulespec-2026-08-04 (resolver, corpus commit 029f784d): page-52 carries Appendix 3, the four-column band table, and the sentence 'These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.' — 'the table above' is the per-household-type table, confirming the per-category ceilings. page-51 in the same release is unrelated text (second-adult gross income disregards), so the page-51->52 / 10->11 / 13->14 moves are genuine off-by-one citation re-anchoring; taken alone those are mechanical provenance, but the module also changes meaning, so the module is fidelity. Decisive semantic change: pre-fix `barnsley_council_tax_reduction_protected_group` was an opaque external input gated on the single ceiling; post-fix it is a derived rule `receives_qualifying_disability_income and has_no_earnings and weekly_assessed_income <= band_1_upper_income_weekly_by_household_category[household_income_category]`, with two new inputs and a new indexed parameter {0: 98.05, 1: 153.92, 2: 241.80, 3: 329.68} replacing the four scalar per-type Band 1 parameters. Behaviour change is confirmed by the companion test file: barnsley_ctr_protected_couple_below_ceiling (£153.91, disability income, no earnings) now expects protected_group holds and selected_support_rate 0.9, where the pre-fix module would have treated it as unprotected Band 1 at 0.85. The other changes in the same diff are behaviour-preserving refactors: support_rate_by_income_band 0 moved from 0.90 to 0 and band 5 removed while income_band's no-discount branch moved from 5 to 0 (net rate for a no-discount household is 0 both ways), protected 90% now flows through the new selected_support_rate rule instead of the old min(rate, maximum_support_rate) in the award formula (0.90 either way), and a band_4_code parameter was introduced. maximum_support_rate stays 0.90 — only its citation/excerpt moved, so the PR's '90% max' half of the finding was already correct pre-fix. Commit has exactly one module file; PR #243 has no reviews or review comments and the commit body contains only a Co-Authored-By trailer, so the PR body is the only stated reason. No follow-up commits touch this file (git log shows only 5983823 then 2d8fded). Kind alternative considered: wrong_entity_or_scope, since the single-person threshold was applied to couples and families; I chose amount_mismatch because the entity and population were right and the wrong thing was the threshold number used for three of the four household categories. | verifier confirmed at 0.72"
 }

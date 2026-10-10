@@ -184,6 +184,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -305,7 +306,46 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-04-07/2025-06063",
+        "quote": "In order to establish the duty rates described in this order, the HTSUS is modified as set forth in the Annexes to this order. These modifications shall enter into effect on the dates set forth in the Annexes to this order."
+      }
+    ],
+    "why": "This is the nearest passage, not a decisive one. provision.txt (the heading text) has no date. EO 14257 starts the reciprocal duties on April 5, 2025 and excludes Annex II goods in Sec. 3(b), but it never names heading 9903.01.32 or U.S. note 2(v)(iii)(a). It also says its HTSUS modifications take effect on dates set in the Annexes, and the Annexes are not in the bundle. A reader holding the bundle cannot tie this heading, as worded, to April 5, 2025, and so cannot show that 2026-02-15 is wrong.",
+    "missing_basis": "The EO 14257 Annexes, or the HTS revision history, showing heading 9903.01.32 and U.S. note 2(v)(iii)(a) as the carrier of the Annex II exclusion and giving its effective date. The link between the heading and Annex II appears only in the post-fix module's own summary.",
+    "pre_fix_restates_it": false,
+    "basis": "adjudicated",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.55,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-0ae98bd5-5a3793b28198",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -319,11 +359,10 @@
     "verifier_notes": "Refutation attempts and residual caveats for the reviewer. (1) Mechanical was ruled out: the commit does add provenance-only material (corpus_citation_path -> plural corpus_citation_paths, a summary paragraph, four new effective_period proof atoms), but the four date changes are substantive, so it is not excerpt/citation-only. (2) untraceable_branch was considered as a reclassification, since the discarded 2026-02-15 has no source basis anywhere in the cited records; wrong_period_or_effective_date is the more specific kind and matches both the changed path (versions[0].effective_from) and the commit message. (3) Two honest limits on the source chain: the pinned FR record for 2025-06063 contains EO 14257's operative text (Sec. 3(a) April 5, 2025 date; Sec. 3(b)(i)-(v) exclusions) but NOT Annex III, so the proposition that heading 9903.01.32 specifically was the HTS carrier of the Annex II exclusion as of April 5, 2025 is asserted in the module summary and is not verifiable from the pinned corpus records I read; and the HTS note text (us/statute/hts/chapter-99/page-177, \"Except as provided in headings 9903.01.26-9903.01.33 ... heading 9903.01.25 ... impose additional ad valorem rates of duty\") is the current Revision 3 (2026) text and is undated. If a reviewer wants the date nailed to Annex III rather than to Sec. 3, that is the gap. (4) Downstream consistency note, not a refutation: the caller composition's own gate rule entry_is_reciprocal_annex_excluded is still effective_from '2026-02-15' at the fix commit 0ae98bd52d (line ~2052 of us/policies/cbp/us-tariff-duty/composition.yaml); this commit's composition diff only rewords a comment (\"terminated in place effective through 2025-11-13\"). So the module-level backdating alone does not change composed outputs for 2025 entries — the fidelity defect is real at the module level, but the exclusion path remains dated 2026-02-15 one level up.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "This is the substantive module of the commit (with index 43, reciprocal-metals-exclusion-9903-01-33, which gets the same treatment and is outside this chunk). Diff changes effective_from '2026-02-15' -> '2025-04-05' in all four rules' versions[0], adds five effective_period proof atoms citing us/rulemaking/federal-register/2025-04-07/2025-06063, converts module.source_verification.corpus_citation_path to plural corpus_citation_paths (adding the FR doc), and appends a summary paragraph explaining that the judgment formula is invariant across the HTS renumbering of U.S. note 2, which is why the earlier window was unjustified. I read the pre-fix file at parent 4d2856a958 (single-citation source_verification, no effective_period atoms) and resolved the provision through the pinned corpus: FR doc 2025-06063 text confirms 'Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025' and Sec. 3(b) 'The following goods as set forth in Annex II to this order, consistent with law, shall not be subject to the ad valorem rates of duty under this order'. The citation-path and proof-atom additions are provenance, but the effective_from change is a real meaning change, so the module is fidelity overall. Companion test file for this module also changed in the commit. | verifier confirmed at 0.90",
-  "family_id": "us-0ae98bd5-5a3793b28198",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "This is the substantive module of the commit (with index 43, reciprocal-metals-exclusion-9903-01-33, which gets the same treatment and is outside this chunk). Diff changes effective_from '2026-02-15' -> '2025-04-05' in all four rules' versions[0], adds five effective_period proof atoms citing us/rulemaking/federal-register/2025-04-07/2025-06063, converts module.source_verification.corpus_citation_path to plural corpus_citation_paths (adding the FR doc), and appends a summary paragraph explaining that the judgment formula is invariant across the HTS renumbering of U.S. note 2, which is why the earlier window was unjustified. I read the pre-fix file at parent 4d2856a958 (single-citation source_verification, no effective_period atoms) and resolved the provision through the pinned corpus: FR doc 2025-06063 text confirms 'Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025' and Sec. 3(b) 'The following goods as set forth in Annex II to this order, consistent with law, shall not be subject to the ad valorem rates of duty under this order'. The citation-path and proof-atom additions are provenance, but the effective_from change is a real meaning change, so the module is fidelity overall. Companion test file for this module also changed in the commit. | verifier confirmed at 0.90"
 }

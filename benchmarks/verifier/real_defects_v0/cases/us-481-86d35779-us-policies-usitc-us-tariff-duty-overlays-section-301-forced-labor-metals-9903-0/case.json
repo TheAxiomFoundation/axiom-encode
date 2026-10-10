@@ -128,6 +128,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -204,7 +205,41 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt (HTS 9903.05.90) gives the article description and rates but no effective or entry date. Nothing in the bundle tells 2026-07-23 apart from 2026-07-24.",
+    "missing_basis": "The DATES section of FR 2026-15181 (entries on or after 12:01 a.m. ET July 24, 2026). The module does not cite it, and no other citation resolved for this case.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.92,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-86d35779-48221a9d5a7d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -218,11 +253,10 @@
     "verifier_notes": "Source verified through the pinned release (resolve_provision, corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, citation us/rulemaking/federal-register/2026-07-28/2026-15181): \"DATES: The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026\" and \"Annex I / A. Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026, subchapter III of chapter 99 of the [HTSUS] is modified as follows: 1. The following new provisions are inserted...\". Two caveats a reviewer may want: (1) the module's own corpus_citation_path is us/statute/hts/9903.05.90, whose corpus text carries no date at all, so the date evidence comes from the FR notice cited in the commit body and in the composition file, not from the module's cited provision — the fix is still source-grounded, just via a citation the module does not carry; (2) a residual, unfixed period issue in the same module: Annex I.B of the same FR modifies heading 9903.05.90 to add \"patented pharmaceutical articles\" only effective 12:01 a.m. July 31, 2026, yet the module keeps a single version from 2026-07-24 whose formula already includes `article_is_patented_pharmaceutical_article`, so the 07-24..07-30 window over-includes pharma. That is a separate candidate defect, not a reason to doubt this one. Also note the PR body's \"Judgment calls\" section still describes the pre-fix state (\"heading modules carry effective_from 2026-07-23\"); commit 86d35779d9 is the in-PR repair that removed that inconsistency, so the stale PR text is not evidence that 07-23 was defensible.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 4 (single-rule carve-out module, one effective_from line); the long disjunction formula is unchanged. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.95",
-  "family_id": "us-86d35779-48221a9d5a7d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 4 (single-rule carve-out module, one effective_from line); the long disjunction formula is unchanged. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.95"
 }

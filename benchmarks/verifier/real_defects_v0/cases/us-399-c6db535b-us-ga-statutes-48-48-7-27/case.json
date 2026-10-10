@@ -178,6 +178,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -422,7 +423,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ga/statute/48/48-7-27",
+        "quote": "This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.",
+        "span": [
+          30072,
+          30186
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The packaged provision, which prints the $7,100/$5,400/$3,550 and $1,300 amounts, states that this version of 48-7-27 is effective only until January 1, 2024. The pre-fix module encodes those amounts as open-ended versions, starting 2022-01-01 or 0001-01-01, so they still apply in 2024 and later. The post-fix `effective_to: '2023-12-31'` matches the quoted note.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-c6db535b-e3f27fd4713d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -436,11 +483,10 @@
     "verifier_notes": "Source check (read-only, pinned release us-rulespec-2026-07-22-current, corpus_commit c5af5413, provision record us-ga/statute/48/48-7-27, expression_date 2022-11-01): the base text contains the legacy amounts \"(A) In the case of a single taxpayer or a head of household, $5,400.00;\" ... \"(C) In the case of a married couple filing a joint return, $7,100.00;\" and, in its notes, verbatim: \"Delayed effective date.\\nCode Section 48-7-27 is set out twice in this Code. This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.\" The $24,000/$12,000 and $30,000/$15,000 amounts do not appear in that record (0 hits for \"24,000\"; the \"12,000\"/\"15,000\"/\"30,000\" hits are all retirement-income exclusion bands), which is why the fix also adds the SB 56 and HB 463 session-law citation paths to module.source_verification — that provenance addition is incidental, not the defect. Refutation attempts that failed: (a) amount_mismatch — no encoded value was corrected, only bounded; (b) not_a_defect/\"forward extension\" — the screen note frames this as \"extends 2026 versions\", but the diff also inserts the 2024-01-01..2025-12-31 window at $24,000/$12,000/$12,000, i.e. it repairs two tax years whose law predated this July 2026 commit; (c) mechanical — version windows and parameter version lists are encoded meaning, and these parameters are live module outputs (they are listed under source_values of the deferred output us-ga:statutes/48/48-7-27/a#georgia_taxable_net_income), not dead metadata. Open item for a reviewer, outside this classification: the fix leaves age_additional_deduction and blindness_additional_deduction with no version after 2023-12-31, encoding their outright repeal from TY2024; the post-2023 version of 48-7-27 is a separate corpus record that I did not resolve, so whether the $1,300 additional deductions truly disappear in the 2024 version is unverified here.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10."
+    "screen_reason": "Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Verified against the pinned corpus: SB 56 Section 2-4 rewrites 48-7-27(a)(1)(B) to '(i) In the case of a married couple filing a joint return, $24,000.00; or (ii) In the case of a single taxpayer, head of household, or married taxpayer filing a separate return, $12,000.00', effective/applicable from TY2024 (Section 4-1(2)); HB 463 shows '$24,000.00 $30,000.00' and '$12,000.00 $15,000.00' with further annual increases from 2027. Same pattern as index 0: old versions get effective_to '2023-12-31', new versions added for 2024-2025 and 2026-, with proof atoms citing the acts. Note two collateral corrections that are also fidelity-relevant: the married-separate deduction now equals the single amount ($12,000/$15,000) rather than half the joint amount, matching the amended text, and the age/blindness $1,300 additional deductions are terminated at TY2023 with no successor because SB 56 replaced that structure - the module now has no 2024+ standard deduction path for aged/blind taxpayers, which is correct only if the amendment truly dropped them (the diff asserts so; I did not find a separate repealer clause in the SB 56 window I read). Alternative kind: amount_mismatch. Follow-up commit 5474dca0e adds 186 more lines to this module (retirement-income exclusion and contingent 2027 deductions), so this commit is only the first half of the Georgia 48-7-27 repair. | verifier confirmed at 0.90",
-  "family_id": "us-c6db535b-e3f27fd4713d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Verified against the pinned corpus: SB 56 Section 2-4 rewrites 48-7-27(a)(1)(B) to '(i) In the case of a married couple filing a joint return, $24,000.00; or (ii) In the case of a single taxpayer, head of household, or married taxpayer filing a separate return, $12,000.00', effective/applicable from TY2024 (Section 4-1(2)); HB 463 shows '$24,000.00 $30,000.00' and '$12,000.00 $15,000.00' with further annual increases from 2027. Same pattern as index 0: old versions get effective_to '2023-12-31', new versions added for 2024-2025 and 2026-, with proof atoms citing the acts. Note two collateral corrections that are also fidelity-relevant: the married-separate deduction now equals the single amount ($12,000/$15,000) rather than half the joint amount, matching the amended text, and the age/blindness $1,300 additional deductions are terminated at TY2023 with no successor because SB 56 replaced that structure - the module now has no 2024+ standard deduction path for aged/blind taxpayers, which is correct only if the amendment truly dropped them (the diff asserts so; I did not find a separate repealer clause in the SB 56 window I read). Alternative kind: amount_mismatch. Follow-up commit 5474dca0e adds 186 more lines to this module (retirement-income exclusion and contingent 2027 deductions), so this commit is only the first half of the Georgia 48-7-27 repair. | verifier confirmed at 0.90"
 }

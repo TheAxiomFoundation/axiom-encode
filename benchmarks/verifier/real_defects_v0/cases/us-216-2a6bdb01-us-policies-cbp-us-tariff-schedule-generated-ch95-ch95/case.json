@@ -223,6 +223,7 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -377,7 +378,46 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-251",
+        "quote": "The rates of duty in heading 9903.85.08 apply to all entries of derivative aluminum products classifiable in the following HTSUS provisions"
+      }
+    ],
+    "why": "The recorded decisive change is entry_is_line_c (list 4A narrowed to 9506.62.40.40). The bundle has no list-4A text: no 9903.88.15 and no U.S. note 20(r)/(s), and other/005.txt (9506.62.40) shows only the description and rates, with no 301 footnote. So nothing shows that list-4A membership in chapter 95 is wider than the one football number.",
+    "missing_basis": "Section 301 list-4A provisions (heading 9903.88.15, U.S. note 20(r)/(s) to chapter 99 subchapter III), not cited by either module, plus the PR's oracle replay; the re-gating came in later commits.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-2a6bdb01-6ec4fa08464d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -388,14 +428,13 @@
     "verifier_confidence": 0.7,
     "verifier_justification": "The ch95 diff deletes five hard-coded `derived` rules (formulas, `from: '2026-02-15'` windows, proof atoms, and the five flag outputs) and turns the identifiers into caller inputs, so this is not a metadata/serialization change: the module's input and output surface changes. Pre-fix, every chapter-95 entry hit four gates testing HTS numbers from other chapters (7202.11.10.00, 7601.10.30.00, 2203.00.00.30, 8541.42.00.10 — identically false for a 95xx line) plus `entry_is_line_c = (hts_number == \"9506.62.40.40\")`, and those flags drive `china_section_301_component_rate` (`+ (if entry_is_line_c and origin_is_china: list_4a_additional_ad_valorem_rate else: 0)`), so the module determined that within all of chapter 95 only one football statistical reporting number bears §301 list-4A duty. Resolving the cited provisions at the pinned release refutes that grounding: the list-4A footnote sits on the 8-digit 9506.62.40 (\"Footballs and soccer balls\") and 9903.88.15 applies to \"articles the product of China, as provided for in U.S. note 20(r) ... and as provided for in the subheadings enumerated in U.S. note 20(s)\" — membership by enumerated subheading, not by one 10-digit SRN. Removing conditions whose proof atoms (\"Footballs\", \"Containing by weight more than 2 percent but not more than 4 percent of carbon\") cannot support the §301/§232/§201 incidence they gate is exactly untraceable_branch (a branch grounded on the wrong provision, removed by the fix), so the first reader's classification and kind survive.",
     "verifier_quote": "-  - formula: (((((((((((((((((((((((((((((((((((((((((((((((hts_number == \"9506.62.40.40\")))))))))))))))))))))))))))))))))))))))))))))))",
-    "verifier_notes": "Refutations I tried and why they failed: (1) \"mechanical\" — no: five derived rules with formulas, effective dates and declared outputs are deleted (PR ceremony records \"−500 removed exemplar-flag outputs\" across 100 chapters = 5 each), and inputs/outputs are explicitly disqualifying changes. (2) \"not_a_defect / pure interface refactor\" — this is the real residual risk and the reason I hold confidence at 0.7 rather than higher: in ch95 the *referencing* formulas are byte-identical pre and post (lines 2993-2997 post vs 3093-3097 pre; the §122 `if entry_is_line_a or entry_is_line_b: 0` coupling is also unchanged here), so this commit relocates the determination to the caller rather than re-grounding it in-file, and the module still carries the arbitrary five-slot structure with the names `entry_is_line_a..e`. The PR's own gate language (\"Witness-slice equivalence: exact under input mapping\") is consistent with a semantics-preserving-under-mapping refactor. (3) Alternative kind wrong_entity_or_scope is arguable (gates keyed to out-of-chapter lines inside a chapter-wide composition), but the operative mechanism is removal of ungrounded/misgrounded conditions, which the taxonomy assigns to untraceable_branch; unrepresented_clause is wrong because nothing is added here. Corroborating non-diff evidence a reviewer may want: PR #1300 body calls the pre-state \"the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\", reports \"the same 9 explained ch95 cells\" of changed behavior, and the maintainer comment records that \"c and e are fully replaced and no longer valid input slots\" — i.e., the re-grounding for ch95's list-4A and solar slots completes in later commits of the same PR, so this commit is one step of a multi-commit fidelity repair, not the whole of it. Scratchpad copies of the two versions: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/ch95_pre.yaml and ch95_post.yaml.",
+    "verifier_notes": "Refutations I tried and why they failed: (1) \"mechanical\" — no: five derived rules with formulas, effective dates and declared outputs are deleted (PR ceremony records \"−500 removed exemplar-flag outputs\" across 100 chapters = 5 each), and inputs/outputs are explicitly disqualifying changes. (2) \"not_a_defect / pure interface refactor\" — this is the real residual risk and the reason I hold confidence at 0.7 rather than higher: in ch95 the *referencing* formulas are byte-identical pre and post (lines 2993-2997 post vs 3093-3097 pre; the §122 `if entry_is_line_a or entry_is_line_b: 0` coupling is also unchanged here), so this commit relocates the determination to the caller rather than re-grounding it in-file, and the module still carries the arbitrary five-slot structure with the names `entry_is_line_a..e`. The PR's own gate language (\"Witness-slice equivalence: exact under input mapping\") is consistent with a semantics-preserving-under-mapping refactor. (3) Alternative kind wrong_entity_or_scope is arguable (gates keyed to out-of-chapter lines inside a chapter-wide composition), but the operative mechanism is removal of ungrounded/misgrounded conditions, which the taxonomy assigns to untraceable_branch; unrepresented_clause is wrong because nothing is added here. Corroborating non-diff evidence a reviewer may want: PR #1300 body calls the pre-state \"the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\", reports \"the same 9 explained ch95 cells\" of changed behavior, and the maintainer comment records that \"c and e are fully replaced and no longer valid input slots\" — i.e., the re-grounding for ch95's list-4A and solar slots completes in later commits of the same PR, so this commit is one step of a multi-commit fidelity repair, not the whole of it. Scratchpad copies of the two versions: <scratch>/ch95_pre.yaml and ch95_post.yaml.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Distinct from the rest of the chunk: 9506.62.40.40 (footballs) is a chapter-95 line, so entry_is_line_c was the one exemplar gate that could actually fire here — which makes ch95 the chapter where removing the hard-coded derivation demonstrably changes runtime values, and matches the PR body's accounting of \"the same 9 explained ch95 cells\" in the certified oracle replay. Confidence a notch lower than index 84 because for this chapter the defect is a wrongly-narrowed list-membership condition (arguably wrong_entity_or_scope) rather than a purely dead out-of-chapter branch, though four of the five removed rules are still plainly out-of-chapter. Otherwise same pattern as index 84 (odd-chapter variant: 47 redundant parenthesis pairs, `from:` spelling); same caveats — empty commit body, retained \"runtime semantics are unchanged\" boilerplate, re-grounding deferred to follow-up commits a9562cfd4/198bee703/a14f43975. | verifier confirmed at 0.70",
-  "family_id": "us-2a6bdb01-6ec4fa08464d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Distinct from the rest of the chunk: 9506.62.40.40 (footballs) is a chapter-95 line, so entry_is_line_c was the one exemplar gate that could actually fire here — which makes ch95 the chapter where removing the hard-coded derivation demonstrably changes runtime values, and matches the PR body's accounting of \"the same 9 explained ch95 cells\" in the certified oracle replay. Confidence a notch lower than index 84 because for this chapter the defect is a wrongly-narrowed list-membership condition (arguably wrong_entity_or_scope) rather than a purely dead out-of-chapter branch, though four of the five removed rules are still plainly out-of-chapter. Otherwise same pattern as index 84 (odd-chapter variant: 47 redundant parenthesis pairs, `from:` spelling); same caveats — empty commit body, retained \"runtime semantics are unchanged\" boilerplate, re-grounding deferred to follow-up commits a9562cfd4/198bee703/a14f43975. | verifier confirmed at 0.70"
 }

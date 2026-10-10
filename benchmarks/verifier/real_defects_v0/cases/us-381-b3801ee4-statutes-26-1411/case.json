@@ -284,6 +284,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -360,7 +361,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/1411",
+        "quote": "In the case of an estate or trust, there is hereby imposed ... a tax of 3.8 percent of the lesser of— (A) the undistributed net investment income for such taxable year",
+        "span": [
+          473,
+          714
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/1411",
+        "quote": "This section shall not apply to— (1) a nonresident alien, or (2) a trust all of the unexpired interests in which are devoted to one or more of the purposes described in section 170(c)(2)(B)",
+        "span": [
+          4024,
+          4213
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The provision gives estates and trusts their own base (undistributed NII against section 67(e) AGI over the top 1(e) bracket) and exempts charitable trusts under 1411(e)(2). The pre-fix net_investment_income_tax applies the individual MAGI/filing-status base to every non-nonresident-alien and has no charitable-trust exemption. Both clauses the fix adds are therefore visibly missing.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.88,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b3801ee4-a3c265992ec5",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -374,11 +429,10 @@
     "verifier_notes": "Verified against the pinned release: resolve_provision for us/statute/26/1411 at rulespec commit b3801ee4eb returned corpus_release us-rulespec-2026-07-13, provision sha256 b5f89c82af97b3775233e8b1bbfec666f50ab4c24a32111e62ffc321195e41a0, containing both \"(2) Application to estates and trusts\" and \"(2) a trust all of the unexpired interests in which are devoted to one or more of the purposes described in section 170(c)(2)(B)\". Note selection_basis was \"no_toolchain_corpus_pin\" (fallback_index 4), so the release is the resolver's fallback, not a commit-time pin.\n\nCaveats and adjacent findings a reviewer should weigh:\n1. The commit message is generic (\"Regenerate validated US RuleSpec encodings\", empty body) and the PR (#25) is titled for 26 USC 63(c) and never mentions 1411 — so ALL evidence here is the diff plus the source text, not review prose. There is no maintainer statement calling the old encoding wrong.\n2. This same module diff contains at least two OTHER independent fidelity changes that should not be double-counted into this case: (a) every version's effective_from moves '2026-01-01' -> '2013-01-01' (wrong_period_or_effective_date); (b) net_investment_income_gross_items gains \"+ investment_of_working_capital_income\" (1411(c)(3)) and swaps taxable_net_gain_from_dispositions -> taxable_net_gain_from_dispositions_after_active_partnership_s_corporation_exception (1411(c)(4)) — itself a second unrepresented_clause. The candidate's rule_names list spans net_investment_income_gross_items, so if the corpus wants one defect per case, this case should be pinned to the estate/trust + 170(c)(2)(B) change on rules[net_investment_income_tax].\n3. The estate/trust branch is input-driven: undistributed_net_investment_income, adjusted_gross_income_under_section_67_e, highest_section_1_e_bracket_begin_amount, is_individual, is_estate_or_trust, and trust_all_unexpired_interests_devoted_to_section_170_c_2_B_purposes are all new module inputs (visible in the .test.yaml diff), not derived from encodings of section 67(e) or 1(e). That is a fidelity-neutral modeling choice, not an additional defect.\n4. Companion-test corroboration: statutes/26/1411.test.yaml adds \"estate_or_trust_tax_and_charitable_trust_nonapplication\" with is_estate_or_trust: true and trust_all_unexpired_interests_devoted_to_section_170_c_2_B_purposes: true expecting net_investment_income_tax: 0 — direct evidence the new branch is exercised, which is why I rate this above the 0.6 the first reader gave.\n5. Residual doubt keeping confidence below 0.9: the pre-fix module summary self-described as covering individuals, so a strict reader could call the estate/trust half \"coverage never claimed\". I reject that because the untethered else-branch produced a wrong number for non-individual tax units and because (e)(2) sits inside a subsection the module already claimed, but a reviewer applying the \"never claimed\" rule literally could downgrade this to unclear.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus (resolve_provision.py, us/statute/26/1411, expression_date 2026-07-13): the corpus text carries (a)(2) and (e)(2) verbatim, confirming both were missing pre-fix. Co-occurring second defect in the same module: every rule's effective_from moved 2026-01-01 -> 2013-01-01, which is a wrong_period_or_effective_date correction (section 1411 has applied since taxable years beginning after 2012 and its $250,000/$200,000 thresholds are not indexed, so a 2026 start date was indefensible) — but the 2013 date is not stated anywhere in the provision text, so I made the in-source clause omission the primary kind. Also added in this diff: 1411(c)(3) working-capital income and the 1411(c)(4) active partnership/S-corporation disposition exception in net_investment_income_gross_items, and the 1411(d) MAGI input renamed to `amount_excluded_from_gross_income_under_section_911_a_1` with 911(d)(6) now supplied by the new module at index 9. Caveat a reviewer should weigh: the pre-fix summary said the section 'imposes the 3.8 percent Net Investment Income Tax on individuals', so one could argue estate/trust coverage is scope the module never claimed; the module's corpus_citation_path was nevertheless the whole section and its output rule had no entity gate. | verifier confirmed at 0.85",
-  "family_id": "us-b3801ee4-a3c265992ec5",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus (resolve_provision.py, us/statute/26/1411, expression_date 2026-07-13): the corpus text carries (a)(2) and (e)(2) verbatim, confirming both were missing pre-fix. Co-occurring second defect in the same module: every rule's effective_from moved 2026-01-01 -> 2013-01-01, which is a wrong_period_or_effective_date correction (section 1411 has applied since taxable years beginning after 2012 and its $250,000/$200,000 thresholds are not indexed, so a 2026 start date was indefensible) — but the 2013 date is not stated anywhere in the provision text, so I made the in-source clause omission the primary kind. Also added in this diff: 1411(c)(3) working-capital income and the 1411(c)(4) active partnership/S-corporation disposition exception in net_investment_income_gross_items, and the 1411(d) MAGI input renamed to `amount_excluded_from_gross_income_under_section_911_a_1` with 911(d)(6) now supplied by the new module at index 9. Caveat a reviewer should weigh: the pre-fix summary said the section 'imposes the 3.8 percent Net Investment Income Tax on individuals', so one could argue estate/trust coverage is scope the module never claimed; the module's corpus_citation_path was nevertheless the whole section and its output rule had no entity gate. | verifier confirmed at 0.85"
 }

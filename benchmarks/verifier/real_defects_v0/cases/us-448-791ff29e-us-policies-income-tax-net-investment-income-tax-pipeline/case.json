@@ -189,6 +189,7 @@
     "requested_citation_path": "us/statute/26/1411",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -362,7 +363,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/statute/26/1411",
+        "quote": "(5) Exception for distributions from qualified plans The term “net investment income” shall not include any distribution from a plan or arrangement described in section 401(a), 403(a), 403(b), 408, 408A, or 457(b)."
+      }
+    ],
+    "why": "Not decisive. Section 1411(c)(5)-(6) does exclude these categories, but the pre-fix rule is only a pass-through of the imported `net_investment_income_tax`. The imported formula that wrongly subtracts excluded items is not in the pre-fix module or anywhere in the bundle. The post-fix fallback (return 0 outside a 'verified domain') is no more supported by §1411 than the pass-through, so no text here fits the post-fix rule and conflicts with the pre-fix one.",
+    "missing_basis": "The imported us:statutes/26/1411 RuleSpec module's formula, which offsets excluded categories against included income and adds a separate working-capital slot (upstream encode defect #1052). Neither its formula nor any text prescribing the fail-closed zero is in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-791ff29e-ea6ebf81cc07",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "unclear",
@@ -373,14 +413,13 @@
     "verifier_confidence": 0.7,
     "verifier_justification": "I tried to refute this as a mere containment enhancement and could not: the pre-fix surface was demonstrably wrong against the pinned source over a domain it expressly declared. The pinned §1411 text reads \"(5) ... The term 'net investment income' shall not include any distribution from a plan ... (6) ... shall not include any item taken into account in determining self-employment income ...\", while the imported module computes net_investment_income = max(0, gross_items − allocable_deductions − (qualified_plan_distributions + self_employment_income_subject_to_1401_b)), i.e. it offsets excluded categories against unrelated included income; the pre-fix pipeline declared those very inputs (\"Section 1411(c)(5) qualified-plan distribution exclusion\") and published that contradicting number, and the same mismatch exists for §1411(d)(2)'s \"(taken into account in computing adjusted gross income) ... with respect to the amounts described in paragraph (1)\" filter, which the imported §911(d)(6) aggregate does not apply. The diff changes encoded meaning exactly as the quoted reason describes — it adds a conjunctive guard rule and converts the public output from an unconditional pass-through to a guarded branch defaulting to zero, with six new companions asserting not_holds/0 — and \"fail-open vs fail-closed, default value\" is the named archetype of polarity_or_logic, so the kind fits and the evidence settles it beyond \"unclear\".",
     "verifier_quote": "-        formula: net_investment_income_tax\n+        formula: |-\n+          if niit_verified_domain_applies:\n+            net_investment_income_tax\n+          else:\n+            0",
-    "verifier_notes": "Verification trail: statute text via resolve_provision (corpus release us-rulespec-2026-07-24-snap-cms-pit-union, body sha256 b5f89c82...), imported formulas at `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 791ff29eb5:us/statutes/26/1411.yaml` lines 123-240 (niit_modified_adjusted_gross_income, net_investment_income_excluded_items, net_investment_income). Worked example from the new fixture niit-qualified-plan-input-fails-closed (AGI 250,000, interest 10,000, plan distributions 5,000, single): statute = .038 × min(10,000, 50,000) = $380; pre-fix module = .038 × min(5,000, 50,000) = $190; post-fix = $0. Two caveats a reviewer should weigh and that keep me at 0.7 rather than higher. (1) The remedy is a refusal, not the statutory answer — the arithmetic defect stays in us/statutes/26/1411.yaml (upstream issue #1052, unfixed here), so this module change removes a wrong nonzero and substitutes a wrong zero plus three deferred_outputs blocked-surface records; if the corpus wants only fixes that move a value toward the source amount, this one is a containment fix and belongs in a separate bucket. (2) A defensible alternative kind is wrong_entity_or_scope, since the substance of the defect is an over-claimed input domain (the pre-fix summary invited \"qualified-plan distributions, self-employment income already taxed under section 1401(b) ... section 911 facts\") and the boolean is only the mechanism; I kept polarity_or_logic because the kind list assigns fail-open/fail-closed and default-value changes to it explicitly. Also note a second, independent statutory basis the diff relies on: §1411(c)(3) makes working-capital income a rule-similar-to-469(e)(1)(B) reclassification, not an additive tenth category, yet the imported gross-items formula adds investment_of_working_capital_income alongside the named categories — double-count risk, which the fix addresses by requiring that slot to be zero. The module change is not mechanical: formula, inputs, input semantics, imports and the published output surface all changed.",
+    "verifier_notes": "Verification trail: statute text via resolve_provision (corpus release us-rulespec-2026-07-24-snap-cms-pit-union, body sha256 b5f89c82...), imported formulas at `git -C rulespec-us show 791ff29eb5:us/statutes/26/1411.yaml` lines 123-240 (niit_modified_adjusted_gross_income, net_investment_income_excluded_items, net_investment_income). Worked example from the new fixture niit-qualified-plan-input-fails-closed (AGI 250,000, interest 10,000, plan distributions 5,000, single): statute = .038 × min(10,000, 50,000) = $380; pre-fix module = .038 × min(5,000, 50,000) = $190; post-fix = $0. Two caveats a reviewer should weigh and that keep me at 0.7 rather than higher. (1) The remedy is a refusal, not the statutory answer — the arithmetic defect stays in us/statutes/26/1411.yaml (upstream issue #1052, unfixed here), so this module change removes a wrong nonzero and substitutes a wrong zero plus three deferred_outputs blocked-surface records; if the corpus wants only fixes that move a value toward the source amount, this one is a containment fix and belongs in a separate bucket. (2) A defensible alternative kind is wrong_entity_or_scope, since the substance of the defect is an over-claimed input domain (the pre-fix summary invited \"qualified-plan distributions, self-employment income already taxed under section 1401(b) ... section 911 facts\") and the boolean is only the mechanism; I kept polarity_or_logic because the kind list assigns fail-open/fail-closed and default-value changes to it explicitly. Also note a second, independent statutory basis the diff relies on: §1411(c)(3) makes working-capital income a rule-similar-to-469(e)(1)(B) reclassification, not an additive tenth category, yet the imported gross-items formula adds investment_of_working_capital_income alongside the named categories — double-count risk, which the fix addresses by requiring that slot to be zero. The module change is not mechanical: formula, inputs, input semantics, imports and the published output surface all changed.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Decisive diff: `formula: net_investment_income_tax` becomes `if niit_verified_domain_applies: net_investment_income_tax else: 0`, plus a new derived Judgment rule `niit_verified_domain_applies` (conjunction of the disjointness attestation and five ==0 checks), two new §911 imports so the domain rule can test the imported §911(a)(1)/§911(d)(6) amounts, one new Boolean input, three `deferred_outputs` entries, and rewritten input descriptions. Verified the underlying source and the upstream defect directly: through the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union, §1411(c)(5) reads \"The term “net investment income” shall not include any distribution from a plan or arrangement described in section 401(a), 403(a), 403(b), 408, 408A, or 457(b)\" and (c)(6) \"Net investment income shall not include any item taken into account in determining self-employment income ... on which a tax is imposed by section 1401(b)\" — category exclusions, not offsets; the imported us/statutes/26/1411.yaml at this commit computes `net_investment_income = max(0, net_investment_income_gross_items - allocable_investment_deductions - net_investment_income_excluded_items)` where `net_investment_income_excluded_items = qualified_plan_distributions + self_employment_income_subject_to_1401_b`, i.e. it subtracts excluded categories from unrelated included income (understating NII), and `net_investment_income_gross_items` adds `investment_of_working_capital_income` on top of the named §1411(c)(1)(A) categories (double-count risk given §1411(c)(3)'s §469(e)(1)(B) rule). Why unclear rather than fidelity: the real fidelity defect lives in the imported statute module (PR body: \"Upstream encode defects: #1052\"), not in this composition, whose own pre-fix formula faithfully re-exposed the import; and the fix does not restore the statutory answer for the excluded domain — it returns zero, which §1411 also does not prescribe. A judge shown only this module plus §1411 could not detect a contradiction with the source text in the pre-fix file, which makes this a weak benchmark item; a reviewer may prefer to keep only the upstream #1052 fix commit. Kind choice: polarity_or_logic because the enumerated \"fail-open vs fail-closed / default value\" shape matches the decisive edit exactly; the alternative reading is wrong_entity_or_scope (the declared output surface covered a wider input domain than the encoding supports). Supporting module-diff text added by this commit, more specific than the PR quote: \"The imported section 1411(c)(5)-(6) encoding subtracts excluded items from unrelated included income instead of keeping the categories out of net investment income.\" Commit message body is empty (subject only); PR #1003 has no reviews or review comments in the bundle. The commit also touched the companion test file (six new fail-closed cases, anchor split into common vs verified-domain inputs) and PROGRESS.md, and it incidentally re-labeled the passive-activity and financial-trading inputs from §1411(c)(2)(A)/(B) to §1411(c)(1)(A)(ii) — a citation-string (mechanical/provenance) correction unrelated to the guard. | verifier confirmed at 0.70; promoted from unclear",
-  "family_id": "us-791ff29e-ea6ebf81cc07",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Decisive diff: `formula: net_investment_income_tax` becomes `if niit_verified_domain_applies: net_investment_income_tax else: 0`, plus a new derived Judgment rule `niit_verified_domain_applies` (conjunction of the disjointness attestation and five ==0 checks), two new §911 imports so the domain rule can test the imported §911(a)(1)/§911(d)(6) amounts, one new Boolean input, three `deferred_outputs` entries, and rewritten input descriptions. Verified the underlying source and the upstream defect directly: through the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union, §1411(c)(5) reads \"The term “net investment income” shall not include any distribution from a plan or arrangement described in section 401(a), 403(a), 403(b), 408, 408A, or 457(b)\" and (c)(6) \"Net investment income shall not include any item taken into account in determining self-employment income ... on which a tax is imposed by section 1401(b)\" — category exclusions, not offsets; the imported us/statutes/26/1411.yaml at this commit computes `net_investment_income = max(0, net_investment_income_gross_items - allocable_investment_deductions - net_investment_income_excluded_items)` where `net_investment_income_excluded_items = qualified_plan_distributions + self_employment_income_subject_to_1401_b`, i.e. it subtracts excluded categories from unrelated included income (understating NII), and `net_investment_income_gross_items` adds `investment_of_working_capital_income` on top of the named §1411(c)(1)(A) categories (double-count risk given §1411(c)(3)'s §469(e)(1)(B) rule). Why unclear rather than fidelity: the real fidelity defect lives in the imported statute module (PR body: \"Upstream encode defects: #1052\"), not in this composition, whose own pre-fix formula faithfully re-exposed the import; and the fix does not restore the statutory answer for the excluded domain — it returns zero, which §1411 also does not prescribe. A judge shown only this module plus §1411 could not detect a contradiction with the source text in the pre-fix file, which makes this a weak benchmark item; a reviewer may prefer to keep only the upstream #1052 fix commit. Kind choice: polarity_or_logic because the enumerated \"fail-open vs fail-closed / default value\" shape matches the decisive edit exactly; the alternative reading is wrong_entity_or_scope (the declared output surface covered a wider input domain than the encoding supports). Supporting module-diff text added by this commit, more specific than the PR quote: \"The imported section 1411(c)(5)-(6) encoding subtracts excluded items from unrelated included income instead of keeping the categories out of net investment income.\" Commit message body is empty (subject only); PR #1003 has no reviews or review comments in the bundle. The commit also touched the companion test file (six new fail-closed cases, anchor split into common vs verified-domain inputs) and PROGRESS.md, and it incidentally re-labeled the passive-activity and financial-trading inputs from §1411(c)(2)(A)/(B) to §1411(c)(1)(A)(ii) — a citation-string (mechanical/provenance) correction unrelated to the guard. | verifier confirmed at 0.70; promoted from unclear"
 }

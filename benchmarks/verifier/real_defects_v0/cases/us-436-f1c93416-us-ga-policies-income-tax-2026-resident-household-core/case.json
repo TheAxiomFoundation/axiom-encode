@@ -131,8 +131,8 @@
   },
   "pre_fix_artifact_sha256": "91a2d4e80ed8e929848c5696b5634d83554e46a06db085a422fec20145506bb5",
   "post_fix_artifact_sha256": "25f3d47f8203c869f30ddbd24814ff36a44780e6c1ee5b011d7ebaa7e099d75d",
-  "provision_sha256": "0ff18741a54f8e405f02ea04ae2498324dc0c342a5d621d7316062ec132f085b",
-  "provision_chars": 14089,
+  "provision_sha256": "ad0c2615d99903ac3b5a7f1d47e4cd90da967ea74bedc13cea301935b7e36d7e",
+  "provision_chars": 186891,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us-ga/statute/48/48-7-20",
@@ -154,7 +154,54 @@
     "requested_citation_path": "us-ga/statute/48/48-7-20",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "0ff18741a54f8e405f02ea04ae2498324dc0c342a5d621d7316062ec132f085b",
+    "first_citation_chars": 14089,
+    "added": [
+      {
+        "citation_path": "us-ga/statute/48/48-7A-3",
+        "text_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+        "chars": 3750,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-ga/statute/48/48-7A-3",
+          "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+          "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+          "line_number": 829,
+          "record_id": "e5787ab1-a6a8-59b1-b4ea-7d0258b1ac2b",
+          "stored_body_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+          "resolved_text_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2022-11-01",
+          "source_as_of": "2022-11-01",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      },
+      {
+        "citation_path": "us-ga/form/it-511/2025/document-1",
+        "text_sha256": "bb525fe2812207f823b27c9b3d9df290c622a48f4541e26be50dbac664fe3c34",
+        "chars": 168916,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-ga/form/it-511/2025/document-1",
+          "provision_file": "data/corpus/provisions/us-ga/form/2026-07-21-ga-it-511-2025.jsonl",
+          "provision_file_sha256": "6dea79b140806a95c94b1dabe3ecd4850a8df5a744b9c86622d5d57388a7517e",
+          "line_number": 2,
+          "record_id": "08348474-8501-51d6-99b9-e41eba9e4529",
+          "stored_body_sha256": "bb525fe2812207f823b27c9b3d9df290c622a48f4541e26be50dbac664fe3c34",
+          "resolved_text_sha256": "bb525fe2812207f823b27c9b3d9df290c622a48f4541e26be50dbac664fe3c34",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-01-01",
+          "source_as_of": "2026-07-21",
+          "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -186,7 +233,7 @@
           "ga_2026_resident_low_income_exemption_units.versions[0].formula"
         ],
         "cites": "us-ga/statute/48/48-7A-3",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -197,7 +244,7 @@
           "ga_2026_resident_low_income_credit_band.versions[0].formula"
         ],
         "cites": "us-ga/form/it-511/2025/document-1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -208,7 +255,7 @@
           "ga_2026_resident_low_income_age_units.versions[0].formula"
         ],
         "cites": "us-ga/statute/48/48-7A-3",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -230,7 +277,7 @@
           "ga_2026_resident_low_income_exemption_units.versions[0].formula"
         ],
         "cites": "us-ga/form/it-511/2025/document-1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -241,7 +288,7 @@
           "ga_2026_resident_low_income_exemption_units.versions[0].formula"
         ],
         "cites": "us-ga/form/it-511/2025/document-1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -273,7 +320,7 @@
           "December 31, 2026",
           "31 December 2026"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -283,7 +330,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -293,7 +340,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -303,17 +350,79 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 12,
-    "post_side_matched": 0,
+    "post_side_matched": 9,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ga/statute/48/48-7A-3",
+        "quote": "A husband and wife filing a joint return shall each be deemed a dependent for purposes of such joint return",
+        "span": [
+          14671,
+          14778
+        ]
+      },
+      {
+        "citation_path": "us-ga/form/it-511/2025/document-1",
+        "quote": "Exemptions are self, spouse and natural or legally adopted children.......... Note: For purposes of the low income credit, dependents do not include those unborn with a detectable heartbeat",
+        "span": [
+          119799,
+          119988
+        ]
+      },
+      {
+        "citation_path": "us-ga/form/it-511/2025/document-1",
+        "quote": "Credit Table: Federal Adjusted Gross Income Credit",
+        "span": [
+          120580,
+          120630
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The statute counts both joint spouses, while the worksheet counts self/spouse/child units, excludes unborn dependents, and selects the credit using federal AGI. The pre-fix calculation instead uses the general Georgia dependent count without those distinctions and selects bands using Georgia-adjusted AGI; the post-fix implements the quoted requirements. The packaged provision covers income-tax imposition and rates, not these low-income-credit rules.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.99,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-f1c93416-6537d695c993",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -327,11 +436,10 @@
     "verifier_notes": "Refutation attempts that failed: (1) \"new coverage, not a defect\" — no; the pre-fix rule already carried `source: O.C.G.A. § 48-7A-3(b)` and computed the credit, it just used the wrong unit set (the caller-classified Georgia dependent count that Form 500 line 7a explicitly excludes self and spouse from, and that includes unborn dependents via line 7b). (2) \"mechanical/provenance\" — no; formulas changed and two new derived rules were added, with fixtures changing value (5 → 10). (3) \"the self unit has no source basis\" — the statute alone says \"multiplied by the number of dependents\", but the module now cites the official 2025 IT-511 worksheet, which is in the pinned corpus and says exemptions are self, spouse and children; that is the cited source the fidelity test runs against.\n\nOne real caveat for the reviewer: this commit bundles more than one defect kind. The second change, `ga_2026_resident_adjusted_gross_income` → `ga_2026_resident_federal_adjusted_gross_income` in `ga_2026_resident_low_income_credit_band`, is a different flavor — the band was grounded on Georgia AGI with no basis in the source table, which reads \"Credit Table: Federal Adjusted Gross Income Credit\" (and \"You may claim the Low Income Credit if your Federal adjusted gross income is less than $20,000\"); scored on its own that one is closer to untraceable_branch (formula grounded on the wrong quantity/provision). Note also 48-7A-1, the chapter's definitions section, is repealed in the corpus, so the federal-AGI base is settled by IT-511, not by statute. A third, minor change is provenance-only and correctly not the anchor: the care-credit proof atom's citation path moved from `us-ga/statute/48/48-7-29.10` to `us-ga/statute/session-laws/2025/hb136/document-1` with the same excerpt, which is mechanical.\n\nContext: this is an intra-PR review-fix commit on PR #1022 (a module addition), so the defect never reached main; if the corpus is meant to hold defects that shipped, that is a selection question, not a classification one. Corpus release used for verification: us-rulespec-2026-07-22-current-la-status-fix, `fix_time_corpus_match: same_body` for both 48-7A-3 and the IT-511 document.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the module diff, the pre-fix and post-fix YAML, the companion test diff, and the pinned corpus text of O.C.G.A. 48-7A-3 (resolve_provision.py succeeded; 48-7A-1 resolved but is a repealed definitions section, so the statute alone does not say whether 'adjusted gross income' means federal AGI - the fix leans on the 2025 IT-511 worksheet for that). This commit fixes TWO co-equal fidelity defects in one module and I had to pick one kind: (1) the unrepresented clause coded above, and (2) the band selector reading ga_2026_resident_adjusted_gross_income (federal AGI plus completed Georgia additions minus subtractions) instead of ga_2026_resident_federal_adjusted_gross_income, best read as untraceable_branch / formula grounded on the wrong basis, with the proof atom re-grounded from us-ga/statute/48/48-7A-3 to us-ga/form/it-511/2025/document-1 (rules[ga_2026_resident_low_income_credit_band].versions[0].formula). A reviewer who prefers that framing should reclassify the kind; the classification 'fidelity' is not in doubt either way. Both behavior changes are pinned by new fixtures: federal_agi_controls_band_when_georgia_agi_differs (federal 5999 with 25000 of Georgia additions still lands in band 0) and low_income_units_include_self_spouse_and_age_but_exclude_unborn (joint, 3 children of which 1 unborn, both spouses 65 -> 4 exemption units + 2 age units = $156), and two pre-existing fixtures' expected credits moved from $5 to $10. Not every change in the module is fidelity: the child/dependent-care rule's formula and percentage import are byte-identical and only its source string and one proof-atom corpus_citation_path moved to us-ga/statute/session-laws/2025/hb136/document-1 (the 'stale proof' item, provenance-only/mechanical), and the module rationale prose plus the upstream_source_check status change from composed_from_supplied_current_authority to checked_higher_authority are metadata. Two new caller inputs were introduced (low_income_natural_or_legally_adopted_child_count_including_unborn, low_income_unborn_dependent_count). No boundary strictness changed - the band comparisons keep < 6000 and the >= / <= pairs matching the statute's 'but not more than' schedule rows. No follow-up commits inspected; the PR states the exact-head re-review at this SHA returned no actionable findings. | verifier confirmed at 0.85",
-  "family_id": "us-f1c93416-6537d695c993",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the module diff, the pre-fix and post-fix YAML, the companion test diff, and the pinned corpus text of O.C.G.A. 48-7A-3 (resolve_provision.py succeeded; 48-7A-1 resolved but is a repealed definitions section, so the statute alone does not say whether 'adjusted gross income' means federal AGI - the fix leans on the 2025 IT-511 worksheet for that). This commit fixes TWO co-equal fidelity defects in one module and I had to pick one kind: (1) the unrepresented clause coded above, and (2) the band selector reading ga_2026_resident_adjusted_gross_income (federal AGI plus completed Georgia additions minus subtractions) instead of ga_2026_resident_federal_adjusted_gross_income, best read as untraceable_branch / formula grounded on the wrong basis, with the proof atom re-grounded from us-ga/statute/48/48-7A-3 to us-ga/form/it-511/2025/document-1 (rules[ga_2026_resident_low_income_credit_band].versions[0].formula). A reviewer who prefers that framing should reclassify the kind; the classification 'fidelity' is not in doubt either way. Both behavior changes are pinned by new fixtures: federal_agi_controls_band_when_georgia_agi_differs (federal 5999 with 25000 of Georgia additions still lands in band 0) and low_income_units_include_self_spouse_and_age_but_exclude_unborn (joint, 3 children of which 1 unborn, both spouses 65 -> 4 exemption units + 2 age units = $156), and two pre-existing fixtures' expected credits moved from $5 to $10. Not every change in the module is fidelity: the child/dependent-care rule's formula and percentage import are byte-identical and only its source string and one proof-atom corpus_citation_path moved to us-ga/statute/session-laws/2025/hb136/document-1 (the 'stale proof' item, provenance-only/mechanical), and the module rationale prose plus the upstream_source_check status change from composed_from_supplied_current_authority to checked_higher_authority are metadata. Two new caller inputs were introduced (low_income_natural_or_legally_adopted_child_count_including_unborn, low_income_unborn_dependent_count). No boundary strictness changed - the band comparisons keep < 6000 and the >= / <= pairs matching the statute's 'but not more than' schedule rows. No follow-up commits inspected; the PR states the exact-head re-review at this SHA returned no actionable findings. | verifier confirmed at 0.85"
 }

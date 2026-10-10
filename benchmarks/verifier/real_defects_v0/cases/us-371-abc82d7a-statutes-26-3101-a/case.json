@@ -129,6 +129,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -219,7 +220,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3101",
+        "quote": "there is hereby imposed on the income of every individual a tax equal to 6.2 percent of the wages (as defined in section 3121(a)) received by the individual with respect to employment",
+        "span": [
+          77,
+          260
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 3101(a) taxes each individual at 6.2 percent of the wages that individual receives. The pre-fix rule declares oasdi_wage_tax on a TaxUnit, which pools wages above the individual level. The post-fix rule uses entity Person, which matches 'every individual' and 'received by the individual'.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-abc82d7a-6460e05d7160",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -233,11 +280,10 @@
     "verifier_notes": "Reviewer notes. (1) The first reader's supporting quote is weak evidence: \"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...\" is generic PR boilerplate (PR #328) and says nothing about entities; the PR body never mentions entity corrections at all. The decisive evidence is the diff line itself, so the case survives but the stored quote should be swapped for the `entity:` hunk. (2) The first reader's rationale (\"a multi-earner tax unit would have had its members' wages pooled into one tax base instead of taxed person by person\") overstates the numeric harm for THIS module: the rule is a flat 6.2% with no cap, so 6.2% of pooled wages equals the sum of per-person taxes. The real defect is the declared entity/output surface (per-person attribution, and correctness once the 3121(a)(1) wage base enters the chain), not an arithmetic error. Kind and verdict are unaffected. (3) The companion test statutes/26/3101/a.test.yaml was rewritten but uses single scalar wage inputs, so it does not independently discriminate Person vs TaxUnit; it is not corroboration. (4) The rule_names list includes `oasdi_wage_tax_rate`, whose changes are purely mechanical (proof-atom kind/excerpt rename plus block-scalar reflow of the same 0.062). Only `oasdi_wage_tax` carries the defect; rule_path rules[oasdi_wage_tax].entity is correct. (5) Non-blocking caveat checked and rejected: validator_pipeline has a documented carve-out allowing a TaxUnit-level Money rule whose statute says \"individual\" (`_taxunit_money_rule_can_use_individual_tax_credit_amount_source`), but it is scoped to final tax-credit amounts against tax, not an employee tax imposed on each individual's own wages. (6) Source read through the pinned release us-rulespec-2026-07-13, provision sha256 3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n)."
+    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus (us/statute/26/3101): '(a) ... there is hereby imposed on the income of every individual a tax equal to 6.2 percent of the wages (as defined in section 3121(a)) received by the individual with respect to employment'. Decisive change is entity: TaxUnit -> Person on oasdi_wage_tax. The same diff also rewrote the module summary, switched proof-atom keys span->excerpt, retyped the rate atom parameter->amount, added a self-import atom for the rate, and reordered the formula to 'oasdi_wage_tax_rate * wages' (commutative, no meaning change); those parts are provenance/mechanical. Commit message body is empty and the subject is generic ('Refresh payroll generated rules'); PR #328 has no reviews or review comments, so no maintainer text names the entity defect - confidence capped below 0.8. Companion test a.test.yaml was also rewritten (rate assertions dropped from that file) even though the PR body claims oracle-parameter assertions were added for the 3101(a) rate; not a module defect but worth noting. | verifier confirmed at 0.89",
-  "family_id": "us-abc82d7a-6460e05d7160",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus (us/statute/26/3101): '(a) ... there is hereby imposed on the income of every individual a tax equal to 6.2 percent of the wages (as defined in section 3121(a)) received by the individual with respect to employment'. Decisive change is entity: TaxUnit -> Person on oasdi_wage_tax. The same diff also rewrote the module summary, switched proof-atom keys span->excerpt, retyped the rate atom parameter->amount, added a self-import atom for the rate, and reordered the formula to 'oasdi_wage_tax_rate * wages' (commutative, no meaning change); those parts are provenance/mechanical. Commit message body is empty and the subject is generic ('Refresh payroll generated rules'); PR #328 has no reviews or review comments, so no maintainer text names the entity defect - confidence capped below 0.8. Companion test a.test.yaml was also rewritten (rate assertions dropped from that file) even though the PR body claims oracle-parameter assertions were added for the 3101(a) rate; not a module defect but worth noting. | verifier confirmed at 0.89"
 }

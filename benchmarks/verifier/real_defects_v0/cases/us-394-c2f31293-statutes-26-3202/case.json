@@ -96,6 +96,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -167,7 +168,46 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/statute/26/3202",
+        "quote": "The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid."
+      }
+    ],
+    "why": "Nearest passage only. Section 3202(a) speaks of 'the taxes imposed by section 3201' in the plural, and the pre-fix rule collects only the imported tier_2_employee_tax. Nothing in the bundle says what section 3201 imposes, so a reader cannot confirm that tier 2 alone is too narrow or that a tier 1 tax exists. The pre-fix module quotes this same sentence, and it fits both modules equally well.",
+    "missing_basis": "26 USC 3201 (3201(a) tier 1 and 3201(b) tier 2 employee taxes) and the 3231(e)(2) contribution-base limit the triage mentions; neither is in the bundle.",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.65,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-c2f31293-34697c52d7fc",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -181,11 +221,10 @@
     "verifier_notes": "Refutation targets the kind, not the fidelity call; keep the case, change the kind. Evidence read: bundle JSON, diff 001.diff (module 3202) and 000.diff (module 3201), pre-fix file at 6874470918, and the pinned corpus text of 26 USC 3202 (corpus release us-rulespec-2026-07-13, resolved_text_sha256 cecd5c4b...).\n\nThree kinds compete and a reviewer should know why I picked scope:\n- unrepresented_clause (first reader's pick): the taxonomy's signal is \"the fix adds it\". Here the fix removes the rule and defers; nothing on rules[tier_2_employee_tax_collectible_by_employer_deduction] is added back. The missing tier 1 component is also not a condition/exception/carve-out but half of the output's coverage.\n- amount_mismatch (what the screen text suggests: \"wrong amount / missing contribution base\"): the 3231(e)(2) contribution-base omission is real but lives in module 3201 (statutes/26/3201.yaml, module index 0), whose deferral reason says applying the rate to raw compensation \"would ignore the cross-referenced base limitation\". Module 3202 contains no wrong numeric literal, rate or unit, so amount_mismatch is a poor fit for THIS module; 3202 only inherits the bad value by import. If the corpus grades per-commit rather than per-module, amount_mismatch/unrepresented_clause may be the intended label for 3201.yaml, and this 3202 entry is the cascade.\n- untraceable_branch is the runner-up: `min(max(0, compensation_of_employee_available_for_employer_deduction), ...)` has no basis in 3202(a) — the \"only to the extent that collection can be made by the employer\" limit appears only in 3202(c)(1) for tips — so the removed formula also imported a limitation from the wrong subsection. I did not pick it because the fix's recorded rationale is about the section 3201 amounts, not about that cap, and because the rename/blocked_by pair is the more explicit diff evidence.\n\nRuled out: mechanical (an executable derived Money output and a cross-module import were deleted; formulas and outputs changed, not hashes/pins/formatting) and not_a_defect (the pre-fix amount disagreed with the source in two independent ways: it omitted the tier 1 tax entirely and its tier 2 input ignored the 3231(e)(2) base). Confidence is 0.6 because the kind choice, not the fidelity call, is the uncertain part.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral)."
+    "screen_reason": "Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read: 26 USC 3202(a) says 'The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid' (plural), and the post-fix deferral is named section_3201_taxes_collectible_by_employer_deduction blocked by BOTH us:statutes/26/3201/a#tier_1_employee_tax and us:statutes/26/3201/b#tier_2_employee_tax, which is why an alternative kind of wrong_entity_or_scope (tier-2-only surface standing in for all section 3201 taxes) is defensible; confidence is lowered for that reason. The fix also removes the whole imports block, adds a summary, adds three genuinely new rules (tip_statement_low_total_threshold_amount = 20, group_term_life_insurance_special_rule_applies, subsection_a_collection_rule_inapplicable_to_group_term_life_payment) and two further deferrals (tips excess, 6051 reporting); the added rules are new coverage, not defect fixes. Minor oddity in the post-fix (not part of the defect): tip_statement_low_total_threshold_amount carries source '26 USC 3202(a)' while its excerpt 'is less than $20' does come from the last sentence of (a), so it checks out. | verifier reclassified unrepresented_clause -> wrong_entity_or_scope at 0.60; verifier kind used",
-  "family_id": "us-c2f31293-34697c52d7fc",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read: 26 USC 3202(a) says 'The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid' (plural), and the post-fix deferral is named section_3201_taxes_collectible_by_employer_deduction blocked by BOTH us:statutes/26/3201/a#tier_1_employee_tax and us:statutes/26/3201/b#tier_2_employee_tax, which is why an alternative kind of wrong_entity_or_scope (tier-2-only surface standing in for all section 3201 taxes) is defensible; confidence is lowered for that reason. The fix also removes the whole imports block, adds a summary, adds three genuinely new rules (tip_statement_low_total_threshold_amount = 20, group_term_life_insurance_special_rule_applies, subsection_a_collection_rule_inapplicable_to_group_term_life_payment) and two further deferrals (tips excess, 6051 reporting); the added rules are new coverage, not defect fixes. Minor oddity in the post-fix (not part of the defect): tip_statement_low_total_threshold_amount carries source '26 USC 3202(a)' while its excerpt 'is less than $20' does come from the last sentence of (a), so it checks out. | verifier reclassified unrepresented_clause -> wrong_entity_or_scope at 0.60; verifier kind used"
 }

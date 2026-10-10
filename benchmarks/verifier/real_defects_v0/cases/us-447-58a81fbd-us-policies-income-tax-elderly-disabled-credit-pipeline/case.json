@@ -80,6 +80,7 @@
     "requested_citation_path": "us/statute/26/22",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -171,7 +172,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/22",
+        "quote": "(2) who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled.",
+        "span": [
+          423,
+          553
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 22(b)(2) requires that an under-65 individual was permanently and totally disabled at the time of retirement. The pre-fix pipeline publishes the imported credit with no such gate, and its declared inputs carry only current-year impairment facts plus retired_on_disability_before_year_end, with no fact tied to the retirement date. The post-fix adds an at-retirement permanence attestation that matches the clause.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.65,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-58a81fbd-f8cfea146a98",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -182,14 +229,13 @@
     "verifier_confidence": 0.86,
     "verifier_justification": "I tried to refute this as an upstream-only problem or as new coverage, and it survives: the diff changes this module's own encoded meaning (a new gate in rules[federal_elderly_disabled_credit].versions[0].formula plus a new required TaxUnit input), and the companion test proves the behavior change by asserting the imported final at '300' while the pipeline output is '0' when the attestation is false. The pinned corpus text of 26 USC 22(b)(2) reads \"who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled,\" while the imported §22 module computes retired_on_permanent_total_disability as retired_on_disability_before_year_end and permanently_totally_disabled, both Year-period impairment facts — so the at-retirement permanence clause was absent and the pre-fix pipeline published the credit to under-65 individuals §22 does not qualify. The pre-fix summary still claimed \"Every expected value is the statutory section 22 credit before section 26 applies,\" so this is a correction of encoded meaning, not optional new scope. The fix adds a source-stated condition rather than inverting logic or moving a date, so unrepresented_clause is the right kind and no alternative fits better.",
     "verifier_quote": "+                  or all_under_65_section_22_qualified_individuals_were_permanently_and_totally_disabled_when_retired",
-    "verifier_notes": "Refutations tested and rejected: (1) \"upstream defect, not this module\" — true that the root gap is in us/statutes/26/22.yaml (retired_on_permanent_total_disability = retired_on_disability_before_year_end and permanently_totally_disabled, both period: Year), but this module's formula, inputs and published output all changed meaning, and the module already used the same fail-closed pattern for the §104(a)(4) bucket defect; (2) \"new coverage never claimed\" — the pre-fix summary disclaims reconstructing qualification yet asserts the output is the statutory §22 credit, so publishing a credit the statute denies was wrong, not merely uncovered; (3) alternative kind wrong_period_or_effective_date — the flaw is temporal in substance (year-level vs at-retirement permanence) but no effective_from/effective_to, version window or period kind changed, and the fix adds a condition the source states; (4) polarity_or_logic — pre-fix logic was not inverted, a clause was simply absent; the fail-closed attestation is the remedy shape, not the defect. Corroborating verbatim evidence: added proof atom excerpt \"who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled\" (matches the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union, body sha256 01c0c846…), commit subject \"fix: require section 22 retirement permanence\", PR #1004 body \"the disabled branch requires the at-retirement permanence attestation (§22(b)(2))\", and new companion case eld-disabled-retirement-permanence-not-attested. Minor caveat for a reviewer: the fix represents the clause as a caller attestation (omission makes the branch unevaluable) rather than deriving at-retirement permanence, so a strict reviewer could call it a guard over an upstream gap; that is why confidence is 0.86 rather than higher. Files read: bundle JSON and diff at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/58a81fbd06/000.diff; /Users/maxghenis/TheAxiomFoundation/rulespec-us at 4507632bcc and 58a81fbd06 for us/policies/income_tax/elderly_disabled_credit_pipeline.yaml, its .test.yaml, and us/statutes/26/22.yaml.",
+    "verifier_notes": "Refutations tested and rejected: (1) \"upstream defect, not this module\" — true that the root gap is in us/statutes/26/22.yaml (retired_on_permanent_total_disability = retired_on_disability_before_year_end and permanently_totally_disabled, both period: Year), but this module's formula, inputs and published output all changed meaning, and the module already used the same fail-closed pattern for the §104(a)(4) bucket defect; (2) \"new coverage never claimed\" — the pre-fix summary disclaims reconstructing qualification yet asserts the output is the statutory §22 credit, so publishing a credit the statute denies was wrong, not merely uncovered; (3) alternative kind wrong_period_or_effective_date — the flaw is temporal in substance (year-level vs at-retirement permanence) but no effective_from/effective_to, version window or period kind changed, and the fix adds a condition the source states; (4) polarity_or_logic — pre-fix logic was not inverted, a clause was simply absent; the fail-closed attestation is the remedy shape, not the defect. Corroborating verbatim evidence: added proof atom excerpt \"who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled\" (matches the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union, body sha256 01c0c846…), commit subject \"fix: require section 22 retirement permanence\", PR #1004 body \"the disabled branch requires the at-retirement permanence attestation (§22(b)(2))\", and new companion case eld-disabled-retirement-permanence-not-attested. Minor caveat for a reviewer: the fix represents the clause as a caller attestation (omission makes the branch unevaluable) rather than deriving at-retirement permanence, so a strict reviewer could call it a guard over an upstream gap; that is why confidence is 0.86 rather than higher. Files read: bundle JSON and diff at <scratch>/diffs/us/58a81fbd06/000.diff; rulespec-us at 4507632bcc and 58a81fbd06 for us/policies/income_tax/elderly_disabled_credit_pipeline.yaml, its .test.yaml, and us/statutes/26/22.yaml.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read 26 USC 22 through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda): 22(b)(2) reads 'who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled', and the diff's new proof-atom excerpt quotes that clause verbatim. Confirmed the gap upstream at the parent commit: us/statutes/26/22.yaml defines `retired_on_permanent_total_disability` = `retired_on_disability_before_year_end and permanently_totally_disabled`, where `permanently_totally_disabled` is a Person/Year rule over 22(e)(3) annual impairment facts (substantial gainful activity, medically determinable impairment, 12-month duration, proof furnished) — nothing ties permanence to the retirement date. The fix is a fail-closed guard at the pipeline layer (new TaxUnit Boolean input `all_under_65_section_22_qualified_individuals_were_permanently_and_totally_disabled_when_retired` plus a `count_where(taxpayer_or_spouse_of_tax_unit, under_65_elderly_disabled_qualified_individual) == 0 or ...` disjunct) rather than an upstream correction of us/statutes/26/22.yaml; the underlying encoding defect therefore still lives upstream, and no later commit in this clone touches us/statutes/26/22.yaml or this pipeline. The commit also touched only the companion test (adds case eld-disabled-retirement-permanence-not-attested, which shows the upstream `elderly_disabled_credit` still returning '300' while the pipeline final goes to zero, plus expanding one anchor-merge into explicit inputs) and PROGRESS.md; no unrelated formula, parameter, version, or effective-date change. Commit body is empty, so the description quote is taken from the module summary text added in the diff; the PR body (#1004) independently names it: 'the disabled branch requires the at-retirement permanence attestation (§22(b)(2))'. Minor oddity, not a defect: the new import proof atom for `under_65_elderly_disabled_qualified_individual` carries the same sha256 b8f25c27... as the pre-existing `elderly_disabled_credit` import atom (looks like a module-level artifact hash). This file is a composition pipeline under us/policies, but it is a rulespec/v1 module with its own rule and formula, so it is triaged as a rule module. | verifier confirmed at 0.86",
-  "family_id": "us-58a81fbd-f8cfea146a98",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read 26 USC 22 through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda): 22(b)(2) reads 'who retired on disability before the close of the taxable year and who, when he retired, was permanently and totally disabled', and the diff's new proof-atom excerpt quotes that clause verbatim. Confirmed the gap upstream at the parent commit: us/statutes/26/22.yaml defines `retired_on_permanent_total_disability` = `retired_on_disability_before_year_end and permanently_totally_disabled`, where `permanently_totally_disabled` is a Person/Year rule over 22(e)(3) annual impairment facts (substantial gainful activity, medically determinable impairment, 12-month duration, proof furnished) — nothing ties permanence to the retirement date. The fix is a fail-closed guard at the pipeline layer (new TaxUnit Boolean input `all_under_65_section_22_qualified_individuals_were_permanently_and_totally_disabled_when_retired` plus a `count_where(taxpayer_or_spouse_of_tax_unit, under_65_elderly_disabled_qualified_individual) == 0 or ...` disjunct) rather than an upstream correction of us/statutes/26/22.yaml; the underlying encoding defect therefore still lives upstream, and no later commit in this clone touches us/statutes/26/22.yaml or this pipeline. The commit also touched only the companion test (adds case eld-disabled-retirement-permanence-not-attested, which shows the upstream `elderly_disabled_credit` still returning '300' while the pipeline final goes to zero, plus expanding one anchor-merge into explicit inputs) and PROGRESS.md; no unrelated formula, parameter, version, or effective-date change. Commit body is empty, so the description quote is taken from the module summary text added in the diff; the PR body (#1004) independently names it: 'the disabled branch requires the at-retirement permanence attestation (§22(b)(2))'. Minor oddity, not a defect: the new import proof atom for `under_65_elderly_disabled_qualified_individual` carries the same sha256 b8f25c27... as the pre-existing `elderly_disabled_credit` import atom (looks like a module-level artifact hash). This file is a composition pipeline under us/policies, but it is a rulespec/v1 module with its own rule and formula, so it is triaged as a rule module. | verifier confirmed at 0.86"
 }
