@@ -34,6 +34,10 @@ def main() -> int | None:
         from axiom_encode.source_hash import run_check_source_staleness
 
         return run_check_source_staleness(argv[1:])
+    if argv and argv[0] == "corpus-fetch":
+        from axiom_encode.corpus_materialize import run_corpus_fetch
+
+        return run_corpus_fetch(argv[1:])
     if argv and argv[0] == "export-core-build-spec":
         from axiom_encode.core_export import run_export_core_build_spec
 
