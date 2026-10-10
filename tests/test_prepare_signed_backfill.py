@@ -4323,6 +4323,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
         ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
         ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+        ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
     ],
@@ -4355,6 +4356,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
             ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
             ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
+            ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         }
@@ -4395,6 +4397,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
                 "codex/az-nested-engine-pin",
+            ),
+            (
+                "us",
+                "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+                "fl-snap-bbce-page5",
             ),
         }
     )
@@ -4473,6 +4480,10 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
         ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
+        ),
     ],
 )
 def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
@@ -4539,6 +4550,14 @@ def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "fix/1248-snap-immigration-status",
         ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "codex/az-nested-engine-pin",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fl-snap-bbce-page5",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4589,6 +4608,10 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
         (
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
+        ),
+        (
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
         ),
     ],
 )
