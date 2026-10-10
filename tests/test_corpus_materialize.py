@@ -17,6 +17,7 @@ import urllib.error
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from email.message import Message
+from itertools import permutations
 from pathlib import Path, PurePosixPath
 
 import pytest
@@ -2320,8 +2321,13 @@ def test_a_directory_swapped_for_a_symlink_mid_placement_writes_nothing_outside(
 
     assert "changed while the file was placed" in report.failed[PROVISIONS]
     assert list(outside.iterdir()) == []
-    # The name this call made in the moved directory was taken back.
-    assert list(moved.iterdir()) == []
+    # Taking back the published name could delete another writer's replacement.
+    # Preserve it in the moved directory, where it still holds verified bytes.
+    assert list(moved.iterdir()) == [moved / Path(PROVISIONS).name]
+    assert (moved / Path(PROVISIONS).name).read_bytes() == data
+    assert (
+        "a complete file may remain in a moved directory" in report.failed[PROVISIONS]
+    )
 
 
 def test_a_staged_file_swapped_for_a_symlink_is_never_published(tmp_path):
@@ -2418,6 +2424,196 @@ def test_property_a_destination_replaced_after_publication_is_left_untouched(
         assert report.bytes_materialized == 0
         assert report.present == []
         assert _leftovers(root) == []
+
+
+_PLACEMENT_INTERLEAVINGS = tuple(
+    operations
+    for operations in permutations(
+        ("publish", "reachability", "cleanup", "move", "replace")
+    )
+    if operations.index("publish")
+    < operations.index("reachability")
+    < operations.index("cleanup")
+)
+
+
+def _exercise_placement_interleaving(
+    root, patch, publication, operations, data, replacement
+):
+    """Run real publication with external writes between the process's steps.
+
+    When the old cleanup checks destination ownership, inject an external
+    replacement immediately after that real stat. Without that check, the
+    stream's close runs the same external action before staging cleanup.
+    """
+
+    if publication == "rename":
+        if cm._rename_noreplace() is None:
+            pytest.skip("no no-replace rename on this platform")
+        _refuse_links(patch, errno.EPERM)
+
+    art = _artifact(PROVISIONS, data)
+    _write_locks(root, {PROVISIONS: data})
+    destination = root / PROVISIONS
+    moved = root / "moved-scope"
+    other = root / "other-writer"
+    replacement_identity = None
+    if replacement is not None:
+        other.write_bytes(replacement)
+        replacement_identity = cm._identity(other.stat())
+    scope = destination.parent
+    pending = iter(operations)
+    observed = []
+    reachability_finished = False
+    removed_foreign = []
+    original_publish = cm._publish_no_replace_at
+    original_identity_at_path = cm._identity_at_path
+    original_identity_in = cm._identity_in
+    original_unlink = cm.os.unlink
+
+    def external_action(operation):
+        nonlocal scope
+        if operation == "move":
+            os.rename(scope, moved)
+            scope = moved
+        elif operation == "replace":
+            if replacement is not None:
+                os.replace(other, scope / destination.name)
+        else:
+            raise AssertionError(f"unexpected operation: {operation}")
+
+    def run_until(barrier):
+        for operation in pending:
+            observed.append(operation)
+            if operation == barrier:
+                return
+            external_action(operation)
+        raise AssertionError(f"missing barrier: {barrier}")
+
+    def publish(*args, **kwargs):
+        run_until("publish")
+        published = original_publish(*args, **kwargs)
+        run_until("reachability")
+        return published
+
+    def check_reachability(base, relative):
+        nonlocal reachability_finished
+        identity = original_identity_at_path(base, relative)
+        reachability_finished = True
+        return identity
+
+    def stat_then_external_action(directory_fd, name):
+        identity = original_identity_in(directory_fd, name)
+        if (
+            reachability_finished
+            and name == destination.name
+            and "cleanup" not in observed
+        ):
+            run_until("cleanup")
+        return identity
+
+    def record_unlink(path, *args, **kwargs):
+        directory_fd = kwargs.get("dir_fd")
+        if (
+            path == destination.name
+            and directory_fd is not None
+            and replacement_identity is not None
+            and original_identity_in(directory_fd, path) == replacement_identity
+        ):
+            removed_foreign.append(path)
+        return original_unlink(path, *args, **kwargs)
+
+    class Stream:
+        def __init__(self):
+            self.chunks = iter([data])
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self.chunks)
+
+        def close(self):
+            if "cleanup" not in observed:
+                run_until("cleanup")
+            # External operations may also happen after destination cleanup.
+            for operation in pending:
+                observed.append(operation)
+                external_action(operation)
+
+    class Source:
+        label = "verified"
+
+        def open(self, artifact):
+            return Stream()
+
+    patch.setattr(cm, "_publish_no_replace_at", publish)
+    patch.setattr(cm, "_identity_at_path", check_reachability)
+    patch.setattr(cm, "_identity_in", stat_then_external_action)
+    patch.setattr(cm.os, "unlink", record_unlink)
+    report = cm.materialize_release_artifacts(root, [art], sources=_factory(Source()))
+
+    assert observed == list(operations)
+    assert removed_foreign == [], "placement removed another writer's inode"
+    residual_path = moved / destination.name
+    assert residual_path.exists(), "placement removed the published name"
+    if replacement is not None:
+        assert cm._identity(residual_path.stat()) == replacement_identity
+        assert residual_path.read_bytes() == replacement
+    for target in (destination, residual_path):
+        if target.exists() and cm._identity(target.stat()) != replacement_identity:
+            assert target.stat().st_size == art.byte_count
+            assert hashlib.sha256(target.read_bytes()).hexdigest() == art.sha256
+    assert _leftovers(root) == []
+    assert list(moved.iterdir()) == [residual_path]
+    return report
+
+
+@pytest.mark.parametrize("publication", ["link", "rename"])
+def test_a_destination_replaced_after_cleanup_ownership_stat_survives(
+    tmp_path, monkeypatch, publication
+):
+    """An inode check cannot authorize a later unlink of the destination name."""
+
+    report = _exercise_placement_interleaving(
+        tmp_path,
+        monkeypatch,
+        publication,
+        ("publish", "move", "reachability", "replace", "cleanup"),
+        b"verified release bytes\n",
+        b"concurrent writer must survive\n",
+    )
+
+    assert "changed while the file was placed" in report.failed[PROVISIONS]
+    assert report.materialized == {} and report.bytes_materialized == 0
+
+
+@pytest.mark.parametrize("publication", ["link", "rename"])
+@pytest.mark.parametrize("operations", _PLACEMENT_INTERLEAVINGS)
+@settings(
+    max_examples=5,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    data=st.binary(min_size=1, max_size=64),
+    replacement=st.one_of(st.none(), st.binary(max_size=64)),
+)
+@example(data=b"row\n", replacement=b"other\n")
+@example(data=b"row\n", replacement=b"row\n")
+@example(data=b"row\n", replacement=None)
+def test_property_placement_interleavings_preserve_other_writers(
+    tmp_path, monkeypatch, publication, operations, data, replacement
+):
+    """Every legal ordering preserves external files and leaves only known bytes."""
+
+    with (
+        tempfile.TemporaryDirectory(dir=tmp_path) as raw,
+        monkeypatch.context() as patch,
+    ):
+        _exercise_placement_interleaving(
+            Path(raw), patch, publication, operations, data, replacement
+        )
 
 
 def test_destination_inspection_errors_are_reported_not_raised(tmp_path):

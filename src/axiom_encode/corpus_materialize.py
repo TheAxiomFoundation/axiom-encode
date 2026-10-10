@@ -488,9 +488,9 @@ def _materialize_one(
         report.failed[artifact.path] = str(exc)
     finally:
         if not settled:
-            # Nothing was placed: remove the scope directories this attempt
-            # created, so a failed run leaves the scopes as it found them
-            # (rmdir refuses non-empty ones).
+            # Attempt to remove the scope directory names this call created.
+            # A failed reachability check can leave a published file in a
+            # moved directory; rmdir atomically refuses non-empty directories.
             for parent_fd, name in reversed(created):
                 with suppress(OSError):
                     os.rmdir(name, dir_fd=parent_fd)
@@ -683,14 +683,12 @@ def _place_verified(
             _verify_release_bytes_at(parent.fd, name, artifact, root / artifact.path)
             return False
         if _identity_at_path(root, PurePosixPath(artifact.path)) != _identity(written):
-            # A directory on the path was moved or swapped while the file was
-            # placed: take back the name this call made and fail.
-            if _identity_in(parent.fd, name) == _identity(written):
-                with suppress(OSError):
-                    os.unlink(name, dir_fd=parent.fd)
+            # Leave the published name untouched: even after an ownership
+            # stat, unlink could remove another writer's later replacement.
             raise CorpusMaterializationError(
                 f"{root / parent.relative} changed while the file was placed; "
-                "nothing was placed"
+                "published name left untouched; a complete file may remain "
+                "in a moved directory"
             )
         return True
     finally:

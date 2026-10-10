@@ -49,15 +49,20 @@ to those descriptors, without following symlinks. A symlink put on an
 artifact's path or in place of the temporary file while bytes are on the way
 is therefore never followed. After publishing, the new name must be the
 temporary file's own inode, and walking the path from the corpus root must
-reach it; otherwise placement fails. A name that now reaches another inode is
-left untouched, because another writer may have replaced it. Cleanup removes
-only the placed inode when it still owns the name.
+reach it; otherwise placement fails and reports that the published name was
+left untouched. Placement never unlinks an artifact destination after
+publication: checking its inode before unlinking cannot prevent another writer
+from replacing that name between the two operations. If a directory moved,
+the complete verified file may remain in that moved directory; if another
+writer replaced the destination, its replacement remains instead.
 
 Placement assumes that other processes leave its unpredictable staging names
-alone and do not rewrite the checkout's lock between the re-check and
-publication. The staging inode is checked before each publication syscall,
-but a process with the same filesystem permissions can still replace it in
-that interval. That can leave a mismatched destination after failed placement;
+alone, including old marked names being pruned, and do not rewrite the
+checkout's lock between the re-check and publication. Staging cleanup unlinks
+these names; its age/type checks are not atomic with deletion and do not
+protect a replacement at a staging name. The staging inode is checked before
+each publication syscall, but a process with the same filesystem permissions
+can still replace it in that interval. That can leave a mismatched destination after failed placement;
 readers continue to verify its release hash and size. Each lock read assumes
 its ancestors and file type remain stable: lock reads do not yet protect
 against an ancestor changing or a regular file becoming a FIFO between the
@@ -65,16 +70,20 @@ path check and open.
 
 The staging directory is the one `axiom-corpus-ingest corpus fetch` uses:
 git-ignored, outside every scope, and each temporary file's name carries the
-`.corpus-fetch-` marker. If a placement fails, its temporary file and the
-scope directories it created are removed. The staging directory stays, as
+`.corpus-fetch-` marker. If a placement fails, its temporary file is removed
+under the staging-name assumption above, and cleanup attempts to remove the
+scope directory names it created. `rmdir` atomically refuses nonempty directories
+and symlinks, so it cannot remove another writer's files, but it may remove an
+empty replacement directory at a recorded name. The staging directory stays, as
 axiom-corpus leaves it: removing it could pull it from under another process's
 placement. If another process removes an empty scope directory while bytes
 are on the way, encode makes it again once. A process killed mid-placement (SIGKILL,
-power loss) cannot clean up. It leaves one marked temporary file in
-`data/corpus/.corpus-fetch-tmp/` and possibly empty directories on the
-artifact's path, never a file inside a scope, so `corpus lock`, signing and
-directory walkers never see it. axiom-corpus and axiom-encode both delete marked
-temporary files there once they are more than a day old.
+power loss) cannot clean up. An interrupted stream leaves one marked temporary
+file in `data/corpus/.corpus-fetch-tmp/` and possibly empty directories on the
+artifact's path; scope walkers never see a partial file. Interruption after
+publication can also leave the complete verified file in a scope. axiom-corpus
+and axiom-encode both delete marked temporary files in the staging directory
+once they are more than a day old.
 
 Only provisions, inventory and coverage artifacts, one file per scope, are ever
 placed. axiom-corpus fetches a scope's `sources/` directory all or nothing,
@@ -222,18 +231,23 @@ the staging and lock assumptions above:
    pins to the release's sha256 and size. Any other artifact is skipped, and
    its path is left as it was.
 3. **Fail closed.** Bytes that do not verify are never placed. A placement
-   that fails without being killed removes its own file and the empty scope
-   directories it created; another writer's replacement is left untouched.
-   The staging directory stays, empty.
+   that fails without being killed cleans its staging name and attempts to
+   remove the empty scope directory names it created. After publication,
+   a failed identity or root reachability check leaves the artifact destination
+   untouched and reports failure. This can leave the complete verified file
+   in a moved directory or another writer's replacement. The staging directory
+   stays; cleanup removes this attempt's temporary name.
 4. **Scopes stay clean.** No temporary file is ever created inside a scope.
    Temporary files live in `data/corpus/.corpus-fetch-tmp/` and carry the
    `.corpus-fetch-` marker. A killed placement leaves at most one there.
-5. **No clobber.** An existing file is never replaced, by `link(2)` or by the
-   no-replace rename. A file another process places first is accepted only if
-   it hashes to the release's bytes.
-6. **No links.** Placed files are regular files with one link. No symlink on an
-   artifact's path, lock path or staging path is followed, including one swapped
-   in while bytes are on the way.
+5. **No clobber.** An existing artifact destination is never replaced or removed
+   by placement or its cleanup. Publication uses `link(2)` or the no-replace
+   rename. A file another process places first is accepted only if it hashes
+   to the release's bytes.
+6. **No links.** After staging cleanup, files this process places are regular
+   files with one link. Interruption after hard-link publication can leave the
+   staging link until pruning. No symlink on an artifact's path, lock path or
+   staging path is followed, including one swapped in while bytes are on the way.
 7. **Source order.** The first source whose bytes verify supplies the file.
 8. **Idempotence.** A second pass over a fully placed release opens no source.
 9. **Pre-switch checkouts.** Without `.axiom/corpus-locks/`, binding writes nothing.
@@ -248,6 +262,11 @@ bytes written by axiom-corpus's own `serialize_lock`. It also covers a lock
 rewritten mid-placement, a failed attempt racing a successful one, and a scope
 directory removed mid-placement, a directory or the temporary file swapped for
 a symlink mid-placement, and eight processes placing the same release at once.
+Generated schedules interleave publication, moving the scope directory,
+replacing the destination and cleanup for both publication methods, checking
+that competing replacements survive and residual scope files hold verified
+release bytes or were placed by the other writer. Regressions also replace
+the destination after the former cleanup ownership stat.
 It runs the git sources against real repositories and through the supervisor's
 trusted git wrapper, including a Hypothesis property that interleaves reads,
 abandoned streams and refused objects, an inherited `GIT_DIR`, and a partial
