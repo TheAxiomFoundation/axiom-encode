@@ -324,6 +324,7 @@
     "missing_basis": "The EO 14257 Annexes, or the HTS revision history, showing heading 9903.01.32 and U.S. note 2(v)(iii)(a) as the carrier of the Annex II exclusion and giving its effective date. The link between the heading and Annex II appears only in the post-fix module's own summary.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader B is borne out. Reader A's two FR quotes check, but they bear on this module only if one accepts that 'Annex II exclusion = heading 9903.01.32'. That premise comes from the post-fix module's own summary, which does not count. Neither the FR text nor the heading text states it, and Sec. 3(k) sends the effective dates of HTSUS modifications to Annexes that are not in the bundle.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

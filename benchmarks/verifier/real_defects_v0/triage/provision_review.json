@@ -26,13 +26,22 @@
     "claude-opus-5-5": 3
    },
    "dispatch": "Subfleet lane, read-only sandbox; no API calls"
+  },
+  "review_correction": {
+   "role": "correction of one adjudicated case (us-396) after the round-three review of PR #1659 flagged it; the review was GPT-6.1 Sol on a Subfleet lane, and the maintaining session (Claude Opus 5.5) read the bundle and agreed",
+   "batches": 0,
+   "models_served": {
+    "gpt-6.1-sol": 1,
+    "claude-opus-5-5": 1
+   },
+   "dispatch": "Subfleet review lane and the maintaining session; no API calls"
   }
  },
  "about": "One settled record per reviewed case. verdict says where the text that shows the pre-fix module wrong sits: in the packaged provision (first citation), under another citation the module or its changed rules name, or in none of them. Every quote was checked to occur in the text it names.",
  "counts": {
-  "in_provision": 68,
+  "in_provision": 67,
   "in_other_citation": 52,
-  "not_in_sources": 51
+  "not_in_sources": 52
  },
  "cases": {
   "uk-001-105a10d6-uk-policies-govuk-student-loan-repayments": {
@@ -2460,19 +2469,19 @@
    }
   },
   "us-396-c2f31293-statutes-26-3221": {
-   "verdict": "in_provision",
-   "defect_real": "yes",
-   "decisive_quotes": [
+   "verdict": "not_in_sources",
+   "defect_real": "unsure",
+   "decisive_quotes": [],
+   "why": "The nearest passage, not a decisive one. Subsection (c) only points to section 3231(e)(2); the contribution-base rule itself is not in the provision, no other citation resolved, and nothing in the provision defines compensation_paid as uncapped remuneration, so a reader holding the provision cannot see that the pre-fix tier 2 formula applies the rate to too large a base.",
+   "missing_basis": "Section 3231(e)(2), the contribution-base rule that 3221(c) cross-references (it excludes remuneration above the applicable base from compensation for the tier 2 taxes). Neither module cites it, and the bundle does not carry it.",
+   "pre_fix_restates_it": true,
+   "basis": "adjudicated",
+   "nearest_quotes": [
     {
      "citation_path": "us/statute/26/3221",
-     "quote": "(c) Cross reference For application of different contribution bases with respect to the taxes imposed by subsections (a) and (b), see section 3231(e)(2)."
+     "quote": "For application of different contribution bases with respect to the taxes imposed by subsections (a) and (b), see section 3231(e)(2)."
     }
    ],
-   "why": "Subsection (c) says the subsection (b) tier 2 employer tax applies on a different contribution base under section 3231(e)(2). The pre-fix rule, whose source is '26 USC 3221(b)', taxes max(0, compensation_paid) at the section 3241 rate and ignores any base. The post-fix module defers the output and blocks it on the 3231(e)(2) tier 2 base, which is consistent with (c).",
-   "missing_basis": "",
-   "pre_fix_restates_it": false,
-   "basis": "adjudicated",
-   "nearest_quotes": [],
    "readers": {
     "r1": {
      "verdict": "not_in_sources",
@@ -2487,7 +2496,7 @@
      "problems": []
     }
    },
-   "adjudication_note": "I agree with Reader B. Reader A's claim that 'nothing ties it to (b) alone' is wrong: the pre-fix rule declares `source: 26 USC 3221(b)`. Reader A's other point, that (c) does not say the base caps compensation, is answered by the wording itself: (c) says a different contribution base applies to the (b) tax. A formula on raw compensation contradicts that on its face. The post-fix module does not invent a base, it defers, so it is closer to the text."
+   "adjudication_note": "Corrects the first adjudication (in_provision) after the round-three review of PR #1659 (GPT-6.1 Sol), confirmed by the maintaining session's own reading of the bundle: the brief's missing-clause test requires the omitted clause to be in the quoted text, and 3221(c) is only a cross-reference to it. Reader A made the same call."
   },
   "us-398-c6db535b-us-ga-statutes-48-48-7-26": {
    "verdict": "in_provision",

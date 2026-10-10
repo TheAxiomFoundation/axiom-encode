@@ -1248,6 +1248,7 @@
     "missing_basis": "",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Both readers give the same verdict and both quote 15-30-3328 and 15-62-208. Reader A adds 15-30-2328 (other/006). It is valid but not needed, and the two shortest files the post-fix gate's proof atoms cite carry the point. 019 (1,070 chars) and 022 (2,825 chars) are short enough to fit the judge window together. Both quotes check against the files.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

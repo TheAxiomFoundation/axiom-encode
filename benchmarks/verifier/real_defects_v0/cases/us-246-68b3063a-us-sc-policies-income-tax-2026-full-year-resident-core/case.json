@@ -585,6 +585,7 @@
     "missing_basis": "The Act 110 of 2026 amendments to S.C. Code 12-6-50(21), 12-6-1140(15) and 12-6-3632 (SECTION 7 cap), found in the corpus overlay release us-rulespec-2026-07-24-sc-act110-current (file 2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl). The bundle was resolved from the older release and has none of them.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

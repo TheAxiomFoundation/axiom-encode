@@ -153,6 +153,7 @@
     "missing_basis": "Section 1401 ('on the self-employment income of every individual'), 1402(a)/(b) and the section 230 contribution base, through the imported modules statutes/26/1401, 1401/a and 1401/b/1. None of these texts is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

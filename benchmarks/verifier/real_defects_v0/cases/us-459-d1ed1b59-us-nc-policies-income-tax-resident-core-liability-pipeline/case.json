@@ -264,6 +264,7 @@
     "missing_basis": "The later expression of G.S. 105-153.5 (2026-07-07, in the successor corpus commit's 2026-07-26-nc-ty2026-income-tax-core.jsonl) that adds item e. for wagering losses under section 165(d). The bundle's provision resolves to the earlier release, which lacks it.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

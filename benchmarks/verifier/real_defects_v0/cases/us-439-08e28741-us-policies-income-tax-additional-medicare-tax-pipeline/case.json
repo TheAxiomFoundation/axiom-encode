@@ -347,6 +347,7 @@
     "missing_basis": "Corpus-fidelity policy on the pinned record's misprinted cross-reference (3121(b)(2) for 3101(b)(2), tracked as axiom-corpus#514). The lawful reading rests on 26 CFR 1.1401-1(d)(2), Form 8959 and TD 9645, none of which is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader B is borne out. Reader A's quote checks, but it does not discriminate. The post-fix module does not encode any reading of '3121(b)(2)'. It sets the SE leg to zero, and that conflicts with §1401(b)(2)(A)'s plain 0.9% tax. A text that the post-fix module departs from more sharply than the pre-fix one cannot show the pre-fix module is the wrong one. Reader A's own defect_real of 'unsure' admits as much, and the machine check flags the mismatch between quoting a decisive text and not calling the defect real.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

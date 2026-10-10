@@ -53,13 +53,13 @@ Removed by the build flags (`--drop-unclear`: on; `--family-members representati
 | --- | ---: | ---: | ---: | ---: |
 | `amount_mismatch` | 3 | 1 | 4 | 3 |
 | `boundary_direction` | 0 | 1 | 1 | 1 |
-| `unrepresented_clause` | 59 | 5 | 64 | 52 |
+| `unrepresented_clause` | 59 | 5 | 64 | 51 |
 | `untraceable_branch` | 32 | 6 | 38 | 29 |
 | `wrong_period_or_effective_date` | 33 | 0 | 33 | 17 |
 | `wrong_entity_or_scope` | 23 | 0 | 23 | 15 |
 | `polarity_or_logic` | 7 | 0 | 7 | 2 |
 | `other` | 1 | 0 | 1 | 1 |
-| Total | 158 | 13 | 171 | 120 |
+| Total | 158 | 13 | 171 | 119 |
 
 How the corpus release was chosen (`selection_basis`): earliest_release_after_toolchain_corpus_ref 18, latest_release_at_or_before_toolchain_corpus_ref 112, no_toolchain_corpus_pin 36, toolchain_release_pin 5.
 
@@ -69,19 +69,19 @@ Provision review (171 cases reviewed; 0 board-eligible cases not reviewed):
 
 | Where the decisive text sits | Cases | Outcome |
 | --- | ---: | --- |
-| In the packaged provision (`in_provision`) | 68 | kept as built |
+| In the packaged provision (`in_provision`) | 67 | kept as built |
 | Under another citation (`in_other_citation`) | 52 | provision extended with that citation |
-| In none of the cited sources (`not_in_sources`) | 51 | `judgeable_from_provision: false` |
+| In none of the cited sources (`not_in_sources`) | 52 | `judgeable_from_provision: false` |
 
-Board-eligible cases (shipped family representatives with `triage_status: fidelity`): 171. Judgeable from the provision: 120. Of those, 101 keep their decisive text inside the judges' default 24,000-character window. Provisions longer than that window: 37 of 171 shipped.
+Board-eligible cases (shipped family representatives with `triage_status: fidelity`): 171. Judgeable from the provision: 119. Of those, 100 keep their decisive text inside the judges' default 24,000-character window. Provisions longer than that window: 37 of 171 shipped.
 
-How the reviews were settled: adjudicated 13, readers_agree 158. The readers' call on whether the bundle's sources confirm the defect (`defect_real`): no 4, unsure 47, yes 120.
+How the reviews were settled: adjudicated 13, readers_agree 158. The readers' call on whether the bundle's sources confirm the defect (`defect_real`): no 4, unsure 48, yes 119.
 
 The mechanical check (`tools/check_evidence.py`) against the review, on each reviewed case's first-citation provision:
 
 | Mechanical result | `in_provision` | `in_other_citation` | `not_in_sources` |
 | --- | ---: | ---: | ---: |
-| `present` | 67 | 20 | 24 |
+| `present` | 66 | 20 | 25 |
 | `absent` | 1 | 32 | 27 |
 
 Mechanical `evidence_in_provision` on the provisions as shipped (after extension): present 143, absent 28.
@@ -322,7 +322,9 @@ with `triage_status: fidelity`) was checked against its provision, on
    quote did not check, a third reader got both records and the bundle
    (`triage/provision_review_adjudication_brief.md`), and its call settled
    the case. `triage/provision_review.json` holds the settled records with
-   each reader's call.
+   each reader's call. One adjudicated case, `us-396`, was corrected after
+   the round-three review of PR #1659 found that its quoted passage only
+   cross-references the omitted clause; its `adjudication_note` says so.
 5. The build applied them: `in_provision` cases are kept as built,
    `in_other_citation` cases get that citation's text appended to the
    provision (see "Extended provisions"), and `not_in_sources` cases are
@@ -407,8 +409,11 @@ bytes changed.
   in the provision but is not what exposes the defect.
 - Some fixes span several modules; one case per module per commit means the
   quoted description may describe the whole commit, not the module alone.
-- The corpus release used is the toolchain's pin at the fix commit, or the
-  nearest earlier signed release for pre-pin US commits.
+- Few cases use a release the fix commit itself pinned
+  (`toolchain_release_pin`; the counts section gives the number). The rest
+  use a release chosen relative to the toolchain's corpus commit, or tried in
+  order when the toolchain named neither (see "How the release is chosen"
+  and `selection_basis`).
   `fix_time_corpus_match` tells you when the resolved text was verified to
   equal the row the encoder saw at the toolchain's corpus commit.
 - `direct_row_exact` cases carry the row's verbatim body without descendant

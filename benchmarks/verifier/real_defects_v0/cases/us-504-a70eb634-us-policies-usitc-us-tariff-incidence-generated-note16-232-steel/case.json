@@ -840,6 +840,7 @@
     "missing_basis": "The USITC HTS Revision 15 chapter 99 notes, page 236 (note 16(c)(iii) list). The resolver release holds only Revision 3, so page-236 resolved to unrelated Rev-3 content.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

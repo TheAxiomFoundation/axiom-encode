@@ -361,6 +361,7 @@
     "missing_basis": "The generator design and the PR's round-2 evaluation of exemplar coupling; the semantic re-gating came in later commits (a9562cfd4, 198bee703). Section 301 product lists naming chapter-01 lines, if any, are not in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

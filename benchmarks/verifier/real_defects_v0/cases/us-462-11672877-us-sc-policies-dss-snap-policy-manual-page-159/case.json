@@ -139,6 +139,7 @@
     "missing_basis": "The page-369 module (its unconditional 2009-09-01 $33 setter) and the engine's last-setter-wins import-ordering semantics in axiom-rules-engine. Neither the page-369 manual text nor its module is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

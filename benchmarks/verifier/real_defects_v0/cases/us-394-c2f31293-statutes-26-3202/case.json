@@ -186,6 +186,7 @@
     "missing_basis": "26 USC 3201 (3201(a) tier 1 and 3201(b) tier 2 employee taxes) and the 3231(e)(2) contribution-base limit the triage mentions; neither is in the bundle.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

@@ -594,6 +594,7 @@
     "missing_basis": "Whether the Commissioner prescribed a 2026 annual tax table, which is absent from the pinned corpus; the fix rests on that absence plus caution about the ND-1ES schedule.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

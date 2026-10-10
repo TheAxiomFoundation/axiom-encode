@@ -316,6 +316,7 @@
     "missing_basis": "RuleSpec's relation-resolution and lowering rules, plus the imported module us/policies/usda/snap/state-plan-composition (relation.member_of_household); the evidence is the commit's PROGRESS.md, not a legal source.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

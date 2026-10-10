@@ -259,6 +259,7 @@
     "missing_basis": "The FNS SNAP quality-control technical documentation (FY2024, page 84) and the constructed FSERNDED/FSSLTDED/HOMELESS_DED values in the QC file. Those are what pick option (A), and drop-cents for the earned income deduction, out of the State-option election. Neither is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader A is borne out. Reader B's quote leaves out option (B), which sits in the same sentence of the election: 'If the State TANF program includes the cents in income calculations, the State agency may use the same procedures for SNAP income calculations.' So the regulation does not require removing cents, and the pre-fix module's cents-carrying chain is a permitted outcome. The post-fix module does not encode the election either. It hardcodes (A) on two rules and uses an off-text floor on the third. The text therefore does not separate the two modules on the rounding question.",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

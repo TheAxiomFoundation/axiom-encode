@@ -483,6 +483,7 @@
     "missing_basis": "",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Both readers give the same verdict. Reader B's quote set is better. The 109 and 110 quotes alone (Reader A) only describe headings that carry the ordinary duty. They do not show that those headings take entries out of the forced-labor overlay. The 054 exclusion clause supplies that link.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

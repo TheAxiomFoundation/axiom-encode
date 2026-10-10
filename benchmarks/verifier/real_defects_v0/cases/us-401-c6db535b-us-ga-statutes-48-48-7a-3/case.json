@@ -280,6 +280,7 @@
     "missing_basis": "Georgia DOR 2025 IT-511 worksheet (joint-return age units added to exemptions before multiplying by the schedule amount). Neither module at this commit cites it; a follow-up commit added it.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

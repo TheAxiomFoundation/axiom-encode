@@ -427,8 +427,8 @@ def assign_families(cases: list[dict[str, Any]]) -> None:
     members of one family with different kinds, so the family settles on one
     (:func:`settle_family_kind`); a member whose own label differed keeps it
     in ``triage.kind_before_family_settlement``. The representative is the
-    first module path among the ``fidelity`` members, or the first of all
-    when none is. ``family_size`` counts every member built, whatever a
+    first module path among the ``fidelity`` members a verifier read
+    directly, else among the ``fidelity`` members, else among all. ``family_size`` counts every member built, whatever a
     later filter removes.
     """
 
@@ -448,8 +448,12 @@ def assign_families(cases: list[dict[str, Any]]) -> None:
         # families were keyed on commit and rule path alone.
         digest = lib.sha256_text(f"{jurisdiction}-{commit8}-{kind}-{rule_path}")[:12]
         family_id = f"{jurisdiction}-{commit8}-{digest}"
+        # Prefer a fidelity member a verifier read directly: under the default
+        # shipping policy only those ship their files, so the representative
+        # a pruned corpus keeps is never metadata-only when one exists.
         fidelity = [c for c in members if c["triage_status"] == "fidelity"]
-        representative = (fidelity or members)[0]
+        direct = [c for c in fidelity if _directly_verified(c)]
+        representative = (direct or fidelity or members)[0]
         for case in members:
             original = _own_kind(case)
             case["triage"]["kind_before_family_settlement"] = (
@@ -643,15 +647,8 @@ def apply_provision_review(
     # Each decisive quote is located inside the text of the citation it was
     # quoted from, so a passage that also occurs in an earlier component is
     # still recorded where the reader found it.
-    regions: dict[str, tuple[int, str]] = {}
-    position = 0
-    for index, (citation, part) in enumerate(components):
-        if len(components) > 1:
-            position += len("\n\n" if index else "") + len(
-                lib.provision_source_header(citation) + "\n"
-            )
-        regions[citation] = (position, part)
-        position += len(part)
+    bounds = lib.component_regions([(path, len(part)) for path, part in components])
+    regions = {path: (bounds[path][0], part) for path, part in components}
     quotes = []
     for quote in record["decisive_quotes"] if judgeable else []:
         citation = quote["citation_path"]
@@ -696,6 +693,7 @@ def apply_provision_review(
         "missing_basis": record.get("missing_basis") or "",
         "pre_fix_restates_it": bool(record.get("pre_fix_restates_it")),
         "basis": record.get("basis"),
+        "adjudication_note": record.get("adjudication_note") or "",
         "readers": record.get("readers") or {},
         "mechanical_before_review": mechanical,
         "default_window": window,

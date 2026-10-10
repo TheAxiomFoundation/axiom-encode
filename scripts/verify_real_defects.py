@@ -195,6 +195,9 @@ def split_provision(text: str, components: list[tuple[str, int]]) -> list[str] |
     text contains a line that looks like a header.
     """
 
+    for _path, chars in components:
+        if isinstance(chars, bool) or not isinstance(chars, int) or chars < 0:
+            return None
     if len(components) == 1:
         return [text] if len(text) == components[0][1] else None
     parts: list[str] = []
@@ -209,6 +212,28 @@ def split_provision(text: str, components: list[tuple[str, int]]) -> list[str] |
         parts.append(text[position : position + chars])
         position += chars
     return parts if position == len(text) else None
+
+
+def component_regions(components: list[tuple[str, int]]) -> dict[str, tuple[int, int]]:
+    """Where each component's own text sits in :func:`compose_provision`'s output.
+
+    ``{citation_path: (start, end)}`` from each ``(citation_path, chars)``,
+    as ``[start, end)`` character offsets; headers and separators lie outside
+    every region.
+    """
+
+    if len(components) == 1:
+        path, chars = components[0]
+        return {path: (0, chars)}
+    regions: dict[str, tuple[int, int]] = {}
+    position = 0
+    for index, (path, chars) in enumerate(components):
+        position += len("\n\n" if index else "") + len(
+            provision_source_header(path) + "\n"
+        )
+        regions[path] = (position, position + chars)
+        position += chars
+    return regions
 
 
 _TYPOGRAPHY = str.maketrans(
@@ -244,10 +269,13 @@ def locate_quote(quote: str, text: str) -> tuple[int, int] | None:
     """Where ``quote`` occurs in ``text``, as a ``[start, end)`` character span.
 
     Matching ignores case, whitespace runs and typographic quote and dash
-    forms. An ellipsis in the quote splits it into fragments that must occur
-    in order, each starting within ``MAX_QUOTE_ELISION_CHARS`` folded
-    characters of the end of the one before; the span then runs from the
-    first fragment's start to the last one's end. None when it does not occur.
+    forms. Every match starts and ends on whole characters of ``text``: a
+    quote never matches part of a character's case-folded expansion (``as``
+    does not match inside ``aß``, which folds to ``ass``). An ellipsis in the
+    quote splits it into fragments that must occur in order, each starting
+    within ``MAX_QUOTE_ELISION_CHARS`` folded characters of the end of the
+    one before; the span then runs from the first fragment's start to the
+    last one's end. None when it does not occur.
     """
 
     haystack, offsets = _folded(text)
@@ -255,17 +283,29 @@ def locate_quote(quote: str, text: str) -> tuple[int, int] | None:
     fragments = [part for part in fragments if part]
     if not fragments:
         return None
-    start = haystack.find(fragments[0])
+
+    def aligned(start: int, end: int) -> bool:
+        return (start == 0 or offsets[start] != offsets[start - 1]) and (
+            end == len(haystack) or offsets[end] != offsets[end - 1]
+        )
+
+    def find(part: str, begin: int) -> int:
+        found = haystack.find(part, begin)
+        while found >= 0 and not aligned(found, found + len(part)):
+            found = haystack.find(part, found + 1)
+        return found
+
+    start = find(fragments[0], 0)
     while start >= 0:
         end = start + len(fragments[0])
         for part in fragments[1:]:
-            found = haystack.find(part, end)
+            found = find(part, end)
             if found < 0 or found - end > MAX_QUOTE_ELISION_CHARS:
                 break
             end = found + len(part)
         else:
             return offsets[start], offsets[end - 1] + 1
-        start = haystack.find(fragments[0], start + 1)
+        start = find(fragments[0], start + 1)
     return None
 
 
@@ -864,20 +904,19 @@ def provision_record_problems(
 
     problems: list[str] = []
     extension = case.get("provision_extension")
-    added_from = None
+    components = provision_components(case)
+    sized = [(c["citation_path"], c["chars"]) for c in components]
+    first = components[0]["citation_path"]
     if extension is not None:
         if extension.get("composition") != PROVISION_COMPOSITION:
             problems.append("provision_extension has an unknown composition")
         if not extension.get("added"):
             problems.append("provision_extension adds no citation")
-        components = provision_components(case)
-        paths = [c["citation_path"] for c in components]
+        paths = [path for path, _chars in sized]
         if len(set(paths)) != len(paths):
             problems.append("provision_extension repeats a citation")
         if provision_text is not None:
-            parts = split_provision(
-                provision_text, [(c["citation_path"], c["chars"]) for c in components]
-            )
+            parts = split_provision(provision_text, sized)
             if parts is None:
                 problems.append("provision.txt is not its recorded composition")
             else:
@@ -887,7 +926,6 @@ def provision_record_problems(
                             f"provision component {component['citation_path']} "
                             "does not hash to its recorded digest"
                         )
-                added_from = len(provision_source_header(paths[0])) + 1 + len(parts[0])
     review = case.get("provision_review")
     judgeable = case.get("judgeable_from_provision")
     if review is None:
@@ -908,28 +946,42 @@ def provision_record_problems(
         problems.append("provision_extension and the review verdict disagree")
     quotes = review.get("decisive_quotes") or []
     if verdict == "not_in_sources":
+        if quotes:
+            problems.append("a not_in_sources review has decisive quotes")
         if not (review.get("missing_basis") or "").strip():
             problems.append("a not_in_sources review must say what the fix rests on")
         return problems
     if not quotes:
         problems.append("a judgeable case needs a decisive quote")
-    in_added = False
+    regions = component_regions(sized)
+    cited = set()
     for quote in quotes:
+        citation = quote.get("citation_path")
+        text = quote.get("quote") or ""
+        if citation not in regions:
+            problems.append(f"decisive quote cites {citation!r}, not in the provision")
+            continue
+        cited.add(citation)
         span = quote.get("span")
-        if not (isinstance(span, list) and len(span) == 2):
+        if not (
+            isinstance(span, list)
+            and len(span) == 2
+            and all(isinstance(x, int) and not isinstance(x, bool) for x in span)
+        ):
             problems.append("a decisive quote lacks its span")
             continue
-        if provision_text is None:
-            continue
         start, end = span
-        if not 0 <= start < end <= len(provision_text) or locate_quote(
-            quote.get("quote") or "", provision_text[start:end]
+        low, high = regions[citation]
+        if not low <= start < end <= high:
+            problems.append(f"decisive quote lies outside {citation}: {text[:60]!r}")
+            continue
+        if provision_text is not None and locate_quote(
+            text, provision_text[start:end]
         ) != (0, end - start):
-            problems.append(
-                f"decisive quote is not at its span: {(quote.get('quote') or '')[:60]!r}"
-            )
-        in_added = in_added or (added_from is not None and span[0] >= added_from)
-    if verdict == "in_other_citation" and provision_text is not None and not in_added:
+            problems.append(f"decisive quote is not at its span: {text[:60]!r}")
+    if verdict == "in_provision" and cited - {first}:
+        problems.append("an in_provision review quotes another citation")
+    if verdict == "in_other_citation" and not cited - {first}:
         problems.append("no decisive quote lies in an added citation")
     return problems
 

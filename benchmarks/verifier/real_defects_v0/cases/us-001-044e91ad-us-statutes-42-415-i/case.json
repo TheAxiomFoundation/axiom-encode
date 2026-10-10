@@ -209,6 +209,7 @@
     "missing_basis": "",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader A is right. Reader B treats this as an argument about the amount, but the defect is about time: one year's determination is applied across a window that starts in 1975. The quoted sentence conflicts with that directly. The post-fix rule does not have to supply a number to fit the text better. It only has to stop fixing one year's figure for every year.",
     "readers": {
       "r1": {
         "verdict": "in_provision",

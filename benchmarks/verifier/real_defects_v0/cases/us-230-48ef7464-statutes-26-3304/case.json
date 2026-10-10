@@ -217,6 +217,7 @@
     "missing_basis": "The repo's convention of a 1990-01-01 effective_from floor for long-standing statutory text, plus outside knowledge of when 3304(f) was enacted. Neither is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

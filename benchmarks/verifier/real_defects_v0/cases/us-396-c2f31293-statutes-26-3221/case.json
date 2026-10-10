@@ -156,28 +156,25 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
-  "judgeable_from_provision": true,
+  "judgeable_from_provision": false,
   "provision_review": {
     "method": "provision_review_v1",
     "reviewed_on": "2026-10-10",
-    "verdict": "in_provision",
-    "outcome": "kept",
-    "defect_real": "yes",
-    "decisive_quotes": [
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
       {
         "citation_path": "us/statute/26/3221",
-        "quote": "(c) Cross reference For application of different contribution bases with respect to the taxes imposed by subsections (a) and (b), see section 3231(e)(2).",
-        "span": [
-          834,
-          987
-        ]
+        "quote": "For application of different contribution bases with respect to the taxes imposed by subsections (a) and (b), see section 3231(e)(2)."
       }
     ],
-    "nearest_quotes": [],
-    "why": "Subsection (c) says the subsection (b) tier 2 employer tax applies on a different contribution base under section 3231(e)(2). The pre-fix rule, whose source is '26 USC 3221(b)', taxes max(0, compensation_paid) at the section 3241 rate and ignores any base. The post-fix module defers the output and blocks it on the 3231(e)(2) tier 2 base, which is consistent with (c).",
-    "missing_basis": "",
-    "pre_fix_restates_it": false,
+    "why": "The nearest passage, not a decisive one. Subsection (c) only points to section 3231(e)(2); the contribution-base rule itself is not in the provision, no other citation resolved, and nothing in the provision defines compensation_paid as uncapped remuneration, so a reader holding the provision cannot see that the pre-fix tier 2 formula applies the rate to too large a base.",
+    "missing_basis": "Section 3231(e)(2), the contribution-base rule that 3221(c) cross-references (it excludes remuneration above the applicable base from compensation for the tier 2 taxes). Neither module cites it, and the bundle does not carry it.",
+    "pre_fix_restates_it": true,
     "basis": "adjudicated",
+    "adjudication_note": "Corrects the first adjudication (in_provision) after the round-three review of PR #1659 (GPT-6.1 Sol), confirmed by the maintaining session's own reading of the bundle: the brief's missing-clause test requires the omitted clause to be in the quoted text, and 3221(c) is only a cross-reference to it. Reader A made the same call.",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",
@@ -193,10 +190,7 @@
       }
     },
     "mechanical_before_review": "present",
-    "default_window": {
-      "chars": 24000,
-      "decisive_text_visible": true
-    }
+    "default_window": null
   },
   "fix_stage": "post_merge",
   "artifacts_shipped": true,

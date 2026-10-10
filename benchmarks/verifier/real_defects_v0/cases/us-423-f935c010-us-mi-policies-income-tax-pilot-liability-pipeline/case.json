@@ -386,6 +386,7 @@
     "missing_basis": "",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader A is borne out. The recorded decisive change is the liability formula, and provision.txt covers that rule's subject: one statutory rate, fixed at 4.25% for 2026, applied by law rather than chosen by the caller. A judge holding only provision.txt can see that the caller-supplied rate, bracket base, floor and credit have no footing there. Reader B is right that the notice says nothing about the taxable-income chain. That chain is not the decisive change, and 206.51(1)'s 'a tax at the following rates' adds nothing on the bracket and credit question that the notice does not already show.",
     "readers": {
       "r1": {
         "verdict": "in_provision",

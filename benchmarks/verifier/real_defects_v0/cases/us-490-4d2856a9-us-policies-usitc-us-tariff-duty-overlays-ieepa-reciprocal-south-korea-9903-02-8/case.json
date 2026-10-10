@@ -360,6 +360,7 @@
     "missing_basis": "90 Fed. Reg. 55964, the notice that terminated 9903.02.56 and presumably set up headings 9903.02.79/.80 and their effective date. Neither module cites it as a resolvable source. The fix infers a handoff with no gap from the predecessor's termination note.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "I agree with Reader B. Reader A's quote is real, but it does not discriminate. A predecessor's termination date fits a successor that starts on that date and also one that starts later, so the pre-fix 2026-02-15 date is not contradicted. Reader A's own notes admit the successor relationship and its start date are inferred, not stated.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

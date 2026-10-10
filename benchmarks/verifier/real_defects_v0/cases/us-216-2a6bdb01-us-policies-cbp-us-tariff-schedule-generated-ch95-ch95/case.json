@@ -396,6 +396,7 @@
     "missing_basis": "Section 301 list-4A provisions (heading 9903.88.15, U.S. note 20(r)/(s) to chapter 99 subchapter III), not cited by either module, plus the PR's oracle replay; the re-gating came in later commits.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",
