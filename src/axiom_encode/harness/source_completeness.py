@@ -27696,7 +27696,9 @@ def _greater_alternative_definition_comparison_is_executed(
 ) -> bool:
     """Bind a clause's reached comparison, operands and affected output.
 
-    Numeric cases must implement the source maximum in both executions.
+    Numeric cases must use the source maximum directly or a canonical winner
+    guard with two exact, correctly selected threshold arms. A bare income's
+    coincident value cannot authenticate its relationship to another maximum.
     Named Judgment repairs instead implement the ordinary/alternative arms
     selected by that authenticated Judgment, including its polarity. In each
     real execution the matching comparison must itself change the output when
@@ -27789,7 +27791,18 @@ def _greater_alternative_definition_comparison_is_executed(
         source_results.append(required)
         if _boolean_value(_formula_execution_runtime_value(execution)) is not required:
             return False
-        expression = _parse_formula_expression(execution.leaf)
+        expression = (
+            _maximum_witness_expression(_rule_formula_text_for_case(rule, case))
+            if numeric
+            else _parse_formula_expression(execution.leaf)
+        )
+        guarded_comparisons = (
+            _canonical_maximum_arm_comparisons(
+                expression, ordinary, alternative, amount, bool(definition["inclusive"])
+            )
+            if numeric
+            else set()
+        )
         matched = False
         for comparison in _reached_formula_boolean_comparisons(expression, environment):
             if len(comparison.ops) != 1 or len(comparison.comparators) != 1:
@@ -27807,21 +27820,13 @@ def _greater_alternative_definition_comparison_is_executed(
                 continue
             if isinstance(left, ast.Name):
                 operand_matches = (
-                    left.id in {ordinary, alternative}
-                    and values[left.id] == selected_income
-                    and (numeric or left.id == (alternative if choice else ordinary))
+                    comparison in guarded_comparisons
+                    if numeric
+                    else left.id == (alternative if choice else ordinary)
                 )
             else:
-                operand_matches = (
-                    numeric
-                    and isinstance(left, ast.Call)
-                    and isinstance(left.func, ast.Name)
-                    and left.func.id == "max"
-                    and len(left.args) == 2
-                    and not left.keywords
-                    and all(isinstance(argument, ast.Name) for argument in left.args)
-                    and {argument.id for argument in left.args}
-                    == {ordinary, alternative}
+                operand_matches = numeric and _is_exact_named_maximum(
+                    left, ordinary, alternative
                 )
             if (
                 operand_matches
@@ -27837,6 +27842,174 @@ def _greater_alternative_definition_comparison_is_executed(
         if not matched:
             return False
     return set(source_results) == {False, True}
+
+
+def _is_exact_named_maximum(
+    expression: ast.AST, ordinary: str, alternative: str
+) -> bool:
+    return (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id == "max"
+        and len(expression.args) == 2
+        and not expression.keywords
+        and all(isinstance(argument, ast.Name) for argument in expression.args)
+        and {argument.id for argument in expression.args} == {ordinary, alternative}
+        and ordinary != alternative
+    )
+
+
+def _canonical_maximum_guard_selection(
+    expression: ast.AST, ordinary: str, alternative: str
+) -> tuple[str, str, bool] | None:
+    """Return true/false winners and the guard's truth at an operand tie.
+
+    Normalize operand order and negation. For a binary maximum, ``max(a,b)>a``
+    is precisely the complement of ``max(a,b)==a``; existing guarded encodings
+    use both forms. No observed numeric value participates in authentication.
+    """
+
+    if isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.Not):
+        selected = _canonical_maximum_guard_selection(
+            expression.operand, ordinary, alternative
+        )
+        return (
+            (selected[1], selected[0], not selected[2])
+            if selected is not None
+            else None
+        )
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id in {"holds", "not_holds"}
+        and len(expression.args) == 1
+        and not expression.keywords
+    ):
+        selected = _canonical_maximum_guard_selection(
+            expression.args[0], ordinary, alternative
+        )
+        return (
+            (selected[1], selected[0], not selected[2])
+            if selected is not None and expression.func.id == "not_holds"
+            else selected
+        )
+    if not (
+        isinstance(expression, ast.Compare)
+        and len(expression.ops) == len(expression.comparators) == 1
+    ):
+        return None
+    left, right = expression.left, expression.comparators[0]
+    operator = type(expression.ops[0])
+    if isinstance(left, ast.Name) and isinstance(right, ast.Name):
+        if {left.id, right.id} != {ordinary, alternative} or left.id == right.id:
+            return None
+        if operator in {ast.Gt, ast.GtE}:
+            return left.id, right.id, operator is ast.GtE
+        if operator in {ast.Lt, ast.LtE}:
+            return right.id, left.id, operator is ast.LtE
+        return None
+    if _is_exact_named_maximum(right, ordinary, alternative):
+        left, right = right, left
+        operator = {
+            ast.Eq: ast.Eq,
+            ast.NotEq: ast.NotEq,
+            ast.Lt: ast.Gt,
+            ast.GtE: ast.LtE,
+        }.get(operator)
+    if not (
+        _is_exact_named_maximum(left, ordinary, alternative)
+        and isinstance(right, ast.Name)
+        and right.id in {ordinary, alternative}
+    ):
+        return None
+    other = alternative if right.id == ordinary else ordinary
+    if operator in {ast.Eq, ast.LtE}:
+        return right.id, other, True
+    if operator in {ast.NotEq, ast.Gt}:
+        return other, right.id, False
+    return None
+
+
+def _maximum_witness_expression(formula: str | None) -> ast.expr | None:
+    """Expose both Boolean if arms without dropping their selection guards."""
+
+    def expand(text: str, depth: int = 0) -> str | None:
+        if depth > 32:
+            return None
+        node = _first_formula_branch_node(text)
+        if node is None:
+            return text if not _rule_text_has_branching_formula(text) else None
+        if node.kind != "if" or len(node.selectors) != 1 or len(node.choices) != 2:
+            return None
+        parts = [
+            expand(textwrap.dedent(part).strip(), depth + 1)
+            for part in (*node.selectors, *node.choices)
+        ]
+        if any(part is None for part in parts):
+            return None
+        guard, when_true, when_false = parts
+        selected = (
+            f"((({guard}) and ({when_true})) or ((not ({guard})) and ({when_false})))"
+        )
+        return expand(text[: node.start] + selected + text[node.end :], depth + 1)
+
+    expanded = expand(formula) if formula is not None else None
+    return _parse_formula_expression(expanded) if expanded is not None else None
+
+
+def _canonical_maximum_arm_comparisons(
+    expression: ast.expr | None,
+    ordinary: str,
+    alternative: str,
+    amount: str,
+    inclusive: bool,
+) -> set[ast.Compare]:
+    """Authenticate both selected arms before allowing either name comparison."""
+
+    def arm(node: ast.AST) -> tuple[tuple[str, str, bool], ast.Compare] | None:
+        if not (
+            isinstance(node, ast.BoolOp)
+            and isinstance(node.op, ast.And)
+            and len(node.values) == 2
+        ):
+            return None
+        for guard, comparison in (node.values, node.values[::-1]):
+            selection = _canonical_maximum_guard_selection(guard, ordinary, alternative)
+            if selection is None or not isinstance(comparison, ast.Compare):
+                continue
+            if len(comparison.ops) != 1 or len(comparison.comparators) != 1:
+                continue
+            left, right = comparison.left, comparison.comparators[0]
+            operator = type(comparison.ops[0])
+            if isinstance(left, ast.Name) and left.id == amount:
+                left, right = right, left
+                operator = {ast.Lt: ast.Gt, ast.LtE: ast.GtE}.get(operator)
+            if (
+                isinstance(left, ast.Name)
+                and left.id == selection[0]
+                and isinstance(right, ast.Name)
+                and right.id == amount
+                and operator == (ast.GtE if inclusive else ast.Gt)
+            ):
+                return selection, comparison
+        return None
+
+    authenticated = set()
+    for node in ast.walk(expression) if expression is not None else ():
+        if not (
+            isinstance(node, ast.BoolOp)
+            and isinstance(node.op, ast.Or)
+            and len(node.values) == 2
+        ):
+            continue
+        left, right = (arm(value) for value in node.values)
+        if (
+            left is not None
+            and right is not None
+            and left[0] == (right[0][1], right[0][0], not right[0][2])
+        ):
+            authenticated.update((left[1], right[1]))
+    return authenticated
 
 
 def _reached_formula_boolean_comparisons(
@@ -30580,7 +30753,7 @@ def _formula_execution_maximum_pairs(
 
     texts = [selector for step in execution.trace for selector in step.selectors]
     texts.append(execution.leaf)
-    return {
+    maxima = {
         tuple(sorted((left.id, right.id)))
         for text in texts
         if "max" in text
@@ -30589,6 +30762,24 @@ def _formula_execution_maximum_pairs(
             expression, environment=environment
         )
     }
+    # A canonical named winner guard need not contain a literal max(). Record
+    # its operand transition too; clause credit still requires authenticated
+    # paired arms, source ownership and per-comparison causality above.
+    for text in texts:
+        expression = _parse_formula_expression(text)
+        for comparison in _reached_formula_boolean_comparisons(expression, environment):
+            if (
+                len(comparison.ops) == len(comparison.comparators) == 1
+                and isinstance(comparison.left, ast.Name)
+                and isinstance(comparison.comparators[0], ast.Name)
+            ):
+                left, right = comparison.left.id, comparison.comparators[0].id
+                if (
+                    _canonical_maximum_guard_selection(comparison, left, right)
+                    is not None
+                ):
+                    maxima.add(tuple(sorted((left, right))))
+    return maxima
 
 
 def _formula_case_runtime_environment(

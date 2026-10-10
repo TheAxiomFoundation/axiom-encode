@@ -101,6 +101,98 @@ def test_original_max_candidate_does_not_switch_the_binding_operand():
     assert _paired_issues(payload, cases)
 
 
+@pytest.mark.parametrize("tie", [False, True])
+def test_inert_maximum_cannot_authenticate_a_coincident_income_comparison(tie):
+    payload, _, source, sentences, _ = _shared_credit_candidate(1)
+    formula = (
+        "(max(adjusted_gross_income, earned_income) < adjusted_gross_income and true) "
+        "or earned_income > first_threshold"
+        if tie
+        else "(max(adjusted_gross_income, earned_income) < adjusted_gross_income "
+        "and false) or ((earned_income == 8 and adjusted_gross_income > "
+        "first_threshold) or (earned_income != 8 and earned_income > first_threshold))"
+    )
+    payload["rules"][0]["versions"][0]["formula"] = formula
+    cases = []
+    for index, earned in enumerate((9 if tie else 8, 11)):
+        values = {
+            "adjusted_gross_income": 9,
+            "earned_income": earned,
+            "first_threshold": 10,
+        }
+        required = max(9, earned) > 10
+        assert sc._evaluate_rulespec_formula(formula, environment=values) is required
+        cases.append(
+            {
+                "name": f"inert_max_{index}",
+                "period": {
+                    "period_kind": "tax_year",
+                    "start": "2026-01-01",
+                    "end": "2026-12-31",
+                },
+                "input": {
+                    _SHARED_CREDIT_REFERENCE + "input." + key: value
+                    for key, value in values.items()
+                },
+                "output": {
+                    _SHARED_CREDIT_REFERENCE + "credit_allowed": "holds"
+                    if required
+                    else "not_holds"
+                },
+            }
+        )
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={_SHARED_CREDIT_CITATION: source},
+    )
+    assert proof.passed and proof.atoms_checked == 1 and not proof.issues
+    counterexample = {
+        "adjusted_gross_income": 11,
+        "earned_income": 8 if tie else 9,
+        "first_threshold": 10,
+    }
+    assert (
+        max(counterexample["adjusted_gross_income"], counterexample["earned_income"])
+        > 10
+    )
+    assert sc._evaluate_rulespec_formula(formula, environment=counterexample) is False
+    assert any(
+        sentences[0] in issue
+        for issue in _paired_issues(
+            payload,
+            cases,
+            source=source,
+            citation=_SHARED_CREDIT_CITATION,
+        )
+    )
+
+
+def test_committed_irs_candidate_refuses_inert_maximum_at_a_tie():
+    payload, cases = _candidate()
+    name, threshold_name, threshold, _ = OUTPUTS[0]
+    rule = next(rule for rule in payload["rules"] if rule["name"] == name)
+    rule["versions"][0]["formula"] = (
+        "(max(adjusted_gross_income, earned_income) < adjusted_gross_income and true) "
+        "or earned_income > threshold_phaseout_amount"
+    )
+    pair = _binding_pair(name, threshold_name, threshold)
+    pair[0]["input"][REFERENCE + "input.earned_income"] = threshold - 1
+    cases = [case for case in cases if REFERENCE + name not in case["output"]]
+    cases.extend(pair)
+    cases.extend(_binding_pair(*OUTPUTS[1][:3]))
+    source = json.loads((FIXTURE / "page-14.json").read_text())["body"]
+    proof = validate_rulespec_proofs(
+        yaml.safe_dump(payload),
+        require_policy_proofs=True,
+        source_texts={CITATION: source},
+    )
+    assert proof.passed and proof.atoms_checked == 22 and not proof.issues
+    issues = _paired_issues(payload, cases)
+    assert any('The "threshold phaseout amount"' in issue for issue in issues)
+    assert not any('The "completed phaseout amount"' in issue for issue in issues)
+
+
 def test_numeric_max_guard_cannot_credit_a_comparison_of_the_lesser_income():
     payload, cases = _candidate()
     name, threshold_name, threshold, _ = OUTPUTS[0]
