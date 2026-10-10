@@ -49,11 +49,12 @@ to those descriptors, without following symlinks. A symlink put on an
 artifact's path or in place of the temporary file while bytes are on the way
 is therefore never followed by a write. The preliminary inspection of files
 that are already present (the size check, and the hash read under `--verify`)
-is not descriptor-relative: it checks each directory on the path with
-`lstat`, refuses a symlink it finds, and opens the leaf with `O_NOFOLLOW`, but
-it assumes those directories stay as they were checked, so an ancestor swapped
-for a symlink after its check can be read through. Nothing is written through
-it, and readers verify what they read against the signed release. After publishing, the new name must be the
+is not descriptor-relative: it checks each directory on the path and the
+leaf with `lstat`, refuses a symlink it finds, and under `--verify` opens the
+leaf with `O_NOFOLLOW`, but it assumes those directories stay as they were
+checked, so an ancestor swapped for a symlink after its check can be read
+through. Nothing is written through it, and the resolver verifies every
+provisions file it reads against the signed release. After publishing, the new name must be the
 temporary file's own inode, and walking the path from the corpus root must
 reach it; otherwise placement fails and reports that the published name was
 left untouched. Placement never unlinks an artifact destination after
@@ -65,11 +66,14 @@ writer replaced the destination, its replacement remains instead.
 Placement assumes that other processes leave its unpredictable staging names
 and the contents of those staged files alone through publication and cleanup,
 including old marked names being pruned, and do not rewrite the checkout's
-lock between the re-check and publication. A process with the same filesystem
-permissions that rewrites a staged file's contents after its streamed digest
-was checked, keeping its name and inode, makes placement publish bytes that
-do not match the release while reporting success; a reader then rejects that
-file, because readers verify the release hash and size themselves. Staging cleanup unlinks
+lock between the re-check and publication. The digest is computed over the bytes as they stream in and the staged
+file is not read back, so a process with the same filesystem permissions that
+rewrites a staged file's contents at any time before publication, keeping its
+name and inode, makes placement publish bytes that do not match the release
+while reporting success. The resolver then rejects such a provisions file,
+because it checks the release hash and size of every provisions file it
+reads. Inventory and coverage files placed by `corpus-fetch` have no
+verifying reader in this repository. Staging cleanup unlinks
 these names; its age/type checks are not atomic with deletion and do not
 protect a replacement at a staging name. The staging inode is checked before
 each publication syscall, but a process with the same filesystem permissions
@@ -238,8 +242,8 @@ For every release, every checkout lock state and every set of sources, under
 the staging and lock assumptions above:
 
 1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte
-   count, provided no other process rewrites the staged file's contents between
-   the digest check and publication.
+   count, provided no other process rewrites the staged file's contents before
+   publication.
 2. **Lock bytes only.** A file is placed only at a path the checkout's own lock
    pins to the release's sha256 and size. Any other artifact is skipped, and
    its path is left as it was.
