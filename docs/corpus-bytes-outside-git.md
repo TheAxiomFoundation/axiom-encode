@@ -47,7 +47,13 @@ each directory on the path is opened relative to its parent with
 `O_NOFOLLOW`, and the temporary file is created, linked and removed relative
 to those descriptors, without following symlinks. A symlink put on an
 artifact's path or in place of the temporary file while bytes are on the way
-is therefore never followed. After publishing, the new name must be the
+is therefore never followed by a write. The preliminary inspection of files
+that are already present (the size check, and the hash read under `--verify`)
+is not descriptor-relative: it checks each directory on the path with
+`lstat`, refuses a symlink it finds, and opens the leaf with `O_NOFOLLOW`, but
+it assumes those directories stay as they were checked, so an ancestor swapped
+for a symlink after its check can be read through. Nothing is written through
+it, and readers verify what they read against the signed release. After publishing, the new name must be the
 temporary file's own inode, and walking the path from the corpus root must
 reach it; otherwise placement fails and reports that the published name was
 left untouched. Placement never unlinks an artifact destination after
@@ -57,8 +63,13 @@ the complete verified file may remain in that moved directory; if another
 writer replaced the destination, its replacement remains instead.
 
 Placement assumes that other processes leave its unpredictable staging names
-alone, including old marked names being pruned, and do not rewrite the
-checkout's lock between the re-check and publication. Staging cleanup unlinks
+and the contents of those staged files alone through publication and cleanup,
+including old marked names being pruned, and do not rewrite the checkout's
+lock between the re-check and publication. A process with the same filesystem
+permissions that rewrites a staged file's contents after its streamed digest
+was checked, keeping its name and inode, makes placement publish bytes that
+do not match the release while reporting success; a reader then rejects that
+file, because readers verify the release hash and size themselves. Staging cleanup unlinks
 these names; its age/type checks are not atomic with deletion and do not
 protect a replacement at a staging name. The staging inode is checked before
 each publication syscall, but a process with the same filesystem permissions
@@ -226,7 +237,9 @@ automatic placement off; these are the values axiom-corpus accepts.
 For every release, every checkout lock state and every set of sources, under
 the staging and lock assumptions above:
 
-1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte count.
+1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte
+   count, provided no other process rewrites the staged file's contents between
+   the digest check and publication.
 2. **Lock bytes only.** A file is placed only at a path the checkout's own lock
    pins to the release's sha256 and size. Any other artifact is skipped, and
    its path is left as it was.
@@ -246,8 +259,10 @@ the staging and lock assumptions above:
    to the release's bytes.
 6. **No links.** After staging cleanup, files this process places are regular
    files with one link. Interruption after hard-link publication can leave the
-   staging link until pruning. No symlink on an artifact's path, lock path or
-   staging path is followed, including one swapped in while bytes are on the way.
+   staging link until pruning. No write follows a symlink on an artifact's path
+   or staging path, including one swapped in while bytes are on the way. Lock
+   reads and the preliminary inspection of files already present assume their
+   ancestor directories stay stable, as described above.
 7. **Source order.** The first source whose bytes verify supplies the file.
 8. **Idempotence.** A second pass over a fully placed release opens no source.
 9. **Pre-switch checkouts.** Without `.axiom/corpus-locks/`, binding writes nothing.
