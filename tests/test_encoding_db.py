@@ -2,6 +2,7 @@
 Tests for the experiment database.
 """
 
+import json
 import sqlite3
 import sys
 from datetime import datetime
@@ -234,6 +235,81 @@ class TestLogAndRetrieveRuns:
             and third.input_tokens is None
             and third.estimated_cost_usd is None
         )
+
+    def test_iterations_round_trip_try_wall_time_and_phases(
+        self, experiment_db, sample_encoding_run
+    ):
+        """Per-try timing survives the DB; untimed tries keep the old shape."""
+        phases = [
+            {
+                "name": "model_call",
+                "started_at": "2026-10-07T16:00:00.000Z",
+                "finished_at": "2026-10-07T16:00:40.000Z",
+                "duration_ms": 40_000,
+            },
+            {
+                "name": "candidate_validation",
+                "started_at": "2026-10-07T16:00:40.000Z",
+                "finished_at": "2026-10-07T16:01:00.000Z",
+                "duration_ms": 20_000,
+                "breakdown_ms": {"ci_test_cases": 15_000, "other": 5_000},
+            },
+        ]
+        sample_encoding_run.iterations = [
+            Iteration(
+                attempt=1,
+                duration_ms=40_000,
+                success=True,
+                started_at="2026-10-07T16:00:00.000Z",
+                finished_at="2026-10-07T16:01:00.000Z",
+                wall_duration_ms=60_000,
+                phases=phases,
+            ),
+            Iteration(attempt=2, duration_ms=10, success=False),
+        ]
+
+        experiment_db.log_run(sample_encoding_run)
+        timed, untimed = experiment_db.get_run(sample_encoding_run.id).iterations
+
+        assert timed.duration_ms == 40_000
+        assert (timed.started_at, timed.finished_at, timed.wall_duration_ms) == (
+            "2026-10-07T16:00:00.000Z",
+            "2026-10-07T16:01:00.000Z",
+            60_000,
+        )
+        assert timed.phases == phases
+        assert untimed.started_at is None and untimed.phases is None
+        row = sqlite3.connect(experiment_db.db_path).execute(
+            "SELECT iterations_json FROM encoding_runs WHERE id = ?",
+            (sample_encoding_run.id,),
+        )
+        stored_timed, stored_untimed = json.loads(row.fetchone()[0])
+        assert stored_timed["phases"] == phases
+        assert set(stored_untimed) == {"attempt", "duration_ms", "success", "errors"}
+
+    def test_update_run_iterations_rewrites_only_iterations(
+        self, experiment_db, sample_encoding_run
+    ):
+        sample_encoding_run.iterations = [
+            Iteration(attempt=1, duration_ms=5, success=True)
+        ]
+        experiment_db.log_run(sample_encoding_run)
+        experiment_db.update_run_outcome(
+            sample_encoding_run.id, {"status": "apply_applied"}
+        )
+
+        sample_encoding_run.iterations[0].started_at = "2026-10-07T16:00:00.000Z"
+        sample_encoding_run.iterations[0].finished_at = "2026-10-07T16:00:01.000Z"
+        sample_encoding_run.iterations[0].wall_duration_ms = 1_000
+        sample_encoding_run.iterations[0].phases = []
+        experiment_db.update_run_iterations(
+            sample_encoding_run.id, sample_encoding_run.iterations
+        )
+
+        retrieved = experiment_db.get_run(sample_encoding_run.id)
+        assert retrieved.iterations[0].wall_duration_ms == 1_000
+        assert retrieved.iterations[0].phases == []
+        assert retrieved.outcome == {"status": "apply_applied"}
 
     def test_log_run_with_review_issues(self, experiment_db):
         """Test logging a run with review issues at different severity levels."""

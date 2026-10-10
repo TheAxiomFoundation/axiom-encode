@@ -36,6 +36,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -144,6 +145,17 @@ from .corpus_resolver import (
     resolve_local_corpus_source,
     split_proof_evidence_text,
     validate_corpus_release_name,
+)
+from .encode_timing import (
+    PHASE_APPLY_REPAIR,
+    PHASE_APPLY_WRITE,
+    PHASE_OVERLAY_VALIDATION,
+    PHASE_PREPARE,
+    PHASE_RETRY_HANDOFF,
+    EncodeLoopTimer,
+    activate_encode_loop_timer,
+    mark_encode_phase,
+    timed_phase,
 )
 from .engine_binding import (
     ENGINE_PIN_FIELD,
@@ -7667,6 +7679,7 @@ def cmd_concepts_audit(args):
                 "site_paths": [str(p) for p in f.site_paths],
                 "detail": f.detail,
                 "nearby_producers": list(f.nearby_producers),
+                "accepted_producers": list(f.accepted_producers),
             }
             for f in findings
         ]
@@ -7687,7 +7700,10 @@ def cmd_concepts_audit(args):
             continue
         print(f"\n[{kind}] {len(items)}")
         for f in items:
-            anchor = f" @ {f.anchor}" if f.anchor else ""
+            if len(f.accepted_producers) > 1 and kind != "anchored_ref_miss":
+                anchor = " @ one of " + ", ".join(f.accepted_producers)
+            else:
+                anchor = f" @ {f.anchor}" if f.anchor else ""
             nearby = (
                 f" (nearby: {', '.join(f.nearby_producers[:4])})"
                 if f.nearby_producers
@@ -10466,6 +10482,7 @@ def _emit_run_log_events_safe(
     outcome,
     *,
     total_duration_ms: int | None = None,
+    iterations: Sequence[Iteration] | None = None,
 ):
     """Emit run-log events for a just-completed encode run; never fatal.
 
@@ -10481,6 +10498,7 @@ def _emit_run_log_events_safe(
             run_id,
             outcome or {},
             total_duration_ms=total_duration_ms,
+            iterations=iterations,
         )
     except Exception:  # noqa: BLE001 - run-log emission must never break a run
         pass
@@ -31139,20 +31157,68 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             backend=args.backend,
             model=config.escalation_model,
         )
-    with LiveRunTelemetry(
-        citation=str(args.citation),
-        backend=str(getattr(args, "backend", "") or ""),
-        model=str(config.initial_model or ""),
-        encoder_version=__version__,
-        enabled=getattr(args, "sync", True) is True,
-    ) as live_run:
+    with (
+        activate_encode_loop_timer(EncodeLoopTimer()) as loop_timer,
+        LiveRunTelemetry(
+            citation=str(args.citation),
+            backend=str(getattr(args, "backend", "") or ""),
+            model=str(config.initial_model or ""),
+            encoder_version=__version__,
+            enabled=getattr(args, "sync", True) is True,
+        ) as live_run,
+    ):
         return _run_encode_attempts_with_retries(
             args,
             config=config,
             live_run=live_run,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            loop_timer=loop_timer,
         )
+
+
+def _stamp_encode_loop_timing(
+    run: EncodingRun,
+    outcome: dict,
+    *,
+    loop_timer: EncodeLoopTimer,
+    db_path: Path,
+) -> None:
+    """Copy each try's wall time and phases onto the run, and the loop totals
+    into its outcome, before the outcome is recorded and synced.
+
+    Telemetry only: a failure here is reported and never fails the encode.
+    """
+    try:
+        tries = {timing.attempt: timing for timing in loop_timer.tries}
+        stamps = {
+            attempt: {
+                "started_at": timing.started_at,
+                "finished_at": timing.finished_at,
+                "wall_duration_ms": timing.wall_duration_ms,
+                "phases": timing.phase_dicts(),
+            }
+            for attempt, timing in tries.items()
+        }
+        loop_timing = loop_timer.loop_timing()
+        # The local row is written first: the run and its outcome take the
+        # timing only once it is stored, so a failed write leaves the local
+        # row, the Supabase sync and the run log all without it.
+        EncodingDB(db_path).update_run_iterations(
+            run.id,
+            [
+                dataclass_replace(iteration, **stamps[iteration.attempt])
+                if iteration.attempt in stamps
+                else iteration
+                for iteration in run.iterations
+            ],
+        )
+        for iteration in run.iterations:
+            for name, value in stamps.get(iteration.attempt, {}).items():
+                setattr(iteration, name, value)
+        outcome["encode_loop_timing"] = loop_timing
+    except Exception as exc:  # noqa: BLE001 - timing must never fail an encode
+        print(f"  encode_timing=failed:{type(exc).__name__}")
 
 
 def _run_encode_attempts_with_retries(
@@ -31162,8 +31228,13 @@ def _run_encode_attempts_with_retries(
     live_run: LiveRunTelemetry,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    loop_timer: EncodeLoopTimer | None = None,
 ):
     """Bounded validator-retry loop for one encode invocation."""
+    if loop_timer is None:
+        # Callers outside ``_cmd_encode_with_authoritative_rulespec_roots``
+        # still get per-try wall time; phases need an active timer.
+        loop_timer = EncodeLoopTimer()
     raw_emit_destination = getattr(args, "emit_final_rejected_candidate", None)
     emit_destination = (
         _resolve_final_rejected_candidate_destination(raw_emit_destination)
@@ -31177,6 +31248,8 @@ def _run_encode_attempts_with_retries(
     current_model = config.initial_model
 
     while True:
+        # A try runs until the next one starts or the loop stops judging it.
+        loop_timer.start_try(len(failed_attempts) + 1)
         execution = _run_encode_attempt(
             args,
             model=current_model,
@@ -31187,6 +31260,7 @@ def _run_encode_attempts_with_retries(
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
         )
+        loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
         if _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31246,6 +31320,8 @@ def _run_encode_attempts_with_retries(
                 live_run.set_attempt(len(failed_attempts) + 1, str(current_model))
                 continue
 
+        # The last candidate is judged; what follows is the loop's finalization.
+        loop_timer.finish_try()
         outcome = execution.outcome
         final_validator_rejected = _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31313,6 +31389,12 @@ def _run_encode_attempts_with_retries(
                 final_attempt_error=final_attempt_error,
             )
             print(f"  run_id={logged_run.id}")
+        _stamp_encode_loop_timing(
+            logged_run,
+            outcome,
+            loop_timer=loop_timer,
+            db_path=db_path,
+        )
         repair_manifest = _record_encode_outcome(
             db_path=db_path,
             result=execution.result,
@@ -31324,6 +31406,7 @@ def _run_encode_attempts_with_retries(
             logged_run.id,
             outcome,
             total_duration_ms=logged_run.total_duration_ms,
+            iterations=logged_run.iterations,
         )
         apply_requested = getattr(args, "apply", False) is True
         if apply_requested:
@@ -31375,6 +31458,9 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    # Phases advance inside run_model_eval (model_call, stage_candidate,
+    # candidate_validation, record_result) and below under --apply.
+    mark_encode_phase(PHASE_PREPARE)
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     axiom_compose_path = _resolve_optional_axiom_compose_path(
@@ -31456,6 +31542,7 @@ def _run_encode_attempt(
     deferred_output_review_contract = getattr(args, "review_contract_json", None)
     amendment_source_texts: dict[str, str] | None = None
 
+    @timed_phase(PHASE_OVERLAY_VALIDATION)
     def _validate_generated_encoding_in_policy_overlay(
         result,
         *,
@@ -31715,6 +31802,9 @@ def _run_encode_attempt(
             ci_issues,
         )
     if apply_requested:
+        # Overlay validations run as nested phases; the rest of this branch
+        # is apply-time repairs and checks until the signed apply starts.
+        mark_encode_phase(PHASE_APPLY_REPAIR)
         if not _can_attempt_apply(result):
             detail = str(getattr(result, "error", None) or "generation failed")
             outcome["status"] = "apply_blocked_generation"
@@ -34485,6 +34575,7 @@ def _run_encode_attempt(
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
                 else:
+                    mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
                             result,
@@ -60007,7 +60098,7 @@ def _resolve_scheduled_proof_hash_dependents(
     overlay_content_root: Path,
     dependents: Sequence[Path],
 ) -> set[Path]:
-    """Authenticate dependents deferred to separately source-bound apply lanes."""
+    """Authenticate proof-pinned dependents for separately source-bound lanes."""
 
     if not scheduled_paths:
         return set()
@@ -60050,10 +60141,42 @@ def _resolve_scheduled_proof_hash_dependents(
             repo_path=overlay_content_root,
         )
         if repair_count <= 0 or repaired == content:
-            raise ValueError(
-                "Scheduled dependent has no stale proof import hash after target "
-                f"replacement: {path}"
-            )
+            if len(scheduled) != 1:
+                raise ValueError(
+                    "Scheduled dependent has no stale proof import hash after target "
+                    f"replacement: {path}"
+                )
+            first = next(iter(scheduled))
+            first_relative = first.relative_to(overlay_content_root)
+            first_import = _relative_rulespec_import_target(first_relative)
+            if not _rulespec_file_imports_target(
+                candidate,
+                target=first_import,
+                jurisdiction=overlay_content_root.name,
+            ):
+                raise ValueError(
+                    "Scheduled second dependent is not a direct importer of the "
+                    f"first scheduled proof-hash dependent: {path}"
+                )
+            try:
+                payload = yaml.safe_load(content)
+            except (ValueError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Cannot inspect scheduled dependent proof: {path}"
+                ) from exc
+            from .prepare_signed_backfill import _payload_has_proof_import_for_target
+
+            if not isinstance(
+                payload, dict
+            ) or not _payload_has_proof_import_for_target(
+                payload,
+                target_import=first_import,
+                canonical_target_import=(f"{overlay_content_root.name}:{first_import}"),
+            ):
+                raise ValueError(
+                    "Scheduled second dependent lacks a proof import pinned to "
+                    f"the first scheduled dependent: {path}"
+                )
         scheduled.add(candidate)
     return scheduled
 
@@ -60826,6 +60949,13 @@ def _complete_missing_imported_test_inputs(
     missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
+    if _copy_case_facts_to_single_empty_relation_row(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        assignments=missing_assignments,
+    ):
+        return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
     if current_base:
@@ -60885,6 +61015,85 @@ def _complete_missing_imported_test_inputs(
         return False
     test_file.write_text(updated)
     return True
+
+
+def _copy_case_facts_to_single_empty_relation_row(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    assignments: list[dict[str, str]],
+) -> bool:
+    """Use explicit case facts for an unambiguous generated relation member.
+
+    A generated case may assert Person outputs at the top level and use a
+    single empty Person row for its Household output.  Defaults would turn an
+    explicitly elderly member into a younger one.  Copy only facts declared
+    for the relation's child entity, and only for the exact failing row.
+    """
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    if not isinstance(rules_payload, dict) or not isinstance(cases, list):
+        return False
+    anchor = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    if not anchor:
+        return False
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    declared_inputs = rules_payload.get("inputs")
+    input_entities = (
+        {
+            str(item.get("name")): str(item.get("entity"))
+            for item in declared_inputs
+            if isinstance(item, dict) and item.get("name") and item.get("entity")
+        }
+        if isinstance(declared_inputs, list)
+        else {}
+    )
+    relation_children: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "data_relation":
+            continue
+        relation = rule.get("data_relation")
+        arguments = relation.get("arguments") if isinstance(relation, dict) else None
+        if not isinstance(arguments, list) or len(arguments) != 2:
+            continue
+        child = arguments[1]
+        if isinstance(child, dict) and isinstance(child.get("entity"), str):
+            relation_children[str(rule.get("name"))] = child["entity"]
+    changed = False
+    for assignment in assignments:
+        entity_id = assignment.get("entity", "")
+        for relation_name, child_entity in relation_children.items():
+            relation_ref = f"{anchor}#relation.{relation_name}"
+            if not entity_id.endswith(f"{relation_ref}-1"):
+                continue
+            for case in cases:
+                if not isinstance(case, dict) or case.get("name") != assignment["case"]:
+                    continue
+                inputs = case.get("input")
+                if not isinstance(inputs, dict) or inputs.get(relation_ref) != [{}]:
+                    continue
+                child_facts = {
+                    ref: value
+                    for ref, value in inputs.items()
+                    if isinstance(ref, str)
+                    and ref.startswith(f"{anchor}#input.")
+                    and input_entities.get(ref.rsplit("#input.", 1)[1]) == child_entity
+                }
+                if f"{anchor}#input.{assignment['input']}" not in child_facts:
+                    continue
+                # YAML anchors may share both the input mapping and relation
+                # list across cases. Replace them for this case alone.
+                case["input"] = {**inputs, relation_ref: [child_facts]}
+                changed = True
+    if changed:
+        test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=True))
+    return changed
 
 
 def _complete_missing_local_test_inputs(

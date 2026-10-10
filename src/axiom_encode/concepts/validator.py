@@ -14,7 +14,7 @@ from typing import Iterable
 
 import yaml
 
-from .registry import ConceptRegistry
+from .registry import Concept, ConceptRegistry
 
 IDENT_RE = re.compile(r"\b([a-z][a-z0-9_]*)\b")
 ANCHORED_REF_RE = re.compile(
@@ -47,6 +47,10 @@ def validate_generated_against_registry(
     generated content will live under once applied. It identifies producer
     conflicts and distinguishes candidate-owned input slots from legacy slots
     exposed by imported modules. The latter are validated by overlay execution.
+
+    A registered canonical may have several accepted producers (one per
+    vintage, `Concept.producer_anchors`). A module may define the name, and a
+    non-input reference may target it, iff its anchor is one of them.
     """
     violations: list[CanonicalNameViolation] = []
     for path in yaml_paths:
@@ -75,7 +79,7 @@ def validate_generated_against_registry(
             blocked = registry.lookup_synonym(name)
             if blocked is not None:
                 if is_input_ref and (
-                    blocked.producer_anchor == anchor
+                    blocked.accepts_producer_anchor(anchor)
                     or (apply_anchor is not None and anchor != apply_anchor)
                 ):
                     continue
@@ -93,7 +97,7 @@ def validate_generated_against_registry(
             if (
                 canonical is not None
                 and canonical.has_producer
-                and canonical.producer_anchor != anchor
+                and not canonical.accepts_producer_anchor(anchor)
                 and not is_input_ref
             ):
                 violations.append(
@@ -102,10 +106,7 @@ def validate_generated_against_registry(
                         name=name,
                         where=f"{path}:{anchor}#{name}",
                         concept_id=canonical.id,
-                        detail=(
-                            f"canonical {name!r} is anchored at "
-                            f"{canonical.producer_anchor}, not {anchor}"
-                        ),
+                        detail=_anchored_ref_miss_detail(canonical, anchor),
                     )
                 )
 
@@ -137,7 +138,7 @@ def validate_generated_against_registry(
                     canonical is not None
                     and apply_anchor is not None
                     and canonical.has_producer
-                    and canonical.producer_anchor != apply_anchor
+                    and not canonical.accepts_producer_anchor(apply_anchor)
                     and not path.name.endswith(".test.yaml")
                 ):
                     violations.append(
@@ -146,10 +147,7 @@ def validate_generated_against_registry(
                             name=rname,
                             where=f"{path}:rule {rname}",
                             concept_id=canonical.id,
-                            detail=(
-                                f"canonical anchor is {canonical.producer_anchor}, "
-                                f"applying under {apply_anchor}"
-                            ),
+                            detail=_canonical_conflict_detail(canonical, apply_anchor),
                         )
                     )
 
@@ -186,3 +184,28 @@ def validate_generated_against_registry(
         seen.add(key)
         deduped.append(v)
     return deduped
+
+
+def _anchored_ref_miss_detail(concept: Concept, anchor: str) -> str:
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return (
+            f"canonical {concept.canonical_name!r} is anchored at "
+            f"{anchors[0]}, not {anchor}"
+        )
+    return (
+        f"canonical {concept.canonical_name!r} has {len(anchors)} accepted "
+        f"producers ({', '.join(anchors)}), and {anchor} is not one of them; "
+        "reference the producer of the intended vintage explicitly "
+        "(auto-repair never chooses a vintage)"
+    )
+
+
+def _canonical_conflict_detail(concept: Concept, apply_anchor: str) -> str:
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"canonical anchor is {anchors[0]}, applying under {apply_anchor}"
+    return (
+        f"accepted producer anchors are {', '.join(anchors)}; "
+        f"applying under {apply_anchor}"
+    )

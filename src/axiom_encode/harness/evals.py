@@ -50,6 +50,18 @@ from axiom_encode.constants import (
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
 )
+from axiom_encode.encode_timing import (
+    PHASE_ARTIFACT_REPAIR,
+    PHASE_CANDIDATE_VALIDATION,
+    PHASE_MODEL_CALL,
+    PHASE_PREPARE,
+    PHASE_RECORD_RESULT,
+    PHASE_REPAIR_OVERLAY,
+    PHASE_RETAINED_CANDIDATE_PREFLIGHT,
+    PHASE_STAGE_CANDIDATE,
+    mark_encode_phase,
+    timed_phase,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -8053,6 +8065,7 @@ _EVAL_SCALAR_REPAIR_MARKERS = (
 )
 
 
+@timed_phase(PHASE_ARTIFACT_REPAIR)
 def _apply_generated_eval_repairs(
     *,
     rulespec_file: Path,
@@ -8944,6 +8957,9 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
 ) -> EvalResult:
+    # Encode-loop phases (no-ops outside `encode`): the workspace and prompt
+    # are preparation; later marks follow the try through the candidate.
+    mark_encode_phase(PHASE_PREPARE)
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -9027,6 +9043,7 @@ def _run_single_eval(
     if accept_valid_retry_candidate:
         assert validation_retry_candidate is not None
         assert validation_retry_candidate.tests is not None
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         preflight_started = time.monotonic()
         _write_eval_artifact_text(
             output_file,
@@ -9049,6 +9066,7 @@ def _run_single_eval(
             workspace,
             protected_paths=protected_paths,
         )
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9075,6 +9093,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
         )
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
             rulespec_file=output_file,
             relative_output=relative_output,
@@ -9086,6 +9105,7 @@ def _run_single_eval(
                 "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
                 + ",".join(rebound_hashes)
             )
+            mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
             retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
@@ -9112,6 +9132,7 @@ def _run_single_eval(
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
             )
+            mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
@@ -9155,6 +9176,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
                 runner=runner,
@@ -9172,6 +9194,7 @@ def _run_single_eval(
                 required_test_case_contracts=required_test_case_contracts,
             )
         )
+    mark_encode_phase(PHASE_STAGE_CANDIDATE)
     overlay_validation_issue: str | None = None
     if (
         wrote_artifact
@@ -9256,6 +9279,7 @@ def _run_single_eval(
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
     if wrote_artifact and not retained_candidate_accepted:
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9282,6 +9306,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
         )
+    mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
         if overlay_validation_issue not in metrics.ci_issues:
@@ -10596,6 +10621,7 @@ Import and context rules:
         source_text,
         workspace,
         rulespec_context_files,
+        target_anchor=target_ref_prefix,
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
@@ -12202,6 +12228,7 @@ def _format_canonical_concept_registry_guidance(
     context_files: list[EvalContextFile],
     *,
     registry: ConceptRegistry | None = None,
+    target_anchor: str | None = None,
 ) -> str:
     """Inject canonical-concept registry directives scoped to mentioned concepts.
 
@@ -12209,6 +12236,11 @@ def _format_canonical_concept_registry_guidance(
     blocked synonym in the registry; emits a terse "use these exact names"
     block for the matched concepts only. Concepts that never appear in any
     text are omitted so the prompt does not pay tokens for irrelevant rules.
+
+    ``target_anchor`` is the RuleSpec anchor of the module being encoded (the
+    prompt's ``target_ref_prefix``). It only changes the line for a concept
+    with several producer vintages: the line then says whether this module
+    is one of those producers. Single-producer lines do not depend on it.
     """
     if registry is None:
         try:
@@ -12248,8 +12280,11 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer:
-            parts.append(f"producer `{concept.producer_anchor}`")
+        producer_guidance = _canonical_concept_producer_guidance(
+            concept, target_anchor=target_anchor
+        )
+        if producer_guidance:
+            parts.append(producer_guidance)
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")
@@ -12260,6 +12295,58 @@ Canonical concept names:
 Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
 {lines}
 """.format(lines="\n".join(lines))
+
+
+def _canonical_concept_producer_guidance(
+    concept: Concept, *, target_anchor: str | None = None
+) -> str | None:
+    """Describe where a registered concept's producer lives, for the prompt.
+
+    One producer: ``producer `<anchor>```, as before vintages existed. Several
+    producers (one per vintage, e.g. per fiscal year): every vintage is
+    listed with its registered period, and when the module being encoded is
+    known the line says whether it is one of them, so a producer encode
+    defines the name locally and any other module references the vintage
+    whose dates it encodes instead of defining it.
+    """
+    if not concept.has_producer:
+        return None
+
+    def labelled(anchor: str) -> str:
+        period = concept.producer_period(anchor)
+        return f"`{anchor}` ({period.describe()})" if period else f"`{anchor}`"
+
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"producer {labelled(anchors[0])}"
+    if concept.accepts_producer_anchor(target_anchor):
+        period = concept.producer_period(target_anchor)
+        vintage = (
+            f"the {period.label} producer ({period.effective_from.isoformat()} "
+            f"to {period.effective_to.isoformat()})"
+            if period
+            else "one of its vintage producers"
+        )
+        others = ", ".join(labelled(a) for a in anchors if a != target_anchor)
+        return (
+            f"this module, `{target_anchor}`, is {vintage}: when this source "
+            "sets it, define it here under this exact name rather than "
+            f"importing another vintage; other vintages: {others}"
+        )
+    listed = ", ".join(labelled(a) for a in anchors)
+    choice = (
+        "when importing it, reference the producer whose period covers the "
+        "dates you encode"
+        if concept.producer_periods
+        else "when importing it, reference the producer of the vintage you mean"
+    )
+    guidance = f"one producer per vintage, only at {listed}; {choice}"
+    if target_anchor is not None:
+        guidance += (
+            "; this module is not one of them, so do not define a rule with "
+            "this name here"
+        )
+    return guidance
 
 
 def _format_existing_target_contract_guidance(
@@ -17547,6 +17634,7 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+@timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
     *,
