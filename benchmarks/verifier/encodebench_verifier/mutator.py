@@ -54,6 +54,9 @@ Version history:
   parse which), does not read ``>>=``/``<<=`` as a comparison, knows the
   irregular plurals "families" and "people", and keeps a formula's leading
   and trailing whitespace when it drops the first or last conjunct.
+* 1.0.4 treats an int or float leaf as one amount: a site must be the whole
+  number, so a float rendered in exponent form (``1e+16``) offers no site
+  (1.0.3 read its exponent as the amount and replaced the whole value).
 
 Bump :data:`MUTATOR_VERSION` for any change to candidate selection, edit
 arithmetic, guards or the canonical dump: boards refuse to fold runs whose
@@ -75,7 +78,7 @@ from . import DEFECT_KINDS
 from .canonical import dump_yaml_document, load_yaml_document
 from .cases import Locator
 
-MUTATOR_VERSION = "1.0.3"
+MUTATOR_VERSION = "1.0.4"
 
 _YEAR_RE = re.compile(r"^(19|20)\d\d$")
 # A number inside formula text. A dotted code such as ``"7202.11.10.00"`` is
@@ -292,6 +295,20 @@ def _number_sites(text: str) -> list[re.Match[str]]:
     return [] if masked is None else list(_NUMBER_RE.finditer(masked))
 
 
+def _amount_sites(raw: Any) -> list[re.Match[str]]:
+    """Number sites in a formula or value leaf.
+
+    An int or float leaf is one amount, so its only site is the whole number:
+    the exponent of ``1e+16`` is not an amount.
+    """
+
+    text = str(raw)
+    sites = _number_sites(text)
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        sites = [m for m in sites if m.start(1) == 0 and m.end(1) == len(text)]
+    return sites
+
+
 def _boundary_sites(raw: str) -> list[re.Match[str]]:
     masked = _editable(raw)
     return [] if masked is None else list(_BOUNDARY_RE.finditer(masked))
@@ -352,7 +369,7 @@ def _mutate_amount(
     candidates: list[tuple[int, str, list[Any], str, re.Match[str]]] = []
     for rule_index, path, slot, raw in iter_formula_targets(document):
         text = str(raw)
-        for match in _number_sites(text):
+        for match in _amount_sites(raw):
             token = match.group(1)
             if _YEAR_RE.match(token):
                 continue
@@ -760,10 +777,10 @@ def _audit_numeric_amount(
 
     if isinstance(after, bool) or type(after) is not type(before):
         return "a numeric amount must keep its type"
-    if not math.isfinite(after):
+    if isinstance(after, float) and not math.isfinite(after):
         return "a numeric amount must stay finite"
     written = format(Decimal(repr(after)), "f")
-    for match in _number_sites(str(before)):
+    for match in _amount_sites(before):
         token = match.group(1)
         if _YEAR_RE.match(token) or _as_decimal(token) not in stated:
             continue
@@ -819,6 +836,8 @@ def audit_planted_edit(
         stated = provision_numbers(provision_window)
         if isinstance(before, (int, float)) and not isinstance(before, bool):
             return _audit_numeric_amount(before, after, stated)
+        if not isinstance(after, str):
+            return "a formula amount must stay text"
         old, new = str(before), str(after)
         for match in _number_sites(old):
             token = match.group(1)

@@ -229,6 +229,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_attempts=args.max_attempts,
         retry_seconds=args.retry_seconds,
         max_tokens=args.max_tokens,
+        effort=args.effort,
         timeout=args.timeout,
         # JudgeClient counts attempts; the TypeSafe RetryPolicy counts retries
         # after the first attempt. Keep both families on the same budget.
@@ -510,9 +511,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "referee output budget; default is the production JudgeClient value "
-            "(2048), which truncates long findings lists on large artifacts into "
-            "parse errors. Recorded in the runner identity."
+            "referee output budget; default is the production JudgeClient value. "
+            "Recorded in the runner identity."
+        ),
+    )
+    p.add_argument(
+        "--effort",
+        default=None,
+        help=(
+            "referee effort (for example low, high, max); default is the model's "
+            "own default, whatever AXIOM_JUDGE_EFFORT says. Recorded in the "
+            "runner identity when set."
         ),
     )
     p.add_argument("--timeout", type=float, default=60.0)

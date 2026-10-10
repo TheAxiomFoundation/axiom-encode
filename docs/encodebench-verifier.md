@@ -117,7 +117,8 @@ literals, `#` comments, `>>=`, the irregular plurals and the end-conjunct
 whitespace. Rather than rebuild and re-judge, `audit-suite` re-checks every
 committed pair against the current guards. Under 1.0.2 exactly those four
 pairs failed, and the board drops them by a recorded filter (see the boards
-section); the remaining 176 pass the 1.0.3 audit unchanged.
+section); the remaining 176 pass the current audit unchanged. 1.0.4 treats an
+int or float leaf as one amount, so a float in exponent form offers no site.
 
 The provision window is the referee's own truncation
 (`truncate_provision`, 24,000 characters, head and tail kept). Guards are
@@ -462,7 +463,10 @@ as the record of which cases it scored.
   was cut, and the case became a `parse_error` row (never a pass). The
   judges package now defaults to 16,000 and names a cut-off reply as a
   `max_tokens` error (axiom-encode #1759). The output budget is recorded in
-  every referee's identity. On the committed synthetic board the three 4.x
+  every referee's identity. The referee also passes its effort explicitly:
+  the default is the model's own default whatever `AXIOM_JUDGE_EFFORT` says,
+  and `--effort` records the requested level in the identity, so two efforts
+  are two judges. On the committed synthetic board the three 4.x
   referees ran at 2,048, and one call across their 1,080 cases (Haiku, a
   4,323-token input) was cut at exactly 2,048 output tokens and retried. Opus 5 and
   Sonnet 5 ran at 8,192, and Sonnet 5 was still cut there four times, each
@@ -491,7 +495,7 @@ budget included, is in its results payload.
 The judging ran on 2026-09-18 and 2026-09-19. On 2026-10-03 the board was
 re-derived from those recorded rows without judging anything again:
 `audit-suite` found four pairs that the 1.0.2 guards refuse (the other 176
-also pass 1.0.3), `filter-suite`
+also pass the current audit), `filter-suite`
 dropped them with that reason recorded, `reassemble` folded each judge's rows
 onto the child suite, and localization was recomputed under the whole-word
 matcher. The block below is generated from the committed `board.json` by

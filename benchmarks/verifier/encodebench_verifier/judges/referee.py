@@ -11,6 +11,10 @@ production wiring, all deliberate:
 * retry pacing is shorter than the production 90 s, and configurable;
 * ``max_tokens`` is passed explicitly and recorded, so an
   ``AXIOM_JUDGE_MAX_TOKENS`` in the environment cannot silently change a run;
+* ``effort`` is passed explicitly too (``JudgeClient`` would otherwise read
+  ``AXIOM_JUDGE_EFFORT``). The default is the model's own default effort; a
+  requested effort is recorded in the runner identity, so two efforts are
+  two judges;
 * the production cross-family guard is a pipeline policy ("a judge must not
   share the generator's family"), not a measurement rule. The client is built
   with the repo's declared generator so the guard is satisfied, and the case's
@@ -116,12 +120,15 @@ class RefereeRunner:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         max_attempts: int = 4,
         retry_seconds: float = 15.0,
+        effort: Optional[str] = None,
         client_factory: Optional[Callable[[], Any]] = None,
     ) -> None:
         self.model = model
         self.name = name or model
         self.provision_chars = provision_chars
         self.max_tokens = max_tokens
+        # None is the model's own default effort, whatever the environment says.
+        self.effort = (str(effort).strip().lower() or None) if effort else None
         self.max_attempts = max_attempts
         self.retry_seconds = retry_seconds
         self._api_key = api_key
@@ -138,6 +145,11 @@ class RefereeRunner:
             provision_chars=self.provision_chars,
             max_attempts=self.max_attempts,
             retry_seconds=self.retry_seconds,
+            # An explicit value (even the empty string, which the client reads
+            # as "model default") keeps AXIOM_JUDGE_EFFORT and
+            # AXIOM_JUDGE_ESCALATION_EFFORT out of the run.
+            effort=self.effort or "",
+            escalation_effort=self.effort or "",
         )
 
     def _get_client(self) -> Any:
@@ -153,7 +165,7 @@ class RefereeRunner:
             sdk_version = getattr(anthropic, "__version__", None)
         except ImportError:
             pass
-        return {
+        identity = {
             "family": self.family,
             "model": self.model,
             "prompt": "axiom_encode.judges.statutory_fidelity",
@@ -170,6 +182,11 @@ class RefereeRunner:
             ),
             "finding_kind_map": {k: list(v) for k, v in REFEREE_KIND_MAP.items()},
         }
+        if self.effort:
+            # Present only when requested: a default-effort run keeps the
+            # identity (and digest) of the runs recorded before this key.
+            identity["effort"] = self.effort
+        return identity
 
     def judge(self, case: VerifierCase) -> JudgeResponse:
         generator = case.origin.get("generator_model")

@@ -60,7 +60,8 @@ def make_runner(
             **{
                 k: v
                 for k, v in options.items()
-                if k in ("api_key", "max_attempts", "retry_seconds", "max_tokens")
+                if k
+                in ("api_key", "max_attempts", "retry_seconds", "max_tokens", "effort")
                 and v is not None
             },
         )

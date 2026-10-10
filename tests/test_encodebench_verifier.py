@@ -355,7 +355,7 @@ def test_canonical_dump_round_trips_multiline_and_quoted_scalars():
 
 
 def test_mutator_version_is_pinned():
-    assert MUTATOR_VERSION == "1.0.3"
+    assert MUTATOR_VERSION == "1.0.4"
 
 
 # -- synthetic suite -------------------------------------------------------------
@@ -2756,6 +2756,27 @@ def test_max_tokens_is_plumbed_and_part_of_referee_identity():
     )
 
 
+def test_referee_effort_is_pinned_and_recorded(monkeypatch):
+    # JudgeClient reads AXIOM_JUDGE_EFFORT when no effort is passed. The
+    # referee always passes one, so the environment cannot change a run that
+    # the runner identity would still describe as the same judge.
+    from encodebench_verifier.results import runner_identity_sha256
+
+    monkeypatch.setenv("AXIOM_JUDGE_EFFORT", "max")
+    monkeypatch.setenv("AXIOM_JUDGE_ESCALATION_EFFORT", "max")
+    monkeypatch.setenv("AXIOM_JUDGE_MAX_TOKENS", "123")
+    default = make_runner("referee:claude-haiku-4-5-20251001")
+    client = default._default_client()
+    assert client.effort is None and client.escalation_effort is None
+    assert client.max_tokens == DEFAULT_MAX_TOKENS
+    assert client.provision_chars == 24_000
+    assert "effort" not in default.identity()
+    low = make_runner("referee:claude-haiku-4-5-20251001", effort=" Low ")
+    assert low._default_client().effort == "low"
+    assert low.identity()["effort"] == "low"
+    assert runner_identity_sha256(low) != runner_identity_sha256(default)
+
+
 def test_breakdown_buckets_paired_detection_and_refuses_other_suites(tmp_path):
     from encodebench_verifier.breakdown import BreakdownError, breakdown
 
@@ -3112,9 +3133,26 @@ def test_audit_numeric_leaf_amounts_keep_type_and_precision():
         (60000, "75000"),
         (60000.0, 75000),
         (0.25, 0.3333),
+        ("60000", 75000),  # a text amount must stay text
+        ("0.25", 0.35),
     ):
         assert audit(before, after) is not None, (before, after)
+    # An int beyond the float range is judged like any other int (type kept,
+    # value not stated), rather than raising OverflowError.
+    assert audit(60000, 10**400) is None
     assert audit(60000.0, float("inf")) is not None
+    # A float already in exponent form offers no site: its exponent is not an
+    # amount, so nothing is planted, and a hand edit of it is refused.
+    exponent = "The table has 16 rows and 17 columns."
+    for value in (1.0e16, 2.5e17):
+        assert all(
+            m is None or m.locator.path != "rules[0].versions[0].formula"
+            for m in _all_seeds(leaf(value), exponent, "amount_changed")
+        )
+    assert (
+        audit_planted_edit(leaf(1.5e16), leaf(2e16), exponent, "amount_changed")
+        is not None
+    )
     # Whatever mutate plants on a numeric leaf passes, exponent form included.
     for value in (60000, 0.25, 9000000000000000.0):
         artifact = leaf(value)
