@@ -149,6 +149,7 @@ from .proof_validator import (
     validate_rulespec_proofs,
 )
 from .source_completeness import (
+    _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     source_states_stated_conversion_result,
@@ -35260,11 +35261,85 @@ class ValidatorPipeline:
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
             imported_symbol_contents=imported_symbol_contents,
+            resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
+                content, rules_file
+            ),
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
         return list(completeness.issues)
+
+    def _complete_source_unit_deferred_outputs(
+        self,
+        content: str,
+        rules_file: Path | None,
+    ) -> tuple[str, ...]:
+        """Authenticate exact existing outputs named by definition deferrals."""
+
+        if rules_file is None:
+            return ()
+        try:
+            payload = _safe_load_unique_keys(content)
+            module = payload.get("module", {}) if isinstance(payload, dict) else {}
+            records = (
+                module.get("deferred_outputs", []) if isinstance(module, dict) else []
+            )
+            if not isinstance(records, list):
+                return ()
+            source_root = self._validation_source_root(rules_file)
+        except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+            return ()
+        targets = {
+            target
+            for record in records
+            if isinstance(record, dict) and isinstance(record.get("blocked_by"), list)
+            for target in record["blocked_by"]
+            if isinstance(target, str)
+            and re.fullmatch(
+                r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*",
+                target,
+            )
+        }
+        resolved = []
+        for target in sorted(targets):
+            try:
+                dependency = _resolve_rulespec_import_file_static(
+                    target,
+                    rules_file=rules_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if dependency is None:
+                    continue
+                provider = _safe_load_unique_keys(dependency.read_text())
+                if (
+                    not isinstance(provider, dict)
+                    or provider.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = provider.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                symbol = target.partition("#")[2]
+                exports = [
+                    rule
+                    for rule in rules
+                    if isinstance(rule, dict) and rule.get("name") == symbol
+                ]
+                # Known behavioral interfaces must remain derived outputs:
+                # a same-name parameter cannot implement income selection or
+                # phaseout behavior. Table amount exports may be parameters.
+                allowed_kinds = (
+                    {"derived"}
+                    if target in _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS
+                    else {"parameter", "derived", "relation", "derived_relation"}
+                )
+                if len(exports) == 1 and exports[0].get("kind") in allowed_kinds:
+                    resolved.append(target)
+            except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+                continue
+        return tuple(resolved)
 
     def _complete_source_unit_import_symbol_contents(
         self,

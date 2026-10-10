@@ -1,0 +1,208 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+    source_sha256: 4837f08e036c830b44f43b0bbb064929b060efcc6349427fbc503ac13fd0b903
+  summary: 'For taxable years beginning in 2026, the refundable adoption-credit
+
+    determination amount is $5,120. The maximum child tax credit is $2,200,
+
+    and its refundable determination amount is $1,700. Section 3.06(1)
+
+    defines terms applied by 26 USC 32 to the earned income credit table
+
+    on page 15.'
+  deferred_outputs:
+  - output: us:policies/irs/rev-proc-2025-32/child-tax-credit#earned_income_amount_definition
+    blocked_by:
+    - us:statutes/26/32#eitc_phased_in
+    - us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_earned_income_amount
+    reason: Section 3.06(1) defines the earned income amount term applied by 26 USC
+      32 to the page-15 table; both are encoded in those modules.
+  - output: us:policies/irs/rev-proc-2025-32/child-tax-credit#threshold_phaseout_amount_definition
+    blocked_by:
+    - us:statutes/26/32#eitc_phase_out_income
+    - us:statutes/26/32#eitc_phase_out_start
+    reason: Section 3.06(1) defines the threshold phaseout amount term applied by
+      26 USC 32 to the page-15 table; both are encoded in those modules.
+  - output: us:policies/irs/rev-proc-2025-32/child-tax-credit#completed_phaseout_amount_definition
+    blocked_by:
+    - us:statutes/26/32#eitc_phase_out_income
+    - us:statutes/26/32#eitc_reduction
+    reason: Section 3.06(1) defines the completed phaseout amount term applied by
+      26 USC 32 to the page-15 table; both are encoded in those modules.
+  - output: us:policies/irs/rev-proc-2025-32/child-tax-credit#joint_and_other_filing_status_phaseout_amount_definitions
+    blocked_by:
+    - us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_phaseout_threshold_joint_amount
+    - us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_phaseout_threshold_other_amount
+    reason: Section 3.06(1) states the joint-return increase and separated-spouse
+      applicability of other-filing-status amounts; these terms are applied by 26
+      USC 32 to the page-15 table, and both are encoded in those modules.
+  - output: us:policies/irs/rev-proc-2025-32/child-tax-credit#phaseout_amounts_joint_and_other_filing_status_definitions
+    blocked_by:
+    - us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_phaseout_threshold_joint_amount
+    - us:policies/irs/rev-proc-2025-32/page-15#earned_income_credit_phaseout_threshold_other_amount
+    reason: Section 3.06(1) states the joint-return increase and the applicability
+      of other-filing-status amounts to specified separated spouses; these terms are
+      applied by 26 USC 32 to the page-15 table, and both are encoded in that module.
+rules:
+- name: adoption_credit_refundable_portion_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.04(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: amount used in § 23(a)(4) to determine the amount of the credit
+            under § 23 that may be refundable is $5,120
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '5120'
+- name: adoption_credit_refundable_determination_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.04(3)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: amount used in § 23(a)(4) to determine the amount of the credit
+            under § 23 that may be refundable
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: is $5,120
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: adoption_credit_refundable_portion_amount
+- name: ctc_child_maximum_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.05(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: maximum amount of the credit allowed under § 24(a) is $2,200
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '2200'
+- name: child_credit_maximum_allowed_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.05(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: maximum amount of the credit allowed under § 24(a)
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: is $2,200
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: ctc_child_maximum_amount
+- name: ctc_refundable_child_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.05(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: amount used in § 24(d)(1)(A) to determine the amount of the credit
+            under § 24 that may be refundable is $1,700
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: For taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '1700'
+- name: child_credit_refundable_determination_amount
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.05(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: amount used in § 24(d)(1)(A) to determine the amount of the credit
+            under § 24 that may be refundable
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: is $1,700
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: ctc_refundable_child_amount
+- name: applicable_taxable_year
+  kind: parameter
+  dtype: Integer
+  source: Rev. Proc. 2025-32 sections 3.04(3), 3.05, and 3.06(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-14
+          excerpt: taxable years beginning in 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '2026'
