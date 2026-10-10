@@ -12,7 +12,7 @@ OUTPUT_NAME = "sc_pit_pilot_income_tax_liability"
 INPUT_NAME = "sc_pit_pilot_state_taxable_income"
 POLICYENGINE_VARIABLE = "sc_income_tax_before_non_refundable_credits"
 ORACLE_MERGE = "d3419010d9c8de6a790220bf47912d85aadc2588"
-ENCODER_VERSION = "0.2.2160"
+ENCODER_VERSION = "0.2.2161"
 FALLBACK_TEXT = """  - legal_id_prefix: "us-sc:"
     country: us
     mapping_type: not_comparable
