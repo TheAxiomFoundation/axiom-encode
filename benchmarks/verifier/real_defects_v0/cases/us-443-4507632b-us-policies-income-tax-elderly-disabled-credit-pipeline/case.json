@@ -172,6 +172,7 @@
     "missing_basis": "The formula of the imported us/statutes/26/22 module (section_22_nontaxable_pension_benefit_reduction subtracts the service-injury exclusion from all buckets) and the companion test counterexample. Neither is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader B is right. Reader A relies on the module's own rationale wording ('subtracts qualifying service-injury pensions from the benefit reduction'). That is the module's words, not the provision, and it is ambiguous. The actual over-application is in an imported formula that is not in the bundle.",
     "readers": {
       "r1": {
         "verdict": "in_provision",

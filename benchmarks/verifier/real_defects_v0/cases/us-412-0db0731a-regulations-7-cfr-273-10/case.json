@@ -149,6 +149,7 @@
     "missing_basis": "The imported module us:policies/usda/snap/fy-2026-cola/maximum-allotments (FY2026 COLA guidance), which defines `snap_one_person_thrifty_food_plan_cost` as the table's one-person entry; the defect is a dangling, ungrounded input, not a mismatch with the regulation text.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

@@ -304,6 +304,7 @@
     "missing_basis": "The formula of the imported module us:statutes/26/199A#qbi_phasein_range ('if filing_status == 1 or filing_status == 4'), which is not in the bundle. Also, the bundle never says a surviving-spouse return is not a joint return.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

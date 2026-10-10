@@ -188,6 +188,7 @@
     "missing_basis": "Consistency with the sibling module statutes/26/63/c.yaml. It imported us:statutes/26/63/f#additional_standard_deduction_amount_under_subsection_f, which did not exist pre-fix, so the import dangled. That module is not in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "Reader A is right. Reader B's (c)(3) quote does not discriminate. A module scoped to (f), with its per-entitlement money amount openly deferred, is not contradicted by a summing rule in another subsection. The post-fix rule is no more grounded in that text, since it multiplies by the same deferred input. The real basis is the dangling import from the sibling module.",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

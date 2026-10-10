@@ -313,6 +313,7 @@
     "missing_basis": "Consistency with the canonical SNAP household-member relation (member_of_household, defined in us/statutes/7/2012/j and used by the rest of the SNAP composition). It is a wiring/data-binding fix, not a difference in text.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

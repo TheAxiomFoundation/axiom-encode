@@ -198,6 +198,7 @@
     "missing_basis": "The effective date of HTS Revision 12 (the 2026-07-21 consolidation). The commit message asserts it; it is not in any file in the bundle, and no other citation resolved for this case.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

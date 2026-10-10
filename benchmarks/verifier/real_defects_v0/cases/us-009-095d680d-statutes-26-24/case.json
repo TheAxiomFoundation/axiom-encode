@@ -264,6 +264,7 @@
     "missing_basis": "The repo's filing_status enum convention (4 = surviving spouse, e.g. statutes/26/1/j tests), which is outside the bundle. Without it, both the defect and the direction of the fix rest on the sibling 26 USC 224 change in the same commit.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

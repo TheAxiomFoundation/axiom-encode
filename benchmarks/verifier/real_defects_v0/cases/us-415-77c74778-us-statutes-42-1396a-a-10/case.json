@@ -191,6 +191,7 @@
     "missing_basis": "The effective-date language of 42 USC 1396a(xx)(1) ('beginning not later than the first day of the first quarter that begins after December 31, 2026'), found only in the imported us:statutes/42/1396a/xx module and its source, neither of which is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

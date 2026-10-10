@@ -211,6 +211,7 @@
     "missing_basis": "The enactment and effective date of P.L. 119-21 section 10102(a) (July 4, 2025), and the Fiscal Responsibility Act phase-in history. Both come from the FNS OBBBA ABAWD exceptions memo, pages 1 and 4, which did not resolve in this release.",
     "pre_fix_restates_it": false,
     "basis": "adjudicated",
+    "adjudication_note": "I agree with Reader B. Reader A's quote shows that the two age bands differ, but not when the change happened. The defect is a date, and no file in the bundle supplies one. The 2025-06-30 cutoff is an element the bundle cannot ground, and the later commit's 2023-08-31 correction shows the date question is exactly what the files do not settle. Reader A's own notes concede the bundle cannot validate the cutoff.",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

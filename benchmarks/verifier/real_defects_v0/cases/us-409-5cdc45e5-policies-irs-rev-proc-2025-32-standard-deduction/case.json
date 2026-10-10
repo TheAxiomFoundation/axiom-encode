@@ -157,6 +157,7 @@
     "missing_basis": "An encoder or validator policy that filing-status classifications must be derived rather than taken as free inputs (find_tax_status_component_local_input_issues), plus consistency with the module's own filing_status enum. No source text supports it.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

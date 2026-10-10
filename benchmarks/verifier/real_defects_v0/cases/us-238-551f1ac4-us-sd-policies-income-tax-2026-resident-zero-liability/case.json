@@ -316,6 +316,7 @@
     "missing_basis": "Authority on whether South Dakota has any personal-income-tax credits (especially refundable ones) or a signed net-liability surface. None is in the bundle. The fix rests on source-hold discipline (a no-PIT statement does not prove there are no refundable credits), not on any text.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

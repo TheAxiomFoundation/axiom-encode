@@ -264,6 +264,7 @@
     "missing_basis": "The DATES paragraph and Annex I of FR 2026-14542 (the USTR notice of 2026-07-20), which make the duty apply to entries on or after 12:01 eastern time on July 22, 2026. Neither module cites it, and it is not in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

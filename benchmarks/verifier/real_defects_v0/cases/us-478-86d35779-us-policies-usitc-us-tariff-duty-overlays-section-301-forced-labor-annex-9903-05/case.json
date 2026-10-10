@@ -199,6 +199,7 @@
     "missing_basis": "Federal Register notice 2026-15181, particularly DATES and Annex I.A, identified by the triage but not cited by either module or included among the bundle's source texts.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

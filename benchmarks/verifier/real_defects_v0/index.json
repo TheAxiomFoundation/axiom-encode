@@ -69,14 +69,14 @@
     "provision_reviewed": 171,
     "fidelity_representatives_not_reviewed": 0,
     "by_provision_review_verdict": {
-      "in_provision": 68,
+      "in_provision": 67,
       "in_other_citation": 52,
-      "not_in_sources": 51
+      "not_in_sources": 52
     },
     "by_provision_review_defect_real": {
       "no": 4,
-      "unsure": 47,
-      "yes": 120
+      "unsure": 48,
+      "yes": 119
     },
     "by_provision_review_basis": {
       "adjudicated": 13,
@@ -84,9 +84,9 @@
     },
     "mechanical_before_review_by_verdict": {
       "present": {
-        "in_provision": 67,
+        "in_provision": 66,
         "in_other_citation": 20,
-        "not_in_sources": 24
+        "not_in_sources": 25
       },
       "absent": {
         "in_provision": 1,
@@ -100,18 +100,18 @@
       }
     },
     "provision_extended": 52,
-    "judgeable_fidelity_representatives": 120,
+    "judgeable_fidelity_representatives": 119,
     "by_kind_judgeable": {
       "amount_mismatch": 3,
       "boundary_direction": 1,
-      "unrepresented_clause": 52,
+      "unrepresented_clause": 51,
       "untraceable_branch": 29,
       "wrong_period_or_effective_date": 17,
       "wrong_entity_or_scope": 15,
       "polarity_or_logic": 2,
       "other": 1
     },
-    "judgeable_with_decisive_text_in_default_window": 101,
+    "judgeable_with_decisive_text_in_default_window": 100,
     "by_release_selection_basis": {
       "earliest_release_after_toolchain_corpus_ref": 18,
       "latest_release_at_or_before_toolchain_corpus_ref": 112,
@@ -1928,10 +1928,10 @@
       "fix_stage": "post_merge",
       "provision_chars": 987,
       "evidence_in_provision": "present",
-      "judgeable_from_provision": true,
-      "provision_review_verdict": "in_provision",
+      "judgeable_from_provision": false,
+      "provision_review_verdict": "not_in_sources",
       "provision_extended": false,
-      "decisive_text_in_default_window": true,
+      "decisive_text_in_default_window": null,
       "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/191",
       "family_id": "us-c2f31293-02d293c8fc9b",
       "family_size": 1,

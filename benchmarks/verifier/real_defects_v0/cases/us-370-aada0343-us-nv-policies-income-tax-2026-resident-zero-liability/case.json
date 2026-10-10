@@ -473,6 +473,7 @@
     "missing_basis": "The encoder's judgment that the constitutional prohibition does not rule out independently refundable Nevada credits or a signed net-liability surface. No Nevada credit authority is in the bundle; other/001 (amendment history) has no credit content.",
     "pre_fix_restates_it": true,
     "basis": "adjudicated",
+    "adjudication_note": "Reader A is right. Reader B's 'the text is silent on credits' fails the extra-conditions test. The post-fix sentinels and holds are no better supported by this text, and the outputs are the same. A judge holding only provision.txt has no text that conflicts with the pre-fix credit_stage_applies=false.",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

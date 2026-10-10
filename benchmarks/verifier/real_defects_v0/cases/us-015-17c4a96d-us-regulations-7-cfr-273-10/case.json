@@ -180,6 +180,7 @@
     "missing_basis": "7 USC 2014(e)(6)(D)(ii), which adjusts the FY2019 $143 base annually, and the USDA FNS FY2026 COLA memorandum ($198.99), reached through the imported us:policies/usda/snap/fy-2026-cola/deductions module. Neither source is in the bundle.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

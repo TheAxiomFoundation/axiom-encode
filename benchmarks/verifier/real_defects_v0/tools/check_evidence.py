@@ -474,14 +474,21 @@ def check_case_dir(case_dir: Path, case: dict[str, Any]) -> tuple[str, dict]:
 def with_evidence(
     case: dict[str, Any], status: str, check: dict[str, Any]
 ) -> dict[str, Any]:
-    """The case with both evidence keys placed after ``provision_resolution``."""
+    """The case with both evidence keys placed where the schema orders them:
+    after ``provision_extension``, or after ``provision_resolution`` in a
+    record without one."""
 
+    anchor = (
+        "provision_extension"
+        if "provision_extension" in case
+        else "provision_resolution"
+    )
     out: dict[str, Any] = {}
     for key, value in case.items():
         if key in {"evidence_in_provision", "evidence_check"}:
             continue
         out[key] = value
-        if key == "provision_resolution":
+        if key == anchor:
             out["evidence_in_provision"] = status
             out["evidence_check"] = check
     if "evidence_in_provision" not in out:

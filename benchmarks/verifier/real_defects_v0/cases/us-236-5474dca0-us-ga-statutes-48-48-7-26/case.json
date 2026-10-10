@@ -312,6 +312,7 @@
     "missing_basis": "",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "in_other_citation",

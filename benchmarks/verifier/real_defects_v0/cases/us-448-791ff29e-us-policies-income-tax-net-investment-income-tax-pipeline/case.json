@@ -381,6 +381,7 @@
     "missing_basis": "The imported us:statutes/26/1411 RuleSpec module's formula, which offsets excluded categories against included income and adds a separate working-capital slot (upstream encode defect #1052). Neither its formula nor any text prescribing the fail-closed zero is in the bundle.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

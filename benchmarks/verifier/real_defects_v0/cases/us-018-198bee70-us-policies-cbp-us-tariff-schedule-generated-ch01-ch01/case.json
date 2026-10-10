@@ -604,6 +604,7 @@
     "missing_basis": "The chapter-99 U.S. note subdivision that exempts heading 9903.85.02 aluminum from the 9903.01.77 Brazil duties. It is apparently on an unbundled page (likely page 220, between page-219 and page-221); the proof atom's citation of page-219 does not resolve to it. Also the generator's COMPONENT_FORMULA_REPLACEMENTS table.",
     "pre_fix_restates_it": true,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

@@ -586,6 +586,17 @@ def test_compose_and_split_provision_round_trip_for_any_components():
         assert verify_real_defects.split_provision(text, grown) is None, trial
         renamed = [("uk/other", sized[0][1]), *sized[1:]]
         assert verify_real_defects.split_provision(text, renamed) is None, trial
+        regions = verify_real_defects.component_regions(sized)
+        for path, part in components:
+            start, end = regions[path]
+            assert text[start:end] == part, trial
+    for bad in (-1, 1.0, True, "1", None):
+        assert (
+            verify_real_defects.split_provision(
+                "--- Source: a ---\n\n--- Source: b ---\nZ", [("a", bad), ("b", 1)]
+            )
+            is None
+        )
 
 
 def test_locate_quote_finds_any_substring_and_reports_a_covering_span():
@@ -605,6 +616,9 @@ def test_locate_quote_finds_any_substring_and_reports_a_covering_span():
         assert span is not None, (trial, quote, text)
         assert 0 <= span[0] < span[1] <= len(text)
         assert fold(varied)[0] in fold(text[span[0] : span[1]])[0], (trial, quote)
+        # Whatever a span covers, the quote matches it exactly from end to end.
+        covered = text[span[0] : span[1]]
+        assert verify_real_defects.locate_quote(varied, covered) == (0, len(covered))
     assert verify_real_defects.locate_quote(
         "the  Maximum of $143", "up to the\nmaximum of $143."
     ) == (6, 25)
@@ -613,6 +627,13 @@ def test_locate_quote_finds_any_substring_and_reports_a_covering_span():
     far = "a b" + " x" * 200 + " e f"
     assert verify_real_defects.locate_quote("a b ... e f", far) is None
     assert verify_real_defects.locate_quote("...", "a b") is None
+    # A match never starts or ends inside one character's case-folded
+    # expansion ("ß" folds to "ss").
+    assert verify_real_defects.locate_quote("the tax as", "the tax aß") is None
+    assert verify_real_defects.locate_quote("s", "aß") is None
+    assert verify_real_defects.locate_quote("the tax ass", "the tax aß") == (0, 10)
+    assert verify_real_defects.locate_quote("SS", "aß") == (1, 2)
+    assert verify_real_defects.locate_quote("ss ... b", "ß x b") == (0, 5)
     assert verify_real_defects.locate_quote("‘quoted’ – text", "'quoted' - text") == (
         0,
         15,
@@ -684,7 +705,10 @@ def test_provision_record_problems_names_each_inconsistency():
     provision = "Subtract the deduction up to the maximum of $143."
     span = list(verify_real_defects.locate_quote("maximum of $143", provision))
     good = _reviewed_case(
-        provision, decisive_quotes=[{"quote": "maximum of $143", "span": span}]
+        provision,
+        decisive_quotes=[
+            {"citation_path": "us/statute/1", "quote": "maximum of $143", "span": span}
+        ],
     )
     problems = verify_real_defects.provision_record_problems
     assert problems(good, provision) == []
@@ -707,6 +731,14 @@ def test_provision_record_problems_names_each_inconsistency():
     assert any("what the fix rests on" in p for p in problems(excluded, provision))
     excluded["provision_review"]["missing_basis"] = "an uncited notice"
     assert problems(excluded, provision) == []
+    quoted = copy.deepcopy(excluded)
+    quoted["provision_review"]["decisive_quotes"] = good["provision_review"][
+        "decisive_quotes"
+    ]
+    assert any("has decisive quotes" in p for p in problems(quoted, provision))
+    other = copy.deepcopy(good)
+    other["provision_review"]["decisive_quotes"][0]["citation_path"] = "us/x"
+    assert any("not in the provision" in p for p in problems(other, provision))
 
     unreviewed = _reviewed_case(provision)
     unreviewed["provision_review"] = None
@@ -725,6 +757,7 @@ def test_provision_record_problems_names_each_inconsistency():
         outcome="provision_extended",
         decisive_quotes=[
             {
+                "citation_path": "us/guidance/2",
                 "quote": "maximum is $198.99",
                 "span": list(
                     verify_real_defects.locate_quote("maximum is $198.99", text)
@@ -749,11 +782,21 @@ def test_provision_record_problems_names_each_inconsistency():
     in_first = copy.deepcopy(extended)
     in_first["provision_review"]["decisive_quotes"] = [
         {
+            "citation_path": "us/statute/1",
             "quote": "maximum of $143",
             "span": list(verify_real_defects.locate_quote("maximum of $143", text)),
         }
     ]
     assert any("added citation" in p for p in problems(in_first, text))
+    # A quote must sit inside the citation it names.
+    misnamed = copy.deepcopy(extended)
+    misnamed["provision_review"]["decisive_quotes"][0]["citation_path"] = "us/statute/1"
+    assert any("lies outside" in p for p in problems(misnamed, text))
+    stranger = copy.deepcopy(extended)
+    stranger["provision_review"]["decisive_quotes"][0]["citation_path"] = (
+        "us/statute/26/999999"
+    )
+    assert any("not in the provision" in p for p in problems(stranger, text))
     tampered = text.replace("$198.99", "$199.99")
     assert any("recorded digest" in p for p in problems(extended, tampered))
     assert any(
@@ -859,6 +902,56 @@ def test_family_invariants_hold_for_any_grouping():
             if any(c["triage_status"] == "fidelity" for c in members):
                 assert representative["triage_status"] == "fidelity"
         assert len(keys) == len(families)
+
+
+def test_a_kept_representative_ships_its_files_whenever_a_member_can():
+    """Property: under the default shipping policy, pruning a family to its
+    representative keeps a case that ships files whenever any fidelity
+    member was read directly by a verifier."""
+
+    rng = random.Random(7)
+    for _trial in range(300):
+        cases = []
+        for index in range(rng.randrange(1, 12)):
+            case = _family_case(
+                f"us/m{index:02d}.yaml",
+                "untraceable_branch",
+                status=rng.choice(["fidelity", "unclear"]),
+                inferred=rng.choice([None, 0, 0]),
+            )
+            case["id"] = f"us-{index + 1:03d}-x"
+            cases.append(case)
+        build_real_defects.assign_families(cases)
+        built = [{"case": case, "files": {"x": b""}} for case in cases]
+        kept, _removed = build_real_defects.filter_cases(
+            built, drop_unclear=True, family_members="representatives"
+        )
+        build_real_defects.apply_shipping_policy(kept, "verified")
+        can_ship = any(
+            c["triage_status"] == "fidelity"
+            and c["triage"]["verifier_inferred_from_module_index"] is None
+            for c in cases
+        )
+        if can_ship:
+            assert [item["case"]["artifacts_shipped"] for item in kept] == [True]
+
+
+def test_check_evidence_write_keeps_the_documented_key_order():
+    case = _cases()[0]
+    status, check = check_evidence.check_case_dir(
+        CORPUS_DIR / "cases" / case["id"], case
+    )
+    assert list(check_evidence.with_evidence(case, status, check)) == list(
+        build_real_defects.CASE_KEY_ORDER
+    )
+    shuffled = {
+        k: v
+        for k, v in case.items()
+        if k not in {"evidence_in_provision", "evidence_check"}
+    }
+    assert list(check_evidence.with_evidence(shuffled, status, check)) == list(
+        build_real_defects.CASE_KEY_ORDER
+    )
 
 
 def test_case_ids_do_not_depend_on_order_or_on_what_a_build_filters():
@@ -992,6 +1085,19 @@ def test_index_and_readme_counts_are_regenerated_from_the_cases():
 # --------------------------------------------------------------------------
 
 # (agreeing, compared) per set of earlier hand calls; see the README.
+# Fields apply_provision_review copies from the settled record unchanged.
+COPIED_REVIEW_KEYS = (
+    "verdict",
+    "defect_real",
+    "nearest_quotes",
+    "why",
+    "missing_basis",
+    "pre_fix_restates_it",
+    "basis",
+    "adjudication_note",
+    "readers",
+)
+REVIEW_DEFAULTS = {"adjudication_note": ""}
 HAND_CALL_AGREEMENT = {
     "review_round2": (14, 15),
     "blind_round1": (21, 24),
@@ -1024,9 +1130,17 @@ def test_every_board_eligible_case_carries_its_provision_review():
             review["outcome"]
             == (verify_real_defects.PROVISION_REVIEW_OUTCOMES[settled["verdict"]])
         )
-        assert [q["quote"] for q in review["decisive_quotes"]] == [
-            q["quote"] for q in settled["decisive_quotes"]
-        ]
+        # Every field copied from the settled record is equal; span (and the
+        # derived fields below) are the build's own.
+        assert [
+            {k: v for k, v in q.items() if k != "span"}
+            for q in review["decisive_quotes"]
+        ] == settled["decisive_quotes"], case["id"]
+        for key in COPIED_REVIEW_KEYS:
+            assert review[key] == settled.get(key, REVIEW_DEFAULTS.get(key)), (
+                case["id"],
+                key,
+            )
         assert review["nearest_quotes"] == settled["nearest_quotes"]
         if settled["verdict"] == "not_in_sources":
             assert review["decisive_quotes"] == []

@@ -208,6 +208,7 @@
     "missing_basis": "The effective date of the HTS Rev12 Section 232 consolidation (the HTS revision or its implementing proclamation/Federal Register notice), which neither module cites. As the triage notes, the 07-21 date rests on the commit message and the parallel fix to the sibling 9903.82.02 module.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",

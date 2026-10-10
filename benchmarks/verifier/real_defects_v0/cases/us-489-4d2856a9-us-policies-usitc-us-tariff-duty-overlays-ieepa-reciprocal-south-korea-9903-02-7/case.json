@@ -381,6 +381,7 @@
     "missing_basis": "The effective date of heading 9903.02.79 itself, presumably in the notice that created it (possibly 90 Fed. Reg. 55964). The fix gets the start date from the predecessor's termination date and assumes there was no gap. No text in the bundle states that.",
     "pre_fix_restates_it": false,
     "basis": "readers_agree",
+    "adjudication_note": "",
     "readers": {
       "r1": {
         "verdict": "not_in_sources",
