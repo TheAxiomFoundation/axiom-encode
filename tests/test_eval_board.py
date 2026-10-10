@@ -3020,3 +3020,499 @@ def test_capability_manifest_locks_shape():
         "fable=claude:claude-fable-5",
         "opus-5=claude:claude-opus-5",
     ]
+
+
+def _admission_comparison_identity():
+    return {
+        "encoder": {"commit": "1" * 40, "version": "test"},
+        "engine": {"binary_sha256": "2" * 64},
+        "policy_repo": {"commit": "3" * 40},
+        "dependencies": [],
+        "source": {"body_sha256": "4" * 64},
+        "context": {
+            "context_manifest_sha256": "5" * 64,
+            "context_manifest_canonical_sha256": "7" * 64,
+            "generation_input_sha256": "8" * 64,
+            "artifacts": {"context/precedent.yaml": "9" * 64},
+        },
+    }
+
+
+def _admission_comparison_rows(runner, identity, *, no_artifact=False):
+    rows = []
+    for case in CASE_IDENTITIES:
+        row = _result(
+            runner,
+            case,
+            success=not no_artifact,
+            metrics=None if no_artifact else "default",
+            error="Model returned no artifact" if no_artifact else None,
+            failure_kind="error" if no_artifact else None,
+        )
+        if no_artifact:
+            row["trace_file"] = ""
+            row["trace_sha256"] = None
+            row["context_manifest_file"] = ""
+            row["context_manifest_sha256"] = None
+        row["admission_score"] = {
+            "admitted": not no_artifact,
+            "prerequisite_failure": False,
+            "failure_kind": "candidate" if no_artifact else None,
+            "refusal_categories": ["generation-error"] if no_artifact else [],
+            "identity": copy.deepcopy(identity),
+        }
+        rows.append(row)
+    return rows
+
+
+def _admission_comparison_paths(tmp_path, runners_and_rows, *, split_payloads):
+    execution = _execution_identity()
+    execution["admission_score"] = {"enabled": True, "axiom_compose": None}
+    groups = (
+        [[item] for item in runners_and_rows] if split_payloads else [runners_and_rows]
+    )
+    return [
+        _write_payload(
+            tmp_path,
+            f"admission-{position}.json",
+            _payload(
+                [(runner, "codex", "gpt-5.6-terra") for runner, _rows in group],
+                [row for _runner, rows in group for row in rows],
+                execution_identity=execution,
+            ),
+        )
+        for position, group in enumerate(groups)
+    ]
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("no_artifact_first", [False, True])
+def test_admission_identity_accepts_no_artifact_without_frozen_context(
+    tmp_path, split_payloads, no_artifact_first
+):
+    complete = _admission_comparison_identity()
+    runtime = {
+        key: value
+        for key, value in complete.items()
+        if key not in {"source", "context"}
+    }
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        (
+            "empty",
+            _admission_comparison_rows("empty", runtime, no_artifact=True),
+        ),
+    ]
+    if no_artifact_first:
+        runners_and_rows.reverse()
+    board = fold_eval_board(
+        _admission_comparison_paths(
+            tmp_path, runners_and_rows, split_payloads=split_payloads
+        )
+    )
+    stats = {runner.runner: runner for runner in board.runners}
+    assert stats["regular"].admitted_count == 3
+    assert stats["regular"].admission_refusal_count == 0
+    assert stats["empty"].admitted_count == 0
+    assert stats["empty"].admission_refusal_count == 3
+    assert stats["empty"].admission_prerequisite_count == 0
+    assert stats["empty"].admission_scorer_error_count == 0
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["encoder", "source", "context"])
+def test_admission_identity_rejects_mismatch_after_no_artifact(
+    tmp_path, split_payloads, field
+):
+    complete = _admission_comparison_identity()
+    runtime = {
+        key: value
+        for key, value in complete.items()
+        if key not in {"source", "context"}
+    }
+    changed = copy.deepcopy(complete)
+    changed[field] = {"different": "6" * 64}
+    runners_and_rows = [
+        ("first", _admission_comparison_rows("first", complete)),
+        ("empty", _admission_comparison_rows("empty", runtime, no_artifact=True)),
+        ("changed", _admission_comparison_rows("changed", changed)),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["source", "context"])
+@pytest.mark.parametrize(
+    "claimed", ["ci-other", "no-artifact", "generation-error", "generation-timeout"]
+)
+def test_admission_identity_rejects_missing_context_for_present_candidate(
+    tmp_path, split_payloads, field, claimed
+):
+    complete = _admission_comparison_identity()
+    incomplete = copy.deepcopy(complete)
+    incomplete.pop(field)
+    rows = _admission_comparison_rows("incomplete", incomplete)
+    for row in rows:
+        row["admission_score"].update(
+            admitted=False,
+            failure_kind="candidate",
+            refusal_categories=[claimed],
+        )
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        ("incomplete", rows),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["source", "context"])
+@pytest.mark.parametrize("recorded", ["output_file", "context_manifest_file"])
+@pytest.mark.parametrize(
+    "claimed", ["no-artifact", "generation-error", "generation-timeout"]
+)
+def test_admission_identity_rejects_missing_context_when_row_records_a_workspace(
+    tmp_path, split_payloads, field, recorded, claimed
+):
+    """Only a row with no output and no manifest may omit its frozen context."""
+
+    complete = _admission_comparison_identity()
+    incomplete = copy.deepcopy(complete)
+    incomplete.pop(field)
+    rows = _admission_comparison_rows("empty", incomplete, no_artifact=True)
+    reference = _admission_comparison_rows("regular", complete)
+    for row, regular in zip(rows, reference, strict=True):
+        row["admission_score"]["refusal_categories"] = [claimed]
+        row[recorded] = regular[recorded]
+        if recorded == "context_manifest_file":
+            row["context_manifest_sha256"] = regular["context_manifest_sha256"]
+    runners_and_rows = [("regular", reference), ("empty", rows)]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["source", "context"])
+def test_admission_identity_rejects_missing_context_for_plain_no_artifact(
+    tmp_path, split_payloads, field
+):
+    """A model that returned nothing still had a workspace to bind."""
+
+    complete = _admission_comparison_identity()
+    incomplete = copy.deepcopy(complete)
+    incomplete.pop(field)
+    rows = _admission_comparison_rows("empty", incomplete, no_artifact=True)
+    for row in rows:
+        row["admission_score"]["refusal_categories"] = ["no-artifact"]
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        ("empty", rows),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("runner_count", [1, 2])
+@pytest.mark.parametrize("omitted", [("source",), ("context",), ("source", "context")])
+@pytest.mark.parametrize("claimed", ["admitted", "ci-other", "no-artifact"])
+def test_admission_identity_requires_bindings_even_when_every_row_omits_them(
+    tmp_path, split_payloads, runner_count, omitted, claimed
+):
+    """The fourth review's probe: uniform omission left nothing to compare."""
+
+    incomplete = _admission_comparison_identity()
+    for binding in omitted:
+        incomplete.pop(binding)
+    runners_and_rows = []
+    for index in range(runner_count):
+        rows = _admission_comparison_rows(f"runner-{index}", incomplete)
+        if claimed != "admitted":
+            for row in rows:
+                row["admission_score"].update(
+                    admitted=False,
+                    failure_kind="candidate",
+                    refusal_categories=[claimed],
+                )
+        runners_and_rows.append((f"runner-{index}", rows))
+    with pytest.raises(
+        EvalBoardError, match=f"without its frozen {omitted[0]} binding"
+    ):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("binding", ["source", "context"])
+@pytest.mark.parametrize("value", [None, {}, "5" * 64, []])
+def test_admission_identity_requires_bindings_to_be_objects(tmp_path, binding, value):
+    malformed = _admission_comparison_identity()
+    malformed[binding] = value
+    with pytest.raises(EvalBoardError, match=f"without its frozen {binding} binding"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path,
+                [("only", _admission_comparison_rows("only", malformed))],
+                split_payloads=False,
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("omitted", [("context",), ("source", "context")])
+@pytest.mark.parametrize("prerequisite_first", [False, True])
+def test_admission_identity_lets_a_prerequisite_row_omit_what_it_could_not_bind(
+    tmp_path, split_payloads, omitted, prerequisite_first
+):
+    """A missing manifest is a prerequisite because the context is not there."""
+
+    complete = _admission_comparison_identity()
+    incomplete = copy.deepcopy(complete)
+    for binding in omitted:
+        incomplete.pop(binding)
+    excluded = _admission_comparison_rows("excluded", incomplete)
+    for row in excluded:
+        row["admission_score"].update(
+            admitted=False,
+            prerequisite_failure=True,
+            failure_kind="prerequisite",
+            refusal_categories=[],
+        )
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        ("excluded", excluded),
+    ]
+    if prerequisite_first:
+        runners_and_rows.reverse()
+    board = fold_eval_board(
+        _admission_comparison_paths(
+            tmp_path, runners_and_rows, split_payloads=split_payloads
+        )
+    )
+    stats = {runner.runner: runner for runner in board.runners}
+    assert stats["regular"].admitted_count == 3
+    assert stats["excluded"].admission_prerequisite_count == 3
+    assert stats["excluded"].admission_refusal_count == 0
+    for identity in board.admission_identities.values():
+        assert identity == complete
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["encoder", "source"])
+def test_admission_identity_still_compares_what_a_prerequisite_row_binds(
+    tmp_path, split_payloads, field
+):
+    complete = _admission_comparison_identity()
+    changed = copy.deepcopy(complete)
+    changed.pop("context")
+    changed[field] = {"different": "6" * 64}
+    excluded = _admission_comparison_rows("excluded", changed)
+    for row in excluded:
+        row["admission_score"].update(
+            admitted=False,
+            prerequisite_failure=True,
+            failure_kind="prerequisite",
+            refusal_categories=[],
+        )
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path,
+                [
+                    ("regular", _admission_comparison_rows("regular", complete)),
+                    ("excluded", excluded),
+                ],
+                split_payloads=split_payloads,
+            )
+        )
+
+
+def _repackaged_admission_identity(identity, raw_digest):
+    """The same frozen context as packaged from another checkout."""
+
+    repackaged = copy.deepcopy(identity)
+    repackaged["context"]["context_manifest_sha256"] = raw_digest
+    return repackaged
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("order", [(0, 1, 2), (1, 0, 2), (2, 1, 0), (1, 2, 0)])
+def test_admission_identity_folds_context_packaged_from_another_checkout(
+    tmp_path, split_payloads, order
+):
+    complete = _admission_comparison_identity()
+    identities = [
+        complete,
+        _repackaged_admission_identity(complete, "a" * 64),
+        copy.deepcopy(complete),
+    ]
+    runners_and_rows = [
+        (f"runner-{index}", _admission_comparison_rows(f"runner-{index}", identity))
+        for index, identity in enumerate(identities)
+    ]
+    board = fold_eval_board(
+        _admission_comparison_paths(
+            tmp_path,
+            [runners_and_rows[index] for index in order],
+            split_payloads=split_payloads,
+        )
+    )
+    assert [runner.admitted_count for runner in board.runners] == [3, 3, 3]
+    comparable = {
+        key: value
+        for key, value in complete["context"].items()
+        if key != "context_manifest_sha256"
+    }
+    # Rows disagree on the raw digest, so the merged identity cannot claim one.
+    for identity in board.admission_identities.values():
+        assert identity["context"] == comparable
+        assert identity["source"] == complete["source"]
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+def test_admission_identity_keeps_a_raw_context_digest_every_row_shares(
+    tmp_path, split_payloads
+):
+    complete = _admission_comparison_identity()
+    runners_and_rows = [
+        (runner, _admission_comparison_rows(runner, complete))
+        for runner in ("first", "second")
+    ]
+    board = fold_eval_board(
+        _admission_comparison_paths(
+            tmp_path, runners_and_rows, split_payloads=split_payloads
+        )
+    )
+    for identity in board.admission_identities.values():
+        assert identity == complete
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("context_manifest_canonical_sha256", "b" * 64),
+        ("generation_input_sha256", "b" * 64),
+        ("artifacts", {"context/precedent.yaml": "b" * 64}),
+        ("artifacts", {}),
+    ],
+)
+def test_admission_identity_rejects_repackaged_context_with_other_content(
+    tmp_path, split_payloads, field, value
+):
+    complete = _admission_comparison_identity()
+    changed = _repackaged_admission_identity(complete, "a" * 64)
+    changed["context"][field] = value
+    runners_and_rows = [
+        ("first", _admission_comparison_rows("first", complete)),
+        ("changed", _admission_comparison_rows("changed", changed)),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("missing_from", ["first", "second", "both"])
+def test_admission_identity_needs_a_canonical_digest_to_excuse_a_raw_mismatch(
+    tmp_path, split_payloads, missing_from
+):
+    complete = _admission_comparison_identity()
+    changed = _repackaged_admission_identity(complete, "a" * 64)
+    if missing_from in ("first", "both"):
+        del complete["context"]["context_manifest_canonical_sha256"]
+    if missing_from in ("second", "both"):
+        del changed["context"]["context_manifest_canonical_sha256"]
+    runners_and_rows = [
+        ("first", _admission_comparison_rows("first", complete)),
+        ("changed", _admission_comparison_rows("changed", changed)),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("no_artifact", [False, True])
+def test_admission_board_json_is_serializable(tmp_path, split_payloads, no_artifact):
+    complete = _admission_comparison_identity()
+    runtime = {
+        key: value
+        for key, value in complete.items()
+        if key not in {"source", "context"}
+    }
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        (
+            "other",
+            _admission_comparison_rows("other", runtime, no_artifact=True)
+            if no_artifact
+            else _admission_comparison_rows(
+                "other", _repackaged_admission_identity(complete, "a" * 64)
+            ),
+        ),
+    ]
+    board = fold_eval_board(
+        _admission_comparison_paths(
+            tmp_path, runners_and_rows, split_payloads=split_payloads
+        )
+    )
+    payload = eval_board_to_json(board)
+    decoded = json.loads(json.dumps(payload, sort_keys=True))
+    assert decoded["admission_scored"] is True
+    assert set(decoded["admission_identities"]) == {
+        str(case_index) for case_index in board.admission_identities
+    }
+    for identity in decoded["admission_identities"].values():
+        assert identity["encoder"] == complete["encoder"]
+        assert identity["source"] == complete["source"]
+        assert (
+            identity["context"]["context_manifest_canonical_sha256"]
+            == complete["context"]["context_manifest_canonical_sha256"]
+        )
+
+
+@pytest.mark.parametrize("split_payloads", [False, True])
+@pytest.mark.parametrize("field", ["source", "context"])
+def test_admission_identity_compares_available_no_artifact_context(
+    tmp_path, split_payloads, field
+):
+    complete = _admission_comparison_identity()
+    changed = copy.deepcopy(complete)
+    changed[field] = {"different": "6" * 64}
+    runners_and_rows = [
+        ("regular", _admission_comparison_rows("regular", complete)),
+        ("empty", _admission_comparison_rows("empty", changed, no_artifact=True)),
+    ]
+    with pytest.raises(EvalBoardError, match="admission identity"):
+        fold_eval_board(
+            _admission_comparison_paths(
+                tmp_path, runners_and_rows, split_payloads=split_payloads
+            )
+        )

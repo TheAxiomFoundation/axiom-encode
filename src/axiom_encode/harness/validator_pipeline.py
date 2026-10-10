@@ -35268,6 +35268,11 @@ class ValidatorPipeline:
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
+        self._complete_source_unit_recall = {
+            "total": completeness.source_numeric_occurrence_count,
+            "covered": completeness.covered_source_numeric_occurrence_count,
+            "missing": completeness.missing_source_numeric_occurrence_count,
+        }
         return list(completeness.issues)
 
     def _complete_source_unit_deferred_outputs(
@@ -35458,6 +35463,7 @@ class ValidatorPipeline:
             "validation_ci_start", f"Starting CI validation for {rulespec_file.name}"
         )
         ci_start = time.time()
+        self._complete_source_unit_recall = None
         try:
             results["ci"] = self._run_ci(rulespec_file)
         except Exception as e:
@@ -35466,6 +35472,10 @@ class ValidatorPipeline:
                 passed=False,
                 error=str(e),
                 issues=[str(e)],
+            )
+        if self._complete_source_unit_recall is not None:
+            results["ci"].details["complete_source_unit_recall"] = dict(
+                self._complete_source_unit_recall
             )
         self._log_event(
             "validation_ci_end",

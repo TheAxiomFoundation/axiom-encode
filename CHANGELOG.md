@@ -2,6 +2,21 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+## 0.2.2159
+
+- Add opt-in EncodeBench admission scoring through signed-apply validation,
+  authoritative numeric recall, structural prerequisite checks and comparable
+  admission columns while preserving the four readiness gates. Reject unsafe
+  original artifact kinds with the shared production guard before copying bytes,
+  verify frozen context artifacts and optional suite digests, and report scorer
+  errors separately from refusals and prerequisites. A missing artifact is a
+  candidate failure only after every prerequisite holds, named from the row's
+  failure record (generation-timeout, generation-error or no-artifact), and a
+  generation the harness can prove ended on missing credentials or its
+  usage-limit rule is a prerequisite. Boards compare frozen context by a
+  canonical digest that ignores checkout locations and require every scored
+  row to carry its source and context bindings.
+
 - Keep US manual and form locators out of complete-source-unit numeric recall:
   `WAC` section citations, `policy NNN-N` cross-references, numbered manual
   section headings, telephone numbers, PO boxes, ZIP+4 codes and
