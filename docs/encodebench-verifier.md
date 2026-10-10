@@ -488,9 +488,11 @@ One board is committed, under `benchmarks/verifier/boards/synthetic_us_v1/`,
 with its markdown, JSON, CSV and the suite manifest that identifies exactly
 which cases it scored. Full suite texts and per-run rows live in
 `_axiom-runs/encodebench-verifier-2026-09-17/`. The roster: TypeSafe Jev
-1.13.0, and the incumbent referee on Haiku 4.5 (the judges package's default
-judge model), Sonnet 4.5, Sonnet 5, Opus 4.6 and Opus 5. Each judge's configuration, output
-budget included, is in its results payload.
+1.13.0, and the incumbent referee on Haiku 4.5, Sonnet 4.5, Sonnet 5, Opus 4.6
+and Opus 5. When the runs were made, Haiku 4.5 was the judges package's
+default judge model and Opus 4.6 the repo's default model; main has since
+moved both (to Sonnet 5.5 and Opus 5.5), and neither is on this board. Each
+judge's configuration, output budget included, is in its results payload.
 
 The judging ran on 2026-09-18 and 2026-09-19. On 2026-10-03 the board was
 re-derived from those recorded rows without judging anything again:
