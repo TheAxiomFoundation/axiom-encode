@@ -155,6 +155,11 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
         ),
+        # rulespec-us#1553: reviewed FL ESS page-8 candidate promotion.
+        (
+            "us",
+            "de94317c2e268ec984104d7838f69cab6d6c0384",
+        ),
         (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
@@ -203,6 +208,12 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
             "fl-snap-bbce-page5",
+        ),
+        # rulespec-us#1553: reviewed FL ESS page-8 candidate promotion.
+        (
+            "us",
+            "de94317c2e268ec984104d7838f69cab6d6c0384",
+            "fl-page8-bbce-1553",
         ),
     }
 )
