@@ -16,7 +16,9 @@ const NONKEYWORD_BY_COMMIT = {}
 for (const jur of ['us', 'uk']) {
   for (const row of (args.nonkeyword && args.nonkeyword[jur]) || []) NONKEYWORD_BY_COMMIT[jur + ':' + row.commit] = row
 }
-const REPO = { us: '/Users/maxghenis/TheAxiomFoundation/rulespec-us', uk: '/Users/maxghenis/TheAxiomFoundation/rulespec-uk' }
+// args.repos: { us: <rulespec-us checkout>, uk: <rulespec-uk checkout> }. The 2026-09 run
+// hard-coded the two paths of the machine it ran on.
+const REPO = args.repos
 const GH = { us: 'TheAxiomFoundation/rulespec-us', uk: 'TheAxiomFoundation/rulespec-uk' }
 const CHUNK = 12
 const SCREEN_BATCH = 70

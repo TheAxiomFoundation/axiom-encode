@@ -1,3 +1,4 @@
+--- Source: us-la/statute/47:32 ---
 A. On individuals. The tax to be assessed, levied, collected, and paid upon the
 taxable income of an individual shall be computed at the rate of three percent on net income.
 
@@ -6,3 +7,313 @@ B. Repealed by Acts 2024, 3rd Ex. Sess., No. 11, §4, eff. Dec. 4, 2024.
 C. On corporations. The tax to be assessed, levied, collected, and paid upon the
 taxable income of every corporation shall be computed at the rates provided for in R.S.
 47:287.12.
+
+--- Source: us-la/statute/47:293 ---
+The following definitions shall apply throughout this Part, unless the context requires
+otherwise:
+
+(1) "Adjusted gross income" means, for any taxable year and for any individual, the
+adjusted gross income of the individual for the taxable year that is reportable on the
+individual's federal income tax return.
+
+(2)(a)(i) "Construction code retrofitting deduction" means an amount equal to fifty
+percent of the cost paid or incurred by a taxpayer to voluntarily retrofit an existing residential
+structure for which the taxpayer claims the homestead exemption for ad valorem tax
+purposes, excluding rental property, to bring it into compliance with the State Uniform
+Construction Code or the fortified home standards of the Insurance Institute for Business and
+Home Safety, less the value of any municipally sponsored, state-sponsored, or federally
+sponsored financial incentives for the retrofitting cost paid.
+
+(ii) "Voluntarily retrofit an existing residential structure" means that the retrofitting
+is not a construction, reconstruction, alteration, or repair of such structure required by the
+State Uniform Construction Code because the structure is a new residential structure or
+because of damage or destruction of an existing residential structure.
+
+(b) The total deduction amount granted to a taxpayer pursuant to this Paragraph shall
+not exceed ten thousand dollars per retrofitted residential structure. The deduction earned
+pursuant to this Paragraph shall be claimed on the return for the taxable year in which the
+work is completed.
+
+(c) Repealed by Acts 2025, No. 473, §2, eff. Jan. 1, 2026.
+
+(d) The secretary of the Department of Revenue shall promulgate such rules and
+regulations in accordance with the Administrative Procedure Act as may be necessary to
+carry out the provisions of this Paragraph, including but not limited to rules and regulations
+providing for the forms and verification documents necessary for a taxpayer to claim the
+deduction provided in this Paragraph.
+
+(e) Repealed by Acts 2025, No. 473, §2, eff. Jan. 1, 2026.
+
+(f) A taxpayer shall not receive any other state tax credit, exemption, exclusion,
+deduction, or any other tax benefit for items of tangible personal property for which the
+taxpayer has received a tax credit under this Paragraph. However, a taxpayer may receive
+a grant pursuant to R.S. 22:1483.1 in addition to the deduction provided for in this
+Paragraph.
+
+(3) "Excess federal itemized personal deductions" for the purposes of this Part,
+means one hundred percent of the amount by which the federal itemized personal deduction
+for expenses for medical care used by the taxpayer in the calculation of federal taxable
+income exceeds the amount of the federal standard deduction that is designated for the filing
+status used for the taxable period on the individual income tax return required to be filed.
+For purposes of this Paragraph, the term "expenses for medical care" has the meaning given
+the term in Section 213(d) of the Internal Revenue Code and is subject to all applicable
+federal limitations.
+
+(4) Repealed by Acts 2021, No. 395, §2, eff. Jan. 1, 2022.
+
+(5) "Hurricane recovery entity" means the Road Home Corporation as provided for
+in Chapter 3-E of Title 40 of the Louisiana Revised Statutes of 1950, the Louisiana Recovery
+Authority as provided for in Part V of Chapter 2 of Title 49 of the Louisiana Revised Statutes
+of 1950, the disaster recovery unit within the office of community development, division of
+administration, or the Louisiana Family Recovery Corps.
+
+(6) "Individual" means a natural person. However, for any taxable year, a husband
+and wife may file a joint income tax return and a surviving spouse may file a joint income
+tax return on behalf of the survivor and the deceased for the year in which the death occurred,
+if the survivor has not remarried during the year of death.
+
+(7)(a) "The recreation volunteer and volunteer firefighter deduction" for the purposes
+of this Part, means a deduction in the amount of five hundred dollars per tax year for
+individuals who volunteer for recreation departments and volunteer fire departments.
+
+(b) In order to qualify for the deduction for volunteers for recreation departments,
+the taxpayer must comply with the following requirements:
+
+(i) The taxpayer must serve as a volunteer for thirty or more hours during the taxable
+year.
+
+(ii) The taxpayer must be registered by the recreation department as a volunteer.
+
+(iii) The recreation department must be operated by the state of Louisiana or a
+political subdivision of the state.
+
+(c) The recreation department shall certify in writing that the taxpayer served as a
+volunteer for thirty or more hours during the year and that the taxpayer was not compensated
+for these services. The certification shall include the taxpayer's name, address, and social
+security number and the name and address of the recreation department.
+
+(d) In order to qualify for the deduction as a volunteer firefighter, the individual shall
+complete twenty-four hours of continuing education annually, and shall be an active member
+of the Louisiana State Fireman's Association, or on the departmental personnel roster for the
+State Fire Marshal's Volunteer Fireman's Insurance Program.
+
+(8) "Tax" or "tax liability" means the liability for all amounts owing by an individual
+to the state of Louisiana under this Part.
+
+(9)(a) "Tax table income", for resident individuals, means adjusted gross income plus
+interest on obligations of a state or political subdivision thereof, other than Louisiana and its
+municipalities, title to which obligations vested with the resident individual on or subsequent
+to January 1, 1980, and less:
+
+(i) Any gratuitous grant, loan, or other benefit directly or indirectly provided to a
+taxpayer by a hurricane recovery entity if such benefit was included in federal adjusted gross
+income.
+
+(ii) Repealed by Acts 2021, No. 395, §2, eff. Jan. 1, 2022.
+
+(iii) Income exempt from taxation under the laws of Louisiana or which Louisiana
+is prohibited from taxing by the constitution or laws of the United States.
+
+(iv) The standard deduction provided for in R.S. 47:294.
+
+(v) The amount deposited in a medical savings account as defined in R.S.
+47:297.1(B), and any interest accrued thereon; however, any amount withdrawn from a
+medical savings account for purposes other than paying eligible medical expenses or to
+procure health insurance shall be included in tax table income.
+
+(vi) For tax years beginning on and after January 1, 2001, the amount deposited in
+an education savings account as provided in R.S. 17:3095(A)(1)(b), and any interest accrued
+thereon; however, any such deposit plus interest withdrawn from an education savings
+account for purposes other than paying qualified higher education expenses, as defined in
+R.S. 17:3092(10) shall be included in tax table income.
+
+(vii) The amount of the exclusion provided for in R.S. 47:297.3 for S Bank
+shareholders.
+
+(viii) For tax years beginning on and after January 1, 2005, the amount deposited in
+an education savings account as provided in R.S. 17:3095(A)(1)(c), and any interest accrued
+thereon; however, any such deposit plus interest withdrawn from an education savings
+account for purposes other than paying qualified higher education expenses, as defined in
+R.S. 17:3092 shall be included in tax table income.
+
+(ix) Repealed by Acts 2024, 3rd Ex. Sess., No. 11, §4, eff. Dec. 4, 2024.
+
+(x) The temporary teacher deduction.
+
+(xi) Excess federal itemized personal deductions.
+
+(xii) The recreation volunteer and volunteer firefighter deduction.
+
+(xiii) The construction code retrofitting deduction.
+
+(xiv) The elementary and secondary school tuition deduction as provided for in R.S.
+47:297.10.
+
+(xv) The educational expenses deduction for home-schooled children as provided
+for in R.S. 47:297.11.
+
+(xvi) The deduction for fees and other educational expenses for a quality public
+education as provided for in R.S. 47:297.12.
+
+(xvii) Repealed by Acts 2024, 3rd Ex. Sess., No. 11, §4, eff. Dec. 4, 2024.
+
+(xviii) The pass-through entity exclusion provided in R.S. 47:297.14.
+
+(xix) For taxable periods beginning on and after January 1, 2020, and on or before
+December 31, 2020, the COVID-19 educational expenses deduction as provided for in R.S.
+47:297.15.
+
+(xx) Any gratuitous grant, loan, rebate, tax credit, advance refund, or other qualified
+disaster relief benefit directly or indirectly provided to a taxpayer by the state or federal
+government as a COVID-19 relief benefit as defined in R.S. 47:297.16 if the benefit was
+included in the taxpayer's federal adjusted gross income.
+
+(xxi) The exemption for military survivor benefit plan payments pursuant to R.S.
+47:297.17.
+
+(xxii) The digital nomad exemption as provided for in R.S. 47:297.18.
+
+(xxiii) The deduction for adopting a child or youth from foster care as provided in
+R.S. 47:297.20.
+
+(xxiv) The deduction for the private adoption of certain infants as provided for in
+R.S. 47:297.21.
+
+(xxv) For tax years beginning on and after January 1, 2022, the amount deposited in
+an education savings account as provided in R.S. 17:3100.5(A)(1)(b) and any interest
+accrued thereon; however, any deposit plus interest withdrawn from an education savings
+account for purposes other than paying qualified education expenses, as defined in R.S.
+17:3100.2, shall be included in tax table income.
+
+(xxvi) The bonus depreciation deduction provided for in R.S. 47:297.25.
+
+(xxvii) Grant amounts received from the Louisiana Fortify Homes Program pursuant
+to R.S. 22:1483.1 on or after January 1, 2025.
+
+(xxviii) For tax years beginning on and after January 1, 2026, the amount deposited
+in a special savings account for financing of certain qualified expenses of persons with
+disabilities as provided in R.S. 17:3088 and any interest accrued; however, any deposit plus
+interest withdrawn from a special savings account for purposes other than paying qualified
+disability expenses, as defined in R.S. 17:3082, shall be included in taxable income.
+
+(xxix) The deduction for hardship distributions from retirement accounts as
+authorized by R.S. 47:297.26.
+
+(b) Interest on obligations of the state of Louisiana, its political subdivisions, public
+corporations created by them and constituted authorities thereof authorized to issue
+obligations on their behalf, title to which obligations vested with a resident individual shall
+be excluded from "tax table income" and is hereby declared exempt from state income
+taxation.
+
+(c) Interest on obligations of other states and their subdivisions, public corporations
+created by them and constituted authorities thereof authorized to issue obligations on their
+behalf, title to which obligations vested with a resident individual prior to January 1, 1980,
+shall be excluded from "tax table income" and if title to such obligations vests with a resident
+individual after January 1, 1980, interest thereon shall be included in "tax table income".
+
+(d) For the purposes of this Paragraph, income distributed by a trust, partnership, or
+mutual fund to an individual taxpayer shall retain the same character in his hands as it had
+in the hands of such distributor to the extent such income similarly retains its character for
+federal income tax purposes.
+
+(e) For tax years beginning after December 31, 2002, and before January 1, 2022, in
+the case of an individual who is on active duty as a member of the armed forces of the United
+States, which full-time duty is or will be continuous and uninterrupted for one hundred
+twenty consecutive days or more, total compensation paid for services performed outside this
+state by the armed forces of the United States of up to thirty thousand dollars shall be
+excluded from "tax table income" and is hereby declared exempt from state income taxation.
+For tax years beginning on or after January 1, 2022, the exclusion shall be up to fifty
+thousand dollars.
+
+(10) "Tax table income", for nonresident individuals, means the amount of Louisiana
+income, as provided in this Part, allocated and apportioned under the provisions of R.S.
+47:241 through 247, less the proportionate amount of excess federal itemized personal
+deductions; the temporary teacher deduction; the recreation volunteer and volunteer
+firefighter deduction; the construction code retrofitting deduction; any gratuitous grant, loan,
+or other benefit directly or indirectly provided to a taxpayer by a hurricane recovery entity
+if such benefit was included in federal adjusted gross income; any gratuitous grant, loan,
+rebate, tax credit, advance refund, or other qualified disaster relief benefit directly or
+indirectly provided to a taxpayer by the state or federal government as a COVID-19 relief
+benefit as defined in R.S. 47:297.16 if the benefit was included in the taxpayer's federal
+adjusted gross income; the exclusion provided for in R.S. 47:297.3 for S Bank shareholders;
+salaries, wages, or other compensation received for disaster or emergency-related work
+rendered during a declared state disaster or emergency; wages of nonresident individuals who
+are eligible for the mobile workforce exemption pursuant to R.S. 47:248; the pass-through
+entity exclusion provided in R.S. 47:297.14; the exemption for military survivor benefit plan
+payments pursuant to R.S. 47:297.17; the bonus depreciation deduction provided for in R.S.
+47:297.25 and the standard deduction provided for in R.S. 47:294. The proportionate
+amount is to be determined by the ratio of Louisiana income to federal adjusted gross
+income. When federal adjusted gross income is less than Louisiana income, the ratio shall
+be one hundred percent.
+
+(11)(a) "Temporary teacher deduction" for the purposes of this Part, means a
+deduction for each tax year beginning in 2007 and 2008 only, in an amount of one thousand
+dollars for an individual who was previously employed as a public school classroom teacher
+by a school board in one of the following parishes impacted by Hurricane Katrina: Jefferson,
+Orleans, Plaquemines, St. Bernard, and St. Tammany.
+
+(b) In order to qualify for the deduction, the public school classroom teacher shall
+agree in writing to be employed as a public school classroom teacher for at least three years.
+The individual shall submit the agreement between the school board and the teacher to the
+Department of Revenue in order to obtain the deduction.
+
+Acts 1980, No. 316, §1; Acts 1988, No. 44, §1, eff. for taxable periods beginning on
+or after Jan. 1, 1988; Acts 1991, No. 242, §1, eff. for taxable periods beginning on or after
+Jan. 1, 1991; Acts 1996, No. 11, §1, eff. for taxable periods beginning after Dec. 31, 1995
+and ending on Jan. 1, 1997; Acts 1996, No. 41, §2, eff. for taxable periods beginning after
+Dec. 31, 1996; Acts 1998, No. 61, §1, eff. for taxable periods beginning after Dec. 31, 1997;
+Acts 2000, No. 34, §1, eff. Jan. 1, 2001; Acts 2001, No. 332, §2, eff. June 6, 2001; Acts
+2002, No. 24, §1, eff. for all taxable years after Dec. 31, 2001; Acts 2002, No. 30, §1, eff.
+for taxable periods beginning on or after Jan. 1, 2003; Acts 2002, No. 51, §§1 and 2, eff. Jan.
+1, 2003; Acts 2005, No. 292, §2; Acts 2005, 1st Ex. Sess., No. 23, §1, eff. Jan. 21, 2006;
+Acts 2006, 1 st Ex. Sess., No. 25, §§1, 2, eff. Feb. 23, 2006; Acts 2007, No. 160, §§1, 2; Acts
+2007, No. 247, §1, eff. July 6, 2007; Acts 2007, No. 351, §1; Acts 2007, No. 399, §1; Acts
+2007, No. 458, §1; Acts 2007, No. 467, §1, eff. July 11, 2007; Acts 2008, 2 nd Ex. Sess., No.
+5, §1, eff. May 13, 2008, for taxable years beginning in calendar year 2008; Acts 2008, 2 nd Ex. Sess., No. 8, §1, eff. March 24, 2008, applicable to amounts paid on and after Jan. 1,
+2009; Acts 2009, No. 457, §1, eff. for taxable periods after Jan. 1, 2010; Acts 2009, No. 460,
+§1, eff. July 8, 2009; Acts 2011, No. 401, §1; Acts 2016, 2 nd Ex. Sess., No. 11, §1, eff. June
+28, 2016; Acts 2017, No. 358, §1, eff. July 1, 2017; Acts 2018, 1 st Ex. Sess., No. 1, §1, eff.
+March 26, 2018; Acts 2019, No. 442, §1, eff. June 22, 2019; Acts 2020, 2 nd Ex. Sess., No.
+13, §1, eff. Oct. 28, 2020; Acts 2020, 2 nd Ex. Sess., No. 26, §1, eff. Oct. 28, 2020; Acts 2021,
+No. 52, §2, eff. Jan. 1, 2022; Acts 2021, No. 54, §1, eff. June 4, 2021; Acts 2021, No. 161,
+§1, eff. June 11, 2021; Acts 2021, No. 185, §1, eff. June 11, 2021; Acts 2021, No. 296, §1,
+eff. June 14, 2021; Acts 2021, No. 378, §1, eff. Jan. 1, 2022; Acts 2021, No. 383, §1, eff.
+June 16, 2021; Acts 2021, No. 387, §1, eff. June 16, 2021; Acts 2021, No. 395, §§1, 2, eff.
+Jan. 1, 2022; Acts 2023, No. 242, §1; Acts 2023, No. 262, §1, eff. June 12, 2023; Acts 2024,
+3rd Ex. Sess., No. 11, §§2, 4, eff. Dec. 4, 2024; Acts 2025, No. 32, §2, eff. June 4, 2025;
+Acts 2025, No. 110, §2; Acts 2025, No. 251, §1, eff. Jan. 1, 2026; Acts 2025, No. 473, §§1,
+2, eff. Jan. 1, 2026.
+
+NOTE: See Acts 2006, 1st Ex. Sess., No. 25, §3. Item (9)(a)(ix) and
+Paragraph (8) retroactive to Dec. 31, 2004.
+
+NOTE: See Acts 2016, 2nd Ex. Sess., No. 11, §2, regarding applicability.
+
+NOTE: See Acts 2017, No. 358, §1, re: applicability.
+
+NOTE: See Acts 2018, 1st E.S., No. 1, §2, re: applicability.
+
+NOTE: See Acts 2019, No. 442, re: applicability.
+
+NOTE: See Acts 2020, 2 nd Ex. Sess., No. 13, re: applicability.
+
+NOTE: See Acts 2020, 2 nd Ex. Sess., No. 26, re: applicability.
+
+--- Source: us-la/statute/47:44.1 ---
+A. Twelve thousand dollars of annual retirement income which is received by an
+individual sixty-five years of age or older shall be exempt from state income taxation.
+"Annual retirement income" is defined as pension and annuity income which is included in
+"tax table income" as defined in R.S. 47:293. This Section shall not affect the status of any
+income which is exempt from state income taxation by law. The amount of the exemption
+provided for in this Subsection shall be adjusted annually beginning January 1, 2026, by an
+amount calculated by multiplying the amount of the prior year's exemption by the percentage
+increase in the Consumer Price Index United States city average for all urban consumers
+(CPI-U), as reported by the United States Department of Labor, Bureau of Labor Statistics,
+or its successor, for the previous calendar year.
+
+B. Six thousand dollars of annual disability income received by an individual shall
+be exempt from state income taxation. For purposes of this Subsection, "disability income"
+means payment for permanent total disability as provided for in R.S. 23:1221(2). However,
+any individual claiming an exemption for the blind, for having sustained the loss of one or
+more limbs, for intellectual disability, or for deafness as provided for in R.S. 47:79(A)(2)
+shall not be eligible for this exemption.

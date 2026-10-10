@@ -100,8 +100,8 @@
   },
   "pre_fix_artifact_sha256": "e3d2a5d9961bc568e86b4aa276068719aaf6870192f3ab2c0ee5a3c0d9371775",
   "post_fix_artifact_sha256": "bf038c0cb0fef6d561bc6c5c1b18f3fbcf23d7988e350e2d6869bd62eabdd724",
-  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
-  "provision_chars": 1694,
+  "provision_sha256": "7649cfad15d4de25ebc8d8a5254cf42befd67ebe2bbde329379ff8abf08741f8",
+  "provision_chars": 3690,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/26/3101",
@@ -123,7 +123,34 @@
     "requested_citation_path": "us/statute/26/3101",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "first_citation_chars": 1694,
+    "added": [
+      {
+        "citation_path": "us/statute/26/1401",
+        "text_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+        "chars": 1924,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/26/1401",
+          "provision_file": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-26-consolidated.jsonl",
+          "provision_file_sha256": "397ee850815df0a050da457b5d08b557e9130e863a9c1473f19de52b0439ede6",
+          "line_number": 4,
+          "record_id": "28922e55-97ac-5e80-82dd-759fcf156217",
+          "stored_body_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+          "resolved_text_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-03",
+          "source_as_of": "2025-12-03",
+          "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -142,7 +169,7 @@
           "additional_medicare_tax_pipeline_self_employment_domain_is_valid.versions[0].formula"
         ],
         "cites": "us/statute/26/1401",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -164,7 +191,7 @@
           "federal_additional_medicare_self_employment_tax.versions[0].formula"
         ],
         "cites": "us/statute/26/1401",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -204,7 +231,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -224,7 +251,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -234,7 +261,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -249,12 +276,58 @@
       }
     ],
     "post_side_tested": 8,
-    "post_side_matched": 0,
+    "post_side_matched": 4,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/1401",
+        "quote": "the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country",
+        "span": [
+          3423,
+          3689
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "§1401(c) exempts self-employment income that a section 233 agreement assigns exclusively to a foreign social-security system from the §1401 taxes, which include the (b)(2) 0.9% additional tax. The pre-fix module computes the self-employment leg and the combined total with no condition. provision.txt (§3101) has a parallel (c), but it covers wages only, so it does not reach the self-employment leg.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-497f1b95-f24aa312b4cc",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -268,11 +341,10 @@
     "verifier_notes": "Caveats a reviewer should keep with this case. (1) The fix is a partial representation: §1401(c) exempts SE income \"to the extent that\" it is foreign-exclusive, while the encoding uses a Boolean attestation and fails closed to zero for the whole leg; the deferred outputs `pipeline_additional_medicare_self_employment_income_exempt_under_international_agreement` and `pipeline_taxable_self_employment_income_for_additional_medicare_tax` remain blocked on upstream `us:statutes/26/1401#self_employment_tax_after_international_agreement_exemption`. So the defect is corrected in the direction of removing a false positive assertion, not by implementing the relief arithmetic. (2) Possible residual fidelity issue introduced by the same fix: `federal_additional_medicare_tax` (combined) also returns 0 when the attestation fails, which zeroes the §3101(b)(2) wage leg — a tax §1401(c) does not exempt (it is imposed by §3101, not \"this section\"). The new companion `amt-foreign-system-boundary-fails-closed` asserts wage leg 450 but combined 0, i.e. combined ≠ sum of legs out of domain. (3) The diff also contains genuinely mechanical content — two proof-atom excerpts expanded from \"shall be reduced (but not below zero) by the amount of wages taken into account\" to the full 1401(b)(2)(B) sentence, plus a comment about the corpus record's wrong `source_url`. Those alone would be provenance-only; they ride along with the meaning change and should not be scored as the defect. (4) Pre-fix PROGRESS.md listed \"Add the section 1401(c) boundary gate and companion case\" under Next, i.e. the gap was identified in review before this commit; the commit is labeled \"fix:\". PR #1003's separate scrivener's-error/corpus-pin fail-closed discussion (3121(b)(2) vs 3101(b)(2)) is a different matter and is not what this commit changes.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/1401 resolved; 1,924 chars): subsection (c) states 'During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.' The pre-fix summary already disclosed that the executable surfaces 'cover the ordinary case in which section 1401(c) foreign-system relief is not implicated', but nothing enforced that domain, so the encoding silently produced out-of-domain numbers; the fix does not model the relief computation (still deferred upstream) but fails closed, which is the represented-clause repair rather than added scope. Single-module commit, so no repeated pattern. Mechanical/provenance changes ride along in the same diff and are not the defect: both 1401(b)(2)(B) proof-atom excerpts are expanded from the truncated 'shall be reduced (but not below zero) by the amount of wages taken into account' to the full served sentence (which exposes the enacted '3121(b)(2)' scrivener's cross-reference discussed in the PR body), and a new comment records that the corpus record's source_url wrongly points at 26 USC 45A (no corpus edit here). The commit message body is empty and there are no PR reviews or review comments; the PR body's 'FAIL CLOSED' language concerns a different fail-closed condition (the pinned corpus record's 1401 cross-reference), so the quote was taken from the module diff instead. Companion tests added in the same commit: amt-foreign-system-boundary-fails-closed asserts wage leg 450 with SE leg and combined both 0 when the attestation is false, plus a joint two-earner threshold case; every pre-existing case gained the attestation input via a YAML anchor. | verifier confirmed at 0.78",
-  "family_id": "us-497f1b95-f24aa312b4cc",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/1401 resolved; 1,924 chars): subsection (c) states 'During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.' The pre-fix summary already disclosed that the executable surfaces 'cover the ordinary case in which section 1401(c) foreign-system relief is not implicated', but nothing enforced that domain, so the encoding silently produced out-of-domain numbers; the fix does not model the relief computation (still deferred upstream) but fails closed, which is the represented-clause repair rather than added scope. Single-module commit, so no repeated pattern. Mechanical/provenance changes ride along in the same diff and are not the defect: both 1401(b)(2)(B) proof-atom excerpts are expanded from the truncated 'shall be reduced (but not below zero) by the amount of wages taken into account' to the full served sentence (which exposes the enacted '3121(b)(2)' scrivener's cross-reference discussed in the PR body), and a new comment records that the corpus record's source_url wrongly points at 26 USC 45A (no corpus edit here). The commit message body is empty and there are no PR reviews or review comments; the PR body's 'FAIL CLOSED' language concerns a different fail-closed condition (the pinned corpus record's 1401 cross-reference), so the quote was taken from the module diff instead. Companion tests added in the same commit: amt-foreign-system-boundary-fails-closed asserts wage leg 450 with SE leg and combined both 0 when the attestation is false, plus a joint two-earner threshold case; every pre-existing case gained the attestation input via a YAML anchor. | verifier confirmed at 0.78"
 }

@@ -236,6 +236,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -341,7 +342,46 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/statute/hts/9903.02.56",
+        "quote": "[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]"
+      }
+    ],
+    "why": "No text in the bundle gives a start date for 9903.02.80. provision.txt has no date at all. other/001.txt says only that a different heading, 9903.02.56, was terminated on November 14, 2025, and that heading stacks +15% on the applicable rate rather than setting a 15% floor. Nothing says 9903.02.80 replaced 9903.02.56 or took effect on that date. So a 2026-02-15 start, which leaves a gap after the termination, does not conflict with any text a judge would see.",
+    "missing_basis": "90 Fed. Reg. 55964, the notice that terminated 9903.02.56 and presumably set up headings 9903.02.79/.80 and their effective date. Neither module cites it as a resolvable source. The fix infers a handoff with no gap from the predecessor's termination note.",
+    "pre_fix_restates_it": false,
+    "basis": "adjudicated",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.55,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.65,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-66bddae04a47",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -355,11 +395,10 @@
     "verifier_notes": "Two caveats a reviewer should weigh, neither of which overturns the verdict. (1) Grounding is cross-source inference, not a stated date: the corpus text of us/statute/hts/9903.02.80 carries no effective date, so the corrected 2025-11-14 comes from the predecessor heading 9903.02.56's compiler's-note termination — which is exactly why the module header changed from the singular corpus_citation_path to corpus_citation_paths listing both headings. The commit body is candid about this (\"kr-79/80 dates are pinned by the 9903.02.56 compiler's-note termination\"), and it is a weaker form of grounding than the Switzerland/Liechtenstein siblings, which cite Annex II of 90 FR 59281 inserting 9903.02.82-.91 effective November 14, 2025 (a range that does not include .79/.80). (2) This is an intra-PR review-round fix: commit 4d2856a958 is dated 2026-08-02 and PR #1197 merged 2026-08-02T18:34Z, so the defective 2026-02-15 date was introduced and corrected within the same PR and never stood on main. If the corpus is meant to hold defects that survived to main, flag this one; if it holds any encoding-vs-source correction, it qualifies. Also note the rest of the diff (proof atoms, plural citation paths, the summary paragraph about the handoff) is provenance/mechanical — the eight date lines are the sole meaning change. The first reader's impact reading checks out arithmetically: 2025-11-14 to 2026-02-15 is three months during which the below-floor 15 percent arm would not have fired, leaving a coverage gap after 9903.02.56 terminated.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 5 (kr-79), below-floor sibling: 8 effective_from changes plus one effective_period proof atom per rule quoting the 9903.02.56 compiler's note; module source_verification gains us/statute/hts/9903.02.56 as a second corpus_citation_path. Same indirect-grounding caveat as index 5. No formula change. | verifier confirmed at 0.91",
-  "family_id": "us-4d2856a9-66bddae04a47",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 5 (kr-79), below-floor sibling: 8 effective_from changes plus one effective_period proof atom per rule quoting the 9903.02.56 compiler's note; module source_verification gains us/statute/hts/9903.02.56 as a second corpus_citation_path. Same indirect-grounding caveat as index 5. No formula change. | verifier confirmed at 0.91"
 }

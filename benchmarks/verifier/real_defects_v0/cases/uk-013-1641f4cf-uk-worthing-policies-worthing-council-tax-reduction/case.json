@@ -65,8 +65,8 @@
   },
   "pre_fix_artifact_sha256": "cdb7a865552f74f4f86e047cac41d84648a1e7e9963c33eab165cd8fe6a49089",
   "post_fix_artifact_sha256": "2a33832b5fd2e6dcc575257d3e918b3b0dd785e5535f3620e1be8f0e8c996f43",
-  "provision_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
-  "provision_chars": 1209,
+  "provision_sha256": "2fad5f1208ffed980a7bce19c43c1cf207a13a4805649e4bad031208874d69b0",
+  "provision_chars": 5059,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
@@ -88,7 +88,34 @@
     "requested_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+    "first_citation_chars": 1209,
+    "added": [
+      {
+        "citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "text_sha256": "ca8cab0966a880ecfbf751629f574f2298f12c95e23e1bfd04c51d1f372fad8e",
+        "chars": 3684,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+          "provision_file": "data/corpus/provisions/uk-worthing/manual/2026-08-03-worthing-council-tax-reduction-2026-2027.jsonl",
+          "provision_file_sha256": "2aaaedc1464c1c0cacbf1e393d3a3d4e2ced288de826bebde36aa8bac83c9abc",
+          "line_number": 26,
+          "record_id": "3e92afdd-a41d-53db-a179-0a62f50986c1",
+          "stored_body_sha256": "ca8cab0966a880ecfbf751629f574f2298f12c95e23e1bfd04c51d1f372fad8e",
+          "resolved_text_sha256": "ca8cab0966a880ecfbf751629f574f2298f12c95e23e1bfd04c51d1f372fad8e",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-04-01",
+          "source_as_of": "2026-08-03",
+          "corpus_commit": "f398953ab957978a651032220b03bf20930f62fa"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -106,7 +133,7 @@
           "worthing_council_tax_reduction_percent_divisor.versions[0].formula"
         ],
         "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -117,7 +144,7 @@
           "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
         ],
         "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -128,7 +155,7 @@
           "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
         ],
         "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -139,7 +166,7 @@
           "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
         ],
         "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -150,7 +177,7 @@
           "worthing_council_tax_reduction_award_conditions_met.versions[0].formula"
         ],
         "cites": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -170,7 +197,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -180,7 +207,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -191,17 +218,71 @@
           "triage.triage_notes",
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 5,
-    "post_side_matched": 0,
+    "post_side_matched": 4,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "quote": "(e) whose income (if any) for the relevant week is less than his applicable amount",
+        "span": [
+          2320,
+          2402
+        ]
+      },
+      {
+        "citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25",
+        "quote": "(e) whose income for the relevant week is greater than his applicable amount",
+        "span": [
+          3004,
+          3080
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Page 25 makes Class D strictly 'less than' and Class E strictly 'greater than' the applicable amount, so neither class covers equality. The pre-fix Class D branch uses <=, which grants a full award at equality. provision.txt (page 46, paragraph 32.0) only gives award amounts by class and has no income-test boundaries.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.92,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "uk-1641f4cf-1de6432cda0e",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -215,11 +296,10 @@
     "verifier_notes": "Refutation attempts that failed: (1) \"source is silent at equality, so the old text was a policy choice\" — no, ¶13.0(e) states an affirmative requirement that equality fails, so awarding at equality asserts entitlement under a class whose printed condition is unmet; the fix preserves the gap the drafter left. (2) \"Class F covers equality\" — ¶15.0 Class F is the alternative-maximum (second-adult) route keyed to other residents' income and never references the applicable amount, so it supplies no basis for `<=`. (3) \"the real change is the taper re-grounding (untraceable_branch)\" — the percent_divisor formula value stays `100`; only the rule `source:` string and proof-atom citation/excerpt changed, which the rubric classes as mechanical provenance. (4) \"mechanical overall\" — ruled out by the formula operator change and the companion-case output flip. Provision verified through the pinned release: corpus_release uk-rulespec-2026-08-10, corpus_commit f398953ab9, provision_file_sha256 2aaaedc1..., stored_body_sha256 ca8cab09..., record 3e92afdd-a41d-53db-a179-0a62f50986c1. Note for the reviewer: this commit bundles one fidelity change and one provenance change; if the corpus wants single-kind cases, the divisor re-grounding is the mechanical half.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Two-part change in one module. (1) Decisive fidelity change: `<=` -> `<` in worthing_council_tax_reduction_award_conditions_met.versions[0].formula. Provision read through the pinned release (corpus_release uk-rulespec-2026-08-10, corpus_commit f398953a) at uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25: para 13.0 Class D (e) \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0 Class E (e) \"whose income for the relevant week is greater than his applicable amount\" - both strict, no equality branch, so the pre-fix inclusive bound invented entitlement at the boundary. The companion test in the same commit confirms the behavior change: case worthing_ctr_income_including_tariff_equals_applicable_amount (income 99 + tariff 1 = 100 vs applicable 100) flips award_conditions_met holds->not_holds and weekly_amount 100->0. (2) Secondary, non-decisive: worthing_council_tax_reduction_percent_divisor had its `source:` string and proof atoms re-grounded from page-40 para 29.0(1) plus a page-83 section heading (\"100.0 Extended reductions (qualifying contributory benefits).\", which never supported a percent divisor) onto the operative taper sentence on page-25; the formula stays `100`, so per the triage rules that half is provenance/mechanical, not fidelity - worth flagging to a reviewer as a formula-grounded-on-wrong-provision repair that happens to leave the value intact. The module summary sentence quoted above was added in this same diff and is the only prose describing the defect (commit body is empty; PR #267 body predates this re-land and has no reviews or review comments). Only this module plus its .test.yaml changed; no unrelated edits. | verifier confirmed at 0.93",
-  "family_id": "uk-1641f4cf-1de6432cda0e",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Two-part change in one module. (1) Decisive fidelity change: `<=` -> `<` in worthing_council_tax_reduction_award_conditions_met.versions[0].formula. Provision read through the pinned release (corpus_release uk-rulespec-2026-08-10, corpus_commit f398953a) at uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25: para 13.0 Class D (e) \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0 Class E (e) \"whose income for the relevant week is greater than his applicable amount\" - both strict, no equality branch, so the pre-fix inclusive bound invented entitlement at the boundary. The companion test in the same commit confirms the behavior change: case worthing_ctr_income_including_tariff_equals_applicable_amount (income 99 + tariff 1 = 100 vs applicable 100) flips award_conditions_met holds->not_holds and weekly_amount 100->0. (2) Secondary, non-decisive: worthing_council_tax_reduction_percent_divisor had its `source:` string and proof atoms re-grounded from page-40 para 29.0(1) plus a page-83 section heading (\"100.0 Extended reductions (qualifying contributory benefits).\", which never supported a percent divisor) onto the operative taper sentence on page-25; the formula stays `100`, so per the triage rules that half is provenance/mechanical, not fidelity - worth flagging to a reviewer as a formula-grounded-on-wrong-provision repair that happens to leave the value intact. The module summary sentence quoted above was added in this same diff and is the only prose describing the defect (commit body is empty; PR #267 body predates this re-land and has no reviews or review comments). Only this module plus its .test.yaml changed; no unrelated edits. | verifier confirmed at 0.93"
 }

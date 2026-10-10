@@ -181,6 +181,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -343,7 +344,61 @@
     "pre_side_matched": 2,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "quote": "A household's benefit level for the initial month of certification is based on the day of the month the household applies for benefits.",
+        "span": [
+          4,
+          139
+        ]
+      },
+      {
+        "citation_path": "us-ny/regulation/18-nycrr/387/14/a/1",
+        "quote": "(ii) in the case of a migrant or seasonal farmworker household, the first month for which a household is certified for participation in the food stamp program provided such household applies following a period of more than 30 days",
+        "span": [
+          1130,
+          1360
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The provision covers only the initial-month benefit level, proration and the definition of initial month. Its farmworker clause applies to any migrant or seasonal farmworker household. The pre-fix module uses this provision to derive the whole snap_allotment (gated on snap_eligible, falling back to a regular-month allotment, with floor() rounding). It also limits the farmworker rule to households 'in job stream', which the text never says. The post-fix module encodes only the initial-month propositions.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.65,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.65,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-a495db32-64a1e3b269d0",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -357,11 +412,10 @@
     "verifier_notes": "Competing kind considered: wrong_entity_or_scope, since the decisive change narrows the module's output surface from the whole household allotment to the initial-month benefit level. I kept untraceable_branch because the kind definition explicitly covers \"formulas grounded on the wrong provision,\" and because two further removals (the floor() rounding step and the \"_in_job_stream\" narrowing of the farmworker clause) are pure untraceable-element removals rather than scope changes. A reviewer who prefers scope framing would not be unreasonable.\n\nTwo caveats that do not change the kind but qualify the fix's quality:\n1. The same diff moves effective_from from '2025-10-01' to '0001-01-01' on both surviving rules. That is a separate, defensible wrong_period_or_effective_date correction (the regulation's corpus source_as_of is 2021-09-15, so the FY2026-COLA-style date was wrong), but it is bundled and unmentioned in the commit message.\n2. The post-fix initial_month_of_certification joins clause (i) and clause (ii) with \"or\": household_certified... and (not_certified_during_prior_period or (is_migrant_or_seasonal_farmworker and applies_following_more_than_30_days)). The source treats (ii) as the stricter special rule for migrant/seasonal farmworker households, so under the new encoding such a household with a 10-day break still satisfies (i) and counts as an initial month. The pre-fix module handled that case correctly via snap_initial_month_proration_exception (break_in_participation_days <= 30), and the fix deletes the test that covered it (\"migrant_seasonal_short_break_receives_regular_month_allotment\"). The fix therefore removes untraceable content while plausibly introducing a new polarity_or_logic gap — worth a separate candidate if the corpus tracks regressions.\n\nProvenance corroboration: the encoding manifest shows the pre-fix file was produced by a run whose citation field was \"18 NYCRR 387.14(a)(1) companion-test coverage repair\" (axiom_encode 0.2.64), while the fix is a clean re-encode of citation \"regulations/18-nycrr/387/14/a/1\" (axiom_encode 0.2.426) — consistent with the pre-fix content having drifted beyond the provision.\n\nAlso note the post-fix composition still consumes snap_initial_month_prorated_allotment, which this module no longer defines; it must now resolve from the imported federal us:regulations/7-cfr/273/10. I could not verify that at commit a495db3292 because federal modules lived in a sibling repo before the monorepo consolidation (PR #395).\n\nRead-only throughout: only git show/diff/ls-tree, sed, cat, and the resolver script.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports."
+    "screen_reason": "PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "I read the provision through the pinned corpus (release us-rulespec-ny-snap-2026-07-17, corpus commit df57dc57, source_as_of 2021-09-15); the resolver warned 'no_toolchain_corpus_pin' and fell back to that release. The text covers only proration from the application day (or the SSA pre-release applicant's release day) to the end of the initial month, plus the (i)/(ii) definition of 'initial month' including the more-than-30-days rule for migrant or seasonal farmworker households — it says nothing about general allotments, eligibility gating, or rounding. git grep at the fix commit finds no other definition of snap_allotment, so the rule was removed outright rather than relocated. Secondary candidate kinds a reviewer may prefer: (a) wrong_period_or_effective_date — effective_from moved '2025-10-01' -> '0001-01-01', i.e. the pre-fix encoding wrongly pinned a long-standing regulation to the FY2026 COLA start date; I did not make this primary because index 2 kept '2025-10-01' in the same commit, so the change is inconsistent and reads as a re-encode side effect. (b) unrepresented_clause — the post-fix initial_month_of_certification spells out the (i) 'following any period during which the household was not certified' arm that the pre-fix opaque input initial_application_month left implicit. The re-encode also trades the explicit day-count proration math for opaque proration_factor_* inputs, and drops the imports of us:policies/usda/snap/fy-2026-cola/maximum-allotments, us:regulations/7-cfr/273/10 and us:statutes/7/2017/a. The commit message is generic ('encoder refresh'), hence confidence below 0.8. Companion test file was rewritten to match (four cases covering application-day, pre-release, farmworker >30 days, and not-initial-month). | verifier confirmed at 0.78",
-  "family_id": "us-a495db32-64a1e3b269d0",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "I read the provision through the pinned corpus (release us-rulespec-ny-snap-2026-07-17, corpus commit df57dc57, source_as_of 2021-09-15); the resolver warned 'no_toolchain_corpus_pin' and fell back to that release. The text covers only proration from the application day (or the SSA pre-release applicant's release day) to the end of the initial month, plus the (i)/(ii) definition of 'initial month' including the more-than-30-days rule for migrant or seasonal farmworker households — it says nothing about general allotments, eligibility gating, or rounding. git grep at the fix commit finds no other definition of snap_allotment, so the rule was removed outright rather than relocated. Secondary candidate kinds a reviewer may prefer: (a) wrong_period_or_effective_date — effective_from moved '2025-10-01' -> '0001-01-01', i.e. the pre-fix encoding wrongly pinned a long-standing regulation to the FY2026 COLA start date; I did not make this primary because index 2 kept '2025-10-01' in the same commit, so the change is inconsistent and reads as a re-encode side effect. (b) unrepresented_clause — the post-fix initial_month_of_certification spells out the (i) 'following any period during which the household was not certified' arm that the pre-fix opaque input initial_application_month left implicit. The re-encode also trades the explicit day-count proration math for opaque proration_factor_* inputs, and drops the imports of us:policies/usda/snap/fy-2026-cola/maximum-allotments, us:regulations/7-cfr/273/10 and us:statutes/7/2017/a. The commit message is generic ('encoder refresh'), hence confidence below 0.8. Companion test file was rewritten to match (four cases covering application-day, pre-release, farmworker >30 days, and not-initial-month). | verifier confirmed at 0.78"
 }

@@ -418,8 +418,8 @@
   },
   "pre_fix_artifact_sha256": "90364a991f668de6f473cedc3ffee2676ff54819c0dd0c73fe0906348b9622c3",
   "post_fix_artifact_sha256": "c2be416c67a65faa3c1239c559890c4bcef7ab079417239f9b8fe06deaa0cc97",
-  "provision_sha256": "16b5aa21db04ccbc81392eecf4b915515f856b35530c4fc46ef08f077d30ddee",
-  "provision_chars": 2959,
+  "provision_sha256": "0162fdf2113e9cf2b27e98ef2b9fa1253032a390417bf6cd6c818e89aa5b9811",
+  "provision_chars": 6411,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/26/26/b",
@@ -440,6 +440,53 @@
     "toolchain_corpus_ref": "8af592162231e9de748ba6b98792b426ad4fe8b7",
     "requested_citation_path": "us/statute/26/26/b",
     "release_errors_before_success": []
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "16b5aa21db04ccbc81392eecf4b915515f856b35530c4fc46ef08f077d30ddee",
+    "first_citation_chars": 2959,
+    "added": [
+      {
+        "citation_path": "us/statute/26/55/b/1",
+        "text_sha256": "0f3ba7d388e586485bfff86acc9a8e23f5aabf9fc4ab2686361b17d32d5162b2",
+        "chars": 1584,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/26/55/b/1",
+          "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+          "line_number": 1077,
+          "record_id": "a20cb33b-c737-5660-b36b-d1ca96a1880c",
+          "stored_body_sha256": "0f3ba7d388e586485bfff86acc9a8e23f5aabf9fc4ab2686361b17d32d5162b2",
+          "resolved_text_sha256": "0f3ba7d388e586485bfff86acc9a8e23f5aabf9fc4ab2686361b17d32d5162b2",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-13",
+          "source_as_of": "2026-07-13",
+          "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d"
+        }
+      },
+      {
+        "citation_path": "us/statute/26/56/b/1",
+        "text_sha256": "944ad423c5801bb290995a404e63a15ed4023e5cb5a740e26222bc7f445d3c22",
+        "chars": 1755,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/26/56/b/1",
+          "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+          "line_number": 1094,
+          "record_id": "d49a5c0b-d547-5c63-92dc-df1272ed3712",
+          "stored_body_sha256": "944ad423c5801bb290995a404e63a15ed4023e5cb5a740e26222bc7f445d3c22",
+          "resolved_text_sha256": "944ad423c5801bb290995a404e63a15ed4023e5cb5a740e26222bc7f445d3c22",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-13",
+          "source_as_of": "2026-07-13",
+          "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d"
+        }
+      }
+    ]
   },
   "evidence_in_provision": "present",
   "evidence_check": {
@@ -475,7 +522,7 @@
           "amt_lower_base_tax.versions[0].formula"
         ],
         "cites": "us/statute/26/55/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -486,7 +533,7 @@
           "amt_higher_base_tax.versions[0].formula"
         ],
         "cites": "us/statute/26/55/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -519,7 +566,7 @@
           "section_55_verified_domain_is_satisfied.versions[0].formula"
         ],
         "cites": "us/statute/26/55/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -530,7 +577,7 @@
           "amt_excluded_deductions.versions[0].formula"
         ],
         "cites": "us/statute/26/56/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -552,7 +599,7 @@
           "tentative_minimum_tax_after_amtftc.versions[0].formula"
         ],
         "cites": "us/statute/26/55/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -630,7 +677,7 @@
           "amt_income.versions[0].formula"
         ],
         "cites": "us/statute/26/56/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -664,7 +711,7 @@
           "amt_income_less_exemptions.versions[0].formula"
         ],
         "cites": "us/statute/26/55/b/1",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -716,7 +763,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -747,7 +794,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -762,12 +809,66 @@
       }
     ],
     "post_side_tested": 25,
-    "post_side_matched": 1,
+    "post_side_matched": 10,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/55/b/1",
+        "quote": "means the taxable income of the taxpayer for the taxable year— (i) determined with the adjustments provided in section 56 and section 58, and (ii) increased by the amount of the items of tax preference described in section 57.",
+        "span": [
+          4079,
+          4305
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/56/b/1",
+        "quote": "(E) Section 68 not applicable Section 68 shall not apply.",
+        "span": [
+          6354,
+          6411
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "55(b)(1)(D) defines AMTI as taxable income with the section 56 and 58 adjustments, increased by the section 57 preference items. 56(b)(1)(E) turns off the section 68 reduction. The pre-fix amt_income was taxable_income + excluded deductions + separate addition + exemptions, with no section 57/58 terms, and it never reversed section 68. The post-fix adds those terms.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-10a1e714-82a03064b79e",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -781,11 +882,10 @@
     "verifier_notes": "Verified through the pinned release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda): 55(b)(1)(D) (AMTI = §§56/58 adjustments + §57 preferences), 56(b)(1)(D)/(E) (§151 exemptions disallowed; \"Section 68 shall not apply\"), 151(d)(5)(C) (\"there shall be allowed a deduction in an amount equal to $6,000 for each qualified individual\"), 55(c)(1) (regular tax = §26(b) liability reduced by the §27(a) FTC), 55(d)(4)(A)(iii) (\"subsection (j) of section 59 shall not apply\" after 2017).\n\nCaveat for a reviewer: this single commit bundles at least three further, differently-kinded fidelity defects beyond the anchored one, so if the corpus wants one kind per defect it is a candidate to split:\n1. untraceable_branch — the pre-fix `alternative_minimum_tax` subtracted `form_4972_lumpsum_distributions` and `alternative_minimum_tax_foreign_tax_credit` on the regular-tax side, which 55(c)(1) does not authorize (it allows only the §27(a) ordinary FTC there); the fix removes both and splits into `tentative_minimum_tax_after_amtftc` / `regular_tax_after_ordinary_ftc`.\n2. untraceable_branch (or wrong_period_or_effective_date, read as timeless encoding of superseded text) — the pre-fix `amt_exemption`, `amt_income_for_exemption_offset` and `amt_kiddie_tax_exemption_limit` applied the §59(j) kiddie limit in a 2026 rule although 55(d)(4)(A)(iii) makes §59(j) inoperative after 2017; the fix deletes that branch.\n3. unrepresented_clause — the §68 reversal, which lives in `amt_excluded_deductions`, not in the anchored `rules[amt_income].versions[0].formula`.\n\nAlso note the commit simultaneously restructures the module into a bounded, fail-closed form (new `section_55_verified_domain_is_satisfied` judgment gating every output, `effective_to: '2026-12-31'` on every version, hashed imports and ~114 proof atoms). That structural/provenance work is not itself the defect and inflates the diff to 1131 lines; the decisive meaning change is the formula body quoted above.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Multi-defect commit; one module, whole-file rewrite (250 -> 1044 lines), so only one defect_kind could be recorded and the choice among several real fidelity kinds is what holds confidence below 0.8. Other genuine fidelity defects in the same diff, each independently classifiable: (a) untraceable_branch — the pre-fix `alternative_minimum_tax` subtracted `form_4972_lumpsum_distributions` and subtracted `alternative_minimum_tax_foreign_tax_credit` from the REGULAR-tax side; I read 26 USC 55(c)(1) through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfb), which says regular tax 'means the regular tax liability for the taxable year (as defined in section 26(b)) reduced by the foreign tax credit allowable under section 27(a)' — neither the AMTFTC nor a Form 4972 subtraction appears there; the fix splits this into `regular_tax_after_ordinary_ftc` (section 26(b) total less ordinary FTC) and `tentative_minimum_tax_after_amtftc` (AMTFTC on the TMT side only). (b) untraceable_branch / wrong_period_or_effective_date — the pre-fix `amt_exemption` and `amt_income_for_exemption_offset` branched on `amt_kiddie_tax_applies` and capped the exemption at `amt_kiddie_tax_exemption_limit`, but section 55(d)(4)(A)(iii) provides that 'subsection (j) of section 59 shall not apply' after 2017; the fix deletes rule `amt_kiddie_tax_exemption_limit` outright and removes both branches. (c) unrepresented_clause — `amt_excluded_deductions` gained `- section_68_reduction` for itemizers, per 56(b)(1) 'Section 68 shall not apply.' (d) wrong_entity_or_scope-adjacent — `income_tax_before_credits` moved from `income_tax_main_rates + capital_gains_tax + alternative_minimum_tax` to one `section_26_b_regular_tax_liability_before_credits + alternative_minimum_tax` total. I read 26 USC 55(b)(1) and 55(c)(1) through the resolver; both resolved cleanly (fix_time_corpus_match: same_body). The commit body is empty (just a newline), so all narrative evidence is the PR body (#1180); there are no PR reviews or comments. The same diff also carries non-fidelity work that a reviewer should not count as the defect: a new private `section_55_verified_domain_is_satisfied` fail-closed gate wrapping every monetary output, full proof-atom metadata on every rule, an explicit `inputs:` block, pinned per-output imports replacing one whole-module import, and `effective_to: '2026-12-31'` added to every version (bounding the module to TY2026 rather than correcting a date defect). Companion test `us/statutes/26/55.test.yaml` and `PROGRESS.md` also changed in the commit. | verifier confirmed at 0.90",
-  "family_id": "us-10a1e714-82a03064b79e",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Multi-defect commit; one module, whole-file rewrite (250 -> 1044 lines), so only one defect_kind could be recorded and the choice among several real fidelity kinds is what holds confidence below 0.8. Other genuine fidelity defects in the same diff, each independently classifiable: (a) untraceable_branch — the pre-fix `alternative_minimum_tax` subtracted `form_4972_lumpsum_distributions` and subtracted `alternative_minimum_tax_foreign_tax_credit` from the REGULAR-tax side; I read 26 USC 55(c)(1) through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfb), which says regular tax 'means the regular tax liability for the taxable year (as defined in section 26(b)) reduced by the foreign tax credit allowable under section 27(a)' — neither the AMTFTC nor a Form 4972 subtraction appears there; the fix splits this into `regular_tax_after_ordinary_ftc` (section 26(b) total less ordinary FTC) and `tentative_minimum_tax_after_amtftc` (AMTFTC on the TMT side only). (b) untraceable_branch / wrong_period_or_effective_date — the pre-fix `amt_exemption` and `amt_income_for_exemption_offset` branched on `amt_kiddie_tax_applies` and capped the exemption at `amt_kiddie_tax_exemption_limit`, but section 55(d)(4)(A)(iii) provides that 'subsection (j) of section 59 shall not apply' after 2017; the fix deletes rule `amt_kiddie_tax_exemption_limit` outright and removes both branches. (c) unrepresented_clause — `amt_excluded_deductions` gained `- section_68_reduction` for itemizers, per 56(b)(1) 'Section 68 shall not apply.' (d) wrong_entity_or_scope-adjacent — `income_tax_before_credits` moved from `income_tax_main_rates + capital_gains_tax + alternative_minimum_tax` to one `section_26_b_regular_tax_liability_before_credits + alternative_minimum_tax` total. I read 26 USC 55(b)(1) and 55(c)(1) through the resolver; both resolved cleanly (fix_time_corpus_match: same_body). The commit body is empty (just a newline), so all narrative evidence is the PR body (#1180); there are no PR reviews or comments. The same diff also carries non-fidelity work that a reviewer should not count as the defect: a new private `section_55_verified_domain_is_satisfied` fail-closed gate wrapping every monetary output, full proof-atom metadata on every rule, an explicit `inputs:` block, pinned per-output imports replacing one whole-module import, and `effective_to: '2026-12-31'` added to every version (bounding the module to TY2026 rather than correcting a date defect). Companion test `us/statutes/26/55.test.yaml` and `PROGRESS.md` also changed in the commit. | verifier confirmed at 0.90"
 }

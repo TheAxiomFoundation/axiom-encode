@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Write a read-only triage input bundle for one rulespec commit.
 
-usage: prep_commit.py <us|uk> <sha> [--no-pr]   (scratch dir from AXIOM_REAL_DEFECTS_SCRATCH, repos from AXIOM_REAL_DEFECTS_RULESPEC_US/UK)
+usage: prep_commit.py <us|uk> <sha> [--no-pr]
+
+Required environment: AXIOM_REAL_DEFECTS_SCRATCH (the directory bundles are
+written under; never the repository) and AXIOM_REAL_DEFECTS_RULESPEC_US /
+AXIOM_REAL_DEFECTS_RULESPEC_UK (the rulespec checkouts).
 Writes <scratch>/inputs/<jur>/<sha>.json plus diffs/<jur>/<sha>/<n>.diff.
 Never modifies the rulespec repositories; only `git show`/`git log` and `gh api`.
 """
@@ -13,17 +17,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-S = Path(os.environ.get("AXIOM_REAL_DEFECTS_SCRATCH", Path(__file__).resolve().parent))
-REPOS = {
-    "us": os.environ.get(
-        "AXIOM_REAL_DEFECTS_RULESPEC_US",
-        "/Users/maxghenis/TheAxiomFoundation/rulespec-us",
-    ),
-    "uk": os.environ.get(
-        "AXIOM_REAL_DEFECTS_RULESPEC_UK",
-        "/Users/maxghenis/TheAxiomFoundation/rulespec-uk",
-    ),
+SCRATCH_ENV = "AXIOM_REAL_DEFECTS_SCRATCH"
+REPO_ENVS = {
+    "us": "AXIOM_REAL_DEFECTS_RULESPEC_US",
+    "uk": "AXIOM_REAL_DEFECTS_RULESPEC_UK",
 }
+
+
+def required_env(name):
+    value = os.environ.get(name, "").strip()
+    if not value:
+        sys.exit(f"prep_commit.py: set {name} (see the module docstring)")
+    return value
+
+
 GH = {"us": "TheAxiomFoundation/rulespec-us", "uk": "TheAxiomFoundation/rulespec-uk"}
 
 
@@ -54,8 +61,9 @@ def main():
         return
     jur, sha = sys.argv[1], sys.argv[2]
     want_pr = "--no-pr" not in sys.argv
-    repo = REPOS[jur]
-    out_json = S / "inputs" / jur / f"{sha[:10]}.json"
+    scratch = Path(required_env(SCRATCH_ENV))
+    repo = required_env(REPO_ENVS[jur])
+    out_json = scratch / "inputs" / jur / f"{sha[:10]}.json"
     if out_json.exists():
         print(out_json)
         return
@@ -78,7 +86,7 @@ def main():
     modules = [f for f in files if is_module(f)]
     tests = [f for f in files if re.search(r"\.test\.ya?ml$", f)]
     others = [f for f in files if f not in modules and f not in tests]
-    diff_dir = S / "diffs" / jur / sha[:10]
+    diff_dir = scratch / "diffs" / jur / sha[:10]
     diff_dir.mkdir(parents=True, exist_ok=True)
     mods = []
     for i, path in enumerate(modules):

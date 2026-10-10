@@ -124,6 +124,7 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -268,7 +269,69 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "Real Property Donations. - A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision.",
+        "span": [
+          2660,
+          2827
+        ]
+      },
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "the total mortgage interest and real estate taxes claimed by both spouses combined may not exceed twenty thousand dollars ($20,000).",
+        "span": [
+          3640,
+          3772
+        ]
+      },
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "If the amount of the mortgage interest and real estate taxes paid by both spouses exceeds twenty thousand dollars ($20,000), these deductions must be prorated based on the percentage paid by each spouse.",
+        "span": [
+          3971,
+          4174
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "§105-153.5(a)(2) bars a deduction for a donation that is the basis for a §105-153.11 credit. It also caps the mortgage-interest and property-tax deduction at $20,000 for both spouses combined, prorated by the share each spouse paid. The pre-fix formula deducts all charitable contributions and applies min($20,000, interest + taxes) to each return, so both clauses are missing.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-5b0302a8-388c46c09469",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -279,14 +342,13 @@
     "verifier_confidence": 0.88,
     "verifier_justification": "I tried to refute this and could not: the pinned corpus text of §105-153.5(a)(2) (release us-rulespec-2026-07-22-current-la-status-fix, body sha f40ff33b...) contains both clauses the fix adds, verbatim — \"3. (Effective for taxable years beginning on or after January 1, 2025, and expiring for taxable years beginning on or after January 1, 2027 ...) Certain Real Property Donations. - A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision.\" and \"For spouses filing as married filing separately or married filing jointly, the total mortgage interest and real estate taxes claimed by both spouses combined may not exceed twenty thousand dollars ($20,000). ... these deductions must be prorated based on the percentage paid by each spouse.\" The pre-fix itemized formula deducted `max(0, charitable_contributions)` with no §105-153.11 carve-out and applied `min(cap, interest + taxes)` per return with no MFS combined-cap or proration branch, so for TY2026 (inside the clause's 2025–2026 window) both branches overstate the deduction against the cited text. This is not new scope the module never claimed: the pre-fix module already ran the married-separate schedule (rule `nc_pit_2026_narrow_status_index`, \"single or married-separate statutory row\") and already computed a charitable itemized deduction, so the fix adds statutorily required conditions to claimed outputs rather than extending coverage. unrepresented_clause is the right kind for both changes — no comparison strictness was flipped (the new `<=` correctly mirrors \"if the amount ... exceeds $20,000\"), no number changed (the $20,000 cap parameter is untouched), and nothing untraceable was removed.",
     "verifier_quote": "-          max(0, nc_pit_2026_charitable_contributions)\n-          + min(\n+          nc_pit_2026_eligible_charitable_contributions\n+          + nc_pit_2026_mortgage_and_property_tax_deduction",
-    "verifier_notes": "Diff: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/5b0302a8e7/000.diff. Two caveats for the reviewer. (1) Multi-defect commit: only part of the diff is the unrepresented_clause fix. The `nc_pit_2026_taxable_income` -> `nc_pit_2026_modified_income_before_tax_base` + new `nc_pit_2026_tax_base` split is value-preserving for tax before credits (the same `max(0, ...)` is just relocated), so that slice on its own would be an output-surface/naming change, not a fidelity defect; the charitable exclusion and the MFS combined-cap/proration branch carry the confirmation. If the corpus wants one defect per case, anchor it on rules[nc_pit_2026_itemized_deduction]/[nc_pit_2026_eligible_charitable_contributions]/[nc_pit_2026_mortgage_and_property_tax_deduction] and drop the two pipeline-rename rule_names. (2) Provenance: PR #1023 is \"Add North Carolina 2026 resident tax core\", so the defective encoding existed only on the unmerged branch and was caught by the in-PR review cycle, never on main. That is still a real encoding defect against the source, but if this corpus is meant to hold post-merge escapes, flag it. A secondary kind reading exists for the MFS piece alone (wrong_entity_or_scope: the $20,000 cap was applied per return instead of per spousal pair), but the statute's sentence was simply absent from the encoding, which is squarely unrepresented_clause, and the charitable carve-out is unambiguously that kind.",
+    "verifier_notes": "Diff: <scratch>/diffs/us/5b0302a8e7/000.diff. Two caveats for the reviewer. (1) Multi-defect commit: only part of the diff is the unrepresented_clause fix. The `nc_pit_2026_taxable_income` -> `nc_pit_2026_modified_income_before_tax_base` + new `nc_pit_2026_tax_base` split is value-preserving for tax before credits (the same `max(0, ...)` is just relocated), so that slice on its own would be an output-surface/naming change, not a fidelity defect; the charitable exclusion and the MFS combined-cap/proration branch carry the confirmation. If the corpus wants one defect per case, anchor it on rules[nc_pit_2026_itemized_deduction]/[nc_pit_2026_eligible_charitable_contributions]/[nc_pit_2026_mortgage_and_property_tax_deduction] and drop the two pipeline-rename rule_names. (2) Provenance: PR #1023 is \"Add North Carolina 2026 resident tax core\", so the defective encoding existed only on the unmerged branch and was caught by the in-PR review cycle, never on main. That is still a real encoding defect against the source, but if this corpus is meant to hold post-merge escapes, flag it. A secondary kind reading exists for the MFS piece alone (wrong_entity_or_scope: the $20,000 cap was applied per return instead of per spousal pair), but the statute's sentence was simply absent from the encoding, which is squarely unrepresented_clause, and the charitable carve-out is unambiguously that kind.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the cited provision through the pinned corpus (resolve_provision.py succeeded on us-nc/statute/105/105-153.5); the statute text confirms both added clauses verbatim, including the 2025-2027 effective window on the credit-backed-donation carve-out, so the clauses were in force for the module's 2026 version window. Multi-part fix in one module: (1) charitable carve-out (unrepresented_clause), (2) MFS combined cap + proration (unrepresented_clause, with a scope flavor since the cap applies to both spouses combined), and (3) a restructuring that removes the max(0, ...) floor from the rule that claimed to encode 'North Carolina taxable income' and moves it into a separate nonnegative nc_pit_2026_tax_base; part (3) is value-neutral for tax before credits and reads more like untraceable_branch/naming hygiene, which is why confidence is 0.85 rather than higher. The commit message body is empty, so the quote comes from the PR body's review-fix-cycle paragraph, which describes the cycle for PR #1023 as a whole rather than this commit alone. The commit also rewrote the companion test file (+416 lines) and the encoding manifest. Follow-up commit c294a83ec 'Clarify NC charitable and MFS deductions' (same day, same PR branch) refines the carve-out input from the donation's value to the section 170 deduction amount attributable to it, i.e. the 'deduction-attribution semantics' finding named in the same PR sentence was only fully resolved there; later commits d1ed1b594 and 450ca0144 touched source locators for this file. | verifier confirmed at 0.88",
-  "family_id": "us-5b0302a8-388c46c09469",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the cited provision through the pinned corpus (resolve_provision.py succeeded on us-nc/statute/105/105-153.5); the statute text confirms both added clauses verbatim, including the 2025-2027 effective window on the credit-backed-donation carve-out, so the clauses were in force for the module's 2026 version window. Multi-part fix in one module: (1) charitable carve-out (unrepresented_clause), (2) MFS combined cap + proration (unrepresented_clause, with a scope flavor since the cap applies to both spouses combined), and (3) a restructuring that removes the max(0, ...) floor from the rule that claimed to encode 'North Carolina taxable income' and moves it into a separate nonnegative nc_pit_2026_tax_base; part (3) is value-neutral for tax before credits and reads more like untraceable_branch/naming hygiene, which is why confidence is 0.85 rather than higher. The commit message body is empty, so the quote comes from the PR body's review-fix-cycle paragraph, which describes the cycle for PR #1023 as a whole rather than this commit alone. The commit also rewrote the companion test file (+416 lines) and the encoding manifest. Follow-up commit c294a83ec 'Clarify NC charitable and MFS deductions' (same day, same PR branch) refines the carve-out input from the donation's value to the section 170 deduction amount attributable to it, i.e. the 'deduction-attribution semantics' finding named in the same PR sentence was only fully resolved there; later commits d1ed1b594 and 450ca0144 touched source locators for this file. | verifier confirmed at 0.88"
 }

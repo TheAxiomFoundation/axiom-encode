@@ -305,6 +305,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -383,7 +384,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/1401",
+        "quote": "the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.",
+        "span": [
+          1657,
+          1924
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 1401(c) exempts self-employment income that a section 233 agreement assigns exclusively to a foreign system. The pre-fix OASDI, hospital-insurance and additional-Medicare rules tax the whole self_employment_income with no exemption. The post-fix module nets the exempt amount out of the base.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-3f609bb6-53a56d0ee281",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -397,11 +444,10 @@
     "verifier_notes": "Two independent fidelity corrections are bundled in this one commit. Besides §1401(c), the additional-Medicare threshold match gains branches `3 => additional_medicare_self_employment_other_threshold` and `4 => ...`; the pre-fix module's own summary declared the convention \"3 head of household/other case\" yet its match covered only 0, 1, 2, so clause (iii) \"in any other case\" was under-covered — that second fix reads as wrong_entity_or_scope (or a second unrepresented_clause). If the corpus wants one defect per case, the candidate's rule_path (additional_medicare_self_employment_tax_base formula) points squarely at the (c) fix, so unrepresented_clause is the right label for this case; the filing-status gap may deserve a separate case. Non-decisive parts of the diff are mechanical regeneration: proof-atom metadata, quoting/block-scalar reflow, citation-span strings, and the whole statutes/26/1402/a.yaml diff (import hash 4834328597… → a844cf97fb…) which is pure bookkeeping. `additional_medicare_self_employment_separate_threshold` (joint * 1/2) is value-identical to the old `joint_threshold / 2`, so it is refactoring, not a fix. Note also that the (c) rules add three new external inputs (agreement-in-effect, exclusively-foreign judgment, exempt amount), so results change only when a caller supplies them; effective_from '1990-01-01' matches the module's existing convention for (a)/(b)(1) rather than §1401(c)'s true enactment date.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Regenerate changes 1401 semantics: additional Medicare threshold match gains filing statuses 3 and 4 plus a separate-filer parameter, and the tax base now applies the 1401(c) international agreement exemption."
+    "screen_reason": "Regenerate changes 1401 semantics: additional Medicare threshold match gains filing statuses 3 and 4 plus a separate-filer parameter, and the tax base now applies the 1401(c) international agreement exemption.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Two independent fidelity defects are fixed in this one module; I coded the primary kind as unrepresented_clause for the §1401(c) exemption because an entire subsection of the cited section was absent from the encoding and its omission changes all three taxes. SECOND DEFECT (wrong_entity_or_scope): the pre-fix `additional_medicare_self_employment_threshold` match had only arms 1, 2 and 0, while the pre-fix module summary itself documented the input convention as \"0 single/other case, 1 joint return, 2 married filing separately, 3 head of household/other case\" — so head-of-household (3) and status 4 had no arm despite clause (A)(iii) \"in any other case, $200,000\"; the fix adds `3 =>` and `4 => additional_medicare_self_employment_other_threshold` at rules[additional_medicare_self_employment_threshold].versions[0].formula. NOT a defect: the MFS arm changed from `additional_medicare_self_employment_joint_threshold / 2` to a new `additional_medicare_self_employment_separate_threshold` rule equal to joint * (1/2) — semantically identical, pure parameterization of clause (A)(ii)'s \"½ of the dollar amount determined under clause (i)\". Large parts of this diff are mechanical regeneration noise: added module.proof_validation, per-rule metadata.proof.atoms, source strings narrowed to exact clauses (e.g. 26 USC 1401(b)(2)(A) -> (b)(2)(A)(i)), quoting/block-scalar reflow of unchanged formulas, and the summary being replaced with verbatim statute text. PROVISION READ: I resolved us/statute/26/1401 through the pinned corpus release at this rulespec commit (resolve_provision.py, exit 0) and confirmed subsection (c) and clauses (b)(2)(A)(i)-(iii) are present in the source text exactly as now summarized. The new (c) machinery introduces three new inputs (international_social_security_agreement_under_section_233_in_effect, ..._is_subject_exclusively_to_foreign_social_security_laws_under_agreement as Judgment/boolean, and ..._amount_subject_exclusively_...), and the companion test file gained a case `international_agreement_partially_exempts_self_employment_income` exercising a 40,000 exemption; no test was added for filing status 3 or 4, so that half of the fix is untested. Commit message and PR give no rationale (body is the subject line repeated; the bundle's pr field is null), which caps confidence below 0.8. | verifier confirmed at 0.85",
-  "family_id": "us-3f609bb6-53a56d0ee281",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Two independent fidelity defects are fixed in this one module; I coded the primary kind as unrepresented_clause for the §1401(c) exemption because an entire subsection of the cited section was absent from the encoding and its omission changes all three taxes. SECOND DEFECT (wrong_entity_or_scope): the pre-fix `additional_medicare_self_employment_threshold` match had only arms 1, 2 and 0, while the pre-fix module summary itself documented the input convention as \"0 single/other case, 1 joint return, 2 married filing separately, 3 head of household/other case\" — so head-of-household (3) and status 4 had no arm despite clause (A)(iii) \"in any other case, $200,000\"; the fix adds `3 =>` and `4 => additional_medicare_self_employment_other_threshold` at rules[additional_medicare_self_employment_threshold].versions[0].formula. NOT a defect: the MFS arm changed from `additional_medicare_self_employment_joint_threshold / 2` to a new `additional_medicare_self_employment_separate_threshold` rule equal to joint * (1/2) — semantically identical, pure parameterization of clause (A)(ii)'s \"½ of the dollar amount determined under clause (i)\". Large parts of this diff are mechanical regeneration noise: added module.proof_validation, per-rule metadata.proof.atoms, source strings narrowed to exact clauses (e.g. 26 USC 1401(b)(2)(A) -> (b)(2)(A)(i)), quoting/block-scalar reflow of unchanged formulas, and the summary being replaced with verbatim statute text. PROVISION READ: I resolved us/statute/26/1401 through the pinned corpus release at this rulespec commit (resolve_provision.py, exit 0) and confirmed subsection (c) and clauses (b)(2)(A)(i)-(iii) are present in the source text exactly as now summarized. The new (c) machinery introduces three new inputs (international_social_security_agreement_under_section_233_in_effect, ..._is_subject_exclusively_to_foreign_social_security_laws_under_agreement as Judgment/boolean, and ..._amount_subject_exclusively_...), and the companion test file gained a case `international_agreement_partially_exempts_self_employment_income` exercising a 40,000 exemption; no test was added for filing status 3 or 4, so that half of the fix is untested. Commit message and PR give no rationale (body is the subject line repeated; the bundle's pr field is null), which caps confidence below 0.8. | verifier confirmed at 0.85"
 }

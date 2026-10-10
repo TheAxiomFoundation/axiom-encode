@@ -1,5 +1,5 @@
 {
- "about": "Hand calls used to validate tools/check_evidence.py. A call is present when the provision text carries the evidence that the pre-fix module is wrong, so a judge given provision.txt and pre_fix.yaml could detect the defect, and absent otherwise. tests/test_real_defects_corpus.py recomputes each set's agreement with the committed evidence_in_provision values.",
+ "about": "Hand calls recorded before the per-case provision review, to validate tools/check_evidence.py. A call is present when the provision text (the first citation's, as shipped then) carries the evidence that the pre-fix module is wrong, so a judge given provision.txt and pre_fix.yaml could detect the defect, and absent otherwise. The provision review has since settled every case; tests/test_real_defects_corpus.py recomputes each set's agreement with the review's verdicts (present against in_provision), and the README reports it.",
  "method": "changed_rule_strings_v1",
  "sets": [
   {

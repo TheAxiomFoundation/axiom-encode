@@ -14,24 +14,40 @@ Tiers, as in ``scripts/verify_real_defects.py``:
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import json
 import os
 import random
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).parents[1]
 CORPUS_DIR = ROOT / "benchmarks" / "verifier" / "real_defects_v0"
-_SPEC = importlib.util.spec_from_file_location(
+TOOLS_DIR = CORPUS_DIR / "tools"
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+verify_real_defects = _load_module(
     "verify_real_defects", ROOT / "scripts" / "verify_real_defects.py"
 )
-assert _SPEC is not None and _SPEC.loader is not None
-verify_real_defects = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(verify_real_defects)
+build_real_defects = _load_module(
+    "build_real_defects", TOOLS_DIR / "build_real_defects.py"
+)
+merge_triage = _load_module("merge_triage", TOOLS_DIR / "merge_triage.py")
+provision_review = _load_module("provision_review", TOOLS_DIR / "provision_review.py")
 
 
 def _sibling_checkout(env_name: str, repo_name: str) -> Path | None:
@@ -87,20 +103,30 @@ def test_shipped_files_hash_to_case_digests():
 
 
 def test_case_json_carries_the_documented_schema():
+    """Every case has exactly the documented keys, in the documented order,
+    and the README's schema table names each of them."""
+
+    readme = (CORPUS_DIR / "README.md").read_text(encoding="utf-8")
+    assert set(verify_real_defects.REQUIRED_CASE_KEYS) == set(
+        build_real_defects.CASE_KEY_ORDER
+    )
+    for key in build_real_defects.CASE_KEY_ORDER:
+        assert f"`{key}`" in readme, f"README does not document {key}"
     for entry in _index()["cases"]:
         case = json.loads(
             (CORPUS_DIR / "cases" / entry["id"] / "case.json").read_text(
                 encoding="utf-8"
             )
         )
-        for key in verify_real_defects.REQUIRED_CASE_KEYS:
-            assert key in case, f"{entry['id']} lacks {key}"
+        assert list(case) == list(build_real_defects.CASE_KEY_ORDER), entry["id"]
         assert len(case["commit"]) == 40 and len(case["parent_commit"]) == 40
-        assert case["fix_stage"] in {"post_merge", "pre_merge_review", "unknown"}
-        assert case["triage_status"] in {"fidelity", "unclear"}
-        resolution = case["provision_resolution"]
-        assert resolution["mode"] in {"axiom_encode_resolver", "direct_row_exact"}
-        assert resolution["provision_file"].startswith("data/corpus/provisions/")
+        assert case["fix_stage"] in verify_real_defects.FIX_STAGES
+        assert case["triage_status"] in verify_real_defects.TRIAGE_STATUSES
+        for component in verify_real_defects.provision_components(case):
+            resolution = component["resolution"]
+            assert resolution["mode"] in {"axiom_encode_resolver", "direct_row_exact"}
+            assert resolution["provision_file"].startswith("data/corpus/provisions/")
+            assert resolution["corpus_commit"] == case["corpus_commit"]
         assert case["locator"]["pre_fix_lines"] or case["locator"]["post_fix_lines"]
         assert case["provision_chars"] > 0
 
@@ -525,27 +551,1020 @@ def test_committed_evidence_fields_reproduce_and_obey_the_status_rules():
         assert (check["reason"] == "metadata_only") == (not case["artifacts_shipped"])
 
 
-def test_evidence_agreement_with_the_recorded_hand_calls():
-    """The agreement figures the README reports, recomputed from
-    triage/evidence_validation.json and the committed fields."""
+# --------------------------------------------------------------------------
+# Extended provisions and review quotes (scripts/verify_real_defects.py)
+# --------------------------------------------------------------------------
+
+_TEXT_ALPHABET = ["a", "B", "ß", " ", "\n", "\t", "—", "’", "“", "x", "é", ";"]
+_TEXT_ALPHABET += ["--- Source: q ---", "\n\n", "$143"]
+
+
+def _random_text(rng: random.Random, low: int = 0, high: int = 30) -> str:
+    return "".join(rng.choice(_TEXT_ALPHABET) for _ in range(rng.randrange(low, high)))
+
+
+def test_compose_and_split_provision_round_trip_for_any_components():
+    """Property: split_provision inverts compose_provision for every list of
+    component texts, including texts that contain header-like lines; one
+    component composes to itself; a wrong length or path does not split."""
+
+    rng = random.Random(885)
+    for trial in range(4000):
+        components = [
+            (f"us/statute/{index}", _random_text(rng))
+            for index in range(rng.randrange(1, 5))
+        ]
+        text = verify_real_defects.compose_provision(components)
+        sized = [(path, len(part)) for path, part in components]
+        assert verify_real_defects.split_provision(text, sized) == [
+            part for _path, part in components
+        ], trial
+        if len(components) == 1:
+            assert text == components[0][1]
+            continue
+        grown = [(sized[0][0], sized[0][1] + 1), *sized[1:]]
+        assert verify_real_defects.split_provision(text, grown) is None, trial
+        renamed = [("uk/other", sized[0][1]), *sized[1:]]
+        assert verify_real_defects.split_provision(text, renamed) is None, trial
+
+
+def test_locate_quote_finds_any_substring_and_reports_a_covering_span():
+    """Property: any substring of a text is located, whatever its whitespace
+    or case, and the span returned covers a passage that folds to it."""
+
+    rng = random.Random(1659)
+    fold = verify_real_defects._folded
+    for trial in range(4000):
+        text = _random_text(rng, 3, 60)
+        start = rng.randrange(0, len(text) - 1)
+        quote = text[start : rng.randrange(start + 1, len(text) + 1)]
+        if not quote.strip():
+            continue
+        varied = " ".join(quote.split()).swapcase() if trial % 2 else quote
+        span = verify_real_defects.locate_quote(varied, text)
+        assert span is not None, (trial, quote, text)
+        assert 0 <= span[0] < span[1] <= len(text)
+        assert fold(varied)[0] in fold(text[span[0] : span[1]])[0], (trial, quote)
+    assert verify_real_defects.locate_quote(
+        "the  Maximum of $143", "up to the\nmaximum of $143."
+    ) == (6, 25)
+    assert verify_real_defects.locate_quote("a b ... e f", "a b c d e f") == (0, 11)
+    assert verify_real_defects.locate_quote("e f ... a b", "a b c d e f") is None
+    far = "a b" + " x" * 200 + " e f"
+    assert verify_real_defects.locate_quote("a b ... e f", far) is None
+    assert verify_real_defects.locate_quote("...", "a b") is None
+    assert verify_real_defects.locate_quote("‘quoted’ – text", "'quoted' - text") == (
+        0,
+        15,
+    )
+
+
+def test_scrub_local_paths_is_idempotent_and_leaves_no_local_path():
+    scratch = (
+        "/private/tmp/claude-501/-Users-someone-TheAxiomFoundation-axiom-encode"
+        "--claude-worktrees-zealous-heyrovsky-31a96b/"
+        "86103d8f-b97f-4559-a96c-7e79b0000000/scratchpad"
+    )
+    samples = {
+        f"cat {scratch}/diffs/us/198bee703e/012.diff.": "cat <scratch>/diffs/us/198bee703e/012.diff.",
+        f"{scratch}/inputs/us/a9562cfd44.json": "<scratch>/inputs/us/a9562cfd44.json",
+        "git -C /Users/someone/TheAxiomFoundation/rulespec-us show": "git -C rulespec-us show",
+        "/Users/someone/TheAxiomFoundation/axiom-encode/.claude/worktrees/zealous-x-1/src/a.py": "axiom-encode/src/a.py",
+        "under ~/TheAxiomFoundation/rulespec-uk and ~/TheAxiomFoundation": "under rulespec-uk and <checkouts>",
+        "/tmp/real-defects-enum and us/statute/26/24": "/tmp/real-defects-enum and us/statute/26/24",
+    }
+    for raw, expected in samples.items():
+        once = verify_real_defects.scrub_local_paths(raw)
+        assert once == expected
+        assert verify_real_defects.scrub_local_paths(once) == once
+        assert verify_real_defects.LOCAL_PATH.search(once) is None
+    nested = {"a": [next(iter(samples))], "b": 3, "c": None}
+    assert verify_real_defects.scrub_json(nested) == {
+        "a": [samples[next(iter(samples))]],
+        "b": 3,
+        "c": None,
+    }
+
+
+def test_the_corpus_carries_no_local_absolute_path():
+    """No file under the corpus directory names a path on the machine that
+    built it (a home directory, a session scratchpad)."""
+
+    offenders = []
+    for path in sorted(CORPUS_DIR.rglob("*")):
+        if not path.is_file() or path.suffix == ".pyc":
+            continue
+        match = verify_real_defects.LOCAL_PATH.search(
+            path.read_text(encoding="utf-8", errors="replace")
+        )
+        if match:
+            offenders.append((str(path.relative_to(CORPUS_DIR)), match.group(0)))
+    assert offenders == []
+
+
+def _reviewed_case(provision: str, **review) -> dict:
+    return {
+        "corpus_citation_path": "us/statute/1",
+        "provision_sha256": verify_real_defects.sha256_text(provision),
+        "provision_chars": len(provision),
+        "provision_resolution": {},
+        "provision_extension": None,
+        "judgeable_from_provision": review.get("verdict") != "not_in_sources",
+        "provision_review": {
+            "verdict": "in_provision",
+            "outcome": "kept",
+            "decisive_quotes": [],
+            "missing_basis": "",
+            **review,
+        },
+    }
+
+
+def test_provision_record_problems_names_each_inconsistency():
+    provision = "Subtract the deduction up to the maximum of $143."
+    span = list(verify_real_defects.locate_quote("maximum of $143", provision))
+    good = _reviewed_case(
+        provision, decisive_quotes=[{"quote": "maximum of $143", "span": span}]
+    )
+    problems = verify_real_defects.provision_record_problems
+    assert problems(good, provision) == []
+    assert problems(good, None) == []
+
+    moved = copy.deepcopy(good)
+    moved["provision_review"]["decisive_quotes"][0]["span"] = [0, 5]
+    assert any("not at its span" in p for p in problems(moved, provision))
+
+    unquoted = _reviewed_case(provision)
+    assert any("needs a decisive quote" in p for p in problems(unquoted, provision))
+
+    flipped = copy.deepcopy(good)
+    flipped["judgeable_from_provision"] = False
+    assert any("does not follow" in p for p in problems(flipped, provision))
+
+    excluded = _reviewed_case(
+        provision, verdict="not_in_sources", outcome="not_judgeable"
+    )
+    assert any("what the fix rests on" in p for p in problems(excluded, provision))
+    excluded["provision_review"]["missing_basis"] = "an uncited notice"
+    assert problems(excluded, provision) == []
+
+    unreviewed = _reviewed_case(provision)
+    unreviewed["provision_review"] = None
+    assert any("without a review" in p for p in problems(unreviewed, provision))
+    unreviewed["judgeable_from_provision"] = None
+    assert problems(unreviewed, provision) == []
+
+    # An extended provision: the decisive quote must sit in the added text.
+    added = "The maximum is $198.99 from October 1, 2025."
+    text = verify_real_defects.compose_provision(
+        [("us/statute/1", provision), ("us/guidance/2", added)]
+    )
+    extended = _reviewed_case(
+        text,
+        verdict="in_other_citation",
+        outcome="provision_extended",
+        decisive_quotes=[
+            {
+                "quote": "maximum is $198.99",
+                "span": list(
+                    verify_real_defects.locate_quote("maximum is $198.99", text)
+                ),
+            }
+        ],
+    )
+    extended["provision_extension"] = {
+        "composition": verify_real_defects.PROVISION_COMPOSITION,
+        "first_citation_text_sha256": verify_real_defects.sha256_text(provision),
+        "first_citation_chars": len(provision),
+        "added": [
+            {
+                "citation_path": "us/guidance/2",
+                "text_sha256": verify_real_defects.sha256_text(added),
+                "chars": len(added),
+                "resolution": {},
+            }
+        ],
+    }
+    assert problems(extended, text) == []
+    in_first = copy.deepcopy(extended)
+    in_first["provision_review"]["decisive_quotes"] = [
+        {
+            "quote": "maximum of $143",
+            "span": list(verify_real_defects.locate_quote("maximum of $143", text)),
+        }
+    ]
+    assert any("added citation" in p for p in problems(in_first, text))
+    tampered = text.replace("$198.99", "$199.99")
+    assert any("recorded digest" in p for p in problems(extended, tampered))
+    assert any(
+        "not its recorded composition" in p for p in problems(extended, provision)
+    )
+    bare = copy.deepcopy(good)
+    bare["provision_extension"] = extended["provision_extension"]
+    assert any("disagree" in p for p in problems(bare, text))
+
+
+# --------------------------------------------------------------------------
+# Ids, families and filters (tools/build_real_defects.py)
+# --------------------------------------------------------------------------
+
+
+def _family_case(
+    module_path, kind, *, status="fidelity", inferred=None, commit="a" * 40
+):
+    return {
+        "jurisdiction": "us",
+        "commit": commit,
+        "module_path": module_path,
+        "defect_kind": kind,
+        "other_kind": None,
+        "triage_status": status,
+        "locator": {"rule_path": "rules[r].versions[0].formula"},
+        "triage": {"verifier_inferred_from_module_index": inferred},
+    }
+
+
+def test_families_key_on_commit_and_rule_path_and_settle_one_kind():
+    cases = [
+        _family_case("us/ch03.yaml", "wrong_entity_or_scope"),
+        _family_case("us/ch01.yaml", "untraceable_branch", status="unclear"),
+        _family_case("us/ch02.yaml", "untraceable_branch"),
+        _family_case("us/ch04.yaml", "wrong_entity_or_scope", inferred=0),
+        _family_case("us/ch05.yaml", "wrong_entity_or_scope", inferred=0),
+        _family_case("us/other.yaml", "amount_mismatch", commit="b" * 40),
+    ]
+    build_real_defects.assign_families(cases)
+    family = [c for c in cases if c["commit"].startswith("a")]
+    assert len({c["family_id"] for c in family}) == 1
+    assert {c["family_size"] for c in family} == {5}
+    # Directly verified members vote: two untraceable_branch against one
+    # wrong_entity_or_scope; the two inherited verdicts do not vote.
+    assert {c["defect_kind"] for c in family} == {"untraceable_branch"}
+    changed = [c for c in family if c["triage"]["kind_before_family_settlement"]]
+    assert sorted(c["module_path"] for c in changed) == [
+        "us/ch03.yaml",
+        "us/ch04.yaml",
+        "us/ch05.yaml",
+    ]
+    assert all(
+        c["triage"]["family_kind_votes"]
+        == {"untraceable_branch": 2, "wrong_entity_or_scope": 1}
+        for c in family
+    )
+    # The representative is the first fidelity member, not the unclear ch01.
+    assert [c["module_path"] for c in family if c["family_representative"]] == [
+        "us/ch02.yaml"
+    ]
+    single = cases[-1]
+    assert single["family_size"] == 1 and single["family_representative"]
+    assert single["triage"]["kind_before_family_settlement"] is None
+    assert single["triage"]["family_kind_votes"] is None
+    # Settling again changes nothing (the original label is not lost).
+    snapshot = copy.deepcopy(cases)
+    build_real_defects.assign_families(cases)
+    assert cases == snapshot
+
+
+def test_family_invariants_hold_for_any_grouping():
+    """Property: every family has exactly one representative and one kind,
+    its members share commit and rule path, and family_size is its count."""
+
+    rng = random.Random(4)
+    kinds = ["untraceable_branch", "wrong_entity_or_scope", "amount_mismatch"]
+    for _trial in range(300):
+        cases = []
+        for index in range(rng.randrange(1, 25)):
+            case = _family_case(
+                f"us/m{index:02d}.yaml",
+                rng.choice(kinds),
+                status=rng.choice(["fidelity", "fidelity", "unclear"]),
+                inferred=rng.choice([None, None, 0]),
+                commit=rng.choice(["a", "b", "c"]) * 40,
+            )
+            case["locator"]["rule_path"] = rng.choice(["rules[x]", "rules[y]"])
+            cases.append(case)
+        build_real_defects.assign_families(cases)
+        families: dict[str, list[dict]] = {}
+        for case in cases:
+            families.setdefault(case["family_id"], []).append(case)
+        keys = set()
+        for members in families.values():
+            assert sum(c["family_representative"] for c in members) == 1
+            assert len({c["defect_kind"] for c in members}) == 1
+            assert {c["family_size"] for c in members} == {len(members)}
+            key = {(c["commit"], c["locator"]["rule_path"]) for c in members}
+            assert len(key) == 1
+            keys |= key
+            representative = next(c for c in members if c["family_representative"])
+            if any(c["triage_status"] == "fidelity" for c in members):
+                assert representative["triage_status"] == "fidelity"
+        assert len(keys) == len(families)
+
+
+def test_case_ids_do_not_depend_on_order_or_on_what_a_build_filters():
+    """Property: a row's id is fixed once assigned. Building the rows in
+    another order, or building a subset, gives every row the same id, and a
+    new row takes the next free number of its jurisdiction."""
+
+    rng = random.Random(9)
+    for _trial in range(200):
+        rows = [
+            {
+                "jurisdiction": rng.choice(["us", "uk"]),
+                "commit": f"{rng.randrange(16**10):010x}" + "0" * 30,
+                "module_path": f"us/statutes/{index}.yaml",
+            }
+            for index in range(rng.randrange(1, 30))
+        ]
+        registry = build_real_defects.CaseIds([])
+        first = {r["module_path"]: registry.id_for(r) for r in rows}
+        assert len(set(first.values())) == len(rows)
+        for jurisdiction in ("us", "uk"):
+            seqs = sorted(
+                int(i.split("-")[1])
+                for i in first.values()
+                if i.startswith(jurisdiction)
+            )
+            assert seqs == list(range(1, len(seqs) + 1))
+        again = build_real_defects.CaseIds(copy.deepcopy(registry.entries))
+        subset = rng.sample(rows, rng.randrange(0, len(rows) + 1))
+        assert {r["module_path"]: again.id_for(r) for r in subset} == {
+            r["module_path"]: first[r["module_path"]] for r in subset
+        }
+        newcomer = {
+            "jurisdiction": "us",
+            "commit": "f" * 40,
+            "module_path": "us/new.yaml",
+        }
+        expected = 1 + sum(1 for r in rows if r["jurisdiction"] == "us")
+        assert again.id_for(newcomer).startswith(f"us-{expected:03d}-ffffffff-us-new")
+    with pytest.raises(ValueError, match="twice"):
+        build_real_defects.CaseIds([*registry.entries, registry.entries[0]])
+
+
+def test_filter_cases_logs_every_removed_case_with_its_id():
+    cases = [
+        _family_case("us/ch01.yaml", "untraceable_branch"),
+        _family_case("us/ch02.yaml", "untraceable_branch"),
+        _family_case("us/ch03.yaml", "untraceable_branch", status="unclear"),
+        _family_case(
+            "us/solo.yaml", "amount_mismatch", status="unclear", commit="b" * 40
+        ),
+    ]
+    for number, case in enumerate(cases, start=1):
+        case["id"] = f"us-{number:03d}-x"
+    build_real_defects.assign_families(cases)
+    built = [{"case": case, "files": {}} for case in cases]
+    kept, removed = build_real_defects.filter_cases(
+        built, drop_unclear=False, family_members="all"
+    )
+    assert (len(kept), removed) == (4, [])
+    kept, removed = build_real_defects.filter_cases(
+        built, drop_unclear=True, family_members="representatives"
+    )
+    assert [item["case"]["id"] for item in kept] == ["us-001-x"]
+    assert {row["id"]: row["reason"] for row in removed} == {
+        "us-002-x": "family_non_representative",
+        "us-003-x": "triage_unclear",
+        "us-004-x": "triage_unclear",
+    }
+    # The representative keeps the size of the family it stands for.
+    assert kept[0]["case"]["family_size"] == 3
+
+
+def test_committed_cases_removed_rows_and_id_registry_account_for_each_other():
+    """Conservation: every id the registry has issued is a case in the corpus
+    or a row the build log says a flag removed, never both, never neither."""
+
+    index = _index()
+    log = json.loads((CORPUS_DIR / "triage" / "build_log.json").read_text("utf-8"))
+    registry = json.loads((CORPUS_DIR / "triage" / "case_ids.json").read_text("utf-8"))
+    issued = [entry["id"] for entry in registry["ids"]]
+    kept = [entry["id"] for entry in index["cases"]]
+    removed = [row["id"] for row in log["removed"]]
+    assert len(set(issued)) == len(issued)
+    assert set(kept) | set(removed) == set(issued)
+    assert set(kept) & set(removed) == set()
+    assert len(removed) == len(set(removed))
+    counts = index["counts"]
+    assert counts["cases"] == len(kept) == log["kept"]
+    assert counts["built_before_filters"] == len(issued) == log["built"]
+    assert sum(counts["removed_by_flag"].values()) == len(removed)
+    assert counts["dropped_at_build"] == len(log["dropped"])
+    assert log["flags"] == index["build_flags"]
+    if index["build_flags"]["drop_unclear"]:
+        assert counts["by_triage_status"]["unclear"] == 0
+    if index["build_flags"]["family_members"] == "representatives":
+        assert all(entry["family_representative"] for entry in index["cases"])
+        assert counts["families"] == counts["cases"]
+    for entry in registry["ids"]:
+        expected = (
+            f"{entry['jurisdiction']}-{entry['seq']:03d}-{entry['commit'][:8]}-"
+            f"{build_real_defects.slugify(entry['module_path'])}"
+        )
+        assert entry["id"] == expected
+
+
+def test_index_and_readme_counts_are_regenerated_from_the_cases():
+    """The committed index equals build_index over the committed cases, and
+    the README's generated block equals render_counts over the committed
+    index and logs."""
+
+    index = _index()
+    log = json.loads((CORPUS_DIR / "triage" / "build_log.json").read_text("utf-8"))
+    summary = json.loads((CORPUS_DIR / "triage" / "summary.json").read_text("utf-8"))
+    rebuilt = build_real_defects.build_index(
+        sorted(_cases(), key=lambda case: case["id"]),
+        shipping_policy=index["shipping_policy"],
+        flags=index["build_flags"],
+        dropped_at_build=len(log["dropped"]),
+        removed=log["removed"],
+    )
+    assert rebuilt == index
+    readme = (CORPUS_DIR / "README.md").read_text(encoding="utf-8")
+    block = build_real_defects.render_counts(index, summary, log)
+    assert block in readme
+    assert build_real_defects.splice_counts(readme, block) == readme
+
+
+# --------------------------------------------------------------------------
+# The provision review (decision d885)
+# --------------------------------------------------------------------------
+
+# (agreeing, compared) per set of earlier hand calls; see the README.
+HAND_CALL_AGREEMENT = {
+    "review_round2": (14, 15),
+    "blind_round1": (21, 24),
+    "blind_round2": (22, 24),
+}
+
+
+def test_every_board_eligible_case_carries_its_provision_review():
+    """Each shipped fidelity representative was checked against its provision,
+    the case record equals the review record it was built from, and the
+    outcome follows from the verdict."""
+
+    record = json.loads(
+        (CORPUS_DIR / "triage" / "provision_review.json").read_text(encoding="utf-8")
+    )
+    reviewed = record["cases"]
+    eligible = [c for c in _cases() if build_real_defects.is_board_eligible(c)]
+    assert eligible
+    assert {c["id"] for c in eligible} <= set(reviewed)
+    assert set(reviewed) <= {c["id"] for c in _cases()}
+    for case in _cases():
+        settled = reviewed.get(case["id"])
+        review = case["provision_review"]
+        if settled is None:
+            assert review is None and case["judgeable_from_provision"] is None
+            continue
+        assert review["method"] == record["method"]
+        assert review["verdict"] == settled["verdict"]
+        assert (
+            review["outcome"]
+            == (verify_real_defects.PROVISION_REVIEW_OUTCOMES[settled["verdict"]])
+        )
+        assert [q["quote"] for q in review["decisive_quotes"]] == [
+            q["quote"] for q in settled["decisive_quotes"]
+        ]
+        assert review["nearest_quotes"] == settled["nearest_quotes"]
+        if settled["verdict"] == "not_in_sources":
+            assert review["decisive_quotes"] == []
+        else:
+            assert review["decisive_quotes"] and review["nearest_quotes"] == []
+        assert review["readers"] == settled["readers"]
+        assert len(settled["readers"]) >= 1
+        assert case["judgeable_from_provision"] is (
+            settled["verdict"] != "not_in_sources"
+        )
+        added = [
+            q["citation_path"]
+            for q in settled["decisive_quotes"]
+            if q["citation_path"] != case["corpus_citation_path"]
+        ]
+        extension = case["provision_extension"]
+        if settled["verdict"] == "in_other_citation":
+            assert [a["citation_path"] for a in extension["added"]] == list(
+                dict.fromkeys(added)
+            )
+        else:
+            assert extension is None
+    assert record["counts"] == _index()["counts"]["by_provision_review_verdict"]
+    assert sum(record["counts"].values()) == len(reviewed)
+
+
+def _hand_call_agreement() -> dict[str, tuple[int, int]]:
+    """Per recorded set of earlier hand calls: (agreeing, compared).
+
+    A hand call of ``present`` (the provision carries the evidence) agrees
+    with a review verdict of ``in_provision``; ``absent`` agrees with the
+    other two verdicts.
+    """
 
     record = json.loads(
         (CORPUS_DIR / "triage" / "evidence_validation.json").read_text(encoding="utf-8")
     )
-    assert record["method"] == check_evidence.METHOD
+    verdicts = {
+        case["id"]: case["provision_review"]["verdict"]
+        for case in _cases()
+        if case["provision_review"] is not None
+    }
     agreement = {}
     for labelled in record["sets"]:
-        hits = 0
-        for case_id, call in labelled["labels"].items():
-            case = json.loads(
-                (CORPUS_DIR / "cases" / case_id / "case.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            hits += case["evidence_in_provision"] == call["label"]
-        agreement[labelled["name"]] = (hits, len(labelled["labels"]))
-    assert agreement == {
-        "review_round2": (14, 15),
-        "blind_round1": (19, 24),
-        "blind_round2": (20, 24),
+        calls = [
+            (call["label"] == "present") == (verdicts[case_id] == "in_provision")
+            for case_id, call in labelled["labels"].items()
+            if case_id in verdicts
+        ]
+        agreement[labelled["name"]] = (sum(calls), len(calls))
+    return agreement
+
+
+def test_review_agreement_with_the_earlier_hand_calls():
+    """The agreement the README reports between the provision review and the
+    63 hand calls recorded before it (triage/evidence_validation.json)."""
+
+    agreement = _hand_call_agreement()
+    assert agreement == HAND_CALL_AGREEMENT
+    readme = (CORPUS_DIR / "README.md").read_text(encoding="utf-8")
+    agree = sum(hits for hits, _total in agreement.values())
+    total = sum(total for _hits, total in agreement.values())
+    assert f"agrees with {agree} of the {total}" in " ".join(readme.split())
+
+
+def test_the_loader_default_set_is_the_judgeable_cases_the_window_shows():
+    """Differential: the benchmark loader's default selection equals what the
+    corpus index says is board-eligible, judgeable and visible in the
+    judges' default window."""
+
+    verifier_root = ROOT / "benchmarks" / "verifier"
+    sys.path.insert(0, str(verifier_root))
+    try:
+        from encodebench_verifier.sources import real as real_source
+    finally:
+        sys.path.remove(str(verifier_root))
+    from axiom_encode.judges.client import DEFAULT_PROVISION_CHARS, truncate_provision
+
+    index = _index()
+    expected = sorted(
+        entry["id"]
+        for entry in index["cases"]
+        if entry["family_representative"]
+        and entry["triage_status"] == "fidelity"
+        and entry["artifacts_shipped"]
+        and entry["judgeable_from_provision"] is True
+        and entry["decisive_text_in_default_window"]
+    )
+    suite, report = real_source.build_real_suite(
+        CORPUS_DIR, provision_chars=DEFAULT_PROVISION_CHARS, truncate=truncate_provision
+    )
+    assert sorted(suite.source_identity["case_ids"]) == expected
+    counts = index["counts"]
+    assert len(expected) == counts["judgeable_with_decisive_text_in_default_window"]
+    assert report["skipped"].get("not_judgeable_from_provision", 0) == sum(
+        1
+        for entry in index["cases"]
+        if entry["family_representative"]
+        and entry["triage_status"] == "fidelity"
+        and entry["judgeable_from_provision"] is False
+    )
+    everything, _ = real_source.build_real_suite(
+        CORPUS_DIR,
+        provision_chars=DEFAULT_PROVISION_CHARS,
+        truncate=truncate_provision,
+        judgeable_only=False,
+    )
+    assert (
+        len(everything.source_identity["case_ids"])
+        == counts["fidelity_representatives"]
+    )
+
+
+class _StubResolver:
+    """Stands in for the release resolver: citation path to text."""
+
+    def __init__(self, texts):
+        self.texts = texts
+        self.asked = []
+
+    def resolve(self, case, citation):
+        self.asked.append(citation)
+        text = self.texts[citation]
+        return {
+            "mode": "axiom_encode_resolver",
+            "resolved_citation_path": citation,
+            "corpus_commit": case["corpus_commit"],
+            "text": text,
+        }
+
+
+def _reviewable_item(provision: str) -> dict:
+    module = _PRE
+    case = {
+        "id": "us-001-test",
+        "corpus_citation_path": "us/regulation/7/273/10",
+        "corpus_commit": "c" * 40,
+        "provision_sha256": verify_real_defects.sha256_text(provision),
+        "provision_chars": len(provision),
+        "provision_resolution": {"corpus_commit": "c" * 40},
+        "artifacts_shipped": True,
+        "locator": {"rule_names": ["cap"]},
+        "triage": {
+            "pre_fix_wrong_because": "",
+            "triage_notes": "",
+            "verifier_justification": "",
+            "verifier_notes": "",
+        },
     }
+    files = {
+        "pre_fix.yaml": module.encode(),
+        "post_fix.yaml": module.replace("formula: '143'", "formula: '198.99'").encode(),
+        "provision.txt": provision.encode(),
+    }
+    return {"case": case, "files": files}
+
+
+def test_apply_provision_review_extends_resets_and_agrees_with_the_verifier():
+    """Differential: what the build writes for each verdict is what the
+    verify script accepts, and re-applying a different record starts again
+    from the first citation's text."""
+
+    meta = {"method": "provision_review_v1", "reviewed_on": "2026-10-10"}
+    first = "Subtract the deduction up to the maximum of $143. The maximum is adjusted each year."
+    memo = "Header. The maximum is adjusted each year. For fiscal year 2026 the maximum is $198.99."
+    resolver = _StubResolver({"us/guidance/cola-2026": memo})
+    item = _reviewable_item(first)
+    problems = verify_real_defects.provision_record_problems
+    apply = build_real_defects.apply_provision_review
+
+    # in_other_citation: the quote also occurs in the first citation, and is
+    # still located in the citation the reader quoted it from.
+    record = {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "decisive_quotes": [
+            {
+                "citation_path": "us/guidance/cola-2026",
+                "quote": "the maximum is adjusted each year",
+            },
+            {
+                "citation_path": "us/guidance/cola-2026",
+                "quote": "the maximum is $198.99",
+            },
+            {
+                "citation_path": "us/regulation/7/273/10",
+                "quote": "up to the maximum of $143",
+            },
+        ],
+        "nearest_quotes": [],
+        "basis": "readers_agree",
+        "readers": {"r1": {}, "r2": {}},
+    }
+    apply(item, record, meta, resolver)
+    case = item["case"]
+    text = item["files"]["provision.txt"].decode()
+    assert resolver.asked == ["us/guidance/cola-2026"]
+    assert text == verify_real_defects.compose_provision(
+        [("us/regulation/7/273/10", first), ("us/guidance/cola-2026", memo)]
+    )
+    assert case["provision_sha256"] == verify_real_defects.sha256_text(text)
+    assert case["provision_chars"] == len(text)
+    extension = case["provision_extension"]
+    assert extension["first_citation_chars"] == len(first)
+    assert [a["citation_path"] for a in extension["added"]] == ["us/guidance/cola-2026"]
+    assert "text" not in extension["added"][0]["resolution"]
+    review = case["provision_review"]
+    assert case["judgeable_from_provision"] is True
+    assert review["outcome"] == "provision_extended"
+    assert review["mechanical_before_review"] == "absent"
+    assert review["default_window"] == {"chars": 24_000, "decisive_text_visible": True}
+    added_from = text.index(memo)
+    spans = [q["span"] for q in review["decisive_quotes"]]
+    assert spans[0][0] >= added_from and spans[1][0] >= added_from
+    assert spans[2][1] <= added_from
+    for quote in review["decisive_quotes"]:
+        start, end = quote["span"]
+        assert text[start:end].casefold() == quote["quote"].casefold()
+    assert problems(case, text) == []
+
+    # A decisive passage the default window cuts away is reported as such.
+    middle = "filler " * 3000 + first + " filler" * 3000
+    long_item = _reviewable_item(middle)
+    in_middle = {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "decisive_quotes": [
+            {"citation_path": "us/regulation/7/273/10", "quote": "adjusted each year"}
+        ],
+        "nearest_quotes": [],
+        "basis": "readers_agree",
+        "readers": {},
+    }
+    apply(long_item, in_middle, meta, resolver)
+    assert long_item["case"]["provision_review"]["default_window"] == {
+        "chars": 24_000,
+        "decisive_text_visible": False,
+    }
+    assert problems(long_item["case"], middle) == []
+
+    # Re-applying another verdict resets the provision to the first citation.
+    kept = {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "decisive_quotes": [
+            {"citation_path": "us/regulation/7/273/10", "quote": "adjusted each year"}
+        ],
+        "nearest_quotes": [],
+        "basis": "adjudicated",
+        "readers": {},
+    }
+    apply(item, kept, meta, resolver)
+    assert item["files"]["provision.txt"].decode() == first
+    assert case["provision_extension"] is None
+    assert case["provision_sha256"] == verify_real_defects.sha256_text(first)
+    assert problems(case, first) == []
+
+    excluded = {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "decisive_quotes": [],
+        "nearest_quotes": [
+            {
+                "citation_path": "us/regulation/7/273/10",
+                "quote": "up to the maximum of $143",
+            }
+        ],
+        "missing_basis": "the COLA memorandum, which neither module cites",
+        "basis": "readers_agree",
+        "readers": {},
+    }
+    apply(item, excluded, meta, resolver)
+    assert case["judgeable_from_provision"] is False
+    assert case["provision_review"]["decisive_quotes"] == []
+    assert case["provision_review"]["default_window"] is None
+    assert len(case["provision_review"]["nearest_quotes"]) == 1
+    assert problems(case, first) == []
+
+    apply(item, None, meta, resolver)
+    assert case["provision_review"] is None and case["judgeable_from_provision"] is None
+    assert problems(case, first) == []
+
+    # A quote that is not in the citation it names stops the build.
+    wrong = dict(
+        kept,
+        decisive_quotes=[
+            {
+                "citation_path": "us/regulation/7/273/10",
+                "quote": "the maximum is $198.99",
+            }
+        ],
+    )
+    with pytest.raises(RuntimeError, match="decisive quote is not in"):
+        apply(_reviewable_item(first), wrong, meta, resolver)
+    silent = dict(record, decisive_quotes=[record["decisive_quotes"][2]])
+    with pytest.raises(RuntimeError, match="names no other one"):
+        apply(_reviewable_item(first), silent, meta, resolver)
+
+
+def test_reader_records_are_checked_against_the_bundle_texts(tmp_path):
+    bundle = tmp_path / "bundle"
+    (bundle / "other").mkdir(parents=True)
+    (bundle / "provision.txt").write_text("Subtract up to the maximum of $143.")
+    (bundle / "other" / "001.txt").write_text("The maximum is $198.99 for 2026.")
+    manifest = {"others": [{"file": "other/001.txt", "citation": "us/guidance/x"}]}
+    check = provision_review.check_reader_record
+
+    def record(**fields):
+        return {"verdict": "in_provision", "defect_real": "yes", **fields}
+
+    quote = {"file": "provision.txt", "quote": "up to the maximum of $143"}
+    assert check(record(decisive_quotes=[quote]), bundle, manifest) == []
+    invented = {"file": "provision.txt", "quote": "up to the maximum of $198.99"}
+    assert any(
+        "not found" in p
+        for p in check(record(decisive_quotes=[invented]), bundle, manifest)
+    )
+    other = {"file": "other/001.txt", "quote": "The maximum is $198.99"}
+    assert any(
+        "provision.txt only" in p
+        for p in check(record(decisive_quotes=[other]), bundle, manifest)
+    )
+    assert (
+        check(
+            record(verdict="in_other_citation", decisive_quotes=[other]),
+            bundle,
+            manifest,
+        )
+        == []
+    )
+    assert any(
+        "needs a quote from an other/ file" in p
+        for p in check(
+            record(verdict="in_other_citation", decisive_quotes=[quote]),
+            bundle,
+            manifest,
+        )
+    )
+    assert any(
+        "missing_basis" in p
+        for p in check(
+            record(verdict="not_in_sources", defect_real="unsure"), bundle, manifest
+        )
+    )
+    assert (
+        check(
+            record(
+                verdict="not_in_sources",
+                defect_real="unsure",
+                missing_basis="an uncited notice",
+            ),
+            bundle,
+            manifest,
+        )
+        == []
+    )
+    assert any(
+        "defect_real is not yes" in p
+        for p in check(
+            record(defect_real="unsure", decisive_quotes=[quote]), bundle, manifest
+        )
+    )
+    unknown = {"file": "other/999.txt", "quote": "The maximum is $198.99"}
+    assert any(
+        "unknown file" in p
+        for p in check(record(decisive_quotes=[unknown]), bundle, manifest)
+    )
+
+
+def test_settle_needs_agreeing_readers_or_an_adjudication():
+    first = {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "decisive_quotes": [{"file": "provision.txt", "quote": "a b c"}],
+        "why_decisive": "w",
+    }
+    second = dict(
+        first, verdict="not_in_sources", decisive_quotes=[], missing_basis="m"
+    )
+    clean = {"r1": [], "r2": []}
+    settle = provision_review.settle
+    record, why = settle("c", {"r1": first, "r2": first}, clean, None)
+    assert why is None and record["basis"] == "readers_agree"
+    # One reader is not enough unless the caller says so.
+    record, why = settle("c", {"r1": first}, {"r1": []}, None)
+    assert record is None and "2 needed" in why
+    record, why = settle("c", {"r1": first}, {"r1": []}, None, min_readers=1)
+    assert record["basis"] == "single_reader"
+    record, why = settle("c", {"r1": first, "r2": second}, clean, None)
+    assert record is None and "disagree" in why
+    # A record whose quote failed the check never settles a case by default.
+    record, why = settle(
+        "c", {"r1": first, "r2": first}, {"r1": ["quote not found"], "r2": []}, None
+    )
+    assert record is None and "does not check: r1" in why
+    record, why = settle(
+        "c", {"r1": first, "r2": second}, clean, dict(second, adjudication_note="x")
+    )
+    assert record["verdict"] == "not_in_sources" and record["basis"] == "adjudicated"
+    one = dict(
+        first,
+        verdict="in_other_citation",
+        decisive_quotes=[{"file": "other/001.txt", "quote": "a b c"}],
+    )
+    two = dict(
+        first,
+        verdict="in_other_citation",
+        decisive_quotes=[{"file": "other/002.txt", "quote": "a b c"}],
+    )
+    record, why = settle("c", {"r1": one, "r2": two}, clean, None)
+    assert record is None and "different other citations" in why
+    record, why = settle("c", {"r1": one, "r2": one}, clean, None)
+    assert record["verdict"] == "in_other_citation"
+
+
+# --------------------------------------------------------------------------
+# The triage record (tools/merge_triage.py)
+# --------------------------------------------------------------------------
+
+
+def _override_row(**fields):
+    row = {
+        "keep": True,
+        "jurisdiction": "us",
+        "commit": "095d680d47",
+        "module_path": "statutes/26/24.yaml",
+        "rule_path": "rules[a].versions[0].formula",
+        "rule_names": [
+            "a",
+            "ch01_s232_steel_heading_rate",
+            "section_232_steel_component_rate",
+        ],
+        "triage_status": "unclear",
+        "confidence": 0.49,
+        "triage_confidence": 0.55,
+        "verifier": {"confidence": 0.62},
+        "review_override": None,
+    }
+    row.update(fields)
+    return row
+
+
+def test_review_overrides_promote_and_trim_and_must_match():
+    rows = [_override_row(), _override_row(module_path="statutes/26/1.yaml")]
+    overrides = [
+        {
+            "id": "promote",
+            "source": "s",
+            "reason": "r",
+            "match": {
+                "jurisdiction": "us",
+                "commit": "095d680d47",
+                "module_path": "statutes/26/24.yaml",
+            },
+            "set_triage_status": "fidelity",
+        },
+        {
+            "id": "trim",
+            "source": "s",
+            "reason": "r",
+            "match": {
+                "rule_path": "rules[a].versions[0].formula",
+                "module_path": "statutes/26/1.yaml",
+            },
+            "drop_rule_names_matching": r"(ch\w+_)?s232_steel_heading_rate|section_232_steel_component_rate",
+        },
+    ]
+    assert merge_triage.apply_review_overrides(rows, overrides) == ["promote", "trim"]
+    promoted, trimmed = rows
+    assert promoted["triage_status"] == "fidelity"
+    # The lower of the two readers' confidences, without the unclear cap.
+    assert promoted["confidence"] == 0.55
+    assert promoted["review_override"]["changed"] == {
+        "triage_status": ["unclear", "fidelity"],
+        "confidence": [0.49, 0.55],
+    }
+    assert trimmed["rule_names"] == ["a"]
+    assert trimmed["triage_status"] == "unclear"
+    assert trimmed["review_override"]["id"] == "trim"
+    stale = [dict(overrides[0], id="stale", match={"commit": "nope"})]
+    with pytest.raises(ValueError, match="matches no kept row"):
+        merge_triage.apply_review_overrides(rows, stale)
+    with pytest.raises(ValueError, match="two review overrides"):
+        merge_triage.apply_review_overrides(
+            [_override_row()],
+            [overrides[0], dict(overrides[1], match={"commit": "095d680d47"})],
+        )
+
+
+@pytest.mark.skipif(
+    _sibling_checkout("AXIOM_REAL_DEFECTS_RULESPEC_US", "rulespec-us") is None
+    or _sibling_checkout("AXIOM_REAL_DEFECTS_RULESPEC_UK", "rulespec-uk") is None,
+    reason="rulespec checkouts are not available",
+)
+def test_the_triage_record_reproduces_from_the_workflow_output(tmp_path):
+    """Differential: re-running the merge over the committed workflow output,
+    PR URL record and review overrides writes the committed triage files."""
+
+    triage = tmp_path / "corpus" / "triage"
+    triage.mkdir(parents=True)
+    for name in ("workflow_output.json", "pr_urls.json", "review_overrides.json"):
+        shutil.copy(CORPUS_DIR / "triage" / name, triage / name)
+    assert (
+        merge_triage.main(
+            [
+                "--workflow-output",
+                str(triage / "workflow_output.json"),
+                "--corpus-dir",
+                str(tmp_path / "corpus"),
+                "--rulespec-us",
+                str(_sibling_checkout("AXIOM_REAL_DEFECTS_RULESPEC_US", "rulespec-us")),
+                "--rulespec-uk",
+                str(_sibling_checkout("AXIOM_REAL_DEFECTS_RULESPEC_UK", "rulespec-uk")),
+                "--scrub-record",
+            ]
+        )
+        == 0
+    )
+    for name in (
+        "workflow_output.json",
+        "triage_merged.json",
+        "screen.json",
+        "summary.json",
+        "pr_urls.json",
+    ):
+        assert (triage / name).read_bytes() == (
+            CORPUS_DIR / "triage" / name
+        ).read_bytes(), name
+    rows = json.loads((triage / "triage_merged.json").read_text(encoding="utf-8"))
+    kept = {
+        (row["jurisdiction"], row["commit"], row["module_path"]): row
+        for row in rows
+        if row["keep"]
+    }
+    for case in _cases():
+        row = kept[(case["jurisdiction"], case["commit"][:10], case["module_path"])]
+        assert case["triage_status"] == row["triage_status"], case["id"]
+        assert case["confidence"] == row["confidence"], case["id"]
+        assert case["locator"]["rule_names"] == row["rule_names"], case["id"]
+        assert case["pr_url"] == row["pr_url"], case["id"]
+        assert case["triage"]["review_override"] == row["review_override"], case["id"]

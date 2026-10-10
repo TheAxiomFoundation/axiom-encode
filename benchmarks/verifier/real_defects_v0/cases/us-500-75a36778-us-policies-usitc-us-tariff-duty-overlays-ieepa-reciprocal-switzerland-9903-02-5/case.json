@@ -208,6 +208,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -285,7 +286,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/9903.02.58",
+        "quote": "articles the product of Switzerland, as provided for in subdivision (v) of U.S. note 2 to this subchapter [Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+        "span": [
+          442,
+          612
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The provision says the heading is terminated. The pre-fix rules keep the +39% Switzerland duty in force with no end date from 2025-08-07. The post-fix adds an effective_to, which fits a terminated provision.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-75a36778-97bd01108c19",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -299,11 +346,10 @@
     "verifier_notes": "Strongest surviving objection, which I judge non-fatal: the specific date 2026-02-14 is not in the cited source. The provision text carries no termination date, and the nine new proof atoms excerpt only the compiler's note (\"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\"), not any date; the module comment itself concedes the bound is inferred from the successors' 2026-02-15 panel domain rather than read from the text. So the exact terminal date is an editorial inference, and a reviewer who wants every value source-traceable could call the date under-evidenced. That does not rescue the pre-fix state, though: the defect being corrected is the unbounded window on a provision the source marks terminated, which is wrong against the source independent of which precise day the bound lands on. Secondary consideration for the reviewer: one could argue unrepresented_clause (the compiler's note is a source clause the encoding omitted), but the kind list routes effective_to/version-window omissions and timeless encoding of superseded text to wrong_period_or_effective_date, and the changed rule path is literally versions[0].effective_to, so I did not reclassify. Side observation, out of scope for this case: the sibling reciprocal-switzerland-9903-02-82.yaml (the >=15% pass-through heading) runs from 2025-08-07 rather than 2026-02-15 at this commit, unlike its .83 floor partner — worth a separate look if the corpus puts both successors in the same 2026-02-15 domain.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as indices 2, 3, 6; this is the 39 percent Switzerland predecessor. The end date 2026-02-14 is inferred (the note states no date), so the specific day is an encoder judgment while the missing termination window is the defect. Pre-fix summary said 'Compiler's note: provision terminated.' Provision text for this heading not separately re-read. | verifier confirmed at 0.90",
-  "family_id": "us-75a36778-97bd01108c19",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as indices 2, 3, 6; this is the 39 percent Switzerland predecessor. The end date 2026-02-14 is inferred (the note states no date), so the specific day is an encoder judgment while the missing termination window is the defect. Pre-fix summary said 'Compiler's note: provision terminated.' Provision text for this heading not separately re-read. | verifier confirmed at 0.90"
 }

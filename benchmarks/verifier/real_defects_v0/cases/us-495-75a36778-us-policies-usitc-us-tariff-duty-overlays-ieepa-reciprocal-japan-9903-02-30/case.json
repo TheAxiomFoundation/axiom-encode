@@ -208,6 +208,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -304,7 +305,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/9903.02.30",
+        "quote": "articles the product of Japan, as provided for in subdivision (v) of U.S. note 2 to this subchapter [Compiler's note: provision terminated. See 90 Fed. Reg. 44638]",
+        "span": [
+          442,
+          605
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The provision says the heading is terminated. The pre-fix rules keep it in force with no end date from 2025-08-07, so the +15% Japan duty applies forever. The post-fix closes the window, which fits a terminated provision.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-75a36778-4fc57553e160",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -318,11 +365,10 @@
     "verifier_notes": "Corroboration: resolve_provision.py against release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0b9, provision file line 1190, body sha256 5d7942a501...) returns source text ending \"...subdivision (v) of U.S. note 2 to this subchapter [Compiler's note: provision terminated. See 90 Fed. Reg. 44638]\" — the note is real and byte-matches the added proof-atom excerpts, and the source carries no termination date. Pre vs post grep: pre-fix has nine bare `effective_from: '2025-08-07'` lines and zero effective_to; post-fix has nine effective_to: '2026-02-14'. Residual caveat for the reviewer: the value 2026-02-14 is an encoder convention (\"the last day before the successor floor headings' 2026-02-15 panel domain\"), not a source-stated date, and the commit body's F3 overstates it as \"matching their compiler's-note termination dates\" while the module comment correctly says there is none — so the direction of the correction is source-grounded but the precise bound is not. That makes the fix's chosen date a candidate for a separate, weaker untraceable-value note; it does not rescue the pre-fix open-ended encoding. Same pattern applies to the three sibling terminated predecessors in this commit (Liechtenstein 9903.02.36, South Korea 9903.02.56, Switzerland 9903.02.58), so if those are separate corpus cases they should get the same verdict and the same caveat.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read: the note is '[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]' with no date, so the chosen 2026-02-14 end is the encoder's conservative no-later-than bound (day before the 9903.02.72/.73 successor domain at 2026-02-15), not a source-stated date; the fidelity defect is the timeless encoding of a terminated provision, not the specific day. The commit message says the terminations 'match their compiler's-note termination dates', which is exact only for South Korea (index 6). The pre-fix summary already read 'Compiler's note: provision terminated.', so the encoding contradicted its own summary. Identical pattern in indices 3, 6, 9; each rule also gains an effective_period proof atom quoting the note. | verifier confirmed at 0.89",
-  "family_id": "us-75a36778-4fc57553e160",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read: the note is '[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]' with no date, so the chosen 2026-02-14 end is the encoder's conservative no-later-than bound (day before the 9903.02.72/.73 successor domain at 2026-02-15), not a source-stated date; the fidelity defect is the timeless encoding of a terminated provision, not the specific day. The commit message says the terminations 'match their compiler's-note termination dates', which is exact only for South Korea (index 6). The pre-fix summary already read 'Compiler's note: provision terminated.', so the encoding contradicted its own summary. Identical pattern in indices 3, 6, 9; each rule also gains an effective_period proof atom quoting the note. | verifier confirmed at 0.89"
 }

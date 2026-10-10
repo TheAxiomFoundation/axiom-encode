@@ -196,6 +196,7 @@
     "requested_citation_path": "us/statute/26/3101",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -324,7 +325,52 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "no",
+    "decisive_quotes": [],
+    "nearest_quotes": [
+      {
+        "citation_path": "us/statute/26/1401",
+        "quote": "shall be reduced (but not below zero) by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer."
+      },
+      {
+        "citation_path": "us/statute/26/1401",
+        "quote": "there is hereby imposed on every taxpayer (other than a corporation, estate, or trust) for each taxable year beginning after December 31, 2012 , a tax equal to 0.9 percent of the self-employment income"
+      }
+    ],
+    "why": "These are the nearest passages. §1401(b)(2)(B) reduces the threshold by wages, which is what the pre-fix formula does; only its odd cross-reference is unclear. §1401(b)(2)(A) imposes a positive 0.9% tax on self-employment income above the threshold. The post-fix change publishes zero SE tax whenever self-employment income is positive, which goes against (A). So the text favours the pre-fix computation or is neutral, and does not favour the post-fix one.",
+    "missing_basis": "Corpus-fidelity policy on the pinned record's misprinted cross-reference (3121(b)(2) for 3101(b)(2), tracked as axiom-corpus#514). The lawful reading rests on 26 CFR 1.1401-1(d)(2), Form 8959 and TD 9645, none of which is in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "adjudicated",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "unsure",
+        "confidence": 0.5,
+        "problems": [
+          "a decisive text was quoted, yet defect_real is not yes"
+        ]
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "no",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-08e28741-43b6ad9c7e00",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -338,11 +384,10 @@
     "verifier_notes": "Source verification (decisive): resolve_provision for us/statute/26/1401 at rulespec commit 08e2874132 returns corpus_release us-rulespec-2026-07-24-snap-cms-pit-union, record_id 28922e55-97ac-5e80-82dd-759fcf156217, resolved_text_sha256 38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65, fix_time_corpus_match \"same_body\". Its (B) reads verbatim: \"(B) Coordination with FICA The amounts under clause (i), (ii), or (iii) (whichever is applicable) of subparagraph (A) shall be reduced (but not below zero) by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer.\" Two divergences from the pre-fix excerpt: the record has no \"(as defined in section 3121(a))\" clause, and it says \"imposed under section 3121(b)(2)\" not \"imposed by section 3101(b)(2)\". So the pre-fix proof atom quoted text that is not in the cited record.\n\nMeaning changes in the diff (why mechanical is refuted): (1) additional_medicare_tax_pipeline_self_employment_domain_is_valid formula `no_foreign_system_exclusive_se_income` → `no_foreign_system_exclusive_se_income and federal_self_employment_income == 0`; (2) wages_taken_into_account_for_additional_medicare_tax formula `wages` → `if ...domain_is_valid: wages else: 0`, with its window narrowed from open-ended effective_from '2013-01-01' to 2026-01-01..2026-12-31; (3) pipeline_reduced_additional_medicare_self_employment_threshold window likewise narrowed to 2026 only. Net effect on published outputs: federal_additional_medicare_self_employment_tax and federal_additional_medicare_tax go to zero whenever imported SE income is nonzero (pre-fix they published a positive 0.9% tax on SE income above the wage-reduced threshold).\n\nResidual uncertainty a reviewer should weigh: this is a defect against the *cited corpus record*, not against real-world administered law. The PR body states the pinned §1401 record \"faithfully carries the enacted scrivener's error\" and that Treasury administers the cross-reference as 3101(b)(2) per 26 CFR 1.1401-1(d)(2) / Form 8959 / TD 9645 — I did not verify those regulatory citations and they are not needed for the verdict, but they are the basis of a not_a_defect argument (the old output was arguably closer to operative law). Under the rubric's definition of fidelity as agreement with the cited source text, the pre-fix module encoded a coordination rule the pinned record does not state and claimed a verbatim excerpt it does not contain, so I confirm. Also worth noting: the diff's own new module comment (\"The lawful coordination sentence is absent from the current corpus pin: the record names section 3121(b)(2), not section 3101(b)(2).\") is verbatim accurate against the resolved text, so the first reader's quote checks out. Version-window narrowing is collateral to the fail-close scoping, not a wrong_period_or_effective_date defect. Commit body is empty; the PR (#1003) has no reviews or comments, so the module comments and deferral reasons are the only narrative evidence.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision was read through the pinned release: us/statute/26/1401 resolves to \"The amounts under clause (i), (ii), or (iii) (whichever is applicable) of subparagraph (A) shall be reduced (but not below zero) by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer.\" — confirming the pre-fix excerpt in rules[wages_taken_into_account_for_additional_medicare_tax] and rules[pipeline_reduced_additional_medicare_self_employment_threshold] was a non-verbatim, substituted quotation (3101(b)(2) for 3121(b)(2)). Two decisive formula changes: the domain Judgment gains \"and federal_self_employment_income == 0\", and wages_taken_into_account_for_additional_medicare_tax goes from bare `wages` to a guarded conditional returning 0 outside that domain; federal_additional_medicare_self_employment_tax itself changed only its `source:` string because its fail-closed guard already keyed off the Judgment. Competing kind: the subject line \"fail close additional Medicare SE leg\" supports reading this as polarity_or_logic (fail-open vs fail-closed default); I chose untraceable_branch because the stated reason in the module comment, the deferred-output reasons, and the PR body all locate the defect in a formula grounded on source text the cited record does not contain, which the fix removes rather than re-polarizes. A third, weaker reading is mechanical/provenance (the pre-fix arithmetic matches Form 8959 / 26 CFR 1.1401-1(d)(2) as administered), but this is not excerpt-only: formulas, version windows, and published values all changed, so it is not mechanical. Collateral changes in the same diff: two rules' version windows narrowed from open-ended effective_from '2013-01-01' to '2026-01-01'..'2026-12-31'; two proof atoms swapped from kind: formula (excerpt) to kind: import (one with hash sha256:local); two new deferred_outputs entries added; module summary/rationale rewritten. PR body (#1003) quote for the same defect: \"the pinned §1401 record faithfully carries the enacted scrivener's error (cross-reference printed as 3121(b)(2); Treasury administers as 3101(b)(2) per 26 CFR 1.1401-1(d)(2) and Form 8959 — see TD 9645)\". PR had no reviews or review comments attached. Companion test us/policies/income_tax/additional_medicare_tax_pipeline.test.yaml changed alongside (fail-closed fixtures). Follow-ups on this module after the corpus repair: a0a2ec594 \"feat: restore additional Medicare self-employment tax\" and a374b52a1 \"fix: keep Medicare coordination proof regulatory\" — a reviewer may prefer the restore commit as the positive-direction benchmark item. | verifier confirmed at 0.72",
-  "family_id": "us-08e28741-43b6ad9c7e00",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision was read through the pinned release: us/statute/26/1401 resolves to \"The amounts under clause (i), (ii), or (iii) (whichever is applicable) of subparagraph (A) shall be reduced (but not below zero) by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2) with respect to the taxpayer.\" — confirming the pre-fix excerpt in rules[wages_taken_into_account_for_additional_medicare_tax] and rules[pipeline_reduced_additional_medicare_self_employment_threshold] was a non-verbatim, substituted quotation (3101(b)(2) for 3121(b)(2)). Two decisive formula changes: the domain Judgment gains \"and federal_self_employment_income == 0\", and wages_taken_into_account_for_additional_medicare_tax goes from bare `wages` to a guarded conditional returning 0 outside that domain; federal_additional_medicare_self_employment_tax itself changed only its `source:` string because its fail-closed guard already keyed off the Judgment. Competing kind: the subject line \"fail close additional Medicare SE leg\" supports reading this as polarity_or_logic (fail-open vs fail-closed default); I chose untraceable_branch because the stated reason in the module comment, the deferred-output reasons, and the PR body all locate the defect in a formula grounded on source text the cited record does not contain, which the fix removes rather than re-polarizes. A third, weaker reading is mechanical/provenance (the pre-fix arithmetic matches Form 8959 / 26 CFR 1.1401-1(d)(2) as administered), but this is not excerpt-only: formulas, version windows, and published values all changed, so it is not mechanical. Collateral changes in the same diff: two rules' version windows narrowed from open-ended effective_from '2013-01-01' to '2026-01-01'..'2026-12-31'; two proof atoms swapped from kind: formula (excerpt) to kind: import (one with hash sha256:local); two new deferred_outputs entries added; module summary/rationale rewritten. PR body (#1003) quote for the same defect: \"the pinned §1401 record faithfully carries the enacted scrivener's error (cross-reference printed as 3121(b)(2); Treasury administers as 3101(b)(2) per 26 CFR 1.1401-1(d)(2) and Form 8959 — see TD 9645)\". PR had no reviews or review comments attached. Companion test us/policies/income_tax/additional_medicare_tax_pipeline.test.yaml changed alongside (fail-closed fixtures). Follow-ups on this module after the corpus repair: a0a2ec594 \"feat: restore additional Medicare self-employment tax\" and a374b52a1 \"fix: keep Medicare coordination proof regulatory\" — a reviewer may prefer the restore commit as the positive-direction benchmark item. | verifier confirmed at 0.72"
 }

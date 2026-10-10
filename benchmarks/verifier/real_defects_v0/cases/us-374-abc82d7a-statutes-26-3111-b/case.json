@@ -117,6 +117,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -186,7 +187,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3111",
+        "quote": "there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ, equal to 1.45 percent of the wages",
+        "span": [
+          415,
+          556
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/3111",
+        "quote": "the term “qualified tax-exempt organization” means an employer that is an organization described in section 501(c) and exempt from taxation under section 501(a)",
+        "span": [
+          2974,
+          3134
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 3111(b) imposes hospital-insurance tax on every employer, and the provision expressly includes tax-exempt organizations among employers. The pre-fix rule attaches the tax to Business; the post-fix Employer entity matches the stated taxpayer scope.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.99,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-abc82d7a-aea9ca5101dd",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -200,11 +255,10 @@
     "verifier_notes": "Decisive evidence is the single line `entity: Business` -> `entity: Employer` on rule `hospital_insurance_employer_tax` in statutes/26/3111/b.yaml; the sibling module 3111/a.yaml got the identical change. Everything else in this module diff is provenance/metadata and should not be cited as the defect: the module `summary` was rewritten from the statutory quote to a paraphrase, proof-atom key `text:` became `excerpt:`, and one atom changed from `kind: definition` to `kind: import` with `target: us:statutes/26/3111/b#hospital_insurance_employer_tax_rate` and `hash: sha256:local`. Caveats a reviewer should weigh: (1) the commit subject is only \"Refresh payroll generated rules\" and the PR #328 body never mentions an entity correction, so the \"entity corrections (3111(a) and 3111(b) Business->Employer)\" wording in the task prompt is a screener summary, not repo text; (2) .axiom/encoding-manifests/statutes/26/3111/b.json shows a full regeneration (axiom_encode_version 0.2.68 -> 0.2.531, backend codex -> openai), so the entity change is a byproduct of re-encoding rather than a targeted repair with a recorded finding; (3) the companion test statutes/26/3111/b.test.yaml changed only case names, values unchanged (1450), and the PR reports zero-mismatch person-level PE parity, so no observable numeric behavior changed; (4) `entity` is a free-form string in axiom-rules-engine schemas/rulespec-module.v1.schema.json with no enum and no entity registry I could locate in the engine, so the Business-vs-Employer population distinction is declarative and bound by the data/compose layer, which I did not verify. The rubric counts entity as input/output scope, and the source text plus the Employer-entity consumers settle it for me at confirmed, but a reviewer who requires an explicit repair finding in the repo could reasonably downgrade this to unclear. Source verified through resolve_provision.py: corpus release us-rulespec-2026-07-13, expression_date 2025-12-03.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n)."
+    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 3 (identical hunk shape: summary paraphrase, text->excerpt key rename, definition atom replaced by a rate import atom, entity Business -> Employer, blank-line reflow). Corpus text confirms '(b) Hospital insurance ... there is hereby imposed on every employer an excise tax ... equal to 1.45 percent of the wages ... paid by the employer'. Rate value 0.0145 and effective_from '1986-01-01' unchanged. | verifier confirmed at 0.72",
-  "family_id": "us-abc82d7a-aea9ca5101dd",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 3 (identical hunk shape: summary paraphrase, text->excerpt key rename, definition atom replaced by a rate import atom, entity Business -> Employer, blank-line reflow). Corpus text confirms '(b) Hospital insurance ... there is hereby imposed on every employer an excise tax ... equal to 1.45 percent of the wages ... paid by the employer'. Rate value 0.0145 and effective_from '1986-01-01' unchanged. | verifier confirmed at 0.72"
 }

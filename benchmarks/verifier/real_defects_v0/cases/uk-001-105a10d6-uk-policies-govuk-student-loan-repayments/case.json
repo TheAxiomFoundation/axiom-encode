@@ -69,8 +69,8 @@
   },
   "pre_fix_artifact_sha256": "c655553d6756af84f10f54f2da383cd52e4dc8916b6bc3a248866c155ce0d06d",
   "post_fix_artifact_sha256": "25eb2302f4f4be0b496d2436c149f3702f3cb09430d25e5e220c1c637d76f83c",
-  "provision_sha256": "87b95b8c398e8417a2d39b1701e14f50e1a83f0f9645d1074606091a0af3bbef",
-  "provision_chars": 765,
+  "provision_sha256": "79d4f3a08cfce491912021cde632c8e627f6a61948c5db16d907fd9db3ccd18b",
+  "provision_chars": 1395,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "uk/guidance/govuk/student-loan-repayments/what-you-pay",
@@ -97,7 +97,34 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "87b95b8c398e8417a2d39b1701e14f50e1a83f0f9645d1074606091a0af3bbef",
+    "first_citation_chars": 765,
+    "added": [
+      {
+        "citation_path": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+        "text_sha256": "ab400b5acb07d29bce85f26810a13d8b36f71b0843f1e7f30d47e4ddcc26c5de",
+        "chars": 482,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+          "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+          "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+          "line_number": 11,
+          "record_id": "a2e0d7bc-5293-5cca-8de3-17384cccff34",
+          "stored_body_sha256": "ab400b5acb07d29bce85f26810a13d8b36f71b0843f1e7f30d47e4ddcc26c5de",
+          "resolved_text_sha256": "ab400b5acb07d29bce85f26810a13d8b36f71b0843f1e7f30d47e4ddcc26c5de",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-06-05",
+          "source_as_of": "2026-06-05",
+          "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -114,7 +141,7 @@
           "student_loan_repayment.versions[0].formula"
         ],
         "cites": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -125,7 +152,7 @@
           "student_loan_repayment.versions[0].formula"
         ],
         "cites": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -156,7 +183,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -166,7 +193,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -176,7 +203,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -186,17 +213,71 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 7,
-    "post_side_matched": 0,
+    "post_side_matched": 6,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+        "quote": "HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full",
+        "span": [
+          991,
+          1119
+        ]
+      },
+      {
+        "citation_path": "uk/guidance/govuk/student-loan-repayments/getting-a-refund",
+        "quote": "You can ask for a refund if you have paid more than the total amount you owe.",
+        "span": [
+          913,
+          990
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The getting-a-refund page says repayments stop once the loan is repaid in full, and anything paid over the total owed can be refunded. So the net repayment cannot exceed the balance owed. The pre-fix formula returns the full rate × excess income with no upper bound. provision.txt (what-you-pay) gives only the rate and thresholds, which both modules satisfy.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "uk-105a10d6-9e2c810a3def",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -210,11 +291,10 @@
     "verifier_notes": "Two refutation attempts, both survived, but a reviewer should see the caveats.\n\n(1) The strongest counter-evidence is in the cited provision itself. Resolved `uk/guidance/govuk/student-loan-repayments/getting-a-refund` (corpus release `uk-rulespec-2026-07-12`, corpus commit 3cc9219a, provision file sha 91208a85, line 11, body sha ab400b5a). Full text: \"You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full, but salary deductions can take around four weeks to stop, so you may pay back more than you owe.\" The source therefore explicitly contemplates the gross PAYE deduction EXCEEDING the outstanding balance, with a refund as the remedy. This contradicts the commit body's flat assertion \"A borrower never repays more than they still owe\". It does not rescue the pre-fix formula, because the rule is `period: Year` with `period_kind: tax_year` and the refund makes the annual amount borne equal to min(scheduled, balance), but the fix's own framing overstates the source. A reviewer grading the commit message against the provision should note this.\n\n(2) The pre-fix module cited ONLY `uk/guidance/govuk/student-loan-repayments/what-you-pay`, whose resolved text (body sha 87b95b8c) contains no stop-at-full-repayment language — only thresholds, the 9%/6% rates, and Self Assessment. So the fix expands the module's source scope to a provision it had not previously cited, rather than correcting a formula against the provision it did cite. Combined with the cap being gated behind a new `outstanding_student_loan_balance_is_known` input that defaults to false (all four pre-existing tests were amended to set it false and their expected outputs are unchanged), no previously-expressible scenario changes value. This is the residual argument for downgrading to `unclear`; I did not take it because the module's claimed output surface (`student_loan_repayment`, \"GOV.UK student loan repayment amount\") is unchanged and is what the clause bounds.\n\n(3) Supporting evidence of real wrong outputs, not just added precision: the PR states the companion axiom-oracles bridge change \"converts the 43 dispositioned near-end-of-loan mismatches in the `uk-tax-benefits-efrs` comparison from `bridge_artifact` to raw matches\". Note those 43 had been dispositioned as bridge artifacts, i.e. previously treated as an input-availability issue rather than an encoding error — a reviewer may read that either way.\n\n(4) Nothing mechanical-only here: module file is +37/-4 with a real formula rewrite. The commit also touches only the companion test file and `.axiom/encoding-manifests/`. No PR reviews or comments exist to quote.\n\n(5) Kind alternatives considered and rejected: amount_mismatch (no numeric literal changed — thresholds 26900/29385/33795/25000/21000 and rates 9%/6% are untouched), wrong_period_or_effective_date (effective_from stays '2026-04-06'), wrong_entity_or_scope (entity Person, unchanged), polarity_or_logic (no boolean inversion; the new `if/else` is additive gating).",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Missing boundary in the merged GOV.UK student-loan repayment module: body says it \"never capped the annual repayment at the borrower's outstanding balance\"; adds min(scheduled_deduction, balance) cap and grounds it (closes #77)."
+    "screen_reason": "Missing boundary in the merged GOV.UK student-loan repayment module: body says it \"never capped the annual repayment at the borrower's outstanding balance\"; adds min(scheduled_deduction, balance) cap and grounds it (closes #77).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single-module commit; only this module file, its companion .test.yaml, and the encoding manifest changed. Provision WAS read through the pinned corpus release (uk/guidance/govuk/student-loan-repayments/getting-a-refund, 482 chars): 'You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full...' — this supports the cap on the net annual repayment. Caveat a reviewer should know: the same provision says salary deductions 'can take around four weeks to stop, so you may pay back more than you owe', so the source describes over-deduction-then-refund rather than a hard in-year deduction cap; the encoding models the net-of-refund amount. Second caveat: the cap is gated on a new optional input defaulting to absent, so the module's output is unchanged for callers that do not supply a balance — this is why one could argue the change adds new scope; I still classify it fidelity because the module's claimed output (annual student loan repayment) was overstated near end of loan and the fix cites source text for the missing clause (the commit reports 43 dispositioned EFRS mismatches becoming raw matches). The same commit also made provenance-only changes bundled with the fidelity fix: corpus_citation_path -> corpus_citation_paths (adding getting-a-refund), a new module.source_verification.upstream_source_check block citing SI 2009/470 Sch 1A and Part 6, an updated module summary, an updated `source:` string on the rule, and two new proof atoms (kind: exception and kind: condition) on versions[0].formula. Downstream alias rule `student_loan_repayments` was not edited but inherits the cap since its formula is just `student_loan_repayment`. Screen flag called this a 'missing boundary', but the defect is a missing cap clause, not a wrong comparison strictness or direction, so unrepresented_clause rather than boundary_direction. PR #86 has no reviews or review comments; PR body restates the commit message. | verifier confirmed at 0.72",
-  "family_id": "uk-105a10d6-9e2c810a3def",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single-module commit; only this module file, its companion .test.yaml, and the encoding manifest changed. Provision WAS read through the pinned corpus release (uk/guidance/govuk/student-loan-repayments/getting-a-refund, 482 chars): 'You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full...' — this supports the cap on the net annual repayment. Caveat a reviewer should know: the same provision says salary deductions 'can take around four weeks to stop, so you may pay back more than you owe', so the source describes over-deduction-then-refund rather than a hard in-year deduction cap; the encoding models the net-of-refund amount. Second caveat: the cap is gated on a new optional input defaulting to absent, so the module's output is unchanged for callers that do not supply a balance — this is why one could argue the change adds new scope; I still classify it fidelity because the module's claimed output (annual student loan repayment) was overstated near end of loan and the fix cites source text for the missing clause (the commit reports 43 dispositioned EFRS mismatches becoming raw matches). The same commit also made provenance-only changes bundled with the fidelity fix: corpus_citation_path -> corpus_citation_paths (adding getting-a-refund), a new module.source_verification.upstream_source_check block citing SI 2009/470 Sch 1A and Part 6, an updated module summary, an updated `source:` string on the rule, and two new proof atoms (kind: exception and kind: condition) on versions[0].formula. Downstream alias rule `student_loan_repayments` was not edited but inherits the cap since its formula is just `student_loan_repayment`. Screen flag called this a 'missing boundary', but the defect is a missing cap clause, not a wrong comparison strictness or direction, so unrepresented_clause rather than boundary_direction. PR #86 has no reviews or review comments; PR body restates the commit message. | verifier confirmed at 0.72"
 }

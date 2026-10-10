@@ -8,7 +8,9 @@ Git commits and the named signed corpus release. This script checks that.
 
 Tiers (each one is skipped, and reported as skipped, when its inputs are absent):
 
-* ``shipped``  - the shipped files hash to what ``case.json`` says.
+* ``shipped``  - the shipped files hash to what ``case.json`` says; an
+                 extended provision splits into its recorded components; the
+                 provision review's quotes sit at their recorded spans.
 * ``git``      - the rulespec checkouts reproduce the pre-fix and post-fix
                  module bytes from ``parent_commit`` and ``commit``.
 * ``corpus``   - the axiom-corpus checkout reproduces the provision row: the
@@ -22,9 +24,10 @@ The ``git`` and ``corpus`` tiers read objects through one long-lived
 cite it: the blob is hashed in bounded chunks and only the row lines those
 cases name are kept, so memory stays at one chunk plus the longest line.
 * ``release``  - the signed release object is fetched from the public registry
-                 (or a local cache) and the provision text is re-resolved
-                 through ``axiom_encode.corpus_resolver``; the resolved text
-                 must hash to ``provision_sha256``.
+                 (or a local cache) and every citation of the provision is
+                 re-resolved through ``axiom_encode.corpus_resolver``; the
+                 text (composed, when the provision was extended) must hash
+                 to ``provision_sha256``.
 
 Usage::
 
@@ -70,33 +73,49 @@ REPO_SLUGS = {
     "us": "TheAxiomFoundation/rulespec-us",
     "uk": "TheAxiomFoundation/rulespec-uk",
 }
+# Every key the corpus README's case-schema table documents.
 REQUIRED_CASE_KEYS = (
     "id",
     "jurisdiction",
     "repo",
     "commit",
     "parent_commit",
+    "commit_date",
+    "commit_subject",
     "pr_url",
     "module_path",
     "corpus_citation_path",
+    "corpus_citation_paths_all",
     "corpus_release",
     "corpus_release_content_sha256",
     "corpus_commit",
     "defect_kind",
+    "other_kind",
     "confidence",
     "description",
+    "description_source",
     "locator",
     "pre_fix_artifact_sha256",
     "post_fix_artifact_sha256",
     "provision_sha256",
+    "provision_chars",
     "provision_resolution",
+    "provision_extension",
+    "evidence_in_provision",
+    "evidence_check",
+    "judgeable_from_provision",
+    "provision_review",
     "fix_stage",
+    "artifacts_shipped",
     "family_id",
     "family_size",
     "family_representative",
-    "artifacts_shipped",
+    "triage_status",
+    "triage",
     "triage_notes",
 )
+FIX_STAGES = ("post_merge", "pre_merge_review")
+TRIAGE_STATUSES = ("fidelity", "unclear")
 # Fields that carry the answer a judge is scored against, or the triage
 # readers' words about it. A benchmark must not show them to a judge; every
 # other case.json field is checked to be free of defect-kind names and of its
@@ -113,6 +132,8 @@ LABEL_BEARING_KEYS = (
     "triage_notes",
     "evidence_in_provision",
     "evidence_check",
+    "judgeable_from_provision",
+    "provision_review",
 )
 DEFECT_KINDS = (
     "amount_mismatch",
@@ -132,6 +153,167 @@ def sha256_bytes(raw: bytes) -> str:
 
 def sha256_text(text: str) -> str:
     return sha256_bytes(text.encode("utf-8"))
+
+
+# --------------------------------------------------------------------------
+# Extended provisions, review quotes, local paths
+# --------------------------------------------------------------------------
+
+PROVISION_COMPOSITION = "sources_joined_v1"
+PROVISION_REVIEW_VERDICTS = ("in_provision", "in_other_citation", "not_in_sources")
+PROVISION_REVIEW_OUTCOMES = {
+    "in_provision": "kept",
+    "in_other_citation": "provision_extended",
+    "not_in_sources": "not_judgeable",
+}
+
+
+def provision_source_header(citation_path: str) -> str:
+    return f"--- Source: {citation_path} ---"
+
+
+def compose_provision(components: list[tuple[str, str]]) -> str:
+    """The provision text for ``(citation_path, text)`` components.
+
+    One component is its text, unchanged. Several are joined as
+    ``sources_joined_v1``: each text under a ``--- Source: <path> ---`` line,
+    with one blank line between components, in the order given.
+    """
+
+    if len(components) == 1:
+        return components[0][1]
+    return "\n\n".join(
+        f"{provision_source_header(path)}\n{text}" for path, text in components
+    )
+
+
+def split_provision(text: str, components: list[tuple[str, int]]) -> list[str] | None:
+    """Invert :func:`compose_provision` given each ``(citation_path, chars)``.
+
+    Returns the component texts, or None when ``text`` is not that
+    composition. Lengths make the split exact even when a component's own
+    text contains a line that looks like a header.
+    """
+
+    if len(components) == 1:
+        return [text] if len(text) == components[0][1] else None
+    parts: list[str] = []
+    position = 0
+    for index, (path, chars) in enumerate(components):
+        lead = ("\n\n" if index else "") + provision_source_header(path) + "\n"
+        if not text.startswith(lead, position):
+            return None
+        position += len(lead)
+        if position + chars > len(text):
+            return None
+        parts.append(text[position : position + chars])
+        position += chars
+    return parts if position == len(text) else None
+
+
+_TYPOGRAPHY = str.maketrans(
+    {"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-"}
+    | {"\u2014": "-", "\u00a0": " "}
+)
+_ELLIPSIS = re.compile(r"\.\.\.|\u2026")
+MAX_QUOTE_ELISION_CHARS = 300
+
+
+def _folded(text: str) -> tuple[str, list[int]]:
+    """``text`` case-folded with whitespace runs as one space and typographic
+    quotes and dashes flattened, plus each folded character's source offset."""
+
+    out: list[str] = []
+    offsets: list[int] = []
+    pending_space = False
+    for offset, char in enumerate(text):
+        if char.isspace() or char == "\u00a0":
+            pending_space = bool(out)
+            continue
+        if pending_space:
+            out.append(" ")
+            offsets.append(offset - 1)
+            pending_space = False
+        for piece in char.translate(_TYPOGRAPHY).casefold():
+            out.append(piece)
+            offsets.append(offset)
+    return "".join(out), offsets
+
+
+def locate_quote(quote: str, text: str) -> tuple[int, int] | None:
+    """Where ``quote`` occurs in ``text``, as a ``[start, end)`` character span.
+
+    Matching ignores case, whitespace runs and typographic quote and dash
+    forms. An ellipsis in the quote splits it into fragments that must occur
+    in order, each starting within ``MAX_QUOTE_ELISION_CHARS`` folded
+    characters of the end of the one before; the span then runs from the
+    first fragment's start to the last one's end. None when it does not occur.
+    """
+
+    haystack, offsets = _folded(text)
+    fragments = [_folded(part)[0] for part in _ELLIPSIS.split(quote)]
+    fragments = [part for part in fragments if part]
+    if not fragments:
+        return None
+    start = haystack.find(fragments[0])
+    while start >= 0:
+        end = start + len(fragments[0])
+        for part in fragments[1:]:
+            found = haystack.find(part, end)
+            if found < 0 or found - end > MAX_QUOTE_ELISION_CHARS:
+                break
+            end = found + len(part)
+        else:
+            return offsets[start], offsets[end - 1] + 1
+        start = haystack.find(fragments[0], start + 1)
+    return None
+
+
+_LOCAL_PATH_RULES = (
+    # A Claude session scratchpad: /private/tmp/claude-<uid>/<session>/<id>/scratchpad
+    (
+        re.compile(
+            r"(?:/private)?/tmp/claude-\d+/[A-Za-z0-9._-]+/[0-9a-f-]+(?:/scratchpad)?"
+        ),
+        "<scratch>",
+    ),
+    # A session worktree of a checkout under the org folder.
+    (
+        re.compile(
+            r"(?:/Users/[^/\s\"']+|~)/TheAxiomFoundation/"
+            r"([A-Za-z0-9._-]+)/\.claude/worktrees/[A-Za-z0-9._-]+"
+        ),
+        r"\1",
+    ),
+    # A checkout under the org folder: keep the repository name.
+    (re.compile(r"(?:/Users/[^/\s\"']+|~)/TheAxiomFoundation/(?=[A-Za-z0-9._-])"), ""),
+    (re.compile(r"(?:/Users/[^/\s\"']+|~)/TheAxiomFoundation\b"), "<checkouts>"),
+)
+LOCAL_PATH = re.compile(r"/Users/[A-Za-z0-9._-]+/|/private/(?:tmp|var)/|/tmp/claude-")
+
+
+def scrub_local_paths(text: str) -> str:
+    """Replace the triage machine's absolute paths with portable forms.
+
+    Session scratchpads become ``<scratch>`` and checkouts under the org
+    folder become the repository name (``rulespec-us/...``). Idempotent.
+    """
+
+    for pattern, replacement in _LOCAL_PATH_RULES:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def scrub_json(value: Any) -> Any:
+    """:func:`scrub_local_paths` over every string in a JSON value."""
+
+    if isinstance(value, str):
+        return scrub_local_paths(value)
+    if isinstance(value, list):
+        return [scrub_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: scrub_json(item) for key, item in value.items()}
+    return value
 
 
 def git(repo: Path | str, *args: str, binary: bool = False) -> Any:
@@ -416,6 +598,9 @@ def materialize_sparse_root(
     commit = content["git"]["commit"]
     release_dir = root / "releases" / name
     release_dir.mkdir(parents=True, exist_ok=True)
+    # Always present, so a release that carries nothing for this scope fails
+    # in the resolver the same way whatever an earlier lookup materialized.
+    (root / "data" / "corpus" / "provisions").mkdir(parents=True, exist_ok=True)
     target = release_dir / f"{sha}.json"
     if not target.exists():
         tmp = tempfile.NamedTemporaryFile(
@@ -451,6 +636,13 @@ def public_keys() -> tuple[str, ...]:
     if raw:
         return tuple(part.strip() for part in raw.split(",") if part.strip())
     return DEFAULT_RELEASE_PUBLIC_KEYS
+
+
+def portable_error(exc: BaseException, root: Path) -> str:
+    """An error's message without the local path of the sparse corpus root."""
+
+    message = str(exc).replace(f"{root}/", "").replace(str(root), "<corpus root>")
+    return message[:200]
 
 
 def direct_row_exact(
@@ -536,7 +728,7 @@ def resolve_provision(
         if getattr(exc, "reason", "") != "missing-release-metadata":
             raise
         result = direct_row_exact(root, payload["content"], citation)
-        result["resolver_error"] = str(exc)[:200]
+        result["resolver_error"] = portable_error(exc, root)
     else:
         result = {
             "mode": "axiom_encode_resolver",
@@ -616,6 +808,20 @@ def check_shipped(case_dir: Path, case: dict[str, Any], report: Report) -> None:
             report.fail(f"{cid}: {filename} sha256 {actual} != {case.get(key)}")
     if case.get("pre_fix_artifact_sha256") == case.get("post_fix_artifact_sha256"):
         report.fail(f"{cid}: pre-fix and post-fix artifacts are identical")
+    if case.get("fix_stage") not in FIX_STAGES:
+        report.fail(f"{cid}: unknown fix_stage {case.get('fix_stage')!r}")
+    if case.get("triage_status") not in TRIAGE_STATUSES:
+        report.fail(f"{cid}: unknown triage_status {case.get('triage_status')!r}")
+    provision_path = case_dir / "provision.txt"
+    provision_text = (
+        provision_path.read_text(encoding="utf-8") if provision_path.exists() else None
+    )
+    try:
+        problems = provision_record_problems(case, provision_text)
+    except (KeyError, TypeError) as exc:
+        problems = [f"provision records are malformed: {exc!r}"]
+    for message in problems:
+        report.fail(f"{cid}: {message}")
     locator = case.get("locator") or {}
     for key in ("pre_fix_lines", "post_fix_lines", "rule_path"):
         if key not in locator:
@@ -623,6 +829,109 @@ def check_shipped(case_dir: Path, case: dict[str, Any], report: Report) -> None:
     confidence = case.get("confidence")
     if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
         report.fail(f"{cid}: confidence must be within [0, 1]")
+
+
+def provision_components(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """The citations ``provision.txt`` is made of, first citation first.
+
+    Each entry has ``citation_path``, ``text_sha256``, ``chars`` and the
+    ``resolution`` record of its row. An unextended case has one: the first
+    citation, whose text is the whole provision.
+    """
+
+    extension = case.get("provision_extension")
+    first = {
+        "citation_path": case["corpus_citation_path"],
+        "text_sha256": case["provision_sha256"],
+        "chars": case["provision_chars"],
+        "resolution": case["provision_resolution"],
+    }
+    if not extension:
+        return [first]
+    first["text_sha256"] = extension["first_citation_text_sha256"]
+    first["chars"] = extension["first_citation_chars"]
+    return [first, *extension["added"]]
+
+
+def provision_record_problems(
+    case: dict[str, Any], provision_text: str | None
+) -> list[str]:
+    """What is inconsistent in a case's extension and review records.
+
+    ``provision_text`` is the shipped ``provision.txt``, or None for a
+    metadata-only case (the text checks are then skipped).
+    """
+
+    problems: list[str] = []
+    extension = case.get("provision_extension")
+    added_from = None
+    if extension is not None:
+        if extension.get("composition") != PROVISION_COMPOSITION:
+            problems.append("provision_extension has an unknown composition")
+        if not extension.get("added"):
+            problems.append("provision_extension adds no citation")
+        components = provision_components(case)
+        paths = [c["citation_path"] for c in components]
+        if len(set(paths)) != len(paths):
+            problems.append("provision_extension repeats a citation")
+        if provision_text is not None:
+            parts = split_provision(
+                provision_text, [(c["citation_path"], c["chars"]) for c in components]
+            )
+            if parts is None:
+                problems.append("provision.txt is not its recorded composition")
+            else:
+                for component, part in zip(components, parts, strict=True):
+                    if sha256_text(part) != component["text_sha256"]:
+                        problems.append(
+                            f"provision component {component['citation_path']} "
+                            "does not hash to its recorded digest"
+                        )
+                added_from = len(provision_source_header(paths[0])) + 1 + len(parts[0])
+    review = case.get("provision_review")
+    judgeable = case.get("judgeable_from_provision")
+    if review is None:
+        if judgeable is not None:
+            problems.append("judgeable_from_provision is set without a review")
+        if extension is not None:
+            problems.append("provision_extension is set without a review")
+        return problems
+    verdict = review.get("verdict")
+    if verdict not in PROVISION_REVIEW_VERDICTS:
+        problems.append(f"unknown provision_review verdict {verdict!r}")
+        return problems
+    if review.get("outcome") != PROVISION_REVIEW_OUTCOMES[verdict]:
+        problems.append("provision_review outcome does not follow from its verdict")
+    if judgeable is not (verdict != "not_in_sources"):
+        problems.append("judgeable_from_provision does not follow from the verdict")
+    if (verdict == "in_other_citation") != (extension is not None):
+        problems.append("provision_extension and the review verdict disagree")
+    quotes = review.get("decisive_quotes") or []
+    if verdict == "not_in_sources":
+        if not (review.get("missing_basis") or "").strip():
+            problems.append("a not_in_sources review must say what the fix rests on")
+        return problems
+    if not quotes:
+        problems.append("a judgeable case needs a decisive quote")
+    in_added = False
+    for quote in quotes:
+        span = quote.get("span")
+        if not (isinstance(span, list) and len(span) == 2):
+            problems.append("a decisive quote lacks its span")
+            continue
+        if provision_text is None:
+            continue
+        start, end = span
+        if not 0 <= start < end <= len(provision_text) or locate_quote(
+            quote.get("quote") or "", provision_text[start:end]
+        ) != (0, end - start):
+            problems.append(
+                f"decisive quote is not at its span: {(quote.get('quote') or '')[:60]!r}"
+            )
+        in_added = in_added or (added_from is not None and span[0] >= added_from)
+    if verdict == "in_other_citation" and provision_text is not None and not in_added:
+        problems.append("no decisive quote lies in an added citation")
+    return problems
 
 
 COMMIT_METADATA_FORMAT = "%H%x00%P%x00%cI%x00%s"
@@ -731,54 +1040,59 @@ def _check_git_case(
 def check_corpus(
     cases: list[dict[str, Any]], corpus_repo: Path | None, report: Report
 ) -> None:
-    """Corpus tier: the provision file and row each case names reproduce.
+    """Corpus tier: the provision file and row of every component reproduce.
 
-    Cases are grouped by ``(corpus_commit, provision_file)``; each pair is
-    streamed once through :func:`scan_lines`, which hashes the whole blob and
-    keeps only the row lines the group's cases point at.
+    A case's components are its first citation and any citation its provision
+    was extended with. Components are grouped by ``(corpus_commit,
+    provision_file)``; each pair is streamed once through :func:`scan_lines`,
+    which hashes the whole blob and keeps only the row lines the group points
+    at.
     """
 
     if corpus_repo is None:
         for _case in cases:
             report.skip("corpus")
         return
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    groups: dict[tuple[str, str], list[tuple[str, dict[str, Any]]]] = {}
     for case in cases:
         try:
-            pair = (
-                case["corpus_commit"],
-                case["provision_resolution"]["provision_file"],
-            )
-        except KeyError as exc:
-            report.fail(f"{case.get('id')}: corpus tier error: {exc}")
-            continue
-        groups.setdefault(pair, []).append(case)
+            for component in provision_components(case):
+                resolution = component["resolution"]
+                pair = (
+                    resolution.get("corpus_commit") or case["corpus_commit"],
+                    resolution["provision_file"],
+                )
+                groups.setdefault(pair, []).append((case["id"], component))
+        except (KeyError, TypeError) as exc:
+            report.fail(f"{case.get('id')}: corpus tier error: {exc!r}")
     with GitObjectReader(corpus_repo) as reader:
         for (commit, provision_file), group in sorted(groups.items()):
             try:
                 wanted = {
-                    int(case["provision_resolution"]["line_number"]) for case in group
+                    int(component["resolution"]["line_number"])
+                    for _cid, component in group
                 }
                 chunks = reader.blob_chunks(commit, provision_file)
                 scanned = None if chunks is None else scan_lines(chunks, wanted)
             except (KeyError, RuntimeError, ValueError) as exc:
-                for case in group:
-                    report.fail(f"{case['id']}: corpus tier error: {exc}")
+                for cid, _component in group:
+                    report.fail(f"{cid}: corpus tier error: {exc}")
                 continue
-            for case in group:
+            for cid, component in group:
                 try:
-                    _check_corpus_case(case, scanned, report)
+                    _check_corpus_component(cid, component, scanned, report)
                 except (KeyError, ValueError) as exc:
-                    report.fail(f"{case['id']}: corpus tier error: {exc}")
+                    report.fail(f"{cid}: corpus tier error: {exc}")
 
 
-def _check_corpus_case(
-    case: dict[str, Any],
+def _check_corpus_component(
+    cid: str,
+    component: dict[str, Any],
     scanned: tuple[str, int, dict[int, str]] | None,
     report: Report,
 ) -> None:
-    cid = case["id"]
-    resolution = case["provision_resolution"]
+    resolution = component["resolution"]
+    cid = f"{cid} [{component['citation_path']}]"
     if scanned is None:
         report.fail(f"{cid}: provision file missing at corpus commit")
         return
@@ -809,7 +1123,7 @@ def _check_corpus_case(
     if resolution["mode"] == "direct_row_exact" or (
         not resolution.get("slice_required") and not resolution.get("component_rows")
     ):
-        if isinstance(body, str) and sha256_text(body) != case["provision_sha256"]:
+        if isinstance(body, str) and sha256_text(body) != component["text_sha256"]:
             report.fail(f"{cid}: provision text digest does not equal the row body")
 
 
@@ -829,12 +1143,18 @@ def check_release(
     )
     if payload["content"]["git"]["commit"] != case["corpus_commit"]:
         report.fail(f"{cid}: release names a different corpus commit")
-    result = resolve_provision(
-        payload, corpus_repo, roots_dir, case["corpus_citation_path"]
-    )
-    if result["mode"] != case["provision_resolution"]["mode"]:
-        report.fail(f"{cid}: resolution mode changed to {result['mode']}")
-    if sha256_text(result["text"]) != case["provision_sha256"]:
+    texts: list[tuple[str, str]] = []
+    for component in provision_components(case):
+        citation = component["citation_path"]
+        result = resolve_provision(payload, corpus_repo, roots_dir, citation)
+        if result["mode"] != component["resolution"]["mode"]:
+            report.fail(
+                f"{cid}: resolution mode of {citation} changed to {result['mode']}"
+            )
+        if sha256_text(result["text"]) != component["text_sha256"]:
+            report.fail(f"{cid}: re-resolved text of {citation} does not reproduce")
+        texts.append((citation, result["text"]))
+    if sha256_text(compose_provision(texts)) != case["provision_sha256"]:
         report.fail(f"{cid}: re-resolved provision text digest does not reproduce")
 
 

@@ -148,8 +148,8 @@
   },
   "pre_fix_artifact_sha256": "35a24b56fa3f952ee1204408d0ceac8062d2ef6704a8150f4e937e1261e84502",
   "post_fix_artifact_sha256": "e69f91d61ad1527643e58ada347fe4fb65f332413edb96335e122b8e331cfa7c",
-  "provision_sha256": "5ca4a128af9ce41c4736835c17e6d518f8709d7b9576c598f246ab9cb044336c",
-  "provision_chars": 564,
+  "provision_sha256": "8bf6b667c783cdf0de4f125f34213183bf386f4ae092987156b7426e797f9b41",
+  "provision_chars": 337541,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/9903.02.83",
@@ -236,7 +236,34 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "5ca4a128af9ce41c4736835c17e6d518f8709d7b9576c598f246ab9cb044336c",
+    "first_citation_chars": 564,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+        "chars": 336864,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 12,
+          "record_id": "e36a6a5a-a64b-506e-88c2-3ce5dad1de30",
+          "stored_body_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "resolved_text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-18",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -267,7 +294,7 @@
           "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -285,7 +312,7 @@
           "reciprocal_switzerland_below_floor_column_2_duty_change.versions[0].effective_from"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -307,7 +334,7 @@
           "November 14, 2025",
           "14 November 2025"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -339,7 +366,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -349,17 +376,71 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 5,
-    "post_side_matched": 0,
+    "post_side_matched": 5,
     "pre_side_tested": 1,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99",
+        "span": [
+          294970,
+          295160
+        ]
+      },
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "span": [
+          328956,
+          329031
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Annex II of the notice inserts heading 9903.02.83 effective for goods entered on or after 12:01 a.m. on November 14, 2025. Every pre-fix rule starts on 2026-02-15, so the 15% floor is missing from 2025-11-14 through 2026-02-14. provision.txt is only the 564-character heading text and gives no date, so a judge holding it cannot tell either date is right.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.92,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-85de90c8b887",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -370,14 +451,13 @@
     "verifier_confidence": 0.93,
     "verifier_justification": "The diff changes `effective_from` from '2026-02-15' to '2025-11-14' on all eight rules of the Switzerland below-floor heading 9903.02.83 module, which is a version-window change, not provenance bookkeeping (the added proof atoms and the second corpus_citation_path are the supporting provenance for exactly that date change; no formula, parameter value, input, or output moved). Reading the cited provision through the pinned release (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provision us/rulemaking/federal-register/2025-12-18/2025-23316) confirms Annex II states \"Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 ... is modified as follows:\" and item 7 \"New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence\" — so the source fixes the heading's start at 2025-11-14 and the pre-fix 2026-02-15 disagreed with it (the string \"February\" does not occur anywhere in the notice). I tried the competing readings and none survive: it is not mechanical because effective dates are explicitly excluded from that class, and it is not untraceable_branch because the more specific effective-date kind governs a wrong effective_from; the encoded meaning genuinely differed for goods entered 2025-11-14 through 2026-02-14, where the 15 percent floor top-up would not have fired.",
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
-    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/4d2856a958/009.diff. The same -2026-02-15/+2025-11-14 pair appears eight times, once per rule, so the whole module's window moves coherently; there is no partial/mixed-date state left behind and no effective_to is introduced. Both added proof-atom excerpts are verbatim in the pinned provision text (the \"New headings\" excerpt is source line-wrapped as \"New headings 9903.02.82-9903.02.91 shall be inserted in \\nnumerical sequence\", consistent with the commit's note about FR hard-wrap normalization). Two caveats for the reviewer, neither of which changes the verdict but both of which affect how the case reads as a corpus exemplar: (1) the module was introduced earlier in the same PR #1197 (add 8fd1c00ed -> r1 fix 75a367787 -> this r2 fix 4d2856a95 -> r3 fix 0ae98bd52), so this defect was caught in pre-merge review rather than shipped to main — the corpus should be explicit about whether review-caught defects count; (2) roughly 140 of the 184 diff lines are added effective_period proof atoms and the corpus_citation_path -> corpus_citation_paths widening, which are provenance; only the eight one-line date changes carry meaning. A later commit (0ae98bd52, \"exclusion judgments dated from EO 14257 effectiveness\") re-dates some judgments again, so if the corpus also samples that commit, watch for double-counting the same effective-date family in this module.",
+    "verifier_notes": "Bundle: <scratch>/diffs/us/4d2856a958/009.diff. The same -2026-02-15/+2025-11-14 pair appears eight times, once per rule, so the whole module's window moves coherently; there is no partial/mixed-date state left behind and no effective_to is introduced. Both added proof-atom excerpts are verbatim in the pinned provision text (the \"New headings\" excerpt is source line-wrapped as \"New headings 9903.02.82-9903.02.91 shall be inserted in \\nnumerical sequence\", consistent with the commit's note about FR hard-wrap normalization). Two caveats for the reviewer, neither of which changes the verdict but both of which affect how the case reads as a corpus exemplar: (1) the module was introduced earlier in the same PR #1197 (add 8fd1c00ed -> r1 fix 75a367787 -> this r2 fix 4d2856a95 -> r3 fix 0ae98bd52), so this defect was caught in pre-merge review rather than shipped to main — the corpus should be explicit about whether review-caught defects count; (2) roughly 140 of the 184 diff lines are added effective_period proof atoms and the corpus_citation_path -> corpus_citation_paths widening, which are provenance; only the eight one-line date changes carry meaning. A later commit (0ae98bd52, \"exclusion judgments dated from EO 14257 effectiveness\") re-dates some judgments again, so if the corpus also samples that commit, watch for double-counting the same effective-date family in this module.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 3 (li-87) and its below-floor sibling index 4; note its paired module ch-82 (index 8) had the mirror-image error (too early), so pre-fix the Switzerland floor pair was internally inconsistent — above-floor live from August, below-floor not until February. Source verified in the same Annex II text. Diff: 8 effective_from changes, two effective_period atoms per rule, summary and corpus_citation_paths; no formula change. | verifier confirmed at 0.93",
-  "family_id": "us-4d2856a9-85de90c8b887",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 3 (li-87) and its below-floor sibling index 4; note its paired module ch-82 (index 8) had the mirror-image error (too early), so pre-fix the Switzerland floor pair was internally inconsistent — above-floor live from August, below-floor not until February. Source verified in the same Annex II text. Diff: 8 effective_from changes, two effective_period atoms per rule, summary and corpus_citation_paths; no formula change. | verifier confirmed at 0.93"
 }

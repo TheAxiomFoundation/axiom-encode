@@ -223,6 +223,7 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -347,7 +348,41 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt (General Note 3, page 1) does not govern the entry_is_line_* flags. No other/ file names any chapter-01 line in a section 301, 232 or reciprocal-annex list: a search for 0101–0106 headings found nothing. So nothing shows that the pre-fix equality tests against out-of-chapter numbers, which are always false for chapter-01 lines, give wrong results. The post-fix replaces them with opaque caller inputs that no text supports more directly.",
+    "missing_basis": "The generator design and the PR's round-2 evaluation of exemplar coupling; the semantic re-gating came in later commits (a9562cfd4, 198bee703). Section 301 product lists naming chapter-01 lines, if any, are not in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.75,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-2a6bdb01-7331f444c639",
+  "family_size": 96,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -361,11 +396,10 @@
     "verifier_notes": "Caveats a reviewer should weigh. (1) The module's own summary still asserts \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values … runtime semantics are unchanged\" — that is generator boilerplate and is contradicted by the diff, which removes formulas and proof atoms; do not treat it as a denial. (2) Every consuming formula (`entry_is_line_a or entry_is_line_b`, the §301 slots, §338 gate) is byte-identical before and after; this commit changes only where the flags come from (local derived rule → caller input under the referenced-implies-input convention). If a reviewer scores \"meaning change\" strictly as a change to surviving formula text, this commit alone looks like an input-surface refactor and the case slides toward unclear. (3) The repair is partial in this file: `entry_is_energy_resource` (cited to 9903.01.13 energy/critical minerals) still reads `- formula: (hts_number == \"7202.11.10.00\")` at post line 1950, and the other-chapter citation paths remain in `source_verification.corpus_citation_paths`, so the same exemplar-grounding defect survives the commit for at least one rule. (4) The full membership-semantic regating (`entry_is_section_122_exempt` / `entry_is_section_232_covered`) and the new §232 steel component land in sibling commits of PR #1300, so the PR quote in the first reader's justification describes the stacked change, not literally this diff. Verified read-only via `git show` of parent 956a5474 and 2a6bdb01de; no provision lookup was needed because the defect is structural (wrong-chapter grounding), not text-dependent.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Diff is exactly two hunks in every module in this chunk: the module summary (3 lines) plus removal of the 100 lines holding the five derived rules; nothing else changed (no added rules, no formula edits). Downstream consumers still reference the identifiers in this commit (e.g. entry_is_reciprocal_annex_excluded has formula 'entry_is_line_a', china_301 component sums five 'if entry_is_line_X and origin_is_china' terms), so the identifiers survive as caller inputs under the repo's referenced-implies-input convention; the semantic re-gating lands in the later PR #1300 commits a9562cfd4 'b1.6: generalize generated component surfaces' and 198bee703. Verified through the pinned corpus release that us/statute/hts/7202.11.10.00 is a chapter-72 ferromanganese line ('Containing by weight more than 2 percent but not more than 4 percent of carbon'), i.e. outside chapter 01. The summary sentence 'This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values' is boilerplate carried verbatim from the parent version and describes the sibling-distinctness serialization transform, not this removal; the PR ledger confirms a real surface change ('-500 removed exemplar-flag outputs'). PR body names the defect: 'the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on section 301-member lines for all origins'. Runner-up kind is wrong_entity_or_scope (chapter module carrying another chapter's line semantics); confidence held at 0.7 because the commit message itself is generic and the naming/gating half of the repair is a later commit. Companion .test.yaml files changed in the same commit (100 test files in the bundle). | verifier confirmed at 0.70",
-  "family_id": "us-2a6bdb01-7331f444c639",
-  "family_size": 96,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Diff is exactly two hunks in every module in this chunk: the module summary (3 lines) plus removal of the 100 lines holding the five derived rules; nothing else changed (no added rules, no formula edits). Downstream consumers still reference the identifiers in this commit (e.g. entry_is_reciprocal_annex_excluded has formula 'entry_is_line_a', china_301 component sums five 'if entry_is_line_X and origin_is_china' terms), so the identifiers survive as caller inputs under the repo's referenced-implies-input convention; the semantic re-gating lands in the later PR #1300 commits a9562cfd4 'b1.6: generalize generated component surfaces' and 198bee703. Verified through the pinned corpus release that us/statute/hts/7202.11.10.00 is a chapter-72 ferromanganese line ('Containing by weight more than 2 percent but not more than 4 percent of carbon'), i.e. outside chapter 01. The summary sentence 'This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values' is boilerplate carried verbatim from the parent version and describes the sibling-distinctness serialization transform, not this removal; the PR ledger confirms a real surface change ('-500 removed exemplar-flag outputs'). PR body names the defect: 'the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on section 301-member lines for all origins'. Runner-up kind is wrong_entity_or_scope (chapter module carrying another chapter's line semantics); confidence held at 0.7 because the commit message itself is generic and the naming/gating half of the repair is a later commit. Companion .test.yaml files changed in the same commit (100 test files in the bundle). | verifier confirmed at 0.70"
 }

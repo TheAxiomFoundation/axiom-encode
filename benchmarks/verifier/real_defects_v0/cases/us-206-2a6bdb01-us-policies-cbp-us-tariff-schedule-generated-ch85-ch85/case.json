@@ -200,8 +200,8 @@
   },
   "pre_fix_artifact_sha256": "a9e9d54dd08bd5119b29bbade0143ff6a39491d97e2f5ca90a1088d6da550037",
   "post_fix_artifact_sha256": "d2b1b2301268727a3434811ff492873889b9a5e552ac690f93cb97833cbca111",
-  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
-  "provision_chars": 4835,
+  "provision_sha256": "b6a514cd370e042ee995118a793242f608e7f9cf4b11ba4bcd16583ba25ab9d2",
+  "provision_chars": 7728,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -223,7 +223,54 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "first_citation_chars": 4835,
+    "added": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-508",
+        "text_sha256": "1d38bced8368a5a715806910bf9d2d27dcfd79d782963e42b7136bca2f511eb1",
+        "chars": 2439,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-508",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 518,
+          "record_id": "4bc5e569-7eef-5003-80e3-796509345551",
+          "stored_body_sha256": "1d38bced8368a5a715806910bf9d2d27dcfd79d782963e42b7136bca2f511eb1",
+          "resolved_text_sha256": "1d38bced8368a5a715806910bf9d2d27dcfd79d782963e42b7136bca2f511eb1",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74"
+        }
+      },
+      {
+        "citation_path": "us/statute/hts/9903.91.02",
+        "text_sha256": "cf6d36cab031064dc7026aaef0200b71b6c5288620fb2644125060bbfc22fc07",
+        "chars": 304,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/9903.91.02",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+          "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+          "line_number": 1655,
+          "record_id": "de7bddc0-eb0b-5db0-a688-3961b0f57ede",
+          "stored_body_sha256": "cf6d36cab031064dc7026aaef0200b71b6c5288620fb2644125060bbfc22fc07",
+          "resolved_text_sha256": "cf6d36cab031064dc7026aaef0200b71b6c5288620fb2644125060bbfc22fc07",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-31",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -337,7 +384,7 @@
         "where": [
           "triage.pre_fix_wrong_because"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -352,12 +399,66 @@
       }
     ],
     "post_side_tested": 3,
-    "post_side_matched": 0,
+    "post_side_matched": 1,
     "pre_side_tested": 6,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-508",
+        "quote": "(c) Heading 9903.91.02 applies to products of China that are classified in the following 8-digit subheadings, effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on September 27, 2024: (1) 8541.42.00 (2) 8541.43.00",
+        "span": [
+          5883,
+          6192
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/9903.91.02",
+        "quote": "articles the product of China, as provided for in subdivision (c) of U.S. note 31 to this subchapter",
+        "span": [
+          7490,
+          7590
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Heading 9903.91.02 (the solar section 301 +50% duty) covers China products in all of subheadings 8541.42.00 and 8541.43.00 under U.S. note 31(c). The pre-fix entry_is_line_e, which drives ch85_solar_china_section_301_additional_duty_rate, holds only for hts_number == '8541.42.00.10'. So other covered chapter 85 lines get no section 301 treatment. Lines a-d test HTS numbers from chapters 72, 76, 95 and 22, which can never match a chapter 85 entry. The post-fix makes these caller-supplied membership inputs, which can follow the note.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.72,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-2a6bdb01-e7ef5f13cd8e",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -371,11 +472,10 @@
     "verifier_notes": "Refutation attempts and why they failed. (1) \"Summary says runtime semantics unchanged\" — that sentence (\"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values ... Values, dates, dtypes, proof atoms, and runtime semantics are unchanged\") is generator boilerplate about the parenthesization/scalar-rename serialization and appears verbatim in the PRE file too, so it is no evidence that this change is inert. (2) \"Enhancement / new coverage the module never claimed\" — the module is a chapter-wide composition (schedule_base_general_rate does ch85_general_rate[hts_line] over the whole chapter table) and it emitted the five flags as outputs, so it made a false chapter-85 claim rather than declining to claim. (3) \"Defined elsewhere via import\" — checked: no import defines entry_is_line_*; only the untouched hand-built witness composition (us/policies/cbp/us-tariff-duty/composition.yaml) does, and generated chapters do not import it.\n\nCaveats a reviewer should weigh. This commit is one step of the PR #1300 stack: after it, ch85 still carries the exemplar coupling (`section_122_component_rate`: \"if entry_is_line_a or entry_is_line_b: 0\" at post line 2571, same at brazil/forced-labor §301 3038/3196, and `entry_is_reciprocal_annex_excluded` still `formula: entry_is_line_a`). The membership re-grounding the PR body describes (\"gated on `entry_is_section_122_exempt` / `entry_is_section_232_covered`\", \"unlawfully suppressed the surcharge on §301-member lines for all origins\") landed in later commits, so this commit removes the mis-grounded definitions and defers the correct membership to the caller rather than fixing the incidence inside the module. Kind is a near-tie for entry_is_line_e alone — 8541.42.00.10 is a genuine chapter-85 PV line standing in for the whole 9903.91.02 / note 31(c) membership, which reads as wrong_entity_or_scope — but a through d are grounded on other chapters entirely and the fix shape is removal, which is the untraceable_branch signature, so the kind holds for the change as a whole. I did not run resolve_provision: the defect does not hinge on a number, boundary or clause in the source text, only on the module's own proof atoms citing corpus paths for other chapters' lines, which the diff shows directly.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same hunk pattern as index 72, with the chapter-specific wrinkle that exemplar line e (8541.42.00.10) IS a chapter 85 line, so the defect here is under-inclusive membership rather than a wholly foreign-chapter condition; the other four exemplars remain out of chapter. Verified the post-fix file references entry_is_line_* 19 times with no local definitions. Same doubt as index 72 about the retained 'runtime semantics are unchanged' boilerplate and the multi-commit repair (follow-up c27e3d99f replaces flags c and e with membership-semantic inputs, which is where chapter 85's solar coverage is properly re-grounded). | verifier confirmed at 0.70",
-  "family_id": "us-2a6bdb01-e7ef5f13cd8e",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same hunk pattern as index 72, with the chapter-specific wrinkle that exemplar line e (8541.42.00.10) IS a chapter 85 line, so the defect here is under-inclusive membership rather than a wholly foreign-chapter condition; the other four exemplars remain out of chapter. Verified the post-fix file references entry_is_line_* 19 times with no local definitions. Same doubt as index 72 about the retained 'runtime semantics are unchanged' boilerplate and the multi-commit repair (follow-up c27e3d99f replaces flags c and e with membership-semantic inputs, which is where chapter 85's solar coverage is properly re-grounded). | verifier confirmed at 0.70"
 }

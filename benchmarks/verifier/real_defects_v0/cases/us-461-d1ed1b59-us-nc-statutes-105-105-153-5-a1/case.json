@@ -145,6 +145,7 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -357,7 +358,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "Married, filing jointly/ Up to $40,000 $3,000 surviving spouse Over $40,000 Up to $60,000 2,500",
+        "span": [
+          5765,
+          5860
+        ]
+      },
+      {
+        "citation_path": "us-nc/statute/105/105-153.5",
+        "quote": "Over $120,000 Up to $140,000 500.00 Over $140,000 0 Head of Household",
+        "span": [
+          5963,
+          6032
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The §105-153.5(a1) table in provision.txt starts each filing status at $3,000 and has seven bands, for example MFJ up to $140,000. The pre-fix tables have six bands per status, start at $2,500 and stop at $120,000 for MFJ, so every band amount is $500 too low and the top band is missing.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-d1ed1b59-1aed1f526eec",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -371,11 +426,10 @@
     "verifier_notes": "Verified source text: the resolver (pinned release us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda, provision file data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl line 52, body sha256 f40ff33b90…) gives current §105-153.5(a1) as seven bands per filing status topping at $3,000 with MFJ bounds 40k/60k/80k/100k/120k/140k, HoH 30/45/60/75/90/105k, Single and MFS 20/30/40/50/60/70k. The post-fix tables match that exactly; the pre-fix tables match the pre-2022 statute exactly (same bounds minus the top band, every amount $500 lower, $2,500 max). So the pre-fix numbers were internally coherent law, just the wrong vintage — that is the reason I moved the kind.\n\nTwo honest counterweights for the reviewer, which is why confidence is 0.6 and not higher: (1) resolving the pre-fix citation path `us-nc/statute/105/105-153.5/a1` at the parent commit 5c087fc884 through the same pinned corpus returns the CURRENT text ($3,000, seven bands, sha256 2422c4d27b…) — the stale predecessor fragment is no longer reachable, so a reviewer who defines \"the cited source\" as what that path resolves to today would legitimately keep amount_mismatch, since the encoded cells disagree with the resolvable cited text. (2) The diff really does change ~60 table cells and add a band per status, and the PR bullet \"encode the current §105-153.5 child-deduction bands\" supports the numeric framing. If the corpus rubric prefers root cause, this is wrong_period_or_effective_date; if it prefers the surface of what the fix edited, amount_mismatch survives.\n\nSeparately, the first reader's justification quote (\"independent review fixed two actionable findings: incomplete current child-deduction bands and an incorrectly anchored wagering proof\") is weak evidence for the pre-fix defect: it describes findings raised and fixed inside PR #1106's own review cycle against an intermediate head, not the state of main before d1ed1b5949, and the \"wagering proof\" half belongs to a different module (the §165(d) itemized component, not a1.yaml). The decisive evidence for this module is the diff itself plus the old summary line.\n\nNot mechanical: parameter values and version windows both changed. Not not_a_defect: the module fed us-nc/policies/income_tax/resident_core_liability_pipeline.yaml for TY2026, so the superseded schedule was live, producing child deductions $500 low per band with the >120k band wrongly zeroed at what the current law makes a $500 band.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read and matched cell by cell against the pinned successor (corpus b403bf49, §105-153.5(a1)): 'Married, filing jointly/ Up to $40,000 $3,000 ... Over $120,000 Up to $140,000 500.00 Over $140,000 0', Head of Household to $105,000, Single and MFS to $70,000 — identical to the post-fix 28-entry tables. The same commit also fixes the version window from the timeless effective_from '0001-01-01' to '2022-01-01' and repoints the citation from the .../105-153.5/a1 fragment to the section, so this module carries a wrong_period_or_effective_date aspect as well; I tagged amount_mismatch because the decisive change is the replacement of every band bound and deduction amount. Pre-fix summary even self-described as 'Effective for taxable years beginning before January 1, 2022', yet the module fed the TY2026 resident pipeline. | verifier reclassified amount_mismatch -> wrong_period_or_effective_date at 0.60; verifier kind used",
-  "family_id": "us-d1ed1b59-1aed1f526eec",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read and matched cell by cell against the pinned successor (corpus b403bf49, §105-153.5(a1)): 'Married, filing jointly/ Up to $40,000 $3,000 ... Over $120,000 Up to $140,000 500.00 Over $140,000 0', Head of Household to $105,000, Single and MFS to $70,000 — identical to the post-fix 28-entry tables. The same commit also fixes the version window from the timeless effective_from '0001-01-01' to '2022-01-01' and repoints the citation from the .../105-153.5/a1 fragment to the section, so this module carries a wrong_period_or_effective_date aspect as well; I tagged amount_mismatch because the decisive change is the replacement of every band bound and deduction amount. Pre-fix summary even self-described as 'Effective for taxable years beginning before January 1, 2022', yet the module fed the TY2026 resident pipeline. | verifier reclassified amount_mismatch -> wrong_period_or_effective_date at 0.60; verifier kind used"
 }

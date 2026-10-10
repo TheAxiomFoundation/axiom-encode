@@ -71,6 +71,7 @@
     "requested_citation_path": "us/regulation/45/1302/12",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -190,7 +191,69 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/regulation/45/1302/12",
+        "quote": "a Tribal program may determine any pregnant women or children in the approved service area to be eligible for services regardless of income, if they meet the requirements of paragraph (b) of this section.",
+        "span": [
+          4116,
+          4320
+        ]
+      },
+      {
+        "citation_path": "us/regulation/45/1302/12",
+        "quote": "and if they meet the requirements of paragraph (b) of this section.",
+        "span": [
+          5295,
+          5362
+        ]
+      },
+      {
+        "citation_path": "us/regulation/45/1302/12",
+        "quote": "(3) For Migrant or Seasonal Head Start, a child must be younger than compulsory school age by the date used to determine public school eligibility",
+        "span": [
+          1272,
+          1418
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Paragraphs (e)(1) and (f) open the Tribal and Migrant/Seasonal routes only to pregnant women or children who meet paragraph (b), and paragraph (b) gives each program its own age test. As the judge sees it, the pre-fix tribal path is the bare imported tribal_service_area_participant_eligible and the migrant path checks no paragraph-(b) age or subject condition. The post-fix module ties each route to pregnant woman or child plus that program's own age requirement.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-044fe328-d4f254261d0c",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -201,14 +264,13 @@
     "verifier_confidence": 0.66,
     "verifier_justification": "The first reader's failure scenario is refuted by the composed semantics: pre-fix, both path rules consumed regulation outputs whose formulas are `tribal_program and participant_in_approved_service_area and participant_meets_age_requirements_under_paragraph_b` and `at_least_one_family_member_income_comes_primarily_from_agricultural_employment and participant_meets_age_requirements_under_paragraph_b`, and that bridge (defined in this same pipeline pre-fix) already required `participant_is_pregnant_woman or (participant_is_child and <an age requirement>)`, so a participant who was neither a pregnant woman nor an age-qualifying child could never fire either path. The clause \"if they meet the requirements of paragraph (b) of this section\" was therefore represented, not absent; what was wrong is that the bridge ORs the three program-context branches, so in a dual-context program (tribal_program and migrant_or_seasonal_program both true) the Migrant/Seasonal age branch satisfied the Tribal route and the Early Head Start age branch satisfied the Migrant route — the wrong branch firing, which the fix closes by pinning each route to its own context's age predicate. The companion tests added in the same commit are named exactly that (`migrant_age_fact_cannot_activate_tribal_path_in_dual_context`, `tribal_age_fact_cannot_activate_migrant_path_in_dual_context`) and only the dual-context case changes any terminal output (`early_head_start_eligible` flips holds → not_holds). It is a genuine fidelity correction against 45 CFR 1302.12(b)(3)/(f), but the kind is a mis-combined boolean route gate, not an unrepresented clause.",
     "verifier_quote": "+          and (\n+            participant_is_pregnant_woman\n+            or (\n+              participant_is_child\n+              and migrant_or_seasonal_head_start_age_requirement\n+            )\n+          )",
-    "verifier_notes": "Key files: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/044fe328f2/000.diff; pre-fix module `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 2343854f88:us/policies/hhs/head_start/eligibility_pipeline.yaml`; the shared bridge is the pipeline rule `participant_meets_age_requirements_under_paragraph_b` (pre-fix lines ~126-150), whose formula is `(tribal_program and (pregnant or (child and (EHS or HS-preschool age)))) or (migrant_or_seasonal_program and (pregnant or (child and MSHS age)))`, and it feeds the undeclared name of the same spelling inside us/regulations/45-cfr/1302/12.yaml (that module has no inputs: section; the new tests confirm the binding by asserting `#tribal_service_area_participant_eligible: holds` without supplying the age fact). Reachability: in a pure tribal or pure migrant context the pre-fix formulas are already equivalent to the post-fix ones, so the only defective inputs are dual-context ones. The migrant-route hardening is squarely source-grounded ((f) plus (b)(3) \"For Migrant or Seasonal Head Start, a child must be younger than compulsory school age\"); the tribal-route hardening (requiring (b)(1)/(b)(2) even when the same program is Migrant/Seasonal) is a defensible but less clearly compelled reading of (e)(1), and it changes no terminal output — only the intermediate `head_start_tribal_service_area_path_satisfied` / `head_start_participation_path_satisfied` outputs. Runner-up kind is wrong_entity_or_scope (a route accepting the other program scope's age requirement); unrepresented_clause is the weakest fit because the paragraph-(b) condition and the pregnant-woman/child subject predicate were both already in the composed pre-fix logic. The first reader's cited quote (\"Tribal + Migrant/Seasonal routes with dual-context contamination negatives\") is verbatim PR-body text, but it describes the original composition PR's test coverage, not this hardening commit; the PR review comment's Head Start finding is about the \"public age bridge\" and participation outputs, which is consistent with the contamination reading.",
+    "verifier_notes": "Key files: diff <scratch>/diffs/us/044fe328f2/000.diff; pre-fix module `git -C rulespec-us show 2343854f88:us/policies/hhs/head_start/eligibility_pipeline.yaml`; the shared bridge is the pipeline rule `participant_meets_age_requirements_under_paragraph_b` (pre-fix lines ~126-150), whose formula is `(tribal_program and (pregnant or (child and (EHS or HS-preschool age)))) or (migrant_or_seasonal_program and (pregnant or (child and MSHS age)))`, and it feeds the undeclared name of the same spelling inside us/regulations/45-cfr/1302/12.yaml (that module has no inputs: section; the new tests confirm the binding by asserting `#tribal_service_area_participant_eligible: holds` without supplying the age fact). Reachability: in a pure tribal or pure migrant context the pre-fix formulas are already equivalent to the post-fix ones, so the only defective inputs are dual-context ones. The migrant-route hardening is squarely source-grounded ((f) plus (b)(3) \"For Migrant or Seasonal Head Start, a child must be younger than compulsory school age\"); the tribal-route hardening (requiring (b)(1)/(b)(2) even when the same program is Migrant/Seasonal) is a defensible but less clearly compelled reading of (e)(1), and it changes no terminal output — only the intermediate `head_start_tribal_service_area_path_satisfied` / `head_start_participation_path_satisfied` outputs. Runner-up kind is wrong_entity_or_scope (a route accepting the other program scope's age requirement); unrepresented_clause is the weakest fit because the paragraph-(b) condition and the pregnant-woman/child subject predicate were both already in the composed pre-fix logic. The first reader's cited quote (\"Tribal + Migrant/Seasonal routes with dual-context contamination negatives\") is verbatim PR-body text, but it describes the original composition PR's test coverage, not this hardening commit; the PR review comment's Head Start finding is about the \"public age bridge\" and participation outputs, which is consistent with the contamination reading.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes (us/regulation/45/1302/12): (e)(1) \"a Tribal program may determine any pregnant women or children in the approved service area to be eligible for services regardless of income, if they meet the requirements of paragraph (b) of this section\"; (f) \"...and if they meet the requirements of paragraph (b) of this section.\" The pre-fix module summary already CLAIMED \"the Tribal and Migrant or Seasonal paths with the paragraph-(b) age predicates\" and the pre-fix proof atom quoted the (e)(1) sentence truncated just before the paragraph-(b) clause, so the encoding asserted a gate it did not implement. The module also carries an unused standalone rule participant_meets_age_requirements_under_paragraph_b (defined at line 89, referenced nowhere pre- or post-fix); the fix inlined equivalent logic into the two path rules rather than consuming it. Companion test adds two negatives named migrant_age_fact_cannot_activate_tribal_path_in_dual_context and tribal_age_fact_cannot_activate_migrant_path_in_dual_context, which would have failed pre-fix — direct behavior evidence. Commit message is a bare generic subject (\"Harden benefit eligibility boundaries\", empty body), so the quote comes from the PR body; hence confidence 0.8 rather than higher. The diff changed nothing else in this module (only the two formulas and their supporting import proof atoms). Follow-up: de7bc07da \"Fix Head Start eligibility boundaries\" later repaired a separate defect flagged in MaxGhenis's blind-review comment on PR #1010 (\"the Head Start public age bridge is wrong for ordinary and dual program contexts\") — that is a different defect from this one and is NOT fixed here. | verifier reclassified unrepresented_clause -> polarity_or_logic at 0.66; verifier kind used",
-  "family_id": "us-044fe328-d4f254261d0c",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes (us/regulation/45/1302/12): (e)(1) \"a Tribal program may determine any pregnant women or children in the approved service area to be eligible for services regardless of income, if they meet the requirements of paragraph (b) of this section\"; (f) \"...and if they meet the requirements of paragraph (b) of this section.\" The pre-fix module summary already CLAIMED \"the Tribal and Migrant or Seasonal paths with the paragraph-(b) age predicates\" and the pre-fix proof atom quoted the (e)(1) sentence truncated just before the paragraph-(b) clause, so the encoding asserted a gate it did not implement. The module also carries an unused standalone rule participant_meets_age_requirements_under_paragraph_b (defined at line 89, referenced nowhere pre- or post-fix); the fix inlined equivalent logic into the two path rules rather than consuming it. Companion test adds two negatives named migrant_age_fact_cannot_activate_tribal_path_in_dual_context and tribal_age_fact_cannot_activate_migrant_path_in_dual_context, which would have failed pre-fix — direct behavior evidence. Commit message is a bare generic subject (\"Harden benefit eligibility boundaries\", empty body), so the quote comes from the PR body; hence confidence 0.8 rather than higher. The diff changed nothing else in this module (only the two formulas and their supporting import proof atoms). Follow-up: de7bc07da \"Fix Head Start eligibility boundaries\" later repaired a separate defect flagged in MaxGhenis's blind-review comment on PR #1010 (\"the Head Start public age bridge is wrong for ordinary and dual program contexts\") — that is a different defect from this one and is NOT fixed here. | verifier reclassified unrepresented_clause -> polarity_or_logic at 0.66; verifier kind used"
 }

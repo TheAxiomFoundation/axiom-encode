@@ -287,6 +287,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -371,7 +372,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "quote": "Married Individuals Filing Joint Returns and Surviving Spouses (§ 1(j)(2)(A)) $32,200",
+        "span": [
+          365,
+          450
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The table puts surviving spouses in the $32,200 joint row. The pre-fix basic_standard_deduction_amount match has arms only for statuses 1, 2, 3 and 0, so surviving spouses get no amount. The pre-fix module's own additional-deduction rule treats status 4 as surviving spouse, so a reader can see the gap. The post-fix module adds 4 => joint_or_surviving_spouse amount.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-86e2549d-6869864df9cb",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -385,11 +432,10 @@
     "verifier_notes": "Caveats for the reviewer. (1) This is a wholesale encoder re-encode, not a targeted fix: the commit subject is \"Encode upstream IRC 63 dependencies\" and PR #25 (\"Encode 26 USC 63(c) standard deduction\") never mentions a surviving-spouse gap, so intent evidence is absent and the corroboration is the diff plus the source text plus repo convention. (2) Several other meaning changes ride along in the same module diff and a reviewer may want them split out or excluded: the § 63(c)(5) dependent limit is now actually applied (`basic_standard_deduction_after_dependent_limit`) rather than sitting as inert parameters; aged/blind amounts are aggregated via `additional_standard_deduction_entitlement_count_under_subsection_f`; a new top-level `standard_deduction` output is added; and the pre-fix `single_basic_standard_deduction` rule (which returned the single amount irrespective of filing status) is deleted. (3) The `4` arm is untested in both directions: neither the pre-fix nor the post-fix policies/irs/rev-proc-2025-32/standard-deduction.test.yaml has a filing_status 4 case (post cases cover 1, 3, 0, 2), so CI would not have caught the gap and does not now pin the fix. (4) I could not determine engine semantics for a non-exhaustive `match` (error vs 0) without running the compiler; either way the pre-fix encoded meaning disagrees with the source for that population. (5) Source verified through the pinned release us-rulespec-2026-07-13, provision file sha256 5c8d241a..., line 19, resolved text sha256 d1c89e5b....",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure."
+    "screen_reason": "Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Amounts themselves were already correct pre-fix (16100/32200/16100/24150/1650/2050/1350/450 verified against the parent file), so this is not amount_mismatch. The rest of the diff is a full encoder rewrite that adds outputs the module never claimed (dependent_standard_deduction_limit, basic_standard_deduction_after_dependent_limit, additional_standard_deduction_for_aged_or_blind, a top-level standard_deduction) and drops the source_verification.values block and the single_basic_standard_deduction rule; those additions are not defects by the rubric. Caution for reviewers: this commit also REPLACED the grounded filing-status test in additional_standard_deduction_per_condition_amount with a free input `individual_is_unmarried_and_not_surviving_spouse`, and a later commit 5cdc45e55 'Repair standard deduction status component' put the filing-status test back (`if filing_status == 0 or filing_status == 3`), i.e. a regression introduced here. Quote is verbatim from the module's added summary/proof-excerpt block in the diff (source text quoted into the module), not an authored comment; the commit body is empty and the PR body says nothing about surviving spouses. Rev. Proc. text was read only through the module's own quoted excerpt, not resolve_provision (the guidance corpus path us/guidance/irs/rev-proc-2025-32/page-18 was not fetched). | verifier confirmed at 0.78",
-  "family_id": "us-86e2549d-6869864df9cb",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Amounts themselves were already correct pre-fix (16100/32200/16100/24150/1650/2050/1350/450 verified against the parent file), so this is not amount_mismatch. The rest of the diff is a full encoder rewrite that adds outputs the module never claimed (dependent_standard_deduction_limit, basic_standard_deduction_after_dependent_limit, additional_standard_deduction_for_aged_or_blind, a top-level standard_deduction) and drops the source_verification.values block and the single_basic_standard_deduction rule; those additions are not defects by the rubric. Caution for reviewers: this commit also REPLACED the grounded filing-status test in additional_standard_deduction_per_condition_amount with a free input `individual_is_unmarried_and_not_surviving_spouse`, and a later commit 5cdc45e55 'Repair standard deduction status component' put the filing-status test back (`if filing_status == 0 or filing_status == 3`), i.e. a regression introduced here. Quote is verbatim from the module's added summary/proof-excerpt block in the diff (source text quoted into the module), not an authored comment; the commit body is empty and the PR body says nothing about surviving spouses. Rev. Proc. text was read only through the module's own quoted excerpt, not resolve_provision (the guidance corpus path us/guidance/irs/rev-proc-2025-32/page-18 was not fetched). | verifier confirmed at 0.78"
 }

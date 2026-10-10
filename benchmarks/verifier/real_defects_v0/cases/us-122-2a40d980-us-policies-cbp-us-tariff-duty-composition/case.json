@@ -192,8 +192,8 @@
   },
   "pre_fix_artifact_sha256": "d9d36956a9b4d0c8547d8a4f8dda804154bdc318f17175707d69157ff9ac8262",
   "post_fix_artifact_sha256": "bd2930356d10f83b6c696bfeee45f96c9de845fcaba741d383905e901ffb27d4",
-  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
-  "provision_chars": 4835,
+  "provision_sha256": "ec97e78efa38f9a0f11cda700f389a95fbac22bb2db04ade38c380511b1438ea",
+  "provision_chars": 11749,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -280,7 +280,54 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "first_citation_chars": 4835,
+    "added": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-176",
+        "text_sha256": "cbbe3924104940fec5e1191fe2b1da9a0fb341755d9eb9c5edc47c58ade84310",
+        "chars": 6342,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/chapter-99/page-176",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+          "line_number": 186,
+          "record_id": "891b3411-257f-54e1-a405-428b2e3fe32b",
+          "stored_body_sha256": "cbbe3924104940fec5e1191fe2b1da9a0fb341755d9eb9c5edc47c58ade84310",
+          "resolved_text_sha256": "cbbe3924104940fec5e1191fe2b1da9a0fb341755d9eb9c5edc47c58ade84310",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-12",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      },
+      {
+        "citation_path": "us/statute/hts/9903.01.24",
+        "text_sha256": "af42af766ffacce60ac0a08e262774e2edc0fa20a198704ed667e5248aa85590",
+        "chars": 422,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/statute/hts/9903.01.24",
+          "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+          "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+          "line_number": 1102,
+          "record_id": "797c34ff-41ce-526d-8968-2ce47abd9093",
+          "stored_body_sha256": "af42af766ffacce60ac0a08e262774e2edc0fa20a198704ed667e5248aa85590",
+          "resolved_text_sha256": "af42af766ffacce60ac0a08e262774e2edc0fa20a198704ed667e5248aa85590",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-07-31",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -320,7 +367,7 @@
           "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
         ],
         "cites": "us/statute/hts/9903.01.24",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -331,7 +378,7 @@
           "entry_is_fentanyl_china_excepted.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-176",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -342,7 +389,7 @@
           "entry_is_fentanyl_china_excepted.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-176",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -375,7 +422,7 @@
           "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
         ],
         "cites": "us/statute/hts/chapter-99/page-176",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -422,7 +469,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -432,7 +479,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -442,7 +489,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -452,7 +499,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -462,17 +509,79 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 11,
-    "post_side_matched": 0,
+    "post_side_matched": 8,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-176",
+        "quote": "For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption, or withdrawn from warehouse for consumption on or after 12:01 a.m., eastern standard time on November 10, 2025, other than products described in heading 9903.01.21, heading 9903.01.22, heading 9903.01.23, and other than products for personal use included in accompanied baggage",
+        "span": [
+          9597,
+          9971
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/chapter-99/page-176",
+        "quote": "The additional duties imposed by heading 9903.01.24 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80",
+        "span": [
+          10680,
+          11053
+        ]
+      },
+      {
+        "citation_path": "us/statute/hts/9903.01.24",
+        "quote": "Except for products described in headings 9903.01.21, 9903.01.22, 9903.01.23, articles the product of China and Hong Kong",
+        "span": [
+          11327,
+          11448
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "U.S. note 2(u) on page 176 and heading 9903.01.24 exclude several kinds of entry from the 10% fentanyl duty: 9903.01.21 donations, 9903.01.22 informational materials, personal-use accompanied baggage, and chapter 98 entries other than the 9802 exceptions. The pre-fix formula charges 10% on every China or Hong Kong entry. The post-fix formula returns 0 when entry_is_fentanyl_china_excepted is true. provision.txt is General Note 3, which deals with column rates and insular possessions and never mentions 9903.01.24, so it cannot decide the case.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-2a40d980-eb1e2126f956",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -486,11 +595,10 @@
     "verifier_notes": "Source verified through the pinned release (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): 9903.01.24 body and note 2(u) on chapter-99/page-176 both resolve verbatim to the excerpts the new proof atoms quote, so the added atoms are not fabricated. Two caveats for the reviewer, neither changing the verdict: (1) the defect was pre-existing for China origins — the removed line already read `(if origin_is_china or origin_is_hong_kong: fentanyl_china_note_u_additional_duty_rate`, i.e. the HK widening in PR #1198 broadened an omission that already mis-rated Chinese donation/informational-material entries, so the commit message's \"widening ... applied the raw rate unconditionally\" slightly overstates the HK change's causal role; (2) heading 9903.01.23 remains unrepresented by design, with the rationale block stating its 2025-02-04/2025-03-07 transit window \"lapses before every date this composition covers\" — defensible but unverified here. The same commit also adds module-level corpus_citation_paths 9903.01.21/.22/.24 and an exception proof atom; those are provenance-only and would be mechanical on their own, but the formula change is the decisive edit. Companion test `line_a_hong_kong_humanitarian_donation_excepted` (declared rate 0 vs panel rate 0.10) witnesses the behavior change; the five-input panel rate `ieepa_component_rate` is deliberately untouched because declaration facts cannot reach it.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Review r1: widened CN/HK declared-exceptions branch applied the 9903.01.24 rate unconditionally, \"bypassing U.S. note 2(u)'s exclusions\"; adds the missing exclusion gate (PR #1198, same PR as the HK widening)."
+    "screen_reason": "Review r1: widened CN/HK declared-exceptions branch applied the 9903.01.24 rate unconditionally, \"bypassing U.S. note 2(u)'s exclusions\"; adds the missing exclusion gate (PR #1198, same PR as the HK widening).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the provision: resolve_provision.py on us/statute/hts/chapter-99/page-176 returns note 2(u) verbatim — \"For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption ... on or after 12:01 a.m., eastern standard time on November 10, 2025, other than products described in heading 9903.01.21, heading 9903.01.22, heading 9903.01.23, and other than products for personal use included in accompanied baggage of persons arriving in the United States, shall be subject to an additional 10% ad valorem rate of duty\" plus \"The additional duties imposed by heading 9903.01.24 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\". Both clauses match the new rule's formula and its proof-atom excerpts, so the fix is source-grounded. Single module in the commit; the only other changed files are the test file, the encoding manifest and oracle-coverage-pending.yaml (bookkeeping). The file is format: rulespec/v1 with module.kind: composition — it is a RuleSpec module carrying rules, formulas and proof atoms, not an axiom-programs compose spec, so it is a rule module. The defect predates the PR in substance: at the parent commit the branch read `if origin_is_china: fentanyl_china_note_u_additional_duty_rate` with no exclusion gate at all; the PR's HK widening only extended the wrong behavior to HK. The parallel `ieepa_component_rate` (five-input panel) rule is deliberately NOT gated, because the module rationale states declared facts cannot be lowered onto the panel rate; that is by design, not an omission. Only versions[0] (2026-02-15 to 2026-02-23) needed the gate; versions[1] (from 2026-02-24) is post-IEEPA-termination. The commit also adds three module-level citation paths (9903.01.21/.22/.24) and a 9903.01.24 exception proof atom, and rewrites the rationale paragraph to name heading 9903.01.23 as rationale-only because its 2025-02-04 to 2025-03-07 window lapses before every date the composition covers — all supporting provenance, not separate defects. No PR reviews or review comments were captured in the bundle; the PR body describes the earlier HK-widening commit, so the commit message is the only reviewer-sourced evidence. | verifier confirmed at 0.94",
-  "family_id": "us-2a40d980-eb1e2126f956",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the provision: resolve_provision.py on us/statute/hts/chapter-99/page-176 returns note 2(u) verbatim — \"For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption ... on or after 12:01 a.m., eastern standard time on November 10, 2025, other than products described in heading 9903.01.21, heading 9903.01.22, heading 9903.01.23, and other than products for personal use included in accompanied baggage of persons arriving in the United States, shall be subject to an additional 10% ad valorem rate of duty\" plus \"The additional duties imposed by heading 9903.01.24 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\". Both clauses match the new rule's formula and its proof-atom excerpts, so the fix is source-grounded. Single module in the commit; the only other changed files are the test file, the encoding manifest and oracle-coverage-pending.yaml (bookkeeping). The file is format: rulespec/v1 with module.kind: composition — it is a RuleSpec module carrying rules, formulas and proof atoms, not an axiom-programs compose spec, so it is a rule module. The defect predates the PR in substance: at the parent commit the branch read `if origin_is_china: fentanyl_china_note_u_additional_duty_rate` with no exclusion gate at all; the PR's HK widening only extended the wrong behavior to HK. The parallel `ieepa_component_rate` (five-input panel) rule is deliberately NOT gated, because the module rationale states declared facts cannot be lowered onto the panel rate; that is by design, not an omission. Only versions[0] (2026-02-15 to 2026-02-23) needed the gate; versions[1] (from 2026-02-24) is post-IEEPA-termination. The commit also adds three module-level citation paths (9903.01.21/.22/.24) and a 9903.01.24 exception proof atom, and rewrites the rationale paragraph to name heading 9903.01.23 as rationale-only because its 2025-02-04 to 2025-03-07 window lapses before every date the composition covers — all supporting provenance, not separate defects. No PR reviews or review comments were captured in the bundle; the PR body describes the earlier HK-widening commit, so the commit message is the only reviewer-sourced evidence. | verifier confirmed at 0.94"
 }

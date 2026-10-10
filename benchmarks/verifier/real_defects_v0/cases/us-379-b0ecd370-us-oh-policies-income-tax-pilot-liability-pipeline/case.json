@@ -173,6 +173,7 @@
     "requested_citation_path": "us-oh/statute/5747.02",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -363,7 +364,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-oh/statute/5747.02",
+        "quote": "If the balance thus obtained is equal to or less than twenty-six thousand fifty dollars, no tax shall be imposed on that balance.",
+        "span": [
+          2001,
+          2130
+        ]
+      },
+      {
+        "citation_path": "us-oh/statute/5747.02",
+        "quote": "(c) For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.",
+        "span": [
+          3011,
+          3121
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "For individuals, 5747.02(A)(3) imposes no tax at or below $26,050, and above it $332.00 plus 2.75% of the excess. The pre-fix schedule always levies first_bracket_rate * min(income, threshold), so it taxes balances at or below $26,050. The post-fix returns 0 at or below the threshold.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b0ecd370-9f6e0a48360c",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -377,11 +432,10 @@
     "verifier_notes": "Refutations attempted and their outcomes. (1) untraceable_branch does NOT fit better, and the first reader's secondary claim is wrong in substance: 1.27448% is indeed the (A)(2) estate rate, but (A)(5) directs that \"To recompute the tax dollar amount corresponding to the lowest tax rate in division (A)(3) ... the commissioner shall multiply the tax rate prescribed in division (A)(2) of this section by the income amount specified in that division\" — so 0.0127448 x 26,050 = $332.00204 is the statute's own construction of the (A)(3) base amount, not an ungrounded estate-rate import. The first term was legitimate above the threshold; only its unconditional application below the threshold was wrong. (2) The pre-fix module did document the gap in prose (\"It deliberately models only the ordinary resident wage earner above the $26,050 no-tax threshold\" and \"reproduces the statutory ... form for filers above the no-tax threshold\"), which is the strongest not_a_defect argument; I rejected it because the rule carried no domain guard and fails open with a wrong positive number under its own (A)(3) citation, and the fix encodes the clause rather than documenting it. This is why I hold confidence at 0.78 rather than higher. (3) The first reader's cited quote (\"import the official $26,050 threshold, $332 base amount, and 2.75% excess rate\") is about parameter provenance (supplied caller inputs -> `imports:` of encoded 5747.02 parameter rules) and does not by itself support the kind; the diff and statute text do. (4) The commit is mixed: most of the 216-line diff is scope redesign (boundary moves from AGI minus supplied personal exemption to completed-return taxable nonbusiness income; the 5747.98 exemption credit is dropped so the output is now tax before nonrefundable credits) plus a new `effective_to: '2026-12-31'` although (A)(3)(c) reads \"For taxable years beginning in 2026 and thereafter\" — that window closure is conservatism, not a source-driven correction, and should not be counted as wrong_period_or_effective_date. (5) Boundary strictness is correct in both directions: statute says \"equal to or less than\", fix uses `<=`. Verified against corpus release us-rulespec-snap-2026-07-21, provision us-oh/statute/5747.02, body sha256 c65d945f29da16a0bdc5c424843434da27f0120ae0ab32722e9551436fce3980. Supporting evidence for the estate-rate derivation is in the pre-fix companion test at 98d0d93c98:us-oh/policies/income_tax/pilot_liability_pipeline.test.yaml (\"first-bracket effective rate 0.0127448 (the $332.00204 base amount / 26,050)\"), all six of whose fixtures sit above the threshold — no fixture exercised the region where the defect bites.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Unsure (promote pattern): rewrites existing OH pilot_liability_pipeline.yaml (156 lines, roughly even add/delete); not inspected line by line."
+    "screen_reason": "Unsure (promote pattern): rewrites existing OH pilot_liability_pipeline.yaml (156 lines, roughly even add/delete); not inspected line by line.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-snap-2026-07-21, corpus commit 1979c15c, expression date 2026-07-13); 5747.02(A)(3) confirms the \"no tax shall be imposed\" sentence and (A)(3)(c) confirms \"For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.\" (A)(2) confirms 1.27448% is the ESTATES rate for 2026, which the pre-fix rationale had imported as the individual \"first-bracket effective rate\". Behavioral proof the meaning changed: the companion test file adds below_no_tax_threshold (taxable 20,000 -> schedule_tax 0) and exactly_at_no_tax_threshold (26,050 -> 0); under the pre-fix formula those would be 0.0127448*20,000 = $254.90 and $332.00204. CONFOUNDS a reviewer should weigh: (1) this is a promote-pattern rewrite, not a targeted fix — the commit message is a bare subject with an empty body and neither it nor the PR body names a defect; PR #975 is titled \"Encode Ohio 2026 individual income tax liability\" and has no reviews or review comments. (2) The pre-fix module's own prose disclaimed the region: \"It deliberately models only the ordinary resident wage earner above the $26,050 no-tax threshold\" — but nothing in the rule enforced that, the version was open-ended from 2026-01-01, and the formula returned a nonzero tax at any income, so the encoded meaning still disagreed with the source. (3) The same commit narrows scope (drops the supplied 5747.025 personal exemption and 5747.98 exemption credit, retargets from PolicyEngine oh_income_tax_before_refundable_credits to oh_income_tax_before_non_refundable_credits, replaces five supplied inputs with one declared input) and adds effective_to '2026-12-31' to all three rules — those are redesign/fail-closed choices, not defect corrections, so a reviewer wanting a clean single-defect instance may prefer to prune. ALTERNATE KINDS, same hunk: untraceable_branch (the first-bracket term was a formula grounded on the wrong provision, 5747.02(A)(2) estates, and the fix removes it) and wrong_entity_or_scope (estate rate applied to individuals); a secondary amount_mismatch also exists inside the module's own claimed above-threshold scope, where the derived base $332.00204 (0.0127448 x 26,050) replaced by the statutory $332.00 overstated tax by $0.00204 for every above-threshold filer. FOLLOW-UPS on the same file: 79ec7714d \"Ground Ohio 2026 PIT in H.B. 96 analysis\" (32 minutes later, same PR) and aa886454e \"Bound Ohio 2026 nonbusiness income tax schedule (#1105)\" on 2026-07-26. Other files in the commit are the encoder apply manifest and .axiom/index/provisions_to_rules.json (bookkeeping). | verifier confirmed at 0.78",
-  "family_id": "us-b0ecd370-9f6e0a48360c",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-snap-2026-07-21, corpus commit 1979c15c, expression date 2026-07-13); 5747.02(A)(3) confirms the \"no tax shall be imposed\" sentence and (A)(3)(c) confirms \"For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.\" (A)(2) confirms 1.27448% is the ESTATES rate for 2026, which the pre-fix rationale had imported as the individual \"first-bracket effective rate\". Behavioral proof the meaning changed: the companion test file adds below_no_tax_threshold (taxable 20,000 -> schedule_tax 0) and exactly_at_no_tax_threshold (26,050 -> 0); under the pre-fix formula those would be 0.0127448*20,000 = $254.90 and $332.00204. CONFOUNDS a reviewer should weigh: (1) this is a promote-pattern rewrite, not a targeted fix — the commit message is a bare subject with an empty body and neither it nor the PR body names a defect; PR #975 is titled \"Encode Ohio 2026 individual income tax liability\" and has no reviews or review comments. (2) The pre-fix module's own prose disclaimed the region: \"It deliberately models only the ordinary resident wage earner above the $26,050 no-tax threshold\" — but nothing in the rule enforced that, the version was open-ended from 2026-01-01, and the formula returned a nonzero tax at any income, so the encoded meaning still disagreed with the source. (3) The same commit narrows scope (drops the supplied 5747.025 personal exemption and 5747.98 exemption credit, retargets from PolicyEngine oh_income_tax_before_refundable_credits to oh_income_tax_before_non_refundable_credits, replaces five supplied inputs with one declared input) and adds effective_to '2026-12-31' to all three rules — those are redesign/fail-closed choices, not defect corrections, so a reviewer wanting a clean single-defect instance may prefer to prune. ALTERNATE KINDS, same hunk: untraceable_branch (the first-bracket term was a formula grounded on the wrong provision, 5747.02(A)(2) estates, and the fix removes it) and wrong_entity_or_scope (estate rate applied to individuals); a secondary amount_mismatch also exists inside the module's own claimed above-threshold scope, where the derived base $332.00204 (0.0127448 x 26,050) replaced by the statutory $332.00 overstated tax by $0.00204 for every above-threshold filer. FOLLOW-UPS on the same file: 79ec7714d \"Ground Ohio 2026 PIT in H.B. 96 analysis\" (32 minutes later, same PR) and aa886454e \"Bound Ohio 2026 nonbusiness income tax schedule (#1105)\" on 2026-07-26. Other files in the commit are the encoder apply manifest and .axiom/index/provisions_to_rules.json (bookkeeping). | verifier confirmed at 0.78"
 }

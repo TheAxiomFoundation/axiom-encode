@@ -167,7 +167,7 @@
   "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
   "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
   "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
-  "defect_kind": "wrong_entity_or_scope",
+  "defect_kind": "untraceable_branch",
   "other_kind": null,
   "confidence": 0.75,
   "description": "the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins",
@@ -280,8 +280,8 @@
   },
   "pre_fix_artifact_sha256": "252104f0ff6c2b3381d78a28146cfbbb25fdcb4effd988e16128e20fb3cf45b8",
   "post_fix_artifact_sha256": "73816791b281e083300d497847b1d8a7a5b28c34078a2742a4187d98aace2375",
-  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
-  "provision_chars": 4835,
+  "provision_sha256": "824461e95e7cc64e5df2c90fb26a63f796f42fc8c7751ff6d038e5515cedc240",
+  "provision_chars": 37047,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -302,6 +302,33 @@
     "toolchain_corpus_ref": "60de5efae2a1b1dd58b7c92fa9b73a86bd78f30a",
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "first_citation_chars": 4835,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2026-02-25/2026-03824",
+        "text_sha256": "c85d073b98bb0cfd169d70b3735c95a4c053fde107a6707264cc09e871db5036",
+        "chars": 32088,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2026-02-25/2026-03824",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 16,
+          "record_id": "8327c516-984f-53f4-add6-7defd5a3c3bf",
+          "stored_body_sha256": "c85d073b98bb0cfd169d70b3735c95a4c053fde107a6707264cc09e871db5036",
+          "resolved_text_sha256": "c85d073b98bb0cfd169d70b3735c95a4c053fde107a6707264cc09e871db5036",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-02-25",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74"
+        }
+      }
+    ]
   },
   "evidence_in_provision": "present",
   "evidence_check": {
@@ -762,7 +789,7 @@
           "section_122_component_rate.versions[1].formula"
         ],
         "cites": "us/rulemaking/federal-register/2026-02-25/2026-03824",
-        "matched": false,
+        "matched": true,
         "counts": false
       },
       {
@@ -914,7 +941,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -935,7 +962,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -950,12 +977,66 @@
       }
     ],
     "post_side_tested": 7,
-    "post_side_matched": 1,
+    "post_side_matched": 3,
     "pre_side_tested": 0,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2026-02-25/2026-03824",
+        "quote": "The surcharge imposed in this proclamation shall not apply to imports of articles listed in paragraph 2 of Annex I to this proclamation and as enumerated in Annex II to this proclamation.",
+        "span": [
+          24620,
+          24809
+        ]
+      },
+      {
+        "citation_path": "us/rulemaking/federal-register/2026-02-25/2026-03824",
+        "quote": "The surcharge imposed in this proclamation shall not apply in addition to tariffs imposed under section 232.",
+        "span": [
+          25017,
+          25126
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The section 122 proclamation exempts only Annex I paragraph 2 / Annex II articles and articles under section 232 tariffs. The pre-fix gate instead zeroes the surcharge on entry_is_line_a or entry_is_line_b, flags the same module uses for 7202.11.10 / China-301 list-1 membership and for aluminum only. That exempts §301-list lines from every origin and misses §232 steel and copper. The post-fix gate (entry_is_section_122_exempt or entry_is_section_232_covered) matches the text.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.7,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-a9562cfd-a47a2c82a367",
+  "family_size": 100,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -969,11 +1050,13 @@
     "verifier_notes": "Refutations tried and rejected: (1) Mechanical rename — no: `git show a9562cfd44:...ch01.yaml | grep entry_is_line_` shows entry_is_line_a (line 1907) and entry_is_line_b (1924) still driving entry_is_reciprocal_annex_excluded / entry_is_reciprocal_metals_excluded and the Brazil-IEEPA term (2367, 2523), so one conflated input was split into several independent ones. (2) Enhancement the module never claimed — no: this is a chapter-wide generated composition (schedule_statutory_stack over any hts_line), and its own §122 atoms cite \"subdivision (aa)(ii) exclusion list under heading 9903.03.03\" and \"articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04\", neither of which is the set the old gate denoted. (3) Better-fitting kind — untraceable_branch does not fit because the exemption branch is source-grounded and its atoms are unchanged; polarity_or_logic does not fit because the or-shape is preserved. Reviewer caveats: the same commit also ADDS a new section_232_steel_component_rate and its ch01_s232_steel_heading_rate 0.50 parameter (new coverage, separate from the anchored defect — would be unrepresented_clause if scored on its own), and the Brazil-301 / forced-labor-301 rules gain list-membership gates whose inputs the summary says \"default to the declared-boolean FALSE pattern\", which zeroes those components pending membership tables. Also note this module file is 1 of 100 byte-identical generated chapter files in the commit, so the corpus should dedup rather than count 100 defects. Provision read via the pinned corpus release us-rulespec-2026-08-08-obbb-alien-snap (corpus commit e79781bddeab); note chapter-99 page citations (page-221/page-230) do not resolve to the encoding-era pagination in that release, so the Annex/§232 exemption language was confirmed from us/rulemaking/federal-register/2026-02-25/2026-03824 instead.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+    "review_override": null,
+    "kind_before_family_settlement": "wrong_entity_or_scope",
+    "family_kind_votes": {
+      "untraceable_branch": 19,
+      "wrong_entity_or_scope": 8
+    }
   },
-  "triage_notes": "Reference module for this chunk; read the full diff. Substantive hunks: (1) rules[section_122_component_rate].versions[1].formula '(if entry_is_line_a or entry_is_line_b: 0 else: temporary_import_surcharge_rate)' -> '(if entry_is_section_122_exempt or entry_is_section_232_covered: 0 ...)' — this is the maintainer-named defect; the rule's own unchanged proof atoms list the exceptions as the page-221 subdivision (aa)(ii) exclusion list and page-230 'articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04', which is exactly what the post-fix gate encodes. (2) section_232_aluminum_component_rate: entry_is_line_b -> entry_is_section_232_aluminum in both versions. (3) china_section_301_component_rate: line_a/b/c/e -> list123 / 2024_action / list4a / solar membership inputs (line_d retained for the §338 beer slot, per the summary 'no membership module exists'). (4) brazil_section_301_component_rate and forced_labor_section_301_component_rate: the '(if entry_is_line_a or entry_is_line_b: 0 elif origin_is_...' shape is replaced by 'entry_is_*_301_listed and origin_is_...' — this both drops the ungrounded exemption and ADDS the missing line-list membership condition (an unrepresented_clause element), though the module summary says those inputs currently default FALSE pending entry-preparation tables. (5) section_201_component_rate: entry_is_line_e -> entry_is_section_201_cspv, but both branches return 0, so no runtime change there. (6) New ch01_s232_steel_heading_rate (0.50) and section_232_steel_component_rate added and summed into schedule_statutory_stack — added coverage the composition previously lacked. Alternative kind worth a reviewer's eye: untraceable_branch (the pre-fix §122 condition had no basis in the cited exemption provisions and the fix re-grounds it); I chose wrong_entity_or_scope because the PR frames the harm as the wrong population (§301-member lines, all origins) being exempted. Caveats: the merged bytes emit section_232_steel_component_rate's proof under metadata.proof.proof.atoms (double-nested) even though the maintainer's PR comment says steel atoms were 'unwrapped to canonical metadata.proof.atoms' — provenance concern, not fidelity; and the PR body says the steel rate is grounded on 9903.82.02 while the merged atoms cite 9903.81.87/.88. Provision reading attempted: resolve_provision returns 'No active corpus source found' for us/statute/hts/9903.81.87, and for us/statute/hts/chapter-99/page-230 it resolves an HTS Revision 3 (2026) page that does not contain the cited §122 exemption sentence, while the modules cite a 'Rev. 15' vintage — so the source text was not independently confirmed; I relied on the rules' own proof-atom excerpts plus the PR body. These are module.kind: composition generated files, not encoder-authored atomic modules; the defect was copied from the hand-built witness composition, which this PR leaves unchanged. | verifier confirmed at 0.85",
-  "family_id": "us-a9562cfd-5666e5ff8301",
-  "family_size": 35,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Reference module for this chunk; read the full diff. Substantive hunks: (1) rules[section_122_component_rate].versions[1].formula '(if entry_is_line_a or entry_is_line_b: 0 else: temporary_import_surcharge_rate)' -> '(if entry_is_section_122_exempt or entry_is_section_232_covered: 0 ...)' — this is the maintainer-named defect; the rule's own unchanged proof atoms list the exceptions as the page-221 subdivision (aa)(ii) exclusion list and page-230 'articles of aluminum, of steel, or of copper or derivative aluminum or steel articles provided for in headings 9903.82.02 and 9903.82.04', which is exactly what the post-fix gate encodes. (2) section_232_aluminum_component_rate: entry_is_line_b -> entry_is_section_232_aluminum in both versions. (3) china_section_301_component_rate: line_a/b/c/e -> list123 / 2024_action / list4a / solar membership inputs (line_d retained for the §338 beer slot, per the summary 'no membership module exists'). (4) brazil_section_301_component_rate and forced_labor_section_301_component_rate: the '(if entry_is_line_a or entry_is_line_b: 0 elif origin_is_...' shape is replaced by 'entry_is_*_301_listed and origin_is_...' — this both drops the ungrounded exemption and ADDS the missing line-list membership condition (an unrepresented_clause element), though the module summary says those inputs currently default FALSE pending entry-preparation tables. (5) section_201_component_rate: entry_is_line_e -> entry_is_section_201_cspv, but both branches return 0, so no runtime change there. (6) New ch01_s232_steel_heading_rate (0.50) and section_232_steel_component_rate added and summed into schedule_statutory_stack — added coverage the composition previously lacked. Alternative kind worth a reviewer's eye: untraceable_branch (the pre-fix §122 condition had no basis in the cited exemption provisions and the fix re-grounds it); I chose wrong_entity_or_scope because the PR frames the harm as the wrong population (§301-member lines, all origins) being exempted. Caveats: the merged bytes emit section_232_steel_component_rate's proof under metadata.proof.proof.atoms (double-nested) even though the maintainer's PR comment says steel atoms were 'unwrapped to canonical metadata.proof.atoms' — provenance concern, not fidelity; and the PR body says the steel rate is grounded on 9903.82.02 while the merged atoms cite 9903.81.87/.88. Provision reading attempted: resolve_provision returns 'No active corpus source found' for us/statute/hts/9903.81.87, and for us/statute/hts/chapter-99/page-230 it resolves an HTS Revision 3 (2026) page that does not contain the cited §122 exemption sentence, while the modules cite a 'Rev. 15' vintage — so the source text was not independently confirmed; I relied on the rules' own proof-atom excerpts plus the PR body. These are module.kind: composition generated files, not encoder-authored atomic modules; the defect was copied from the hand-built witness composition, which this PR leaves unchanged. | verifier confirmed at 0.85"
 }

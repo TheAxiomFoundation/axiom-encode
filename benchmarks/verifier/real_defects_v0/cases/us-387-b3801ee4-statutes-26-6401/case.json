@@ -125,6 +125,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -195,7 +196,61 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/6401",
+        "quote": "If the amount allowable as credits under subpart C of part IV of subchapter A of chapter 1 (relating to refundable credits)",
+        "span": [
+          301,
+          424
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/6401",
+        "quote": "shall be treated as a credit allowable under subpart C of part IV of subchapter A of chapter 1 only if an election under subsection (g) or (h) of section 6013 is in effect for such taxable year",
+        "span": [
+          823,
+          1016
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "6401(b)(1) defines the aggregate generically as credits allowable under subpart C, and 6401(b)(2) adds a section 33 rule that depends on a 6013(g)/(h) election. The pre-fix rule sums a fixed modelling list (eitc, refundable AOTC, refundable CTC, recovery rebate, payroll-tax credit) that the text does not name, and it has no section 33 rule. The post-fix rule uses the subpart C term plus the (b)(2) section 33 rule.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.72,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.75,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b3801ee4-a6bc1dcb6053",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -209,11 +264,10 @@
     "verifier_notes": "Evidence read: diff 008.diff (whole file, pre 36 lines to post 170), the parent-commit file at 2175d5239a, and the provision via resolve_provision (corpus release us-rulespec-2026-07-13, provision sha 96c1577d...), which confirms (b)(1)'s generic subpart C reference and (b)(2)'s \"only if an election under subsection (g) or (h) of section 6013 is in effect\" condition with the section 1446 carve-out.\n\nThree caveats for the reviewer:\n1. Mixed-kind fix. Besides the re-grounding, the commit adds four rules that are new coverage the pre-fix module never claimed (limitation_period_overpayment_part for 6401(a), refundable_credit_excess_overpayment for the (b)(1) overpayment rule, section_33_credit_treated_as_refundable_credit for (b)(2), tax_payment_can_be_overpayment_despite_no_tax_liability for (c)). Per the task's own guidance those additions alone would not carry a fidelity verdict; the verdict rests solely on the changed formula in the pre-existing income_tax_refundable_credits rule.\n2. `income_tax` was also re-grounded: `income_tax_before_refundable_credits` became `tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits`. That is closer to a naming/traceability change than a meaning change (the two are roughly the same quantity), so it is weak supporting evidence, not decisive.\n3. Executability caveat, and the strongest remaining argument for \"unclear\": the post-fix formulas reference placeholder variables that the module does not declare or define (`credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`, `tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits`, `section_6013_g_or_h_election_in_effect_for_taxable_year`, `amount_of_internal_revenue_tax_payment_assessed_or_collected_after_limitation_period`). The fix trades a runnable modelling implementation for a statutory paraphrase, so if the corpus wants defects whose fix is verifiable by execution rather than by traceability, this case is weaker than the confidence suggests. It is still a genuine meaning disagreement with the source, which is why I did not drop to unclear.\n\nNot applicable: every version keeps effective_from '2026-01-01' pre and post (not wrong_period_or_effective_date); entity stays TaxUnit on the anchored rule (the new 6401(a) rule uses entity Payment, but that rule is new, not a scope correction); no numeric values changed (not amount_mismatch); the only comparison added is max(0, ...) in a newly created rule (not boundary_direction).\n\nCommit context: b3801ee4eb is screen-flagged as a wholesale regeneration, and its subject explicitly groups 6401 under \"formulas rewritten\" semantic corrections. There is no commit body, PR title, or PR body in the bundle, so no maintainer prose beyond the subject line corroborates the kind.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "The quote is a verbatim fragment of the deleted module summary; the file wraps it across three lines, which I joined without changing any words. This module also went from encoding only a slice of 6401(b) to encoding 6401(a) (`limitation_period_overpayment_part`), the 6401(b)(1) overpayment output (`refundable_credit_excess_overpayment`) and 6401(c) (`tax_payment_can_be_overpayment_despite_no_tax_liability`) — so unrepresented_clause is an equally defensible kind here; I chose untraceable_branch because the hard-coded credit list is the change that most clearly had no basis in the cited text. `income_tax` also moved from `income_tax_before_refundable_credits - income_tax_refundable_credits` to the statutory phrase 'tax imposed by subtitle A (reduced by the credits allowable under subparts A, B, D, and G)'. The regenerated module now depends on several broad undefined inputs (e.g. `credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`), which is faithful to the text but pushes the work to the composer. Effective dates unchanged at 2026-01-01. Provision not separately resolved; the module's added summary is verbatim corpus text. | verifier confirmed at 0.76",
-  "family_id": "us-b3801ee4-a6bc1dcb6053",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "The quote is a verbatim fragment of the deleted module summary; the file wraps it across three lines, which I joined without changing any words. This module also went from encoding only a slice of 6401(b) to encoding 6401(a) (`limitation_period_overpayment_part`), the 6401(b)(1) overpayment output (`refundable_credit_excess_overpayment`) and 6401(c) (`tax_payment_can_be_overpayment_despite_no_tax_liability`) — so unrepresented_clause is an equally defensible kind here; I chose untraceable_branch because the hard-coded credit list is the change that most clearly had no basis in the cited text. `income_tax` also moved from `income_tax_before_refundable_credits - income_tax_refundable_credits` to the statutory phrase 'tax imposed by subtitle A (reduced by the credits allowable under subparts A, B, D, and G)'. The regenerated module now depends on several broad undefined inputs (e.g. `credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`), which is faithful to the text but pushes the work to the composer. Effective dates unchanged at 2026-01-01. Provision not separately resolved; the module's added summary is verbatim corpus text. | verifier confirmed at 0.76"
 }

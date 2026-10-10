@@ -133,6 +133,7 @@
     "requested_citation_path": "us-nc/statute/105/105-153.7",
     "release_errors_before_success": []
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -264,7 +265,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-nc/statute/105/105-153.7",
+        "quote": "the tax is a percentage of the taxpayer's North Carolina taxable income computed as follows: Taxable Years Beginning Tax In 2022 4.99% In 2023 4.75% In 2024 4.5% In 2025 4.25% After 2025 3.99%.",
+        "span": [
+          272,
+          465
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 105-153.7(a) sets the tax as one percentage of North Carolina taxable income, fixed by statute at 3.99% after 2025. It has no bracket base, no bracket floor and no credit subtraction. The pre-fix liability is a caller-supplied bracket base plus a caller-supplied marginal rate above a supplied floor, minus a supplied nonrefundable credit, so none of those elements traces to this text. The post-fix formula (taxable income times the statutory rate) matches it directly.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.6,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-28b65a58-54cf6365388f",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -278,11 +325,10 @@
     "verifier_notes": "Provision verified through the pinned release us-rulespec-2026-07-19-dedup (corpus commit 9bcd834, body sha256 e174d86f...): 105-153.7(a) is a flat percentage with a year table (After 2025 3.99%), (a1) is a 2027+ rate-reduction trigger, (b) is withholding tables. Nothing in the section mentions brackets or credits, and the removed formula \"nc_pit_pilot_supplied_bracket_base + nc_pit_pilot_supplied_marginal_rate * max(0, nc_pit_pilot_taxable_income - nc_pit_pilot_supplied_bracket_floor)\" carried a proof atom whose 105-153.7 excerpt (\"A tax is imposed for each taxable year on the North Carolina taxable income of every individual\") does not support bracket mechanics. This change is multi-kind: alongside the untraceable structure it also (a) bounds both versions with effective_to 2026-12-31 for the (a1) 2027 trigger (wrong_period_or_effective_date flavor, but only because the rate is now baked in via import) and (b) retires an AGI-minus-standard-deduction derivation whose own 105-153.5(a) excerpt offered an either/or the encoding ignored (unrepresented_clause flavor, though the fix deletes rather than completes it). Confidence is 0.68 rather than higher because a substantial part of the change is architectural (moving the upstream boundary to caller-supplied state taxable income, importing rather than accepting the rate) and the PR reports population parity with a maximum absolute difference under one dollar, so a reviewer could read it as a precision/scope promotion; what defeats that reading is that the module already asserted 105-153.7 as the source for a credit and bracket structure the section does not contain. Second module in the commit (us-nc/statutes/105/105-153/7.yaml) was not assessed here.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Read the pinned corpus text of us-nc/statute/105/105-153.7 (release us-rulespec-2026-07-19-dedup, provision sha e174d86f...): subsection (a) is a flat percentage table with no bracket base/floor, and credits live outside 105-153.7, so the pre-fix bracket-base + supplied-marginal-rate + supplied-credit construction and its 105-153.5(a) grounding had no basis in the cited provisions; the fix removes nc_pit_pilot_schedule_tax entirely, re-grounds nc_pit_pilot_taxable_income on a supplied completed-return boundary, and pins the rate by importing us-nc:statutes/105/105-153/7#individual_income_tax_rate instead of accepting it from the caller. Kind is the uncertain part, not whether meaning changed: unrepresented_clause is defensible for the omitted itemized/child-deduction alternative (the fix retracts the derivation rather than adding the clause), and wrong_entity_or_scope is defensible because the output surface moves from post-nonrefundable-credit liability to a before-credits target. A reviewer could also argue this is a deliberate pilot-contract redesign (the old rationale explicitly wired 'the same supplied-schedule form as the Arizona and Kentucky flat pilots') rather than a defect -- hence confidence 0.5. Corroborating evidence that it was treated as broken: known-validation-gaps.yaml drops this module's pending validate_failures waiver (issue 782) in this same commit. The commit body is empty; the PR body is generic ('Draft until required CI is green and current'). Follow-up commit d1ed1b594 'Repair NC TY2026 statute source backing' (2026-07-26) touches this pipeline again. | verifier confirmed at 0.68",
-  "family_id": "us-28b65a58-54cf6365388f",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Read the pinned corpus text of us-nc/statute/105/105-153.7 (release us-rulespec-2026-07-19-dedup, provision sha e174d86f...): subsection (a) is a flat percentage table with no bracket base/floor, and credits live outside 105-153.7, so the pre-fix bracket-base + supplied-marginal-rate + supplied-credit construction and its 105-153.5(a) grounding had no basis in the cited provisions; the fix removes nc_pit_pilot_schedule_tax entirely, re-grounds nc_pit_pilot_taxable_income on a supplied completed-return boundary, and pins the rate by importing us-nc:statutes/105/105-153/7#individual_income_tax_rate instead of accepting it from the caller. Kind is the uncertain part, not whether meaning changed: unrepresented_clause is defensible for the omitted itemized/child-deduction alternative (the fix retracts the derivation rather than adding the clause), and wrong_entity_or_scope is defensible because the output surface moves from post-nonrefundable-credit liability to a before-credits target. A reviewer could also argue this is a deliberate pilot-contract redesign (the old rationale explicitly wired 'the same supplied-schedule form as the Arizona and Kentucky flat pilots') rather than a defect -- hence confidence 0.5. Corroborating evidence that it was treated as broken: known-validation-gaps.yaml drops this module's pending validate_failures waiver (issue 782) in this same commit. The commit body is empty; the PR body is generic ('Draft until required CI is green and current'). Follow-up commit d1ed1b594 'Repair NC TY2026 statute source backing' (2026-07-26) touches this pipeline again. | verifier confirmed at 0.68"
 }

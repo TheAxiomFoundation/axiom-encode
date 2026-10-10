@@ -146,6 +146,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -208,7 +209,41 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt (HTS 9903.05.31) gives only the product-of-China scope, the 9903.05.85–9903.05.92 exception and the +12.5% rates. It has no effective date, so it cannot separate a 07-23 start from a 07-24 start. The bundle has no other citation files.",
+    "missing_basis": "FR 2026-15181: its DATES paragraph, or Annex I, which applies to goods entered on or after 12:01 a.m. on July 24, 2026. Neither module cites it.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-86d35779-c386cbc69b9d",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -222,11 +257,10 @@
     "verifier_notes": "Corroborating detail a reviewer may want: the companion module forced-labor-presidential-action.yaml deliberately KEEPS effective_from '2026-07-23' (the date of the presidential memorandum) in this same commit, while only the HTS heading modules move to 07-24 (the Annex I entry-date gate). That asymmetry is source-correct, not an inconsistency, and it rules out a \"someone bulk-shifted dates\" reading. Two things stop short of refuting but are worth recording: (1) the module's own declared corpus_citation_path is the dateless HTS article description, so the date's grounding lives in FR 2026-15181 (cited in the composition, not in this module's proof atoms) — a provenance gap, not a misclassification; (2) the composition already gated the forced-labor 301 component at >= 2026-07-24, so the composed program's numbers likely did not change — the defect was latent in the module's standalone meaning. Also note the companion test file was not touched: all three cases run at 2026-08-01, so no case exercises the 07-23/07-24 boundary and the defect could not have been caught by the module's own tests. Separately unrepresented (and not addressed by this fix): the FR's in-transit carve-out exempting goods loaded before 07-24 and entered before 07-28.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 5 (China instead of Brazil); only effective_from lines changed, formulas and the 9903.05.85-9903.05.92 exception untouched. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.94",
-  "family_id": "us-86d35779-c386cbc69b9d",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 5 (China instead of Brazil); only effective_from lines changed, formulas and the 9903.05.85-9903.05.92 exception untouched. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.94"
 }

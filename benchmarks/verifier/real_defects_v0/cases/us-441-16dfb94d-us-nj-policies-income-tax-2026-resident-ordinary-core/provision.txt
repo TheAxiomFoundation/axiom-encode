@@ -1,3 +1,4 @@
+--- Source: us-nj/statute/54a:1-2 ---
 54A:1-2. As used in this act, unless the context clearly indicates otherwise, the following words and phrases shall have the following meaning:
 
 a. "Director" means the Director of the Division of Taxation in the Department of the Treasury.
@@ -51,3 +52,13 @@ p. Nonresident estate or trust. A nonresident estate or trust means an estate or
 q. Unless the context in which it occurs requires otherwise, the term "act" or "this act" shall mean the New Jersey Gross Income Tax Act, Title 54A of the New Jersey Statutes.
 
 L.1976, c.47, s. 54A:1-2; amended 2003, c.246, s.39.
+
+--- Source: us-nj/statute/54a:6-11 ---
+Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income.
+
+Amended 2009, c.69, s.3.6.
+
+--- Source: us-nj/statute/54a:5-2 ---
+Losses which occur within one category of gross income may be applied against other sources of gross income within the same category of gross income during the taxable year. However, a net loss in one category of gross income may not be applied against gross income in another category of gross income.
+
+L.1976, c. 47, s. 54A:5-2, eff. July 8, 1976, operative Aug. 30, 1976.

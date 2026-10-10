@@ -146,6 +146,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -218,7 +219,41 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": false,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "not_in_sources",
+    "outcome": "not_judgeable",
+    "defect_real": "unsure",
+    "decisive_quotes": [],
+    "nearest_quotes": [],
+    "why": "provision.txt is the HTS 9903.05.27 heading text: the product-of-Brazil scope, the 9903.05.85–9903.05.92 exception and the +12.5% rates. It has no date at all, so neither the pre-fix 2026-07-23 start nor the post-fix 2026-07-24 start can be checked against it. The bundle has no other citation files.",
+    "missing_basis": "The DATES paragraph of FR 2026-15181 (the USTR notice of 2026-07-28), which makes the duty apply to entries on or after 12:01 a.m. on July 24, 2026. Neither module cites it, and it is not in the bundle.",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "not_in_sources",
+        "defect_real": "unsure",
+        "confidence": 0.95,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": null
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-86d35779-5451870723de",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -232,11 +267,10 @@
     "verifier_notes": "Strongest (but insufficient) counterargument for a reviewer: the PR body lists the old state as a deliberate judgment call — \"Forced-labor 301 component gated at ≥ 2026-07-24 per FR 2026-15181 DATES, although heading modules carry effective_from 2026-07-23\" — and the composition already gated the component at ≥ 2026-07-24, so the wrong module window was masked at the composed-program level and no companion test changed (all three cases in forced-labor-brazil-9903-05-27.test.yaml are dated 2026-08-01). It is still a real fidelity defect: the module is an independently evaluable artifact whose 2026-07-23 evaluation would have returned general/special rates inflated by 12.5 points, and the repair commit treats it as a correction (\"Forced-labor 301 headings gate entries on/after 2026-07-24 per FR 2026-15181 DATES (was 2026-07-23)\"), re-signing the manifest with manual_exception \"repair\". Two notes for corpus hygiene: (1) the same 07-23 → 07-24 shift is applied across the sibling forced-labor heading modules in this commit (module_files 4, 6, 7, 8), so if the corpus dedupes near-identical defects, this case is one of five instances of the same fix — keep one or mark the family; (2) the DATES paragraph also carries an in-transit carve-out (\"goods loaded onto a vessel at the port of loading and in transit on the final mode of transit before 12:01 a.m. eastern time on July 24, 2026, and entered … before 12:01 a.m. eastern time on July 28, 2026, shall not be subject to such additional duty\") that the module still does not encode after the fix — a candidate unrepresented_clause defect, but not the one this commit repairs, so it should not be folded into this case.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 4, applied to three rules (heading predicate plus the general and special duty-rate overlays); the imported 12.5% rate parameter lives in forced-labor-presidential-action and was not changed. FR 2026-15181 DATES verified through the pinned corpus (see index 4). Companion test unchanged; manifest re-signed with manual_exception \"repair\". | verifier confirmed at 0.94",
-  "family_id": "us-86d35779-5451870723de",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 4, applied to three rules (heading predicate plus the general and special duty-rate overlays); the imported 12.5% rate parameter lives in forced-labor-presidential-action and was not changed. FR 2026-15181 DATES verified through the pinned corpus (see index 4). Companion test unchanged; manifest re-signed with manual_exception \"repair\". | verifier confirmed at 0.94"
 }

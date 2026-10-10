@@ -135,8 +135,8 @@
   },
   "pre_fix_artifact_sha256": "711c45b98b7f30bab3889044879d645a6b6df76da663581ca5a32ba75c2d964e",
   "post_fix_artifact_sha256": "793c3adf9ccc18debfb8a64782d63bd06362276935ccc825c2d47edcf531b57f",
-  "provision_sha256": "1a2359c73bcb41012aa459a5dede0000e602db59e1835f33e1760deb7245a640",
-  "provision_chars": 668,
+  "provision_sha256": "99d010ecf7a410d01f512ad596c7505517aaeaa6fb6c57302decfcfed6b2143c",
+  "provision_chars": 337645,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/9903.02.87",
@@ -223,7 +223,34 @@
       }
     ]
   },
-  "evidence_in_provision": "absent",
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "1a2359c73bcb41012aa459a5dede0000e602db59e1835f33e1760deb7245a640",
+    "first_citation_chars": 668,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+        "chars": 336864,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 12,
+          "record_id": "e36a6a5a-a64b-506e-88c2-3ce5dad1de30",
+          "stored_body_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "resolved_text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-18",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
     "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
@@ -252,7 +279,7 @@
           "reciprocal_liechtenstein_floor_column_2_duty_change.versions[0].effective_from"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -269,7 +296,7 @@
           "reciprocal_liechtenstein_floor_column_2_duty_change.versions[0].effective_from"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -290,7 +317,7 @@
           "November 14, 2025",
           "14 November 2025"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -321,7 +348,7 @@
         "where": [
           "triage.verifier_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -341,7 +368,7 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -351,17 +378,71 @@
         "where": [
           "triage.triage_notes"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       }
     ],
     "post_side_tested": 7,
-    "post_side_matched": 0,
+    "post_side_matched": 6,
     "pre_side_tested": 1,
     "pre_side_matched": 0,
-    "reason": "no_tested_string_found"
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule",
+        "span": [
+          295074,
+          295299
+        ]
+      },
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "7. New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence, with the material in the new heading inserted",
+        "span": [
+          329057,
+          329182
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Annex II of the FR notice makes the HTSUS changes effective for goods entered on or after November 14, 2025, and item 7 inserts headings 9903.02.82-9903.02.91, which include 9903.02.87. That supports the post-fix effective_from of 2025-11-14. The pre-fix date of 2026-02-15 has no basis in the notice. provision.txt (the heading text alone) contains no date, so a judge holding only it cannot decide.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.88,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
   },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-498874ad9b6f",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -375,11 +456,10 @@
     "verifier_notes": "Source verification (read this session, pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): FR Doc 2025-23316 (90 FR 59281, Dec 18 2025) Annex II opens \"Effective with respect to goods entered for consumption ... on or after 12:01 a.m. eastern time on November 14, 2025\", item 1 terminates headings 9903.02.36 and 9903.02.58, and item 7 inserts new headings 9903.02.82-9903.02.91. Both excerpts added as proof atoms in this diff are byte-faithful to that text. The HTS 9903.02.87 provision itself carries no effective date, so nothing grounded the old 2026-02-15 value.\n\nOne correction to the first reader's stated reading, which does not change the verdict or kind: the pre-fix encoding did not leave 2025-11-14 through 2026-02-14 uncovered by a dormant successor. The predecessor module reciprocal-liechtenstein-9903-02-36.yaml carried `effective_to: '2026-02-14'` pre-fix (module index 2 in this commit changes it to '2025-11-13'), so the window was covered — but by the terminated +15% heading rather than by the floor pass-through heading the source actually made effective on 2025-11-14. The defect is therefore a wrong handoff date producing the wrong duty treatment for three months, not a coverage gap. Both sides of the handoff were redated in the same commit, and the module-level summary now states the November 14 ground.\n\nSecondary changes in this diff are provenance (corpus_citation_path -> corpus_citation_paths, two effective_period atoms per rule, summary sentence). Those alone would be mechanical; the effective_from scalars are what make it fidelity. No formula, parameter value, input, output, or entity/scope changed.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same defect pattern as indices 4, 5, 6, 9 (successor floor modules moved 2026-02-15 -> 2025-11-14). Source read and confirmed: the FR notice's Annex II preamble ('effective ... on or after 12:01 a.m. eastern time on November 14, 2025') and item 7 ('New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence'). Diff touches effective_from (7x), module summary, corpus_citation_paths, and two new effective_period proof atoms per rule; formulas untouched. The 44 new Boolean-witness test cases from F2 live in the .test.yaml files, not in this module file. | verifier confirmed at 0.94",
-  "family_id": "us-4d2856a9-498874ad9b6f",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same defect pattern as indices 4, 5, 6, 9 (successor floor modules moved 2026-02-15 -> 2025-11-14). Source read and confirmed: the FR notice's Annex II preamble ('effective ... on or after 12:01 a.m. eastern time on November 14, 2025') and item 7 ('New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence'). Diff touches effective_from (7x), module summary, corpus_citation_paths, and two new effective_period proof atoms per rule; formulas untouched. The 44 new Boolean-witness test cases from F2 live in the .test.yaml files, not in this module file. | verifier confirmed at 0.94"
 }

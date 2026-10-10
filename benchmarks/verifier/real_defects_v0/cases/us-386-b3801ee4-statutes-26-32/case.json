@@ -362,6 +362,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "absent",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -400,7 +401,69 @@
     "pre_side_matched": 0,
     "reason": "no_tested_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/32",
+        "quote": "such individual is not a dependent for whom a deduction is allowable under section 151 to another taxpayer",
+        "span": [
+          2535,
+          2641
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/32",
+        "quote": "does not include any individual who claims the benefits of section 911 (relating to citizens or residents living abroad) for the taxable year",
+        "span": [
+          3108,
+          3249
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/32",
+        "quote": "shall not include any individual who is a nonresident alien individual for any portion of the taxable year unless such individual is treated for such taxable year as a resident of the United States",
+        "span": [
+          3334,
+          3531
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 32(c)(1) in provision.txt makes eligibility depend on the not-a-dependent test, the section 911 bar and the nonresident-alien bar. It also contains the US-abode test (c)(1)(A)(ii)(I) and the full-12-month rule in (e). The pre-fix eitc_demographic_eligible checks only child count > 0 or any tax-unit member being age-eligible, so a reader can see those clauses are missing, and the post-fix formula encodes them.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-b3801ee4-b4522d893edb",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -414,11 +477,10 @@
     "verifier_notes": "Competing kinds I considered and rejected as the primary label, but a reviewer should know they co-occur in the same rule rewrite: (1) wrong_entity_or_scope — the pre-fix childless branch tested ANY tax-unit member (`count_where(member_of_tax_unit, eitc_childless_age_eligible) > 0`) whereas 32(c)(1)(A)(ii)(II) scopes the age test to the individual or, if married, the individual or spouse; the fix narrows to `childless_taxpayer_or_spouse_age_eligible_for_eitc`. (2) polarity_or_logic — the pre-fix married gate `(filing_status != 2 or satisfies_eitc_separated_spouse_rules)` in `eitc_eligible` fails open for married filers in any status coded other than 2, versus 32(d)(1)'s joint-return requirement; the fix is `(filing_status == 1 or not taxpayer_is_married_under_section_7703_a or satisfies_eitc_separated_spouse_rules)`. (3) untraceable_branch — `eitc_maximum` moved off the imported Rev. Proc. `eitc_maximum_credit_amounts[...]` table onto the statutory `eitc_phase_in_rate * eitc_earned_income_amount`; that is a re-grounding but arithmetically equivalent, so it carries little independent weight. Caveats: the 32(e) short-year and 32(k) disallowance/prior-deficiency terms are arguably scope the module never claimed (no pre-fix rule cited them), so if a reviewer wants the narrowest defect it is 32(c)(1)(A)(ii)(I)/(III), (B), (C), (D) — all squarely inside the rule's own cited source. Also note every new condition is an undefined opaque input (`taxpayer_claims_section_911_benefits`, `taxpayer_is_nonresident_alien_for_any_portion_of_year`, etc.), so the runtime effect depends on the caller supplying them; the first reader's \"two opaque inputs\" characterization of the pre-fix state is imprecise (pre-fix also leaned on `is_qualifying_child_dependent`, `filer_meets_eitc_identification_requirements`, `satisfies_eitc_separated_spouse_rules`). The commit is a wholesale regeneration of 12 modules with no per-module message, so the anchor evidence is the diff, not the commit text; the PR (#25, \"Encode 26 USC 63(c) standard deduction\") says nothing about section 32. Sibling rule `eitc_qualifying_child` shows the same unrepresented_clause pattern (adds 32(c)(3)(B) married exception, 32(c)(3)(C) US abode, 32(c)(3)(D) name/age/TIN), which corroborates the kind.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+    "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision not separately resolved; the added proof-atom `text:` fields carry the corpus excerpts and the module summary is verbatim statutory text. Two secondary formula corrections worth noting: `eitc_maximum` moved from the Rev. Proc. published maximum-credit table to 32(a)(2)(A)'s 'credit percentage of the earned income amount' (phase_in_rate * earned_income_amount), and `eitc_phased_in` moved from `min(eitc_maximum, earned_income * rate)` to 32(a)(1)'s `rate * min(earned_income, earned_income_amount)` — numerically these differ only by the Rev. Proc. rounding of the published maximum. `eitc_before_eligibility` changed from `min(P, max(0, M-R))` to `max(0, min(P, M-R))`, which is algebraically identical for non-negative P. The qualifying-child test gained the 32(c)(3)(C) US-abode requirement and the 32(c)(3)(B) married-child exception. The 32(b)(1) percentage tables and the childless age bounds (25/65) are unchanged. The `us:policies/irs/rev-proc-2025-32/earned-income-credit` import is retained for the (b)(2)/(i)(1) indexed amounts. | verifier confirmed at 0.82",
-  "family_id": "us-b3801ee4-b4522d893edb",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision not separately resolved; the added proof-atom `text:` fields carry the corpus excerpts and the module summary is verbatim statutory text. Two secondary formula corrections worth noting: `eitc_maximum` moved from the Rev. Proc. published maximum-credit table to 32(a)(2)(A)'s 'credit percentage of the earned income amount' (phase_in_rate * earned_income_amount), and `eitc_phased_in` moved from `min(eitc_maximum, earned_income * rate)` to 32(a)(1)'s `rate * min(earned_income, earned_income_amount)` — numerically these differ only by the Rev. Proc. rounding of the published maximum. `eitc_before_eligibility` changed from `min(P, max(0, M-R))` to `max(0, min(P, M-R))`, which is algebraically identical for non-negative P. The qualifying-child test gained the 32(c)(3)(C) US-abode requirement and the 32(c)(3)(B) married-child exception. The 32(b)(1) percentage tables and the childless age bounds (25/65) are unchanged. The `us:policies/irs/rev-proc-2025-32/earned-income-credit` import is retained for the (b)(2)/(i)(1) indexed amounts. | verifier confirmed at 0.82"
 }

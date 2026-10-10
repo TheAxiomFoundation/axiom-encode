@@ -170,6 +170,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -302,7 +303,61 @@
     "pre_side_matched": 1,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-in/statute/6-3-2-1",
+        "quote": "Each taxable year, a tax at the following rate of adjusted gross income is imposed upon the adjusted gross income of every resident person,",
+        "span": [
+          161,
+          300
+        ]
+      },
+      {
+        "citation_path": "us-in/statute/6-3-2-1",
+        "quote": "For taxable years beginning after December 31, 2025, and before January 1, 2027, two and ninety-five hundredths percent (2.95%).",
+        "span": [
+          1134,
+          1262
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "The provision fixes tax at 2.95% of adjusted gross income for 2026. The pre-fix formula instead accepts unrestricted caller-supplied base, floor and rate values, without enforcing that statutory calculation. The post-fix uses a statutory-rate import applied to completed Indiana adjusted gross income and adds the stated year boundary.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.98,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-02f5ae9e-351ca9e940c9",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -316,11 +371,10 @@
     "verifier_notes": "Kept the first reader's kind but the decisive evidence is the diff, not their quote: \"promotes Indiana 2026 personal income tax to one completed-return Indiana AGI boundary\" (pr_body) describes the boundary re-plumbing, not the ungrounded bracket mechanics, so the quote should be swapped for the removed formula lines. Source check: resolve_provision on us-in/statute/6-3-2-1, release us-rulespec-2026-07-22-current, provision sha256 e19ec65a65c41c5370aa47bdc3b5c4e579e2183b... (stored_body_sha256 e19ec65a...), expression_date 2025-06-30, fix_time_corpus_match same_body; subsection (a) is only the \"state fiscal year\" definition, (b) is the individual flat-rate list, (b)(7) = \"two and ninety-five hundredths percent (2.95%)\" for TY2026, (b)(8) = 2.9% for 2027-2029. Two caveats a reviewer should record. (1) Degenerate correctness: the pre-fix companion fixtures supplied bracket_floor 0, bracket_base 0, marginal_rate 0.0295, so outputs were numerically right (e.g. 855.5 on 29,000); this is a grounding/structure defect, not an amount_mismatch, and someone could argue \"enhancement\" - I rejected that because the module did claim IC 6-3-2-1 as the source of a formula the statute does not contain. (2) Secondary kind present: the pre-fix version had effective_from '2026-01-01' with no effective_to while citing a TY2026-bounded sentence, and the fix adds effective_to '2026-12-31'; if the corpus prefers a single kind per case, untraceable_branch dominates and wrong_period_or_effective_date is the runner-up. Separately, the fix commit itself shipped a wrong citation string, \"source: IC 6-3-2-1(a)(3), 2.95 per cent of Indiana adjusted gross income for tax year 2026\", corrected to (b)(7) one commit later at b1e588b77 \"Correct Indiana 2026 rate citation\" (which also refreshed the import hash) - that later commit is excerpt/citation-string plus import-hash only and would classify mechanical. Module index 1 in this commit (us-in/statutes/6-3-2-1.yaml) is a newly added file, not a modification, so it carries no pre-state to judge.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Provision read through the pinned corpus release us-rulespec-2026-07-22-current (expression date 2025-06-30, fix_time_corpus_match same_body): IC 6-3-2-1 has subsection (a) defining 'state fiscal year', subsection (b) listing the single flat individual rates by year ((b)(7) = 2.95% for TY2026), subsection (c) the corporate rates, and (d)/(e) proration and budget-agency mechanics. There is no bracket base, bracket floor, or schedule anywhere in the section, so the pre-fix in_pit_pilot_schedule_tax formula (in_pit_pilot_supplied_bracket_base + in_pit_pilot_supplied_marginal_rate * max(0, taxable - floor)) had no basis in the cited source; the statutory rate itself was also a caller input, so the module asserted nothing about the 2.95% the statute fixes. Secondary fidelity aspect in the same hunk: the pre-fix version had effective_from '2026-01-01' with no effective_to even though the grounding excerpt is bounded to taxable years before January 1, 2027; the fix adds effective_to '2026-12-31' (a wrong_period_or_effective_date flavor, but the schedule-vs-flat-rate grounding is the decisive change). The $1,000 subtraction the pre-fix module applied is real law (IC 6-3-1-3.5(a)(3), confirmed in the corpus), but it is a step inside the definition of Indiana AGI, not a post-AGI deduction; the fix moves the boundary to completed-return Indiana AGI so that step belongs upstream. The commit also rewrote the companion test file from supplied-schedule fixtures to AGI-boundary fixtures (not in this chunk). Caveat for reviewers: the pre-fix design was deliberate scaffolding (its own removed summary says all tax-law amounts are inputs so nothing unencoded is embedded) and reproduced correct numbers when fed rate 0.0295 / floor 0 / base 0, so a reviewer could read this as a boundary promotion rather than a numeric error; the encoded structure was nonetheless ungrounded, which is why I kept it as fidelity/untraceable_branch rather than unclear. Note a defect introduced BY this commit: the post-fix rule source string says 'IC 6-3-2-1(a)(3)' while the corpus puts 2.95% at (b)(7) (the PR body itself says (b)(7)); follow-up commit b1e588b77 'Correct Indiana 2026 rate citation' changes (a)(3) to (b)(7) and refreshes the import hash, and 1b03a435c 'Refresh Indiana rate import hash' follows. PR 960 has no reviews or review comments and the commit body is empty, so the only prose evidence is the PR summary bullets. | verifier confirmed at 0.70",
-  "family_id": "us-02f5ae9e-351ca9e940c9",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Provision read through the pinned corpus release us-rulespec-2026-07-22-current (expression date 2025-06-30, fix_time_corpus_match same_body): IC 6-3-2-1 has subsection (a) defining 'state fiscal year', subsection (b) listing the single flat individual rates by year ((b)(7) = 2.95% for TY2026), subsection (c) the corporate rates, and (d)/(e) proration and budget-agency mechanics. There is no bracket base, bracket floor, or schedule anywhere in the section, so the pre-fix in_pit_pilot_schedule_tax formula (in_pit_pilot_supplied_bracket_base + in_pit_pilot_supplied_marginal_rate * max(0, taxable - floor)) had no basis in the cited source; the statutory rate itself was also a caller input, so the module asserted nothing about the 2.95% the statute fixes. Secondary fidelity aspect in the same hunk: the pre-fix version had effective_from '2026-01-01' with no effective_to even though the grounding excerpt is bounded to taxable years before January 1, 2027; the fix adds effective_to '2026-12-31' (a wrong_period_or_effective_date flavor, but the schedule-vs-flat-rate grounding is the decisive change). The $1,000 subtraction the pre-fix module applied is real law (IC 6-3-1-3.5(a)(3), confirmed in the corpus), but it is a step inside the definition of Indiana AGI, not a post-AGI deduction; the fix moves the boundary to completed-return Indiana AGI so that step belongs upstream. The commit also rewrote the companion test file from supplied-schedule fixtures to AGI-boundary fixtures (not in this chunk). Caveat for reviewers: the pre-fix design was deliberate scaffolding (its own removed summary says all tax-law amounts are inputs so nothing unencoded is embedded) and reproduced correct numbers when fed rate 0.0295 / floor 0 / base 0, so a reviewer could read this as a boundary promotion rather than a numeric error; the encoded structure was nonetheless ungrounded, which is why I kept it as fidelity/untraceable_branch rather than unclear. Note a defect introduced BY this commit: the post-fix rule source string says 'IC 6-3-2-1(a)(3)' while the corpus puts 2.95% at (b)(7) (the PR body itself says (b)(7)); follow-up commit b1e588b77 'Correct Indiana 2026 rate citation' changes (a)(3) to (b)(7) and refreshes the import hash, and 1b03a435c 'Refresh Indiana rate import hash' follows. PR 960 has no reviews or review comments and the commit body is empty, so the only prose evidence is the PR summary bullets. | verifier confirmed at 0.70"
 }

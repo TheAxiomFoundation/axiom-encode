@@ -165,8 +165,8 @@
   },
   "pre_fix_artifact_sha256": "22e45f8937f5d088f6262db43b49c4d7f7834341badece87e77b9fecf00a1583",
   "post_fix_artifact_sha256": "34a99261750e9dbb7a500c8d94e725887ea6b53d072e682834f5eb60478832f1",
-  "provision_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
-  "provision_chars": 896,
+  "provision_sha256": "a2c646c3e1c5e5d57b9d0b5d73b80e654f23fe1416cdce93a2c6e213a2f03a6b",
+  "provision_chars": 337873,
   "provision_resolution": {
     "mode": "axiom_encode_resolver",
     "resolved_citation_path": "us/statute/hts/9903.02.58",
@@ -253,6 +253,33 @@
       }
     ]
   },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+    "first_citation_chars": 896,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+        "chars": 336864,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 12,
+          "record_id": "e36a6a5a-a64b-506e-88c2-3ce5dad1de30",
+          "stored_body_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "resolved_text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-18",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -286,7 +313,7 @@
           "reciprocal_switzerland_column_2_duty_change.versions[0].effective_to"
         ],
         "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -361,7 +388,7 @@
         "where": [
           "triage.verifier_justification"
         ],
-        "matched": false,
+        "matched": true,
         "counts": true
       },
       {
@@ -376,12 +403,66 @@
       }
     ],
     "post_side_tested": 4,
-    "post_side_matched": 1,
+    "post_side_matched": 3,
     "pre_side_tested": 1,
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025",
+        "span": [
+          3719,
+          3879
+        ]
+      },
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.",
+        "span": [
+          295586,
+          295646
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Annex II of FR Doc 2025-23316 terminates heading 9903.02.58 for goods entered on or after November 14, 2025. The last effective day is therefore 2025-11-13, which is the post-fix effective_to. The pre-fix effective_to of 2026-02-14 keeps the +39% duty running for three months after termination.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.95,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
   "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-1a0d4561fe0a",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -395,11 +476,10 @@
     "verifier_notes": "Refutation attempts and residual doubt, for the reviewer: (1) Mechanical? No — nine operative version windows changed; the added corpus_citation_paths, summary rewrite, and new effective_period proof atoms are provenance riding along with a real meaning change. (2) Not-a-defect / new coverage? The originally cited source (the HTS compiler's note) gave no date itself, but it pointed at \"90 Fed. Reg. 59281\", which is the exact start page of the FR doc whose Annex II carries the date, so the 2026-02-14 value was never grounded in the source it cited. (3) Alternative kind: untraceable_branch is arguable, since the pre-fix date came from a successor heading's panel date rather than any source text and the fix re-grounds it; I kept wrong_period_or_effective_date because the more specific kind explicitly covers effective_to/version windows disagreeing with the source. boundary_direction does not fit — the inclusive-end choice (2025-11-13 as last effective day before a 12:01 a.m. Nov 14 start) is correct in both readings; the defect is the date being ~3 months off, not the strictness. amount_mismatch does not fit: the 0.39 rate is unchanged. (4) Related context from the same commit (not this module): ch-82, the successor, moved from a premature 2025-08-07 start to 2025-11-14, so pre-fix the terminated heading and its successor overlapped Aug 2025–Feb 2026 in the composition — additional evidence that the old window produced wrong duties rather than merely imprecise metadata. Corpus resolution used release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0); note the resolver reported fix_time_corpus_match \"provision_file_absent_at_corpus_ref\" for the HTS file, so the FR text may not have been in the corpus at the original encoding time — that mitigates blame but does not change that the encoded window disagreed with the source.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "keyword",
-    "screen_reason": null
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 2 (li-36); the Switzerland rate is +39% rather than +15%, and the rate itself was not touched. Source verified in the same Annex II text (see index 2 notes), which names 9903.02.36 and 9903.02.58 together. Diff changes effective_to (9x), summary, corpus_citation_paths and adds one effective_period atom per rule; no formula change. This is the largest live-money window in the chunk, since the pre-fix module overstated Swiss duties by 39 points over the 2025-11-14 to 2026-02-14 span. | verifier confirmed at 0.93",
-  "family_id": "us-4d2856a9-1a0d4561fe0a",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 2 (li-36); the Switzerland rate is +39% rather than +15%, and the rate itself was not touched. Source verified in the same Annex II text (see index 2 notes), which names 9903.02.36 and 9903.02.58 together. Diff changes effective_to (9x), summary, corpus_citation_paths and adds one effective_period atom per rule; no formula change. This is the largest live-money window in the chunk, since the pre-fix module overstated Swiss duties by 39 points over the 2025-11-14 to 2026-02-14 span. | verifier confirmed at 0.93"
 }

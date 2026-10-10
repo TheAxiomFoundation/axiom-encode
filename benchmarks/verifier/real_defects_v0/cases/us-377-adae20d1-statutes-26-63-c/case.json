@@ -156,6 +156,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -284,7 +285,69 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/63",
+        "quote": "(6) Certain individuals, etc., not eligible for standard deduction In the case of— (A) a married individual filing a separate return where either spouse itemizes deductions, (B) a nonresident alien individual",
+        "span": [
+          2915,
+          3123
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/63",
+        "quote": "(D) an estate or trust, common trust fund, or partnership, the standard deduction shall be zero.",
+        "span": [
+          3278,
+          3374
+        ]
+      },
+      {
+        "citation_path": "us/statute/26/63",
+        "quote": "(2) Additional amount for blind The taxpayer shall be entitled to an additional amount of $600— (A) for himself if he is blind at the close of the taxable year",
+        "span": [
+          6803,
+          6962
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Section 63(c)(6) sets the standard deduction to zero for married-filing-separately filers where either spouse itemizes, nonresident aliens, short-period filers, and estates, trusts and partnerships. The pre-fix standard_deduction always returns basic + additional. Section 63(f)(2) also grants a blind additional amount, while the pre-fix rule counts aged members only. The post-fix module adds the zero-out gate and the blind count.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.93,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-adae20d1-7a9995c8252a",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -298,11 +361,10 @@
     "verifier_notes": "Checks run: read the bundle JSON and diff, the full parent file (0ca0e42ee9:statutes/26/63/c.yaml, 45 lines), the commit's test diff, the apply manifest, and the provision text via resolve_provision (corpus release us-rulespec-2026-07-13, resolved_text_sha256 7fa5f5d7...). Considered refutations and why they fail: (1) \"new coverage, never claimed\" — the pre-fix `additional_std_ded_amount` source string was scoped to 63(f)(1)(A) (aged), but the module's output rule `standard_deduction` claimed 63(c)(1) and its summary said the module \"defines the standard deduction as the basic standard deduction plus any additional standard deduction,\" so a blind-only taxpayer got a wrong (too low) number and an NRA got a nonzero number; those are wrong answers against the cited text. (2) \"stub replacement, nothing shipped to be wrong\" — the parent version was a working, tested module (companion c.test.yaml asserted concrete values, e.g. joint_one_aged standard_deduction 33850), with prior history at 5e8437c60 / 34ad14677 / 516621eb7; not an empty placeholder. (3) \"mechanical\" — ruled out: formulas, dtype (Integer→Count), rule set, inputs, and expected test outputs all change (e.g. new nonresident_alien_standard_deduction_zero case asserts standard_deduction 0). Caveats for the reviewer: this commit is a full encoder re-generation (backend openai / gpt-5.5, manifest added here), so the fidelity fix is bundled with heavy provenance churn — statutory-text summary, proof atoms, import hashes, data_relation predicate/arguments — and the \"Encode\" subject hides that it modifies an existing module. Also, the post-fix module still omits 63(c)(5)'s dependent limitation and counts aged/blind over all tax-unit members rather than taxpayer-and-spouse per 63(f)(1)(B)/(2)(B); those are remaining gaps in the fix, not reasons to downgrade this classification.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Subject says Encode, but it modifies existing 63(c): additional_std_ded_amount now counts aged plus blind conditions (was aged only) and standard_deduction gains the 63(c)(6) ineligibility gate."
+    "screen_reason": "Subject says Encode, but it modifies existing 63(c): additional_std_ded_amount now counts aged plus blind conditions (was aged only) and standard_deduction gains the 63(c)(6) ineligibility gate.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Single module in the commit (plus its companion test and the encoding manifest). Commit subject says 'Encode 26 USC 63(c)' but the file already existed (45 lines pre-fix, 132 post-fix), so this is a correction of an existing encoding, not a first encoding. Two distinct missing-clause defects are fixed in one module: (a) the blind additional amount under 63(f)(2) — num_aged_members (count_where aged only) became num_additional_standard_deduction_conditions (aged count + blind count), and additional_std_ded_amount's source was re-attributed from 'IRC section 63(f)(1)(A), aggregated over qualifying individuals' to 'IRC section 63(c)(3)'; (b) the 63(c)(6) zero-out, added as a new standard_deduction_ineligible Judgment rule and an 'if standard_deduction_ineligible: 0 else: ...' gate on standard_deduction. The pre-fix additional_std_ded_amount was the only additional-deduction term in standard_deduction, so the aged-only count was a real fidelity gap in a claimed output, not merely added scope. I read the provision through resolve_provision.py (us/statute/26/63) and confirmed 63(f) 'Aged or blind additional amounts' paragraph (2) 'Additional amount for blind' and 63(c)(6)'s 'the standard deduction shall be zero'. The same commit also makes non-fidelity changes alongside: module summary replaced with the verbatim statute text, proof_validation: required added, proof atoms with excerpts and import hashes added, data_relation gains predicate/arguments, and num_* dtype changed Integer -> Count. No PR reviews, review comments, or issue comments exist on PR #25, and the commit body is empty, so the PR body bullets are the only stated reason. Still unrepresented after this commit: the 63(c)(5) dependent limitation on the basic standard deduction (out of scope here, worth noting for anyone screening later commits). PR #25 notes a dependency on axiom-rules-engine#35 for member_of_tax_unit namespacing, which is unrelated to the fidelity fix. | verifier confirmed at 0.90",
-  "family_id": "us-adae20d1-7a9995c8252a",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Single module in the commit (plus its companion test and the encoding manifest). Commit subject says 'Encode 26 USC 63(c)' but the file already existed (45 lines pre-fix, 132 post-fix), so this is a correction of an existing encoding, not a first encoding. Two distinct missing-clause defects are fixed in one module: (a) the blind additional amount under 63(f)(2) — num_aged_members (count_where aged only) became num_additional_standard_deduction_conditions (aged count + blind count), and additional_std_ded_amount's source was re-attributed from 'IRC section 63(f)(1)(A), aggregated over qualifying individuals' to 'IRC section 63(c)(3)'; (b) the 63(c)(6) zero-out, added as a new standard_deduction_ineligible Judgment rule and an 'if standard_deduction_ineligible: 0 else: ...' gate on standard_deduction. The pre-fix additional_std_ded_amount was the only additional-deduction term in standard_deduction, so the aged-only count was a real fidelity gap in a claimed output, not merely added scope. I read the provision through resolve_provision.py (us/statute/26/63) and confirmed 63(f) 'Aged or blind additional amounts' paragraph (2) 'Additional amount for blind' and 63(c)(6)'s 'the standard deduction shall be zero'. The same commit also makes non-fidelity changes alongside: module summary replaced with the verbatim statute text, proof_validation: required added, proof atoms with excerpts and import hashes added, data_relation gains predicate/arguments, and num_* dtype changed Integer -> Count. No PR reviews, review comments, or issue comments exist on PR #25, and the commit body is empty, so the PR body bullets are the only stated reason. Still unrepresented after this commit: the 63(c)(5) dependent limitation on the basic standard deduction (out of scope here, worth noting for anyone screening later commits). PR #25 notes a dependency on axiom-rules-engine#35 for member_of_tax_unit namespacing, which is unrelated to the fidelity fix. | verifier confirmed at 0.90"
 }

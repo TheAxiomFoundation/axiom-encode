@@ -113,6 +113,7 @@
       }
     ]
   },
+  "provision_extension": null,
   "evidence_in_provision": "present",
   "evidence_check": {
     "method": "changed_rule_strings_v1",
@@ -213,7 +214,53 @@
     "pre_side_matched": 0,
     "reason": "post_side_string_found"
   },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_provision",
+    "outcome": "kept",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/statute/26/3101",
+        "quote": "there is hereby imposed on the income of every individual a tax equal to 1.45 percent of the wages (as defined in section 3121(a)) received by him",
+        "span": [
+          393,
+          539
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "3101(b)(1) taxes the income of every individual on wages received by him, so the tax belongs to each person. The pre-fix rule computed it at TaxUnit entity on a pooled wage base. A reader can see the provision calls for Person scope, which is what the post-fix rule uses.",
+    "missing_basis": "",
+    "pre_fix_restates_it": true,
+    "basis": "readers_agree",
+    "readers": {
+      "r1": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_provision",
+        "defect_real": "yes",
+        "confidence": 0.8,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": true
+    }
+  },
   "fix_stage": "post_merge",
+  "artifacts_shipped": true,
+  "family_id": "us-abc82d7a-63ba3f3ad07c",
+  "family_size": 1,
+  "family_representative": true,
   "triage_status": "fidelity",
   "triage": {
     "classification": "fidelity",
@@ -227,11 +274,10 @@
     "verifier_notes": "Evidence quality: the first reader's quote (\"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...\") is generic PR-body text and does not itself evidence the entity fix; the decisive evidence is the diff line above plus the pinned provision text, so the corpus record should carry that quote instead. Scope correction to the reader's record: only `hospital_insurance_wage_tax` changed entity; `hospital_insurance_wage_tax_rate` is `kind: parameter` and its only changes were `span:` -> `excerpt:` and `formula: '0.0145'` -> a block scalar (mechanical), so listing it in rule_names overstates the fix. Residual doubt worth flagging: 3101(b)(1) is an uncapped linear 1.45% tax, so a TaxUnit-level encoding could produce the same aggregate dollar total as the sum of per-person taxes; the defect is the population/output surface (and everything downstream that needs a per-individual Medicare figure, e.g. the (b)(2) additional tax thresholds), not a changed household total. I did not read the engine's entity-aggregation semantics, so I do not endorse the reader's specific mechanism claim that the pre-fix rule \"applied a per-individual tax to a pooled household wage base\" — the module's own input is `us:statutes/26/3101/b/1#input.wages`, whose level follows the rule entity; the scope defect holds without that claim. Companion tests (statutes/26/3101/b/1.test.yaml) changed only in case names and are entity-agnostic single-scalar cases, so they neither confirm nor refute; sibling module statutes/26/3101/a.yaml took the same TaxUnit->Person correction in this commit.",
     "verifier_inferred_from_module_index": null,
     "candidate_source": "screen",
-    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n)."
+    "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
   },
-  "triage_notes": "Same pattern as index 0. Corpus text confirms '(b) Hospital insurance (1) In general ... imposed on the income of every individual a tax equal to 1.45 percent of the wages ... received by him with respect to employment'. Decisive change entity: TaxUnit -> Person. Other hunks are summary rewrite, span->excerpt key rename, added self-import atom for the rate, and a block-scalar reformat of the 0.0145 literal (value unchanged). Note the added atom for the 'wages ... received by him with respect to employment' excerpt is typed kind: condition here while the parallel atom in 3101(a) is typed kind: definition - inconsistent atom typing, not a fidelity issue. Message/PR generic, so confidence held below 0.8. | verifier confirmed at 0.85",
-  "family_id": "us-abc82d7a-63ba3f3ad07c",
-  "family_size": 1,
-  "family_representative": true,
-  "artifacts_shipped": true
+  "triage_notes": "Same pattern as index 0. Corpus text confirms '(b) Hospital insurance (1) In general ... imposed on the income of every individual a tax equal to 1.45 percent of the wages ... received by him with respect to employment'. Decisive change entity: TaxUnit -> Person. Other hunks are summary rewrite, span->excerpt key rename, added self-import atom for the rate, and a block-scalar reformat of the 0.0145 literal (value unchanged). Note the added atom for the 'wages ... received by him with respect to employment' excerpt is typed kind: condition here while the parallel atom in 3101(a) is typed kind: definition - inconsistent atom typing, not a fidelity issue. Message/PR generic, so confidence held below 0.8. | verifier confirmed at 0.85"
 }
