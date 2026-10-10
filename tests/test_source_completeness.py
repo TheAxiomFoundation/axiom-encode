@@ -8315,6 +8315,24 @@ def test_cfr_source_reference_alias_matches_canonical_source_paths():
     ) == {("a", "3")}
 
 
+def test_usc_source_reference_alias_matches_scoped_statute_paths():
+    assert completeness_module._paths_from_source_reference(
+        "7 USC 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert completeness_module._paths_from_source_reference(
+        "7 U.S.C. 2012(j)(5)(A)",
+        corpus_citation_path="us/statute/7/2012/j",
+    ) == {("5", "a")}
+    assert (
+        completeness_module._paths_from_source_reference(
+            "7 USC 2012(k)(5)(A)",
+            corpus_citation_path="us/statute/7/2012/j",
+        )
+        == set()
+    )
+
+
 def test_cfr_parent_and_child_source_aliases_cover_complete_structure():
     source = """\
 (a) A person is eligible only if one of the following applies:
@@ -9785,6 +9803,18 @@ def test_editorial_slash_date_does_not_create_computation_obligation():
     assert source_states_explicit_computation(
         "The amount is computed by dividing income by the divisor."
     )
+
+
+def test_snap_table_range_plus_labels_do_not_create_computation_obligation():
+    source = (
+        "Table 2: Standard Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 5: Maximum Asset Limits Household with at least 1 member "
+        "age 60+ or disabled $4,500 All other households $3,000"
+    )
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(source + " Benefit = 300 - 30.")
+    assert source_states_explicit_computation("Benefit = 6+ 48.")
 
 
 @pytest.mark.parametrize(
@@ -21419,6 +21449,136 @@ def test_guidance_structural_number_cleanup_preserves_substantive_values():
     }
 
     assert values == {1, 2}
+
+
+def _us_legacy_numeric_recall_values(
+    source: str,
+    corpus_citation_path: str = "us-wa/manual/dshs/eaz/example",
+) -> set[float]:
+    """US citation paths use the legacy numeric profile in production."""
+
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path=corpus_citation_path,
+    )
+    return {
+        occurrence.value
+        for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
+            cleaned,
+            profile="legacy",
+        )
+    }
+
+
+def test_us_manual_code_and_policy_references_are_not_numeric_recall_values():
+    # WA DSHS EAZ manual and Utah DWS eligibility manual cross-references.
+    source = (
+        "See WAC 388-450-0015 for excludable income. We must consider countable "
+        "liquid resources under WAC 388-470-0055 when determining eligibility. "
+        "If the client is a migrant use WAC 388-406-0021, then see "
+        "WAC 388-450-0230. For exceptions refer to policy 770-2. Refer to "
+        "policy 770-3 to determine when no notice is required. At least one "
+        "member is elderly or disabled according to policy 254. A household "
+        "may not have over $100 in liquid assets. Advance notice is defined as "
+        "10 days. Verification must arrive before the 60th day after the date "
+        "of application."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 60, 100}
+
+
+def test_us_policy_reference_does_not_swallow_following_value():
+    source = (
+        "Under policy 254, 3 members qualify. See policies 770-2 and 770-3; "
+        "4 days apply."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {3, 4}
+
+
+def test_numbered_manual_section_headings_are_not_numeric_recall_values():
+    # Maryland FIA SNAP Manual section 214 page 5 and Utah DWS policy 770-1.
+    source = (
+        "SNAP MANUAL UTILITY ALLOWANCES\n\n"
+        "214.2 Shared Utility Costs (continued)\n\n"
+        "D. The household pays $35 of the cost.\n\n"
+        "214.3 Telephone Allowance\n\n"
+        "A. The telephone allowance is $27.\n\n"
+        "770-1 Advance Notice of Adverse Action\n\n"
+        "Advance notice is 10 days."
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {10, 27, 35}
+
+
+def test_leading_values_that_are_not_section_headings_stay_in_numeric_recall():
+    source = (
+        "7.65 Percent\n"
+        "2.5 Times the standard applies to each member.\n"
+        "1.5 percent of gross income is excluded.\n"
+        "12.5 Months\n"
+    )
+
+    assert _us_legacy_numeric_recall_values(source) == {0.015, 0.0765, 2.5, 12.5}
+
+
+def test_us_form_contact_and_form_number_identifiers_are_not_numeric_recall():
+    # Kansas K-40ES voucher instructions.
+    source = (
+        "Mail to: Estimated Tax, Kansas Department of Revenue, PO Box 3506, "
+        "Topeka KS 66625-3506. Questions? Call 785-368-8222 or (785) 368-8222. "
+        "Use Schedule K-210 to figure any underpayment. Topeka, KS 66625- 3506. "
+        "Pay if your tax is $500 or more."
+    )
+
+    assert _us_legacy_numeric_recall_values(
+        source,
+        "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    ) == {500}
+
+
+@pytest.mark.parametrize(
+    "corpus_citation_path",
+    ["de/statute/estg/32", "dk/statute/lbk-603-2025/x/paragraf-2", ""],
+)
+def test_us_locator_masks_do_not_apply_outside_us_citation_paths(
+    corpus_citation_path: str,
+):
+    # A German thousands separator would otherwise read as a heading label.
+    cleaned = authoritative_numeric_recall_text(
+        "1.000 Euro Freibetrag pro Kind\n",
+        corpus_citation_path=corpus_citation_path,
+    )
+
+    assert "1.000" in cleaned
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source", "kept"),
+    (
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "12.50 Weekly Allowance\n",
+            "12.50",
+        ),
+        (
+            "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+            "Under policy 2 adults must sign.",
+            "policy 2",
+        ),
+        ("de/manual/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+        # The gate reads the leading jurisdiction, not any `us/` segment.
+        ("de/manual/us/x", "1.500 Euro Freibetrag pro Kind\n", "1.500"),
+    ),
+)
+def test_us_manual_locator_masks_do_not_apply_to_other_manuals(
+    corpus_citation_path: str, source: str, kept: str
+):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=corpus_citation_path
+    )
+
+    assert kept in cleaned
 
 
 def test_guidance_footnote_cleanup_preserves_numbered_rules_and_categories():
@@ -45006,3 +45166,77 @@ def test_income_table_amounts_still_require_numeric_coverage():
         ),
     )
     assert _has_issue(result, "numeric")
+
+
+@pytest.mark.parametrize("principal", ["net * rate", "net *\nrate"])
+@pytest.mark.parametrize("leaf", ["base - deduction", "base -\ndeduction"])
+def test_reached_witness_expands_supported_multiline_arithmetic(principal, leaf):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"effective_from": "2025-01-01", "formula": leaf}],
+        }
+    }
+    case = {
+        "period": "2025-01-01",
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": {"net": 80},
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert dependencies == {"net": 80}
+    expanded = completeness_module._expand_reached_formula_dependencies(
+        principal,
+        principal_rules=rules,
+        case=case,
+        formula_environment={},
+        dependency_environment=dependencies,
+    )
+    assert expanded == "(base - deduction) * rate"
+
+
+@pytest.mark.parametrize("assertions", [{}, {"net": 81}])
+def test_multiline_witness_does_not_inline_uncorroborated_dependency(assertions):
+    rules = {
+        "net": {
+            "name": "net",
+            "kind": "derived",
+            "dtype": "Decimal",
+            "versions": [{"formula": "base -\ndeduction"}],
+        }
+    }
+    case = {
+        "input": {"base": 100, "deduction": 20, "rate": 0.25},
+        "output": assertions,
+    }
+    dependencies = completeness_module._case_asserted_dependency_environment(
+        rules, case, formula_environment={}
+    )
+    assert "net" not in dependencies
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            "net *\nrate",
+            principal_rules=rules,
+            case=case,
+            formula_environment={},
+            dependency_environment=dependencies,
+        )
+        == "net * rate"
+    )
+
+
+@pytest.mark.parametrize("formula", ["net +", "net; other", "net = other"])
+def test_multiline_dependency_expansion_preserves_invalid_expression(formula):
+    assert (
+        completeness_module._expand_reached_formula_dependencies(
+            formula,
+            principal_rules={},
+            case={"input": {}},
+            formula_environment={},
+            dependency_environment={},
+        )
+        == formula
+    )

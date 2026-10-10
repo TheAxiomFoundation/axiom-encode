@@ -1104,6 +1104,95 @@ def test_repair_candidate_overlay_rejects_referenced_input_removal(
         )
 
 
+@pytest.mark.parametrize("stale_test_input", [False, True])
+def test_repair_candidate_overlay_can_remove_input_shadowed_by_derived_rule(
+    tmp_path, stale_test_input
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "statutes" / "7" / "2012" / "j.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    preserved_rulespec = """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    entity: Person
+    dtype: Judgment
+    period: Month
+  - name: member_age
+    entity: Person
+    dtype: Integer
+    period: Month
+rules:
+  - name: member_meets_definition
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_age >= 60
+  - name: household_has_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: member_meets_definition
+"""
+    rulespec_file.write_text(
+        """format: rulespec/v1
+inputs:
+  - name: member_meets_definition
+    repair_remove: true
+rules: []
+""",
+        encoding="utf-8",
+    )
+    test_ref = (
+        "us:statutes/7/2012/j#input.member_meets_definition"
+        if stale_test_input
+        else "us:statutes/7/2012/j#input.member_age"
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        f"""- name: household_case
+  period: 2026-01
+  input:
+    {test_ref}: 60
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=preserved_rulespec,
+        tests="""- name: household_case
+  period: 2026-01
+  input:
+    us:statutes/7/2012/j#input.member_meets_definition: true
+  output:
+    us:statutes/7/2012/j#household_has_member: holds
+""",
+    )
+
+    if stale_test_input:
+        with pytest.raises(ValueError, match="remain referenced"):
+            evals_module._overlay_validation_retry_candidate(
+                rulespec_file,
+                artifact_root=artifact_root,
+                candidate=candidate,
+            )
+        return
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+    merged = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert {item["name"] for item in merged["inputs"]} == {"member_age"}
+    assert "removed_input:member_meets_definition" in repairs
+
+
 def test_repair_candidate_overlay_removes_explicit_named_tombstones(tmp_path):
     artifact_root = tmp_path / "generated"
     rulespec_file = artifact_root / "regulations" / "section.yaml"
@@ -1360,13 +1449,14 @@ def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-6:] == [
+    assert parameters[-7:] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
         "validation_retry_candidate",
         "repair_candidate_tests_only",
         "accept_valid_retry_candidate",
+        "codex_reasoning_effort",
     ]
 
 
@@ -3086,6 +3176,96 @@ def test_model_eval_uses_output_override_for_prompt_and_artifact_path(tmp_path):
     assert mock_prompt.call_args.kwargs["target_file_name"] == target.name
     assert mock_prompt.call_args.kwargs["target_ref_prefix"] == (
         "us-nc:policies/income_tax/pilot_liability_pipeline"
+    )
+
+
+def test_model_eval_marks_each_encode_try_phase_in_order(tmp_path):
+    """Inside an encode try, one generation walks prepare -> model call ->
+    staging -> validation -> result recording, each a timeline phase."""
+    from datetime import datetime, timezone
+
+    from axiom_encode.encode_timing import (
+        EncodeLoopTimer,
+        activate_encode_loop_timer,
+    )
+
+    corpus_release, _source_unit = _write_test_source_unit(
+        tmp_path,
+        "Authoritative source.",
+        citation_path="us-nc/statute/105/105-153.7",
+    )
+    policy_root = _canonical_rulespec_content_root(tmp_path, "us-nc")
+    target_relative = Path("policies/income_tax/pilot_liability_pipeline.yaml")
+    output_root = tmp_path / "out"
+
+    class TickingClock:
+        now = 100.0
+
+        def __call__(self) -> float:
+            self.now += 1.0
+            return self.now
+
+    clock = TickingClock()
+    timer = EncodeLoopTimer(
+        monotonic=clock,
+        origin=(clock.now, datetime(2026, 10, 7, tzinfo=timezone.utc)),
+        emit=None,
+    )
+
+    def generate(**kwargs):
+        output_file = kwargs["output_file"]
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file.write_text("format: rulespec/v1\nrules: []\n")
+        return (
+            EvalPromptResponse(text="generated", duration_ms=1),
+            True,
+            0,
+            frozenset({output_file}),
+        )
+
+    with (
+        activate_encode_loop_timer(timer),
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval_with_empty_artifact_retry",
+            side_effect=generate,
+        ),
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            return_value=EvalArtifactMetrics(
+                compile_pass=True,
+                compile_issues=[],
+                ci_pass=True,
+                ci_issues=[],
+                embedded_source_present=False,
+                grounded_numeric_count=0,
+                ungrounded_numeric_count=0,
+                grounding=[],
+            ),
+        ),
+    ):
+        timer.start_try(1)
+        run_model_eval(
+            citations=["us-nc/statute/105/105-153.7"],
+            runner_specs=["openai:model-a"],
+            output_root=output_root,
+            policy_path=policy_root,
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+            mode="repo-augmented",
+            target_relative_output=target_relative,
+        )
+        timing = timer.finish_try()
+
+    assert [phase.name for phase in timing.phases] == [
+        "other",
+        "prepare",
+        "model_call",
+        "stage_candidate",
+        "candidate_validation",
+        "record_result",
+    ]
+    assert sum(phase.duration_ms for phase in timing.phases) == (
+        timing.wall_duration_ms
     )
 
 
@@ -4930,6 +5110,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "Validation fails if a direct local `#input.*_exception_applies`" in prompt
     assert "imported test inputs from copied files" in prompt
     assert "Do not stub imported derived" in prompt
+    assert "cannot have the same name as a local derived rule" in prompt
+    assert "never put a fabricated" in prompt
     assert "never assign prohibited derived" in prompt
     assert (
         "classifications such as any imported or local `#input.filing_status`" in prompt
@@ -9284,7 +9466,13 @@ rules: []
         assert mock_evaluate.call_count == 4
         assert mock_repair.call_count == 3
 
-    def test_generated_eval_repair_expands_fail_fast_coverage_issues(self, tmp_path):
+    def test_generated_eval_repair_expands_fail_fast_coverage_issues(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "axiom_encode.cli._rulespec_companion_test_failures",
+            lambda *args, **kwargs: [],
+        )
         repo_path = _canonical_rulespec_content_root(tmp_path, "us")
         rulespec_file = repo_path / "statutes" / "7" / "2015" / "f.yaml"
         test_file = rulespec_file.with_name("f.test.yaml")
@@ -9947,6 +10135,76 @@ rules:
         assert rows == [
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
+
+    def test_generated_eval_repairs_local_scalar_relation_from_formula(self, tmp_path):
+        repo = _canonical_rulespec_content_root(tmp_path, "us-co")
+        rulespec_file = repo / "regulations" / "example.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: household_members
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: household_has_eligible_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-10-01'
+        formula: count_where(household_members, member_is_eligible) > 0
+"""
+        )
+        test_file = rulespec_file.with_name("example.test.yaml")
+        test_file.write_text(
+            """- name: eligible_case
+  period: 2026-01
+  input:
+    us-co:regulations/example#relation.household_members:
+      - true
+  output:
+    us-co:regulations/example#household_has_eligible_member: holds
+"""
+        )
+        relation_issue = (
+            "Test case `eligible_case` input invalid: relation "
+            "`us-co:regulations/example#relation.household_members` item #1 "
+            "must be a mapping"
+        )
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                side_effect=[
+                    ValidationResult("ci", passed=False, issues=[relation_issue]),
+                    ValidationResult("ci", passed=True, issues=[]),
+                ],
+            ) as mock_ci,
+        ):
+            metrics = _evaluate_generated_artifact_with_repairs(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=repo,
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="A household with an eligible member qualifies.",
+                skip_reviewers=True,
+            )
+
+        [case] = yaml.safe_load(test_file.read_text())
+        assert mock_ci.call_count == 2
+        assert metrics.ci_pass
+        assert case["input"][
+            "us-co:regulations/example#relation.household_members"
+        ] == [{"us-co:regulations/example#input.member_is_eligible": True}]
 
     def test_generated_eval_repairs_zero_branch_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
@@ -22557,9 +22815,11 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
 
         assert response.error is not None
         assert response.error.startswith(rejection)
-        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+        assert "The signed-in Codex account rejected the requested model." in (
             response.error
         )
+        assert "`encode --model MODEL --escalation-model MODEL`" in response.error
+        assert "`eval --runner claude:opus --runner codex:MODEL`" in response.error
 
 
 class TestUnexpectedAccessDetection:

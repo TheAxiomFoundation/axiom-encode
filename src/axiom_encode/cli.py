@@ -36,6 +36,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -101,7 +102,11 @@ from axiom_encode import __version__
 from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
-from .codex_cli import codex_auth_error
+from .codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
+    validate_codex_reasoning_effort,
+)
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -140,6 +145,17 @@ from .corpus_resolver import (
     resolve_local_corpus_source,
     split_proof_evidence_text,
     validate_corpus_release_name,
+)
+from .encode_timing import (
+    PHASE_APPLY_REPAIR,
+    PHASE_APPLY_WRITE,
+    PHASE_OVERLAY_VALIDATION,
+    PHASE_PREPARE,
+    PHASE_RETRY_HANDOFF,
+    EncodeLoopTimer,
+    activate_encode_loop_timer,
+    mark_encode_phase,
+    timed_phase,
 )
 from .engine_binding import (
     ENGINE_PIN_FIELD,
@@ -395,6 +411,7 @@ from .legacy_replacement_overlay import (
     stage_legacy_replacement_overlay as _stage_legacy_replacement_overlay,
 )
 from .live_run_telemetry import LiveRunTelemetry, telemetry_blocked_for_tests
+from .numeric_equality import rulespec_numeric_values_equal
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
     apply_pending_to_report,
@@ -2906,12 +2923,22 @@ def main():
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
             f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
-            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
-            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "OPENAI_API_KEY; use --model/--escalation-model to override, "
+            "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
+        ),
+    )
+    encode_parser.add_argument(
+        "--codex-reasoning-effort",
+        type=validate_codex_reasoning_effort,
+        default=DEFAULT_CODEX_REASONING_EFFORT,
+        help=(
+            "Reasoning effort for Codex encoding, including retries "
+            f"(e.g., low, medium, high; default: {DEFAULT_CODEX_REASONING_EFFORT}). "
+            "Other backends ignore this option."
         ),
     )
     encode_parser.add_argument(
@@ -6059,7 +6086,12 @@ def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
         and isinstance(expected, (int, float))
         and not isinstance(expected, bool)
     ):
-        return abs(Decimal(str(value)) - Decimal(str(expected))) <= Decimal("1e-18")
+        return rulespec_numeric_values_equal(
+            Decimal(str(value)),
+            Decimal(str(expected)),
+            actual_kind=kind,
+            expected_kind="integer" if isinstance(expected, int) else "decimal",
+        )
     if kind == "date" and isinstance(expected, date):
         return value == expected.isoformat()
     if isinstance(expected, date):
@@ -7647,6 +7679,7 @@ def cmd_concepts_audit(args):
                 "site_paths": [str(p) for p in f.site_paths],
                 "detail": f.detail,
                 "nearby_producers": list(f.nearby_producers),
+                "accepted_producers": list(f.accepted_producers),
             }
             for f in findings
         ]
@@ -7667,7 +7700,10 @@ def cmd_concepts_audit(args):
             continue
         print(f"\n[{kind}] {len(items)}")
         for f in items:
-            anchor = f" @ {f.anchor}" if f.anchor else ""
+            if len(f.accepted_producers) > 1 and kind != "anchored_ref_miss":
+                anchor = " @ one of " + ", ".join(f.accepted_producers)
+            else:
+                anchor = f" @ {f.anchor}" if f.anchor else ""
             nearby = (
                 f" (nearby: {', '.join(f.nearby_producers[:4])})"
                 if f.nearby_producers
@@ -10446,6 +10482,7 @@ def _emit_run_log_events_safe(
     outcome,
     *,
     total_duration_ms: int | None = None,
+    iterations: Sequence[Iteration] | None = None,
 ):
     """Emit run-log events for a just-completed encode run; never fatal.
 
@@ -10461,6 +10498,7 @@ def _emit_run_log_events_safe(
             run_id,
             outcome or {},
             total_duration_ms=total_duration_ms,
+            iterations=iterations,
         )
     except Exception:  # noqa: BLE001 - run-log emission must never break a run
         pass
@@ -18523,8 +18561,11 @@ def _append_generated_derived_output_tests_if_missing(
     repo_path: Path,
     relative_output: Path,
     issues: list[str],
+    test_failure_checker=None,
 ) -> list[str]:
     """Append deterministic companion cases for local derived outputs."""
+    if test_failure_checker is None:
+        return []
     if not issues or not test_file.exists() or not rules_file.exists():
         return []
     output_targets = _missing_derived_output_targets_from_issues(issues)
@@ -18566,13 +18607,15 @@ def _append_generated_derived_output_tests_if_missing(
         for input_name in sorted(factual_inputs)
     }
 
+    original_bytes = test_file.read_bytes()
+    generated_cases: list[dict] = []
     repaired: list[str] = []
     existing_case_names = {
         str(test_case.get("name") or "").strip()
         for test_case in test_payload
         if isinstance(test_case, dict)
     }
-    for target in output_targets:
+    for target in output_targets[:50]:
         if target in existing_outputs:
             continue
         rule = derived_rules_by_target.get(target)
@@ -18582,7 +18625,7 @@ def _append_generated_derived_output_tests_if_missing(
         case_name = f"auto_output_{_safe_test_name(output_name)}"
         if case_name in existing_case_names:
             continue
-        test_payload.append(
+        generated_cases.append(
             {
                 "name": case_name,
                 "period": _generated_test_period_for_rule(rule),
@@ -18600,8 +18643,26 @@ def _append_generated_derived_output_tests_if_missing(
 
     if not repaired:
         return []
+    # Screen only new worlds: an existing failure cannot mask a new failure.
+    # One bounded batch, with no trial writes to the caller's companion file.
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate_file = Path(tmpdir) / test_file.name
+            candidate_file.write_text(
+                yaml.safe_dump(generated_cases, sort_keys=False, allow_unicode=True)
+            )
+            failures = test_failure_checker(candidate_file)
+            if not isinstance(failures, list) or failures:
+                return []
+    except Exception:
+        # Unavailable engines, compilation and setup errors leave coverage pending.
+        return []
+    if test_file.read_bytes() != original_bytes:
+        return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(
+            test_payload + generated_cases, sort_keys=False, allow_unicode=True
+        )
     )
     return repaired
 
@@ -19811,19 +19872,50 @@ def _remove_invalid_test_input_refs(
         invalid_refs,
     )
 
-    changed = False
+    removed_refs: set[str] = set()
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
         inputs = test_case.get("input")
-        if _remove_mapping_keys_recursive(inputs, removable_refs):
-            changed = True
-    if not changed:
+        retained_refs = _invalid_refs_solely_populating_relation_rows(
+            inputs, removable_refs
+        )
+        case_removable_refs = removable_refs - retained_refs
+        present_refs = {
+            str(key) for key in _mapping_keys_recursive(inputs)
+        } & case_removable_refs
+        if _remove_mapping_keys_recursive(inputs, case_removable_refs):
+            removed_refs.update(present_refs)
+    if not removed_refs:
         return []
     test_file.write_text(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
-    return sorted(removable_refs)
+    return sorted(removed_refs)
+
+
+def _invalid_refs_solely_populating_relation_rows(
+    inputs: object, invalid_refs: set[str]
+) -> set[str]:
+    """Keep a concrete invalid-input diagnostic instead of creating an empty row.
+
+    A generated relation row whose only child fact is an invalid reference needs
+    model repair. Deleting that fact turns a precise input-slot error into an
+    opaque missing-assignment error and can leave a misleading ``- {}`` row.
+    """
+    if not isinstance(inputs, dict):
+        return set()
+    retained: set[str] = set()
+    for relation_ref, rows in inputs.items():
+        if "#relation." not in str(relation_ref) or not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or not row:
+                continue
+            row_keys = {str(key) for key in row}
+            if row_keys <= invalid_refs:
+                retained.update(row_keys)
+    return retained
 
 
 def _rewrite_import_output_test_input_refs(
@@ -31065,20 +31157,68 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             backend=args.backend,
             model=config.escalation_model,
         )
-    with LiveRunTelemetry(
-        citation=str(args.citation),
-        backend=str(getattr(args, "backend", "") or ""),
-        model=str(config.initial_model or ""),
-        encoder_version=__version__,
-        enabled=getattr(args, "sync", True) is True,
-    ) as live_run:
+    with (
+        activate_encode_loop_timer(EncodeLoopTimer()) as loop_timer,
+        LiveRunTelemetry(
+            citation=str(args.citation),
+            backend=str(getattr(args, "backend", "") or ""),
+            model=str(config.initial_model or ""),
+            encoder_version=__version__,
+            enabled=getattr(args, "sync", True) is True,
+        ) as live_run,
+    ):
         return _run_encode_attempts_with_retries(
             args,
             config=config,
             live_run=live_run,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            loop_timer=loop_timer,
         )
+
+
+def _stamp_encode_loop_timing(
+    run: EncodingRun,
+    outcome: dict,
+    *,
+    loop_timer: EncodeLoopTimer,
+    db_path: Path,
+) -> None:
+    """Copy each try's wall time and phases onto the run, and the loop totals
+    into its outcome, before the outcome is recorded and synced.
+
+    Telemetry only: a failure here is reported and never fails the encode.
+    """
+    try:
+        tries = {timing.attempt: timing for timing in loop_timer.tries}
+        stamps = {
+            attempt: {
+                "started_at": timing.started_at,
+                "finished_at": timing.finished_at,
+                "wall_duration_ms": timing.wall_duration_ms,
+                "phases": timing.phase_dicts(),
+            }
+            for attempt, timing in tries.items()
+        }
+        loop_timing = loop_timer.loop_timing()
+        # The local row is written first: the run and its outcome take the
+        # timing only once it is stored, so a failed write leaves the local
+        # row, the Supabase sync and the run log all without it.
+        EncodingDB(db_path).update_run_iterations(
+            run.id,
+            [
+                dataclass_replace(iteration, **stamps[iteration.attempt])
+                if iteration.attempt in stamps
+                else iteration
+                for iteration in run.iterations
+            ],
+        )
+        for iteration in run.iterations:
+            for name, value in stamps.get(iteration.attempt, {}).items():
+                setattr(iteration, name, value)
+        outcome["encode_loop_timing"] = loop_timing
+    except Exception as exc:  # noqa: BLE001 - timing must never fail an encode
+        print(f"  encode_timing=failed:{type(exc).__name__}")
 
 
 def _run_encode_attempts_with_retries(
@@ -31088,8 +31228,13 @@ def _run_encode_attempts_with_retries(
     live_run: LiveRunTelemetry,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    loop_timer: EncodeLoopTimer | None = None,
 ):
     """Bounded validator-retry loop for one encode invocation."""
+    if loop_timer is None:
+        # Callers outside ``_cmd_encode_with_authoritative_rulespec_roots``
+        # still get per-try wall time; phases need an active timer.
+        loop_timer = EncodeLoopTimer()
     raw_emit_destination = getattr(args, "emit_final_rejected_candidate", None)
     emit_destination = (
         _resolve_final_rejected_candidate_destination(raw_emit_destination)
@@ -31103,6 +31248,8 @@ def _run_encode_attempts_with_retries(
     current_model = config.initial_model
 
     while True:
+        # A try runs until the next one starts or the loop stops judging it.
+        loop_timer.start_try(len(failed_attempts) + 1)
         execution = _run_encode_attempt(
             args,
             model=current_model,
@@ -31113,6 +31260,7 @@ def _run_encode_attempts_with_retries(
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
         )
+        loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
         if _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31172,6 +31320,8 @@ def _run_encode_attempts_with_retries(
                 live_run.set_attempt(len(failed_attempts) + 1, str(current_model))
                 continue
 
+        # The last candidate is judged; what follows is the loop's finalization.
+        loop_timer.finish_try()
         outcome = execution.outcome
         final_validator_rejected = _encode_attempt_was_validator_rejected(
             execution.result,
@@ -31239,6 +31389,12 @@ def _run_encode_attempts_with_retries(
                 final_attempt_error=final_attempt_error,
             )
             print(f"  run_id={logged_run.id}")
+        _stamp_encode_loop_timing(
+            logged_run,
+            outcome,
+            loop_timer=loop_timer,
+            db_path=db_path,
+        )
         repair_manifest = _record_encode_outcome(
             db_path=db_path,
             result=execution.result,
@@ -31250,6 +31406,7 @@ def _run_encode_attempts_with_retries(
             logged_run.id,
             outcome,
             total_duration_ms=logged_run.total_duration_ms,
+            iterations=logged_run.iterations,
         )
         apply_requested = getattr(args, "apply", False) is True
         if apply_requested:
@@ -31301,6 +31458,9 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    # Phases advance inside run_model_eval (model_call, stage_candidate,
+    # candidate_validation, record_result) and below under --apply.
+    mark_encode_phase(PHASE_PREPARE)
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     axiom_compose_path = _resolve_optional_axiom_compose_path(
@@ -31382,6 +31542,7 @@ def _run_encode_attempt(
     deferred_output_review_contract = getattr(args, "review_contract_json", None)
     amendment_source_texts: dict[str, str] | None = None
 
+    @timed_phase(PHASE_OVERLAY_VALIDATION)
     def _validate_generated_encoding_in_policy_overlay(
         result,
         *,
@@ -31450,6 +31611,9 @@ def _run_encode_attempt(
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
+        codex_reasoning_effort=getattr(
+            args, "codex_reasoning_effort", DEFAULT_CODEX_REASONING_EFFORT
+        ),
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
@@ -31638,6 +31802,9 @@ def _run_encode_attempt(
             ci_issues,
         )
     if apply_requested:
+        # Overlay validations run as nested phases; the rest of this branch
+        # is apply-time repairs and checks until the signed apply starts.
+        mark_encode_phase(PHASE_APPLY_REPAIR)
         if not _can_attempt_apply(result):
             detail = str(getattr(result, "error", None) or "generation failed")
             outcome["status"] = "apply_blocked_generation"
@@ -33541,6 +33708,8 @@ def _run_encode_attempt(
                             result,
                             output_root=args.output,
                             policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
                             issues=apply_issues,
                         )
                     )
@@ -34406,6 +34575,7 @@ def _run_encode_attempt(
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
                 else:
+                    mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
                             result,
@@ -39552,7 +39722,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
     ]
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
@@ -39570,6 +39742,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
+        generated_anchor=_relative_output_to_anchor(
+            relative_output, policy_repo_path=policy_repo_path
+        ),
     )
 
 
@@ -39871,6 +40046,7 @@ def _repair_scalar_relation_rows(
     test_file: Path,
     policy_repo_path: Path,
     parsed_issues: list[tuple[str, str, int]],
+    generated_anchor: str | None = None,
 ) -> list[str]:
     if not test_file.exists():
         return []
@@ -39905,17 +40081,34 @@ def _repair_scalar_relation_rows(
                 scalar_value = rows[list_index]
                 if isinstance(scalar_value, dict):
                     continue
-                replacement = _relation_row_replacement_from_companion_tests(
+                companion_replacement = _relation_row_replacement_from_companion_tests(
                     relation_key,
                     scalar_value,
                     policy_repo_path=policy_repo_path,
                 )
-                if replacement is None:
-                    replacement = _relation_row_replacement_from_generated_rules(
-                        relation_key,
-                        scalar_value,
-                        rules_file=rules_file,
-                    )
+                generated_replacement = _relation_row_replacement_from_generated_rules(
+                    relation_key,
+                    scalar_value,
+                    rules_file=rules_file,
+                )
+                generated_owns_relation = _generated_file_defines_relation(
+                    rules_file,
+                    relation_key,
+                    generated_anchor=generated_anchor,
+                )
+                # A protected replacement can rename the relation's child input.
+                # An older companion test then has a plausible row shape whose
+                # input is no longer declared by the generated module. Prefer
+                # the generated formula's single child fact in that case.
+                if (
+                    companion_replacement is not None
+                    and generated_replacement is not None
+                    and generated_owns_relation
+                    and not generated_replacement.keys() <= companion_replacement.keys()
+                ):
+                    replacement = generated_replacement
+                else:
+                    replacement = companion_replacement or generated_replacement
                 if replacement is None:
                     continue
                 rows[list_index] = replacement
@@ -40147,6 +40340,34 @@ def _relation_row_replacement_from_generated_rules(
     relation_base = relation_ref.split("#", 1)[0].strip()
     child_ref = f"{relation_base}#input.{next(iter(child_names))}"
     return {child_ref: copy.deepcopy(scalar_value)}
+
+
+def _generated_file_defines_relation(
+    rules_file: Path | None,
+    relation_ref: str,
+    *,
+    generated_anchor: str | None,
+) -> bool:
+    """Whether the generated module owns the relation being repaired."""
+    if rules_file is None or not rules_file.exists():
+        return False
+    module_ref = relation_ref.split("#", 1)[0].strip()
+    if generated_anchor != module_ref:
+        return False
+    relation_name = _relation_name_from_relation_ref(relation_ref)
+    if not relation_name:
+        return False
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    return isinstance(rules, list) and any(
+        isinstance(rule, dict)
+        and rule.get("name") == relation_name
+        and rule.get("kind") == "data_relation"
+        for rule in rules
+    )
 
 
 def _relation_name_from_relation_ref(relation_ref: str) -> str:
@@ -48043,6 +48264,8 @@ def _try_repair_generated_derived_output_tests_for_apply(
     output_root: Path,
     policy_repo_path: Path,
     issues: list[str],
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Append deterministic coverage tests for unasserted local derived outputs."""
     if not _only_pending_missing_derived_output_coverage_issues(issues):
@@ -48057,10 +48280,12 @@ def _try_repair_generated_derived_output_tests_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _append_generated_derived_output_tests_if_missing(
+    return _append_generated_derived_output_tests_in_overlay(
         rules_file=rules_file,
         test_file=test_file,
-        repo_path=policy_repo_path,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        rulespec_dependency_roots=rulespec_dependency_roots,
         relative_output=relative_output,
         issues=issues,
     )
@@ -48104,6 +48329,61 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
         relative_output=relative_output,
         issues=issues,
     )
+
+
+def _append_generated_derived_output_tests_in_overlay(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[str]:
+    """Screen one generated-only batch in a canonical temporary checkout."""
+    if not _missing_derived_output_targets_from_issues(issues):
+        return []
+    try:
+        content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
+        checkout = _rulespec_apply_checkout_root(policy_repo_path, relative_output)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir).resolve(strict=True)
+            overlay = parent / checkout.name
+            dependencies = _stage_apply_overlay_dependency_roots(
+                overlay_parent=parent,
+                policy_repo_path=checkout,
+                overlay_repo_name=checkout.name,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+            )
+            _stage_apply_overlay_dependency_root(source=checkout, target=overlay)
+            root = overlay / content_root.name
+            if canonical_rulespec_root_identity(root) is None:
+                return []
+            policy = root / relative_output
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(rules_file, policy)
+            companion = _rulespec_test_path(policy)
+
+            def check(candidate: Path):
+                shutil.copy2(candidate, companion)
+                return _rulespec_companion_test_failures(
+                    companion,
+                    root=root,
+                    axiom_rules_path=axiom_rules_path,
+                    rulespec_dependency_roots=dependencies,
+                )
+
+            return _append_generated_derived_output_tests_if_missing(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=policy_repo_path,
+                relative_output=relative_output,
+                issues=issues,
+                test_failure_checker=check,
+            )
+    except Exception:
+        return []
 
 
 def _append_generated_judgment_positive_tests_in_overlay(
@@ -57781,6 +58061,20 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                     validator_name=validator_name,
                 ):
                     issues.append(issue)
+        # Report the exact contract against the same final overlay bytes even
+        # when unrelated validators fail. The success-path admission gate above
+        # remains mandatory; this only makes missing obligations visible to retry.
+        issues.extend(
+            f"{relative_output}: {issue}"
+            for issue in _required_deferred_output_contract_issues(
+                overlay_target,
+                deferred_output_review_contract,
+                citation=str(getattr(result, "citation", "") or ""),
+                rulespec_path=policy_content_root.name
+                + "/"
+                + relative_output.as_posix(),
+            )
+        )
         return False, issues, {}
 
 
@@ -59804,7 +60098,7 @@ def _resolve_scheduled_proof_hash_dependents(
     overlay_content_root: Path,
     dependents: Sequence[Path],
 ) -> set[Path]:
-    """Authenticate dependents deferred to separately source-bound apply lanes."""
+    """Authenticate proof-pinned dependents for separately source-bound lanes."""
 
     if not scheduled_paths:
         return set()
@@ -59847,10 +60141,42 @@ def _resolve_scheduled_proof_hash_dependents(
             repo_path=overlay_content_root,
         )
         if repair_count <= 0 or repaired == content:
-            raise ValueError(
-                "Scheduled dependent has no stale proof import hash after target "
-                f"replacement: {path}"
-            )
+            if len(scheduled) != 1:
+                raise ValueError(
+                    "Scheduled dependent has no stale proof import hash after target "
+                    f"replacement: {path}"
+                )
+            first = next(iter(scheduled))
+            first_relative = first.relative_to(overlay_content_root)
+            first_import = _relative_rulespec_import_target(first_relative)
+            if not _rulespec_file_imports_target(
+                candidate,
+                target=first_import,
+                jurisdiction=overlay_content_root.name,
+            ):
+                raise ValueError(
+                    "Scheduled second dependent is not a direct importer of the "
+                    f"first scheduled proof-hash dependent: {path}"
+                )
+            try:
+                payload = yaml.safe_load(content)
+            except (ValueError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Cannot inspect scheduled dependent proof: {path}"
+                ) from exc
+            from .prepare_signed_backfill import _payload_has_proof_import_for_target
+
+            if not isinstance(
+                payload, dict
+            ) or not _payload_has_proof_import_for_target(
+                payload,
+                target_import=first_import,
+                canonical_target_import=(f"{overlay_content_root.name}:{first_import}"),
+            ):
+                raise ValueError(
+                    "Scheduled second dependent lacks a proof import pinned to "
+                    f"the first scheduled dependent: {path}"
+                )
         scheduled.add(candidate)
     return scheduled
 
@@ -60623,6 +60949,13 @@ def _complete_missing_imported_test_inputs(
     missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
+    if _copy_case_facts_to_single_empty_relation_row(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        assignments=missing_assignments,
+    ):
+        return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
     if current_base:
@@ -60682,6 +61015,85 @@ def _complete_missing_imported_test_inputs(
         return False
     test_file.write_text(updated)
     return True
+
+
+def _copy_case_facts_to_single_empty_relation_row(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    assignments: list[dict[str, str]],
+) -> bool:
+    """Use explicit case facts for an unambiguous generated relation member.
+
+    A generated case may assert Person outputs at the top level and use a
+    single empty Person row for its Household output.  Defaults would turn an
+    explicitly elderly member into a younger one.  Copy only facts declared
+    for the relation's child entity, and only for the exact failing row.
+    """
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    if not isinstance(rules_payload, dict) or not isinstance(cases, list):
+        return False
+    anchor = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    if not anchor:
+        return False
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    declared_inputs = rules_payload.get("inputs")
+    input_entities = (
+        {
+            str(item.get("name")): str(item.get("entity"))
+            for item in declared_inputs
+            if isinstance(item, dict) and item.get("name") and item.get("entity")
+        }
+        if isinstance(declared_inputs, list)
+        else {}
+    )
+    relation_children: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "data_relation":
+            continue
+        relation = rule.get("data_relation")
+        arguments = relation.get("arguments") if isinstance(relation, dict) else None
+        if not isinstance(arguments, list) or len(arguments) != 2:
+            continue
+        child = arguments[1]
+        if isinstance(child, dict) and isinstance(child.get("entity"), str):
+            relation_children[str(rule.get("name"))] = child["entity"]
+    changed = False
+    for assignment in assignments:
+        entity_id = assignment.get("entity", "")
+        for relation_name, child_entity in relation_children.items():
+            relation_ref = f"{anchor}#relation.{relation_name}"
+            if not entity_id.endswith(f"{relation_ref}-1"):
+                continue
+            for case in cases:
+                if not isinstance(case, dict) or case.get("name") != assignment["case"]:
+                    continue
+                inputs = case.get("input")
+                if not isinstance(inputs, dict) or inputs.get(relation_ref) != [{}]:
+                    continue
+                child_facts = {
+                    ref: value
+                    for ref, value in inputs.items()
+                    if isinstance(ref, str)
+                    and ref.startswith(f"{anchor}#input.")
+                    and input_entities.get(ref.rsplit("#input.", 1)[1]) == child_entity
+                }
+                if f"{anchor}#input.{assignment['input']}" not in child_facts:
+                    continue
+                # YAML anchors may share both the input mapping and relation
+                # list across cases. Replace them for this case alone.
+                case["input"] = {**inputs, relation_ref: [child_facts]}
+                changed = True
+    if changed:
+        test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=True))
+    return changed
 
 
 def _complete_missing_local_test_inputs(

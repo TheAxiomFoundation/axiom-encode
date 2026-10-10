@@ -91,7 +91,6 @@ ARTIFACT_CLASSES = ("provisions", "inventory", "coverage", "sources")
 # (code lists it to find the scope's sources), which only axiom-corpus does.
 PLACEABLE_ARTIFACT_CLASSES = ("provisions", "inventory", "coverage")
 MAX_LOCK_FILE_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
 _CHUNK_BYTES = 1024 * 1024
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _GIT_BLOB_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -681,7 +680,7 @@ def _place_verified(
                 parent.reopen()
         if not published:
             # Another process placed a file first; accept only the release's bytes.
-            _require_release_bytes_at(parent.fd, name, artifact, root / artifact.path)
+            _verify_release_bytes_at(parent.fd, name, artifact, root / artifact.path)
             return False
         if _identity_at_path(root, PurePosixPath(artifact.path)) != _identity(written):
             # A directory on the path was moved or swapped while the file was
@@ -733,7 +732,7 @@ def _identity_at_path(root: Path, relative: PurePosixPath) -> tuple[int, int] | 
         os.close(descriptor)
 
 
-def _require_release_bytes_at(
+def _verify_release_bytes_at(
     directory_fd: int, name: str, artifact: VerifiedReleaseArtifact, shown: Path
 ) -> None:
     """Accept a file someone else placed only if it holds the release's bytes."""
@@ -786,11 +785,19 @@ def _publish_no_replace_at(
     on Linux), as axiom-corpus's ``content_store.publish_no_replace`` does.
     Unlike that function it never falls back to a checked plain rename or to
     a copy beside ``target``: it raises instead, because either could replace
-    a file or leave a temporary file inside a scope. The new name must reach
-    ``written``'s inode; if the staged name was swapped for another file, the
-    new name is removed and placement fails.
+    a file or leave a temporary file inside a scope. The staged name must
+    reach ``written``'s inode before each publication call. If the new name
+    reaches another inode afterward, placement fails and leaves it untouched.
     """
 
+    def check_staged_file() -> None:
+        if _identity_in(source_dir_fd, source) != _identity(written):
+            raise CorpusMaterializationError(
+                f"the staged file for {shown} was replaced before it was published; "
+                "nothing was placed"
+            )
+
+    check_staged_file()
     try:
         os.link(
             source,
@@ -819,6 +826,7 @@ def _publish_no_replace_at(
                 f"cannot place {shown}: the filesystem has no hard links and "
                 "this platform has no no-replace rename"
             ) from exc
+        check_staged_file()
         error = rename_noreplace(source_dir_fd, source, target_dir_fd, target)
         if error == errno.EEXIST:
             return False
@@ -830,11 +838,8 @@ def _publish_no_replace_at(
                 f"no-replace rename failed: {os.strerror(error)}"
             ) from exc
     if _identity_in(target_dir_fd, target) != _identity(written):
-        with suppress(OSError):
-            os.unlink(target, dir_fd=target_dir_fd)
         raise CorpusMaterializationError(
-            f"the staged file for {shown} was replaced before it was published; "
-            "nothing was placed"
+            f"{shown} changed after verified bytes were published; left untouched"
         )
     return True
 
@@ -1818,6 +1823,7 @@ def load_pinned_release(
     """
 
     from axiom_encode.corpus_resolver import (
+        MAX_RELEASE_OBJECT_BYTES,
         read_bounded_regular_file,
         validate_corpus_release_name,
     )

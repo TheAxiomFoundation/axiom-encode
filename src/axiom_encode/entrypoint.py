@@ -13,6 +13,11 @@ import sys
 
 
 def main() -> int | None:
+    # Supervised runs start Python with -I, which ignores PYTHONUNBUFFERED, so
+    # stdout on a pipe is block-buffered; flush progress lines as they happen.
+    from axiom_encode.encode_timing import line_buffer_stdout
+
+    line_buffer_stdout()
     # This must run before importing ``axiom_encode.cli``. Production private
     # keys remain inside external signers; the mutable Python process that can
     # later launch model subprocesses receives only a confined broker capability.

@@ -51,7 +51,9 @@ CONTRACT = runpy.run_path(
 BACKFILL_CONTRACT = runpy.run_path(
     Path(__file__).with_name("prepare_signed_backfill.py")
 )
-SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["immutable_atomic_source_contract"]
+PARSE_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+RESOLVE_ATOMIC_REPAIR_MODE = BACKFILL_CONTRACT["resolve_atomic_repair_mode"]
 CITATION_RULESPEC_PATH = BACKFILL_CONTRACT["citation_rulespec_path"]
 MAX_ISSUES_BYTES = CONTRACT["FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
@@ -262,6 +264,16 @@ def _repair_lane_for_atomic_source(
         raise ValueError("expected atomic source input is invalid") from exc
     if expected["canonical_refresh_bundle"]:
         raise ValueError("repair replay does not support canonical refresh bundles")
+    if "atomic_source_input" in metadata:
+        prior = PARSE_ATOMIC_SOURCE_INPUT(metadata["atomic_source_input"])
+        if "repair_mode" in prior:
+            expected_execution = {
+                "requested_mode": prior["repair_mode"],
+                "mode": prior["repair_mode"],
+                "tests_only": prior["repair_mode"] == "tests_only",
+            }
+            if metadata.get("repair_execution") != expected_execution:
+                raise ValueError("repair artifact v6 execution mode is not bound")
     has_atomic = "atomic_source_input" in metadata
     has_legacy_source = "source_bundle_input" in metadata
     has_legacy_refresh = "canonical_refresh_bundle_input" in metadata
@@ -426,6 +438,27 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
     requested_repair_lane = getattr(args, "repair_lane", "target")
     if requested_repair_lane not in REPAIR_LANES:
         raise ValueError("repair lane must be target or dependent")
+    # Preserve legacy validation order and apply the explicit wrapper's scope
+    # to direct extractor callers as well as the workflow.
+    try:
+        requested_wrapper = json.loads(args.atomic_source_json)
+    except (TypeError, ValueError):
+        requested_wrapper = None
+    if isinstance(requested_wrapper, dict) and requested_wrapper.get("schema") == (
+        "axiom-encode/atomic-source-transaction/v6"
+    ):
+        RESOLVE_ATOMIC_REPAIR_MODE(
+            args.atomic_source_json,
+            {
+                "REPAIR_RUN_ID": str(args.workflow_run_id),
+                "CITATION": args.citation,
+                "REPLACE_RULESPEC_PATH": args.replace_rulespec_path or "",
+                "EXISTING_SIGNED_IMPORTS_JSON": args.existing_signed_imports_json,
+                "DEPENDENT_CITATION": args.citation
+                if requested_repair_lane == "dependent"
+                else "",
+            },
+        )
     transaction_citation = getattr(args, "transaction_citation", None) or args.citation
     transaction_rulespec_path = (
         getattr(args, "transaction_rulespec_path", None)
@@ -494,6 +527,8 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
                 metadata, args.atomic_source_json
             )
         else:
+            if "repair_mode" in PARSE_ATOMIC_SOURCE_INPUT(args.atomic_source_json):
+                raise ValueError("v6 cannot select a dependent repair lane")
             try:
                 expected_atomic_source = SPLIT_ATOMIC_SOURCE_INPUT(
                     args.atomic_source_json

@@ -80,6 +80,16 @@ from axiom_encode.corpus_resolver import (
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
+from axiom_encode.encode_timing import (
+    PHASE_REVIEW_MODEL_CALL,
+    TOOL_CI_STATIC_CHECKS,
+    TOOL_CI_TEST_CASES,
+    TOOL_POLICYENGINE_ORACLE,
+    TOOL_RULES_ENGINE_COMPILE,
+    TOOL_SOURCE_COMPLETENESS_CHECKS,
+    timed_phase,
+    timed_tool,
+)
 from axiom_encode.engine_binding import (
     ENGINE_PIN_FIELD,
     EnginePin,
@@ -139,6 +149,7 @@ from .proof_validator import (
     validate_rulespec_proofs,
 )
 from .source_completeness import (
+    _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     source_states_stated_conversion_result,
@@ -8831,6 +8842,7 @@ class _IntervalSelectorBound:
 
 
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
+    re.compile(r"AXIOM_ORACLE_UNSUPPORTED:"),
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
@@ -20630,8 +20642,13 @@ def build_existing_target_oracle_contract(
     exact_mappings = getattr(policyengine_registry, "mappings_by_legal_id", {})
     if not isinstance(exact_mappings, dict):
         return None
+    # Registry entries classified as not_comparable document an oracle gap;
+    # they do not establish a PolicyEngine-owned public shape to preserve.
     surface_names = sorted(
-        name for name in rules if f"{target}#{name}" in exact_mappings
+        name
+        for name in rules
+        if (mapping := exact_mappings.get(f"{target}#{name}")) is not None
+        and getattr(mapping, "mapping_type", None) != "not_comparable"
     )
     entity_inference_memo: dict[str, tuple[str, ...]] = {}
     cyclic_entity_rules: set[str] = set()
@@ -35165,6 +35182,7 @@ class ValidatorPipeline:
             f"{declared}."
         ]
 
+    @timed_tool(TOOL_SOURCE_COMPLETENESS_CHECKS)
     def _complete_source_unit_issues(
         self,
         content: str,
@@ -35172,6 +35190,7 @@ class ValidatorPipeline:
         validation_source_texts: Mapping[str, str] | None,
         test_cases: Sequence[object] | None,
         rules_file: Path | None = None,
+        proof_source_texts: Mapping[str, str | None] | None = None,
     ) -> list[str]:
         """Apply opt-in completeness checks to the resolver-owned corpus body."""
 
@@ -35231,6 +35250,7 @@ class ValidatorPipeline:
             content,
             authoritative_source_text or "",
             corpus_citation_path=corpus_citation_path,
+            source_context=proof_source_texts,
             test_cases=test_cases,
             extract_numeric_occurrences=numeric_occurrence_extractor,
             extract_numeric_grounding_occurrences=(
@@ -35241,11 +35261,85 @@ class ValidatorPipeline:
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
             imported_symbol_contents=imported_symbol_contents,
+            resolved_dependency_outputs=self._complete_source_unit_deferred_outputs(
+                content, rules_file
+            ),
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
         )
         return list(completeness.issues)
+
+    def _complete_source_unit_deferred_outputs(
+        self,
+        content: str,
+        rules_file: Path | None,
+    ) -> tuple[str, ...]:
+        """Authenticate exact existing outputs named by definition deferrals."""
+
+        if rules_file is None:
+            return ()
+        try:
+            payload = _safe_load_unique_keys(content)
+            module = payload.get("module", {}) if isinstance(payload, dict) else {}
+            records = (
+                module.get("deferred_outputs", []) if isinstance(module, dict) else []
+            )
+            if not isinstance(records, list):
+                return ()
+            source_root = self._validation_source_root(rules_file)
+        except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+            return ()
+        targets = {
+            target
+            for record in records
+            if isinstance(record, dict) and isinstance(record.get("blocked_by"), list)
+            for target in record["blocked_by"]
+            if isinstance(target, str)
+            and re.fullmatch(
+                r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*",
+                target,
+            )
+        }
+        resolved = []
+        for target in sorted(targets):
+            try:
+                dependency = _resolve_rulespec_import_file_static(
+                    target,
+                    rules_file=rules_file,
+                    policy_repo_path=source_root,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if dependency is None:
+                    continue
+                provider = _safe_load_unique_keys(dependency.read_text())
+                if (
+                    not isinstance(provider, dict)
+                    or provider.get("format") != "rulespec/v1"
+                ):
+                    continue
+                rules = provider.get("rules")
+                if not isinstance(rules, list):
+                    continue
+                symbol = target.partition("#")[2]
+                exports = [
+                    rule
+                    for rule in rules
+                    if isinstance(rule, dict) and rule.get("name") == symbol
+                ]
+                # Known behavioral interfaces must remain derived outputs:
+                # a same-name parameter cannot implement income selection or
+                # phaseout behavior. Table amount exports may be parameters.
+                allowed_kinds = (
+                    {"derived"}
+                    if target in _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS
+                    else {"parameter", "derived", "relation", "derived_relation"}
+                )
+                if len(exports) == 1 and exports[0].get("kind") in allowed_kinds:
+                    resolved.append(target)
+            except (OSError, ValueError, yaml.YAMLError, UnsafeRulespecContextPath):
+                continue
+        return tuple(resolved)
 
     def _complete_source_unit_import_symbol_contents(
         self,
@@ -35628,6 +35722,7 @@ class ValidatorPipeline:
         )
         return binary
 
+    @timed_tool(TOOL_RULES_ENGINE_COMPILE)
     def _compile_rulespec_to_artifact(
         self,
         rules_file: Path,
@@ -36999,6 +37094,7 @@ class ValidatorPipeline:
             and str(item.get("name") or "") == self.policyengine_rule_hint
         )
 
+    @timed_tool(TOOL_CI_TEST_CASES)
     def _run_rulespec_test_cases(
         self,
         *,
@@ -37549,6 +37645,7 @@ class ValidatorPipeline:
             self._complete_source_unit_issues(
                 content,
                 validation_source_texts=validation_source_texts,
+                proof_source_texts=proof_source_texts,
                 test_cases=complete_source_unit_test_cases,
                 rules_file=rules_file,
             )
@@ -37596,6 +37693,7 @@ class ValidatorPipeline:
             "rules"
         )
 
+    @timed_tool(TOOL_CI_STATIC_CHECKS)
     def _run_ci(self, rulespec_file: Path) -> ValidationResult:
         """Run CI checks for RuleSpec artifacts."""
         with (
@@ -39760,6 +39858,7 @@ class ValidatorPipeline:
                 return Path(parts[statutes_idx + 2]).stem
         return None
 
+    @timed_phase(PHASE_REVIEW_MODEL_CALL)
     def _run_reviewer(
         self,
         reviewer_type: str,
@@ -40069,6 +40168,7 @@ Output ONLY valid JSON:
                 return stripped[:200]
         return "unknown error"
 
+    @timed_tool(TOOL_POLICYENGINE_ORACLE)
     def _run_policyengine(self, rulespec_file: Path) -> ValidationResult:
         """Run PolicyEngine and reject any runtime mutation across the execution."""
 
@@ -42900,8 +43000,9 @@ print(f'RESULT:{{float(value)}}')
             household_state = adapter.default_state_code
         if adapter is not None and adapter.state_code_from_boolean_input is not None:
             input_key, true_state, false_state = adapter.state_code_from_boolean_input
-            if input_key in inputs:
-                household_state = true_state if bool(inputs[input_key]) else false_state
+            state_selection = self._rulespec_test_input_value(inputs, input_key)
+            if state_selection is not None:
+                household_state = true_state if bool(state_selection) else false_state
         utility_region = None
         if "snap_utility_region" in inputs:
             utility_region = str(inputs["snap_utility_region"])
@@ -42976,6 +43077,30 @@ print(f'RESULT:{{float(value)}}')
                 )
         household_extra = ", ".join(household_extra_parts)
 
+        parameter_check_script = ""
+        if adapter is not None and adapter.boolean_input_parameter_check is not None:
+            input_key, parameter_path, value_mode = (
+                adapter.boolean_input_parameter_check
+            )
+            requested_value = self._rulespec_test_input_value(inputs, input_key)
+            if requested_value is not None:
+                parameter_period = self._normalize_monthly_pe_period(
+                    inputs.get("period"), year, "01"
+                )
+                parameter_expr = (
+                    f"bool(_check_params.{parameter_path}[{household_state!r}])"
+                )
+                if value_mode == "inverted_bool":
+                    parameter_expr = f"not {parameter_expr}"
+                parameter_check_script = f"""
+from policyengine_us import CountryTaxBenefitSystem
+
+_check_params = CountryTaxBenefitSystem().parameters({parameter_period!r})
+if {bool(requested_value)!r} != ({parameter_expr}):
+    print({("AXIOM_ORACLE_UNSUPPORTED: state parameter " + parameter_path + " disagrees with RuleSpec input " + input_key + " for " + household_state)!r})
+    raise SystemExit(86)
+"""
+
         if adapter is not None and adapter.parameter_path is not None:
             parameter_period = self._normalize_monthly_pe_period(
                 inputs.get("period"), year, "01"
@@ -42984,18 +43109,25 @@ print(f'RESULT:{{float(value)}}')
             if adapter.parameter_value_mode == "float":
                 return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
 val = float({value_expr})
 print(f'RESULT:{{val}}')
 """
+            boolean_expr = (
+                f"not bool({value_expr})"
+                if adapter.parameter_value_mode == "inverted_bool"
+                else f"bool({value_expr})"
+            )
             return f"""
 from policyengine_us import CountryTaxBenefitSystem
+{parameter_check_script}
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
-val = 1.0 if bool({value_expr}) else 0.0
+val = 1.0 if {boolean_expr} else 0.0
 print(f'RESULT:{{val}}')
 """
 
@@ -43007,6 +43139,7 @@ print(f'RESULT:{{val}}')
 
         script = f"""
 from policyengine_us import Simulation
+{parameter_check_script}
 
 situation = {{
     'people': {people_str},

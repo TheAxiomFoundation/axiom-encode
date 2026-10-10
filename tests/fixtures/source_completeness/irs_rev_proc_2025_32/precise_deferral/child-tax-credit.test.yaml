@@ -1,0 +1,10 @@
+- name: tax_year_2026_credit_amounts
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input: {}
+  output:
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#adoption_credit_refundable_determination_amount: 5120
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#child_credit_maximum_allowed_amount: 2200
+    us:policies/irs/rev-proc-2025-32/child-tax-credit#child_credit_refundable_determination_amount: 1700

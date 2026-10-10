@@ -49,10 +49,19 @@ to those descriptors, without following symlinks. A symlink put on an
 artifact's path or in place of the temporary file while bytes are on the way
 is therefore never followed. After publishing, the new name must be the
 temporary file's own inode, and walking the path from the corpus root must
-reach it; otherwise the name is removed and the artifact fails. The one
-remaining assumption is about locks: no other process rewrites the checkout's
-lock in the instant between the re-check and `link(2)`. axiom-corpus's own
-fetch makes the same assumption.
+reach it; otherwise placement fails. A name that now reaches another inode is
+left untouched, because another writer may have replaced it. Cleanup removes
+only the placed inode when it still owns the name.
+
+Placement assumes that other processes leave its unpredictable staging names
+alone and do not rewrite the checkout's lock between the re-check and
+publication. The staging inode is checked before each publication syscall,
+but a process with the same filesystem permissions can still replace it in
+that interval. That can leave a mismatched destination after failed placement;
+readers continue to verify its release hash and size. Each lock read assumes
+its ancestors and file type remain stable: lock reads do not yet protect
+against an ancestor changing or a regular file becoming a FIFO between the
+path check and open.
 
 The staging directory is the one `axiom-corpus-ingest corpus fetch` uses:
 git-ignored, outside every scope, and each temporary file's name carries the
@@ -205,16 +214,17 @@ automatic placement off; these are the values axiom-corpus accepts.
 
 ## Invariants
 
-For every release, every checkout lock state and every set of sources, while no
-other process rewrites the checkout's locks between the re-check and `link(2)`:
+For every release, every checkout lock state and every set of sources, under
+the staging and lock assumptions above:
 
 1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte count.
 2. **Lock bytes only.** A file is placed only at a path the checkout's own lock
    pins to the release's sha256 and size. Any other artifact is skipped, and
    its path is left as it was.
 3. **Fail closed.** Bytes that do not verify are never placed. A placement
-   that fails without being killed leaves no file and removes the scope
-   directories it created; the staging directory stays, empty.
+   that fails without being killed removes its own file and the empty scope
+   directories it created; another writer's replacement is left untouched.
+   The staging directory stays, empty.
 4. **Scopes stay clean.** No temporary file is ever created inside a scope.
    Temporary files live in `data/corpus/.corpus-fetch-tmp/` and carry the
    `.corpus-fetch-` marker. A killed placement leaves at most one there.

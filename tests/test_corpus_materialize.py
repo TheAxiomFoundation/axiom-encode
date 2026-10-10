@@ -20,7 +20,7 @@ from email.message import Message
 from pathlib import Path, PurePosixPath
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import corpus_materialize as cm
@@ -2150,6 +2150,33 @@ def test_trusted_supervisor_git_wrapper_allows_the_batch_reader(tmp_path):
 # --------------------------------------------------------- release + CLI
 
 
+@settings(
+    max_examples=5,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(padding=st.integers(min_value=1, max_value=2048))
+@example(padding=1)
+def test_property_fetch_and_binding_accept_large_release_objects(tmp_path, padding):
+    """Whitespace cannot make a supported union release unfetchable."""
+
+    with tempfile.TemporaryDirectory(dir=tmp_path) as raw:
+        root = Path(raw) / "axiom-corpus"
+        provisions = root / PROVISIONS
+        provisions.parent.mkdir(parents=True)
+        provisions.write_bytes(_rows_bytes())
+        release_sha = write_test_release_object(root, RELEASE, [STATUTE])
+        release_path = root / "releases" / RELEASE / f"{release_sha}.json"
+        with release_path.open("ab") as handle:
+            handle.write(b" " * (16 * 1024 * 1024 + padding))
+
+        _, verified = cm.load_pinned_release(root, RELEASE, release_sha)
+        bound = LocalCorpusRelease(root, RELEASE, release_sha, TEST_RELEASE_PUBLIC_KEY)
+
+        assert verified.content_sha256 == bound.content_sha256 == release_sha
+        assert verified.artifacts == bound.artifacts
+
+
 @needs_git
 def test_pinned_release_content_binding(tmp_path):
     root = tmp_path / "axiom-corpus"
@@ -2319,6 +2346,78 @@ def test_a_staged_file_swapped_for_a_symlink_is_never_published(tmp_path):
     assert "replaced before it was published" in report.failed[PROVISIONS]
     assert not os.path.lexists(root / PROVISIONS)
     assert attacker.read_bytes() == b"EVIL\n" and attacker.stat().st_nlink == 1
+
+
+@settings(
+    max_examples=8,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    publication=st.sampled_from(["link", "rename"]), replacement=st.binary(max_size=64)
+)
+@example(publication="link", replacement=b"another writer\n")
+@example(publication="rename", replacement=b"another writer\n")
+def test_property_a_destination_replaced_after_publication_is_left_untouched(
+    tmp_path, monkeypatch, publication, replacement
+):
+    """A successful syscall does not give us ownership of a later replacement."""
+
+    with (
+        tempfile.TemporaryDirectory(dir=tmp_path) as raw,
+        monkeypatch.context() as patch,
+    ):
+        root = Path(raw)
+        data = b"row\n"
+        art = _artifact(PROVISIONS, data)
+        _write_locks(root, {PROVISIONS: data})
+        other = root / "other-writer"
+        other.write_bytes(replacement)
+        replacement_identity = cm._identity(other.stat())
+
+        def replace_destination(target_dir_fd, target):
+            os.replace(other, target, dst_dir_fd=target_dir_fd)
+
+        if publication == "link":
+            original_link = cm.os.link
+
+            def link(*args, **kwargs):
+                original_link(*args, **kwargs)
+                replace_destination(kwargs["dst_dir_fd"], args[1])
+
+            patch.setattr(cm.os, "link", link)
+        else:
+            rename_noreplace = cm._rename_noreplace()
+            if rename_noreplace is None:
+                pytest.skip("no no-replace rename on this platform")
+            _refuse_links(patch, errno.EPERM)
+
+            def rename(source_dir_fd, source, target_dir_fd, target):
+                error = rename_noreplace(source_dir_fd, source, target_dir_fd, target)
+                assert error == 0
+                replace_destination(target_dir_fd, target)
+                return error
+
+            patch.setattr(cm, "_rename_noreplace", lambda: rename)
+
+        report = cm.materialize_release_artifacts(
+            root,
+            [art],
+            sources=_factory(FakeSource("s", {art.sha256: ("correct", data)})),
+        )
+
+        target = root / PROVISIONS
+        assert target.exists()
+        assert target.read_bytes() == replacement
+        assert cm._identity(target.stat()) == replacement_identity
+        assert (
+            "changed after verified bytes were published; left untouched"
+            in (report.failed[PROVISIONS])
+        )
+        assert report.materialized == {}
+        assert report.bytes_materialized == 0
+        assert report.present == []
+        assert _leftovers(root) == []
 
 
 def test_destination_inspection_errors_are_reported_not_raised(tmp_path):

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2086"
+version = "0.2.2159"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -24,7 +24,7 @@ dependencies = [
     # src/axiom_encode/oracles/policyengine/ are thin re-export shims over
     # axiom_oracles.bridges (axiom-oracles#124). Pinned to a commit because
     # axiom-oracles is not on PyPI; bump the SHA to pull bridge changes.
-    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@e1374eb30c582639f8f71f9bf9c22ba93b6e36f4",
+    "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@d3419010d9c8de6a790220bf47912d85aadc2588",
     "cryptography>=46.0",
     "pydantic>=2.0",
     "pypdf>=6.4.0",
@@ -43,15 +43,21 @@ dependencies = [
 
 [project.optional-dependencies]
 api = [
-    "anthropic>=0.40.0",
+    "anthropic>=0.83.0",
 ]
 observability = [
     "opentelemetry-api>=1.28.0",
     "opentelemetry-sdk>=1.28.0",
     "opentelemetry-exporter-otlp-proto-http>=1.28.0",
 ]
+# TypeSafe System One SDK for the statutory-fidelity screen
+# (judges/system_one.py). Imported lazily; exact pin because the screen's
+# recorded pilot evidence and answer shapes are tied to this SDK version.
+typesafe = [
+    "typesafe-sdk==0.6.0",
+]
 dev = [
-    "hypothesis>=6.100",
+    "hypothesis>=6.100.0",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
