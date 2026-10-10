@@ -4359,7 +4359,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
             ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("us", "de94317c2e268ec984104d7838f69cab6d6c0384"),
-        ("us", "de94317c2e268ec984104d7838f69cab6d6c0384"),
+            ("us", "de94317c2e268ec984104d7838f69cab6d6c0384"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
         }
