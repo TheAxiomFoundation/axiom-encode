@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import math
 import random
 import re
 from dataclasses import dataclass
@@ -725,7 +726,8 @@ def mutate(
 
 
 _PATH_TOKEN_RE = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
-_PLAIN_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+# How the mutator writes a number: ASCII digits, no leading zeros.
+_PLAIN_NUMBER_RE = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 _RULE_PERIOD_PATH = re.compile(r"rules\[\d+\]\.period")
 _RULE_ENTITY_PATH = re.compile(r"rules\[\d+\]\.entity")
 _VERSION_DATE_PATH = re.compile(r"rules\[\d+\]\.versions\[\d+\]\.effective_from")
@@ -740,6 +742,39 @@ def _leaf(document: Any, path: str) -> Any:
 
 def _decimals(number: str) -> int:
     return len(number.split(".")[1]) if "." in number else 0
+
+
+_NO_AMOUNT = "no amount the window states changes to one it does not"
+
+
+def _audit_numeric_amount(
+    before: Any, after: Any, stated: set[Decimal]
+) -> Optional[str]:
+    """Audit an amount edit on an int or float ``formula``/``value`` leaf.
+
+    The mutator keeps the leaf's type and writes the perturbed token with the
+    token's decimal places; a float re-render may drop trailing zeros (0.30
+    reads 0.3) or switch to exponent form (1.125e+16), so the written value is
+    compared in plain positional form.
+    """
+
+    if isinstance(after, bool) or type(after) is not type(before):
+        return "a numeric amount must keep its type"
+    if not math.isfinite(after):
+        return "a numeric amount must stay finite"
+    written = format(Decimal(repr(after)), "f")
+    for match in _number_sites(str(before)):
+        token = match.group(1)
+        if _YEAR_RE.match(token) or _as_decimal(token) not in stated:
+            continue
+        if not _PLAIN_NUMBER_RE.fullmatch(written):
+            continue
+        if _decimals(written) > _decimals(token):
+            continue
+        replacement = _as_decimal(written)
+        if replacement != _as_decimal(token) and replacement not in stated:
+            return None
+    return _NO_AMOUNT
 
 
 def _flat(text: str) -> str:
@@ -782,6 +817,8 @@ def audit_planted_edit(
         if path not in formula_paths:
             return f"edits {path}, not a formula or value"
         stated = provision_numbers(provision_window)
+        if isinstance(before, (int, float)) and not isinstance(before, bool):
+            return _audit_numeric_amount(before, after, stated)
         old, new = str(before), str(after)
         for match in _number_sites(old):
             token = match.group(1)
@@ -791,18 +828,17 @@ def audit_planted_edit(
             if not (new.startswith(head) and new.endswith(tail)):
                 continue
             written = new[len(head) : len(new) - len(tail)]
-            # The mutator writes plain digits with the token's decimal places
-            # (a numeric leaf is re-typed, so only the shape is checked there).
+            # The mutator writes plain digits with the token's decimal places.
             if not _PLAIN_NUMBER_RE.fullmatch(written):
                 continue
-            if isinstance(before, str) and _decimals(written) != _decimals(token):
+            if _decimals(written) != _decimals(token):
                 continue
             replacement = _as_decimal(written)
             if replacement == _as_decimal(token):
                 continue  # the same amount, reformatted
             if replacement not in stated:
                 return None
-        return "no amount the window states changes to one it does not"
+        return _NO_AMOUNT
 
     if kind in ("boundary_flipped", "polarity_swapped", "conjunct_dropped"):
         if path not in formula_paths or not isinstance(before, str):

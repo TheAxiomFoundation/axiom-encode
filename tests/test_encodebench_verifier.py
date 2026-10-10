@@ -3038,6 +3038,10 @@ def test_audit_refuses_edits_the_mutator_cannot_plant():
         "x * 75_000",
         "x * 1E+5",
         "x * 75000.0",
+        "x * \u0667\u0665\u0660\u0660\u0660",  # Arabic-Indic digits
+        "x * \uff17\uff15\uff10\uff10\uff10",  # fullwidth digits
+        "x * 075000",
+        "x * 0075000",
     ):
         reason = audit(
             _artifact_with(formulas={1: formula}, periods={1: "Day"}), "amount_changed"
@@ -3086,6 +3090,47 @@ def test_audit_refuses_edits_the_mutator_cannot_plant():
         )
         == "not a flip of a comparison operator"
     )
+
+
+def test_audit_numeric_leaf_amounts_keep_type_and_precision():
+    from encodebench_verifier.mutator import audit_planted_edit
+
+    window = "A cap of 60,000 and a rate of 0.25. A ceiling of 9000000000000000."
+
+    def leaf(value):
+        document = load_yaml_document(ARTIFACT)
+        document["rules"][0]["versions"][0]["formula"] = value
+        return dump_yaml_document(document)
+
+    def audit(before, after):
+        return audit_planted_edit(leaf(before), leaf(after), window, "amount_changed")
+
+    assert audit(60000, 75000) is None
+    assert audit(0.25, 0.3) is None  # 0.30 re-rendered without its zero
+    for before, after in (
+        (60000, 75000.0),
+        (60000, "75000"),
+        (60000.0, 75000),
+        (0.25, 0.3333),
+    ):
+        assert audit(before, after) is not None, (before, after)
+    assert audit(60000.0, float("inf")) is not None
+    # Whatever mutate plants on a numeric leaf passes, exponent form included.
+    for value in (60000, 0.25, 9000000000000000.0):
+        artifact = leaf(value)
+        planted = [
+            m
+            for m in _all_seeds(artifact, window, "amount_changed", range(30))
+            if m and m.locator.path == "rules[0].versions[0].formula"
+        ]
+        assert planted, value
+        for m in planted:
+            assert (
+                audit_planted_edit(
+                    m.control_text, m.defective_text, window, "amount_changed"
+                )
+                is None
+            ), (value, m.locator)
 
 
 def test_trim_restores_the_newline_of_a_finished_last_row(tmp_path):
