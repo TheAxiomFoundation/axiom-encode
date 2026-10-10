@@ -400,6 +400,10 @@ type externalSigner struct {
 }
 
 func main() {
+	// Diagnostics never enter hardening, broker attachment, or signing paths.
+	if len(os.Args) >= 2 && os.Args[1] == "--doctor" {
+		os.Exit(runDoctor(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--build-kind" {
 		fmt.Println(supervisorBuildKind)
 		return
