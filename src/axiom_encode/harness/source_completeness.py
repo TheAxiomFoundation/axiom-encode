@@ -474,6 +474,10 @@ _US_MANUAL_PROSE_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_US_MANUAL_PROSE_SCOPE", default=False
 )
 _MANUAL_WORD_SLASH = re.compile(r"(?<=[A-Za-z])[ \t]*/[ \t]*(?=[A-Za-z])")
+# A text that states an equation or a division keeps its slashes and dashes,
+# so a formula such as `Family member allowance = (monthly maintenance needs
+# standard - family member income) ÷ 3` stays a computation.
+_MANUAL_FORMULA_SIGNAL = re.compile(r"[\w)][ \t]*=[ \t]*[\w($]|÷")
 _MANUAL_SPACED_WORD_DASH = re.compile(r"(?<=[A-Za-z])[ \t]+[-–][ \t]+(?=[A-Za-z])")
 _ARITHMETIC_EXPRESSION = re.compile(
     r"(?:\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß]*)"
@@ -4800,7 +4804,9 @@ def _without_manual_typography_operators(source_text: str) -> str:
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
             masked[match.start()] = _TYPOGRAPHY_MASK
-    if _US_MANUAL_PROSE_SCOPE.get():
+    if _US_MANUAL_PROSE_SCOPE.get() and not _MANUAL_FORMULA_SIGNAL.search(
+        "".join(masked)
+    ):
         for pattern in (_MANUAL_WORD_SLASH, _MANUAL_SPACED_WORD_DASH):
             for match in pattern.finditer(source_text):
                 masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
