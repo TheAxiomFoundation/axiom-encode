@@ -44,6 +44,67 @@ NUMERIC_LIMIT = (
     "not eligible."
 )
 OREGON_PAGE = "us-or/manual/odhs/open/page-644"
+_LIMIT_CANDIDATE = """format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: {CITATION}
+  summary: probe
+inputs:
+- name: institution_meal_share_percent
+  entity: Person
+  dtype: Decimal
+  period: Month
+rules:
+- name: institution_meal_share_limit_percent
+  kind: parameter
+  dtype: Decimal
+  source: Institutional Residents
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: {CITATION}
+          excerpt: more than 50% of their meals
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '50'
+- name: institution_resident_ineligible
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  period: Month
+  source: Institutional Residents
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: {CITATION}
+          excerpt: Residents of institutions that provide more than 50% of their
+            meals are not eligible.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: 'institution_meal_share_percent > institution_meal_share_limit_percent'
+"""
+_LIMIT_TESTS = """
+- name: at limit
+  period: 2026-05
+  input:
+    us-or:policies/odhs/open/page-999#input.institution_meal_share_percent: 50
+  output:
+    us-or:policies/odhs/open/page-999#institution_resident_ineligible: not_holds
+- name: above limit
+  period: 2026-05
+  input:
+    us-or:policies/odhs/open/page-999#input.institution_meal_share_percent: 51
+  output:
+    us-or:policies/odhs/open/page-999#institution_resident_ineligible: holds
+"""
 
 
 def _issues(content: str, source: str, citation: str, test_cases) -> list[str]:
@@ -97,8 +158,63 @@ def test_manual_procedure_is_not_a_control():
     assert not _controls(PROCEDURE, OREGON_PAGE)
 
 
-def test_manual_numeric_limit_is_still_a_control():
-    assert _controls(NUMERIC_LIMIT, OREGON_PAGE)
+@pytest.mark.parametrize(
+    "source",
+    (
+        NUMERIC_LIMIT,
+        # Limits that only the exception cue made controls on main (review of
+        # #1833): the boundary recognizer does not read these comparators.
+        "Households are eligible unless income exceeds $500.",
+        "Households are eligible unless resources are over $2,750.",
+        "A vehicle is excluded if its fair market value is $4,650 or less.",
+        "The household is ineligible if income is greater than $3,000.",
+        "The household is exempt if it has fewer than 2 members.",
+        "Shelter costs are deducted only if they are in excess of $744.",
+        "A child is exempt if under age 18.",
+        "A person is exempt if age 55 or older.",
+        "A person is exempt if employed 20 or more hours a week.",
+    ),
+)
+def test_manual_numeric_limit_is_still_a_control(source: str):
+    assert _controls(source, OREGON_PAGE)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        ("unless income exceeds $500", True),
+        ("if its fair market value is $4,650 or less", True),
+        ("if under age 18", True),
+        ("if age 55 or older", True),
+        ("if employed 20 or more hours a week", True),
+        (PROCEDURE, False),
+        ("If the client calls over the phone, record the call.", False),
+        ("When the household moves, update the address.", False),
+    ),
+)
+def test_stated_numeric_limit(text: str, expected: bool):
+    assert bool(completeness_module._STATED_NUMERIC_LIMIT.search(text)) is expected
+
+
+def test_manual_procedure_needs_no_paired_test_cases():
+    # A candidate that encodes the page's numeric limit with a derived rule
+    # must not be asked for positive/blocking cases for the procedure.
+    source = f"Institutional Residents\n\n{NUMERIC_LIMIT}\n\n{PROCEDURE}\n"
+
+    def paired_case_issues(citation: str) -> list[str]:
+        return [
+            issue
+            for issue in _issues(
+                _LIMIT_CANDIDATE.replace("{CITATION}", citation),
+                source,
+                citation,
+                yaml.safe_load(_LIMIT_TESTS),
+            )
+            if "require paired positive/blocking cases" in issue
+        ]
+
+    assert not paired_case_issues("us-or/manual/odhs/open/page-999")
+    assert paired_case_issues("us-or/regulation/461/135/9999")
 
 
 @pytest.mark.parametrize(
