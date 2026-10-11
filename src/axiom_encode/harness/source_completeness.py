@@ -5207,7 +5207,9 @@ def _analyze_rulespec_payload(
         formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         deferred_clauses=deferred_clauses,
-        exception_controls=not _is_us_manual_citation_path(corpus_citation_path),
+        numeric_exception_controls_only=_is_us_manual_citation_path(
+            corpus_citation_path
+        ),
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -13149,6 +13151,19 @@ def _is_title_case_manual_heading(title: str) -> bool:
     return all(word[0].isupper() for word in words if len(word) >= 4)
 
 
+# A numeric limit stated as a comparison: `exceeds $500`, `over $2,750`,
+# `fewer than 2 members`, `under age 18`, `$4,650 or less`, `age 55 or older`.
+_STATED_NUMERIC_LIMIT = re.compile(
+    r"\b(?:exceed(?:s|ed|ing)?|over|under|above|below|beyond|"
+    r"(?:more|less|fewer|greater|higher|lower)\s+than|at\s+(?:least|most)|"
+    r"up\s+to|in\s+excess\s+of|not\s+to\s+exceed|(?:minimum|maximum)(?:\s+of)?)"
+    r"\b[^.;:\n\d]{0,30}?\$?\d"
+    r"|\d[\d,.]*[ \t]*%?[ \t]*(?:[A-Za-z]+[ \t]+){0,3}?or[ \t]+"
+    r"(?:more|less|fewer|greater|higher|lower|older|younger|over|under|above|below)\b",
+    flags=re.IGNORECASE,
+)
+
+
 def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
     """A US agency manual, the scope of the manual-only reading rules."""
 
@@ -17255,6 +17270,8 @@ def _companion_test_issues(
         deferred_paths=deferred_paths,
         formula_branches=formula_branches,
         deferred_clauses=deferred_clauses,
+        # Manual procedure needs no paired witnesses either.
+        numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
     )
     if exception_branches:
         independently_covered_paths = {
@@ -17699,7 +17716,7 @@ def _source_control_branches(
     formula_branches: Sequence[SourceStructureBranch],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
-    exception_controls: bool = True,
+    numeric_exception_controls_only: bool = False,
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses.
 
@@ -17707,7 +17724,8 @@ def _source_control_branches(
     `if`, `when` and `unless` sentences are procedure (`When child care hours
     are requested due to schooling, verification ... is required`), not a
     condition the encoding must derive, so callers pass
-    ``exception_controls=False`` there.
+    ``numeric_exception_controls_only=True`` there and only exception
+    sentences that state a numeric limit (`unless income exceeds $500`) stay.
     """
 
     boundary_branches = _active_or_root_source_branches(
@@ -17725,17 +17743,17 @@ def _source_control_branches(
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
-    if exception_controls:
-        controlled.extend(
-            _source_exception_branches(
-                source_text,
-                branches=branches,
-                active_branches=active_branches,
-                deferred_paths=deferred_paths,
-                formula_branches=formula_branches,
-                deferred_clauses=deferred_clauses,
-            )
+    controlled.extend(
+        _source_exception_branches(
+            source_text,
+            branches=branches,
+            active_branches=active_branches,
+            deferred_paths=deferred_paths,
+            formula_branches=formula_branches,
+            deferred_clauses=deferred_clauses,
+            numeric_limits_only=numeric_exception_controls_only,
         )
+    )
     return tuple(
         {
             (branch.path, branch.start, branch.end): branch
@@ -25708,6 +25726,7 @@ def _source_exception_branches(
     deferred_paths: set[tuple[str, ...]],
     formula_branches: Sequence[SourceStructureBranch] = (),
     deferred_clauses: Sequence[SourceStructureBranch] = (),
+    numeric_limits_only: bool = False,
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
     source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
@@ -25788,6 +25807,8 @@ def _source_exception_branches(
                     for formula_branch in formula_branches
                 )
             ):
+                continue
+            if numeric_limits_only and not _STATED_NUMERIC_LIMIT.search(branch_text):
                 continue
             obligations.append(
                 SourceStructureBranch(
