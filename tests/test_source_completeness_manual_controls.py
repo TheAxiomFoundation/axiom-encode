@@ -207,6 +207,9 @@ def test_manual_numeric_limit_is_still_a_control(source: str):
         ("if between the ages of 18 and 49", True),
         ("caring for a child under one year of age", True),
         ("if two or more members apply", True),
+        ("When the budgetary deficiency is $.49 or less, no payment is made.", True),
+        ("A child aged 16 to 18 must attend school.", True),
+        ("if one year or more has passed", True),
         (PROCEDURE, False),
         ("When the household moves, update the address.", False),
         # References after a comparator are not limits.
@@ -216,6 +219,14 @@ def test_manual_numeric_limit_is_still_a_control(source: str):
         ("If you did not check any box above, go to Step 3.", False),
         ("The waiver applies under section 1915(c) of the Act.", False),
         ("Studies must comply with the rules under 42 CFR 50.", False),
+        # Review round 3: no reference word, still a reference.
+        ("A noncitizen is eligible under §243 of the INA.", False),
+        ("The deeming rules under 1619(b) apply if the client works.", False),
+        ("The resource is exempt under 388-450-0140 if verified.", False),
+        # `one of` and `one or more of` mean "any".
+        ("If one or more of the following applies, deny the request.", False),
+        ("The case closes under one of the conditions described above.", False),
+        ("If at least one of the following is true, refer the case.", False),
     ),
 )
 def test_stated_numeric_limit(text: str, expected: bool):
