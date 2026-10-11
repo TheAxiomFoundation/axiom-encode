@@ -13176,7 +13176,7 @@ _STATED_NUMERIC_LIMIT = re.compile(
     rf"(?:(?!\b{_LIMIT_REFERENCE_WORD}\b)[^.;:\n\d§]){{0,30}}?"
     r"(?:\$?\d(?![\d,]*\s*(?:CFR|U\.?S\.?C)\b|\d*-\d|\d*\()"
     # `one of the following` and `one or more of` mean "any", not a limit.
-    rf"|\b{_LIMIT_SPELLED_NUMBER}\b(?![ \t]+of\b))"
+    rf"|\b(?!one[ \t]+of\b){_LIMIT_SPELLED_NUMBER}\b)"
     rf"|(?:(?<![\d,])\d[\d,.]{{0,24}}"
     rf"|\b(?!one[ \t]+or[ \t]+more\b){_LIMIT_SPELLED_NUMBER})"
     r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
