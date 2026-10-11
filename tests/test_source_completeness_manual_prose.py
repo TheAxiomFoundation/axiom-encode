@@ -23,6 +23,7 @@ import pytest
 import yaml
 
 from axiom_encode.harness import source_completeness as completeness_module
+from axiom_encode.harness import validator_pipeline as validator_pipeline_module
 from axiom_encode.harness.coverage_index import format_coverage_index
 from axiom_encode.harness.source_completeness import (
     analyze_complete_source_unit,
@@ -107,6 +108,7 @@ def test_manual_word_slash_and_dash_are_prose(source: str):
     assert not _computations(source, MANUAL)
     # Outside US manuals the generic reading is unchanged.
     assert _computations(source, STATUTE)
+    assert _computations(source, "uk-harrow/manual/council-tax-reduction-2026")
 
 
 @pytest.mark.parametrize(
@@ -132,6 +134,8 @@ def test_manual_arithmetic_stays_a_computation(source: str):
         "member income) ÷ 3.",
         "In this situation, the actual value of the S/M is $216.67 or $300 CMRV - "
         "$83.33 client's voluntary payment = $216.67.",
+        # `÷` alone also states an equation.
+        "The allowance is (monthly need standard - family income) ÷ 3.",
     ),
 )
 def test_manual_equation_keeps_its_slashes_and_dashes(source: str):
@@ -142,6 +146,35 @@ def test_web_address_equals_sign_does_not_keep_word_slashes():
     assert not _computations(
         "See https://example.gov/forms?s=7 for the SNAP/Cash worker guide.", MANUAL
     )
+
+
+@pytest.mark.parametrize(
+    ("citation", "expected"),
+    ((MANUAL, True), (STATUTE, False)),
+)
+def test_stated_conversion_hint_reads_the_source_like_the_validator(
+    citation: str, expected: bool
+):
+    # The hint takes the artifact's corpus path when the pipeline has no
+    # attested source path, as the complete-source-unit analysis does.
+    content = (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {citation}\n  summary: probe\nrules: []\n"
+    )
+    source = (
+        "The annual standard is $2,400. Converted to the monthly SNAP/Cash "
+        "amount, the result is 200."
+    )
+
+    hint = validator_pipeline_module._stated_conversion_ungrounded_literal_hint(
+        content,
+        source,
+        12.0,
+        source_citation_path=None,
+        require_complete_source_unit=True,
+    )
+
+    assert bool(hint) is expected
 
 
 def test_word_only_manual_subtraction_is_prose():
