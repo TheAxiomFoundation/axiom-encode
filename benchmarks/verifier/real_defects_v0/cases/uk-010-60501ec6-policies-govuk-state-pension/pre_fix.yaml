@@ -1,0 +1,102 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk/regulation/uksi/2026/148/article/4
+  summary: |-
+    This PolicyEngine-alignment surface returns the weekly State Pension amount used by PolicyEngine UK: the person's reported dataset-year State Pension prorated by current basic or new State Pension flat-rate ceilings, plus any additional or protected amount above the dataset-year ceiling.
+imports:
+  - uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_weekly_rate
+  - uk:regulations/uksi/2026/148/article/6#full_new_state_pension_weekly_rate
+rules:
+  - name: current_state_pension_flat_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: PolicyEngine UK basic_state_pension and new_state_pension final receipt wrapper
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/4
+              excerpt: "Category A basic retirement pension"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_weekly_rate
+              output: category_a_basic_retirement_pension_weekly_rate
+              hash: sha256:5223b6927443b93929f06f977737d9b2706cd34bd3563fcd708b5fedd759281c
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/6#full_new_state_pension_weekly_rate
+              output: full_new_state_pension_weekly_rate
+              hash: sha256:9381dd12c2807a4abf0cf6e77cad270217a53c786daf70cc9d118fd6f014c976
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if current_state_pension_type_is_basic: min(reported_state_pension_weekly_amount_in_data_year, data_year_basic_state_pension_weekly_rate) * category_a_basic_retirement_pension_weekly_rate / data_year_basic_state_pension_weekly_rate else: if current_state_pension_type_is_new: min(reported_state_pension_weekly_amount_in_data_year, data_year_full_new_state_pension_weekly_rate) * full_new_state_pension_weekly_rate / data_year_full_new_state_pension_weekly_rate else: 0
+
+  - name: additional_state_pension_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: PolicyEngine UK additional_state_pension final receipt wrapper
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/4
+              excerpt: "Category A basic retirement pension"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/4#category_a_basic_retirement_pension_weekly_rate
+              output: category_a_basic_retirement_pension_weekly_rate
+              hash: sha256:5223b6927443b93929f06f977737d9b2706cd34bd3563fcd708b5fedd759281c
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/6#full_new_state_pension_weekly_rate
+              output: full_new_state_pension_weekly_rate
+              hash: sha256:9381dd12c2807a4abf0cf6e77cad270217a53c786daf70cc9d118fd6f014c976
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if data_year_state_pension_type_is_basic: max(0, reported_state_pension_weekly_amount_in_data_year - data_year_basic_state_pension_weekly_rate) * category_a_basic_retirement_pension_weekly_rate / data_year_basic_state_pension_weekly_rate else: if data_year_state_pension_type_is_new: max(0, reported_state_pension_weekly_amount_in_data_year - data_year_full_new_state_pension_weekly_rate) * full_new_state_pension_weekly_rate / data_year_full_new_state_pension_weekly_rate else: 0
+
+  - name: state_pension_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: PolicyEngine UK state_pension final receipt wrapper
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/state-pension#current_state_pension_flat_weekly_amount
+              output: current_state_pension_flat_weekly_amount
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/state-pension#additional_state_pension_weekly_amount
+              output: additional_state_pension_weekly_amount
+              hash: sha256:local
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if state_pension_abolished_by_policy: 0 else: (current_state_pension_flat_weekly_amount + additional_state_pension_weekly_amount) * state_pension_policy_uprating_factor

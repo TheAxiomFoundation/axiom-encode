@@ -19,3 +19,8 @@ cases/<id>/provision.txt     the provision text
 `rd-0001` is a boundary correction, `rd-0002` an unrepresented clause (kept as
 an `other:` kind on the board), and `rd-0003` a metadata-only family member
 (`artifacts_shipped: false`) that the loader must skip and count, never invent.
+
+The records here carry no `judgeable_from_provision` or `provision_review`
+(the corpus's record of whether, and where, the provision shows the pre-fix
+module wrong), so the loader's `judgeable_only` default keeps them; the loader
+tests add those fields to a copy.

@@ -35,8 +35,9 @@ judge can be measured against, and that is what this track supplies.
     `encodings.db` `apply_applied` generations (`sources/encodings_db.py`,
     opened read-only).
   - `real`: recorded repair rounds under `benchmarks/verifier/real_defects_v0/`
-    (axiom-encode PR #1659, 520 cases mined from rulespec-us and rulespec-uk
-    fix history; this code only reads it). The pre-fix artifact is the
+    (171 cases mined from rulespec-us and rulespec-uk fix history, one per
+    correction, each checked against its provision; this code only reads
+    it). The pre-fix artifact is the
     defective case, the post-fix artifact is the control, and every real
     control is marked `unverified` because a repair round makes an artifact
     better, not proven clean. Five of the corpus's eight defect kinds map onto
@@ -236,10 +237,14 @@ uv run python benchmarks/verifier/verifier.py build-synthetic \
 `build-synthetic` writes `suite.json` (full texts) and `suite.manifest.json`
 (identities and digests only, small enough to commit). Load the real corpus
 with `build-real --dir benchmarks/verifier/real_defects_v0 --out ...`; the
-defaults keep family representatives with `triage_status: fidelity`
-(`--all-family-members`, `--triage-status`, `--min-confidence` and
-`--jurisdiction` change the selection, and the selection is recorded in the
-suite identity).
+defaults keep family representatives with `triage_status: fidelity` that a
+judge can decide from the provision it is shown. That last condition drops a
+case the corpus marks `judgeable_from_provision: false` (the text that shows
+the pre-fix module wrong is in none of its cited sources) and a case whose
+decisive text falls outside the provision window (`--provision-chars`).
+`--include-not-judgeable`, `--all-family-members`, `--triage-status`,
+`--min-confidence` and `--jurisdiction` change the selection, and the
+selection is recorded in the suite identity.
 
 `encodings.db` holds generations for several jurisdictions. To restrict a
 built suite, derive a child suite by citation prefix and, where a case is
@@ -504,13 +509,18 @@ matcher. The block below is generated from the committed `board.json` by
 `verifier.py report`, and a test fails if it drifts from the board.
 
 A real-defects board was also folded on 2026-09-19, over the 172
-family-representative fidelity pairs of the PR #1659 corpus. It is held out
-of this PR. Review found that about 60 percent of the sampled fidelity cases
-ship a provision window without the defect's evidence, because only the first
-citation is resolved. That board would measure the corpus as much as the
-judges, so it comes back only once the corpus checks for the evidence. The
-board and its reproduction test are on branch
-`encodebench-verifier-real-board`.
+family-representative fidelity pairs the corpus then held. It is held out of
+this document. Review found that most of the sampled cases shipped a
+provision without the defect's evidence, because only the module's first
+citation was resolved, so that board measured the corpus as much as the
+judges. The corpus has since been checked case by case (its README, under
+"Provision review"): the provision of each case either carries the decisive
+text, was extended with the citation that does, or the case is marked not
+judgeable and left out by default. The recorded rows can be re-assembled,
+without judging anything again, only for the cases whose provision text did
+not change; whether to publish that board, or to judge the extended cases
+first, is an open decision. The 2026-09 board and its reproduction test are
+on branch `encodebench-verifier-real-board`.
 
 <!-- begin generated boards: verifier.py report; edit boards, not this -->
 

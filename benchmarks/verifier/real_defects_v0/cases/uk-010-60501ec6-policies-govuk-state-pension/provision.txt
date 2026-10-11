@@ -1,0 +1,8 @@
+--- Source: uk/guidance/govuk/new-state-pension/what-youll-get ---
+The full rate of new State Pension is £241.30 a week. If your National Insurance record started after April 2016 you will need 35 qualifying years to get the full rate of new State Pension. If you were contracted out, you will usually need more than 35 qualifying years to get the full rate of new State Pension.
+
+--- Source: uk/statute/ukpga/2014/19/3 ---
+The full rate of the state pension is the weekly rate for the time being specified in regulations. The reduced rate of the state pension for a person is the following proportion of the full rate— 1/35 × the person's number of qualifying years. Once the full rate has been specified, the power to make regulations under subsection (1) may not be re-exercised so as to reduce the rate.
+
+--- Source: uk/guidance/govuk/new-state-pension/eligibility ---
+You'll need 10 qualifying years on your National Insurance record to get any new State Pension. The qualifying years on your National Insurance record affect how much State Pension you get.

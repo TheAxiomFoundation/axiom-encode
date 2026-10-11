@@ -1,0 +1,454 @@
+{
+  "id": "us-488-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-liechtenstein-9903-02",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "commit_date": "2026-08-02T11:27:29-04:00",
+  "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-liechtenstein-9903-02-88.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.88",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.88",
+    "us/rulemaking/federal-register/2025-12-18/2025-23316"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "the five successor floor modules (kr-79/80, li-87/88, ch-83) now take effect 2025-11-14, the legal handoff date, instead of the February panel date",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        154,
+        154
+      ],
+      [
+        181,
+        181
+      ],
+      [
+        203,
+        203
+      ],
+      [
+        221,
+        221
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        18,
+        21
+      ],
+      [
+        43,
+        52
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        68,
+        77
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        108,
+        117
+      ],
+      [
+        119,
+        119
+      ],
+      [
+        149,
+        158
+      ],
+      [
+        160,
+        160
+      ],
+      [
+        199,
+        208
+      ],
+      [
+        210,
+        210
+      ],
+      [
+        236,
+        245
+      ],
+      [
+        247,
+        247
+      ],
+      [
+        268,
+        277
+      ],
+      [
+        279,
+        279
+      ],
+      [
+        296,
+        305
+      ],
+      [
+        307,
+        307
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_liechtenstein_floor_duty_rate",
+      "reciprocal_liechtenstein_column_1_general_duty_rate_threshold",
+      "reciprocal_liechtenstein_below_floor_heading_product_exception_applies",
+      "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_liechtenstein_floor_duty_applies",
+      "reciprocal_liechtenstein_below_floor_general_duty_rate",
+      "reciprocal_liechtenstein_below_floor_special_duty_rate",
+      "reciprocal_liechtenstein_below_floor_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_liechtenstein_below_floor_general_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "599bdc44d627ab455ff5cc30f81d36fb39ff6f52ea0b07045f2cb687fefcce22",
+  "post_fix_artifact_sha256": "cdeed3eccc6c74d338bd5a454e8ea083962bc93f2296ba2ba346e1eba5e00322",
+  "provision_sha256": "5c411acaf64825867b7e4b5c795ea849f3505b4a362fb7a14c559a0f5f22a83d",
+  "provision_chars": 337544,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.88",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1248,
+    "record_id": "2172cbee-2954-569f-b471-051568cc07aa",
+    "stored_body_sha256": "d30fb1062cab550e9c00e5f96c5e4088b7ed1f769ed9ce1db0e5669929f8279d",
+    "resolved_text_sha256": "d30fb1062cab550e9c00e5f96c5e4088b7ed1f769ed9ce1db0e5669929f8279d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.88",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.88'"
+      }
+    ]
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "d30fb1062cab550e9c00e5f96c5e4088b7ed1f769ed9ce1db0e5669929f8279d",
+    "first_citation_chars": 567,
+    "added": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+        "chars": 336864,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+          "provision_file": "data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl",
+          "provision_file_sha256": "8b05e15cd6a64df68148420d968cfb214bc0058a9cac7f520ecd293c21c3e1ec",
+          "line_number": 12,
+          "record_id": "e36a6a5a-a64b-506e-88c2-3ce5dad1de30",
+          "stored_body_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "resolved_text_sha256": "c9b1e3ec1056816bfe1886f4f69e260086eab34b223ba8e4c1499bbe158f8aab",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2025-12-18",
+          "source_as_of": "2026-08-01",
+          "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_liechtenstein_floor_duty_rate",
+      "reciprocal_liechtenstein_column_1_general_duty_rate_threshold",
+      "reciprocal_liechtenstein_below_floor_heading_product_exception_applies",
+      "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_liechtenstein_floor_duty_applies",
+      "reciprocal_liechtenstein_below_floor_general_duty_rate",
+      "reciprocal_liechtenstein_below_floor_special_duty_rate",
+      "reciprocal_liechtenstein_below_floor_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows:",
+        "where": [
+          "reciprocal_liechtenstein_floor_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_column_1_general_duty_rate_threshold.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "where": [
+          "reciprocal_liechtenstein_floor_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_column_1_general_duty_rate_threshold.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_column_2_duty_change.versions[0].effective_from"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-11-14",
+        "where": [
+          "reciprocal_liechtenstein_below_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_column_1_general_duty_rate_threshold.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-11-14",
+          "November 14, 2025",
+          "14 November 2025"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-15",
+        "where": [
+          "reciprocal_liechtenstein_below_floor_column_2_duty_change.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_general_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_heading_product_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_otherwise_provision_exception_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_below_floor_special_duty_rate.versions[0].effective_from",
+          "reciprocal_liechtenstein_column_1_general_duty_rate_threshold.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_applies.versions[0].effective_from",
+          "reciprocal_liechtenstein_floor_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "effective with respect to goods entered for consumption ... on or after 12:01 a.m. eastern time on November 14, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 4,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99",
+        "span": [
+          294973,
+          295163
+        ]
+      },
+      {
+        "citation_path": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "quote": "New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence",
+        "span": [
+          328959,
+          329034
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "Annex II of FR Doc 2025-23316 inserts headings 9903.02.82-9903.02.91, which include 9903.02.88, effective for goods entered on or after November 14, 2025. All eight pre-fix rules start on 2026-02-15, a date this notice does not support. The post-fix start of 2025-11-14 matches it.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "adjudication_note": "",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.9,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "absent",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
+  "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-4d2856a9-f13bb1eaec34",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All eight rules of the below-floor half of the Liechtenstein pair started at 2026-02-15 instead of 2025-11-14, so heading 9903.02.88's 15 percent floor top-up did not apply during the first three months in which Annex II had inserted the heading.",
+    "triage_notes": "Same pattern as index 3 (li-87), the below-floor sibling; 8 effective_from changes, two effective_period proof atoms per rule citing the same FR notice, summary and corpus_citation_paths updated, no formula change. Source verified once for the whole 9903.02.82-.91 insertion (see index 3 notes).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.95,
+    "verifier_justification": "The only meaning-bearing change in the module is that all eight rules' single version start moves from '2026-02-15' to '2025-11-14' (8 removed / 8 added date lines; every formula, parameter, input, output, and scope is byte-identical). The pinned corpus copy of the cited implementing notice (FR Doc 2025-23316, 90 FR 59281) states under DATES and again at the head of Annex II that the HTSUS modifications are \"effective with respect to goods entered for consumption ... on or after 12:01 a.m. eastern time on November 14, 2025\", and item 7 of Annex II is what inserts \"New headings 9903.02.82-9903.02.91\"; the string \"February\" does not occur anywhere in the notice, so the pre-fix 2026-02-15 start had no source basis and contradicted the stated effective date. Everything else in the diff (corpus_citation_paths, effective_period proof atoms, summary sentence) is provenance added to ground the corrected date, so this is a version-window fidelity correction and not a mechanical change; the date-specific kind fits better than untraceable_branch even though the old value was ungrounded, because the taxonomy assigns effective_from/version windows to wrong_period_or_effective_date.",
+    "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
+    "verifier_notes": "Module index 4 = reciprocal-liechtenstein-9903-02-88.yaml, the below-floor (column 1-General < 15 percent) half of the li-87/li-88 pair; the commit body's F1 list names \"li-87/88\" among the five successor floor modules, so the quoted reason covers this file directly. Verified against the pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0, provision record e36a6a5a-a64b-506e-88c2-3ce5dad1de30, line 12 of data/corpus/provisions/us/rulemaking/2026-08-03-rulespec-tariff-rulemaking-union.jsonl): DATES paragraph and Annex II preamble both give Nov 14, 2025; Annex II item 7 inserts 9903.02.82-9903.02.91; U.S. note 2(v)(xxiv)(a) confirms the .87/.88 Liechtenstein split at the 15 percent MFN line. The HTS provision record for us/statute/hts/9903.02.88 itself carries no date, so the effective window can only come from the notice — which is why the fix also adds the second corpus_citation_path. Two caveats a reviewer may want: (1) the eight added effective_period proof atoms and the summary paragraph are provenance-only, so if a scorer weights \"what fraction of the diff is meaning\", this module is mostly provenance around one real date change; (2) the defect existed only on the PR 1197 branch (fix commit 4d2856a958 landed the same day the PR merged), so it was caught pre-merge rather than in shipped main. Neither caveat changes that the pre-fix encoding disagreed with the cited source. Downstream effect as the first reader described it is right: with a 2026-02-15 start, 9903.02.88's 15 percent floor top-up would have been inert for entries from 2025-11-14 through 2026-02-14.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword",
+    "screen_reason": null,
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Same pattern as index 3 (li-87), the below-floor sibling; 8 effective_from changes, two effective_period proof atoms per rule citing the same FR notice, summary and corpus_citation_paths updated, no formula change. Source verified once for the whole 9903.02.82-.91 insertion (see index 3 notes). | verifier confirmed at 0.95"
+}

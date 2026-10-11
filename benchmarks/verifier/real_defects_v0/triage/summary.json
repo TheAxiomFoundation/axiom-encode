@@ -1,0 +1,57 @@
+{
+ "module_rows": 1256,
+ "chunks_with_triage": {
+  "uk": 40,
+  "us": 347
+ },
+ "chunks_missing": [],
+ "by_classification": {
+  "fidelity": 522,
+  "mechanical": 606,
+  "not_a_rule_module": 5,
+  "test_only": 5,
+  "unclear": 118
+ },
+ "verifier_verdicts": {
+  "confirmed": 453,
+  "mechanical": 5,
+  "not_a_defect": 133,
+  "reclassify": 30,
+  "unclear": 19
+ },
+ "dropped_by_reason": {
+  "triage_mechanical": 606,
+  "triage_not_a_rule_module": 5,
+  "triage_test_only": 5,
+  "verifier_mechanical": 3,
+  "verifier_not_a_defect": 84
+ },
+ "kept": 553,
+ "kept_by_status": {
+  "fidelity": 463,
+  "unclear": 90
+ },
+ "kept_by_kind": {
+  "amount_mismatch": 7,
+  "boundary_direction": 1,
+  "none": 3,
+  "other": 2,
+  "polarity_or_logic": 16,
+  "unrepresented_clause": 81,
+  "untraceable_branch": 314,
+  "wrong_entity_or_scope": 86,
+  "wrong_period_or_effective_date": 43
+ },
+ "kept_by_jurisdiction": {
+  "uk": 21,
+  "us": 532
+ },
+ "kept_by_source": {
+  "keyword": 121,
+  "screen": 432
+ },
+ "review_overrides_applied": [
+  "promote-us-009-surviving-spouse-threshold",
+  "tariff-ieepa-family-rule-names"
+ ]
+}

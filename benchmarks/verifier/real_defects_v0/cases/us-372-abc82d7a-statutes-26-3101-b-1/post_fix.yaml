@@ -1,0 +1,56 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3101
+  summary: |-
+    Imposes on the income of every individual a tax equal to 1.45 percent of wages received with respect to employment.
+rules:
+  - name: hospital_insurance_wage_tax_rate
+    kind: parameter
+    dtype: Rate
+    source: 26 USC 3101(b)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: us/statute/26/3101
+              excerpt: "tax equal to 1.45 percent"
+    versions:
+      - effective_from: '1986-01-01'
+        formula: |-
+          0.0145
+
+  - name: hospital_insurance_wage_tax
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3101(b)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3101
+              excerpt: "tax equal to 1.45 percent of the wages"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3101
+              excerpt: "wages ... received by him with respect to employment"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/3101/b/1#hospital_insurance_wage_tax_rate
+              output: hospital_insurance_wage_tax_rate
+              hash: sha256:local
+    versions:
+      - effective_from: '1986-01-01'
+        formula: |-
+          wages * hospital_insurance_wage_tax_rate
