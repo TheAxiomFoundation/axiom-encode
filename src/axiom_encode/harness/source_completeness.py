@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import calendar
 import contextlib
+import contextvars
 import copy
 import functools
 import heapq
@@ -465,6 +466,15 @@ _LIST_BULLET = "•"
 # Masked typography becomes this sentinel, not a space, so the operand and
 # operator patterns cannot join the words on either side of it.
 _TYPOGRAPHY_MASK = "\x00"
+# In a US agency manual a slash or a spaced dash between two words is prose
+# ("case/individual", "SNAP/Cash", "Processing - SNAP"), not division or
+# subtraction. Only `analyze_complete_source_unit` sets this scope, for the
+# duration of one analysis of a US manual citation path.
+_US_MANUAL_PROSE_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_US_MANUAL_PROSE_SCOPE", default=False
+)
+_MANUAL_WORD_SLASH = re.compile(r"(?<=[A-Za-z])[ \t]*/[ \t]*(?=[A-Za-z])")
+_MANUAL_SPACED_WORD_DASH = re.compile(r"(?<=[A-Za-z])[ \t]+[-–][ \t]+(?=[A-Za-z])")
 _ARITHMETIC_EXPRESSION = re.compile(
     r"(?:\d+(?:[.,]\d+)?|[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß]*)"
     r"[ \t]*(?:[+*/=×·•∗∙]|(?<!\w)[−–-](?!\w))[ \t]*"
@@ -4790,6 +4800,12 @@ def _without_manual_typography_operators(source_text: str) -> str:
     for match in re.finditer(_LIST_BULLET, source_text):
         if _is_list_bullet(source_text, match.start(), match.end()):
             masked[match.start()] = _TYPOGRAPHY_MASK
+    if _US_MANUAL_PROSE_SCOPE.get():
+        for pattern in (_MANUAL_WORD_SLASH, _MANUAL_SPACED_WORD_DASH):
+            for match in pattern.finditer(source_text):
+                masked[match.start() : match.end()] = _TYPOGRAPHY_MASK * (
+                    match.end() - match.start()
+                )
     return "".join(masked)
 
 
@@ -4882,39 +4898,46 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    source_text = authoritative_source_text.strip()
-    if not source_text:
-        issue = (
-            "[complete-source-unit:authoritative-source] "
-            "The authoritative corpus body is required; `module.summary` is "
-            "never completeness evidence."
-        )
-        return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
-
-    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
-        payload = yaml.safe_load(content)
-        if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
-            return _analyze_rulespec_payload(
-                payload,
-                content=content,
-                source_text=source_text,
-                corpus_citation_path=corpus_citation_path,
-                test_cases=test_cases,
-                extract_numeric_occurrences=extract_numeric_occurrences,
-                extract_numeric_grounding_occurrences=(
-                    extract_numeric_grounding_occurrences or extract_numeric_occurrences
-                ),
-                extract_named_scalars=extract_named_scalars,
-                numeric_value_is_grounded=numeric_value_is_grounded,
-                artifact_numeric_values=artifact_numeric_values,
-                artifact_numeric_bindings=artifact_numeric_bindings,
-                authenticated_same_act_aliases=authenticated_same_act_aliases,
-                imported_symbol_contents=imported_symbol_contents,
-                resolved_dependency_outputs=resolved_dependency_outputs,
-                source_context=source_context,
+    scope = _US_MANUAL_PROSE_SCOPE.set(
+        _is_us_manual_citation_path(corpus_citation_path)
+    )
+    try:
+        source_text = authoritative_source_text.strip()
+        if not source_text:
+            issue = (
+                "[complete-source-unit:authoritative-source] "
+                "The authoritative corpus body is required; `module.summary` is "
+                "never completeness evidence."
             )
+            return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
 
-    return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
+        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+            payload = yaml.safe_load(content)
+            if isinstance(payload, dict) and payload.get("format") == "rulespec/v1":
+                return _analyze_rulespec_payload(
+                    payload,
+                    content=content,
+                    source_text=source_text,
+                    corpus_citation_path=corpus_citation_path,
+                    test_cases=test_cases,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                    extract_numeric_grounding_occurrences=(
+                        extract_numeric_grounding_occurrences
+                        or extract_numeric_occurrences
+                    ),
+                    extract_named_scalars=extract_named_scalars,
+                    numeric_value_is_grounded=numeric_value_is_grounded,
+                    artifact_numeric_values=artifact_numeric_values,
+                    artifact_numeric_bindings=artifact_numeric_bindings,
+                    authenticated_same_act_aliases=authenticated_same_act_aliases,
+                    imported_symbol_contents=imported_symbol_contents,
+                    resolved_dependency_outputs=resolved_dependency_outputs,
+                    source_context=source_context,
+                )
+
+        return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
+    finally:
+        _US_MANUAL_PROSE_SCOPE.reset(scope)
 
 
 def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
@@ -13146,6 +13169,15 @@ def _is_title_case_manual_heading(title: str) -> bool:
 
     words = re.findall(r"[A-Za-z'’]+", re.sub(r"\([^)]*\)", " ", title))
     return all(word[0].isupper() for word in words if len(word) >= 4)
+
+
+def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
+    """A US agency manual, the scope of the manual-only reading rules."""
+
+    return bool(
+        _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        and "/manual/" in corpus_citation_path
+    )
 
 
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
