@@ -173,6 +173,17 @@ def test_manual_procedure_is_not_a_control():
         "A child is exempt if under age 18.",
         "A person is exempt if age 55 or older.",
         "A person is exempt if employed 20 or more hours a week.",
+        # Shapes from the corpus (review round 2 of #1833).
+        "The resident is eligible if he spends fifteen (15) or more calendar "
+        "days in the shelter.",
+        "The property is excluded if its value is fifty percent (50%) or less "
+        "of the limit.",
+        "If the minor dependent child is age 16 to 18, school attendance is required.",
+        "A child is eligible if 21 years of age and under.",
+        "The household is exempt if all household members are age 60 and over.",
+        "A parent is exempt if the child is younger than 6.",
+        "An adult is subject to the time limit if between the ages of 18 and 49.",
+        "A parent is exempt if caring for a child under one year of age.",
     ),
 )
 def test_manual_numeric_limit_is_still_a_control(source: str):
@@ -187,9 +198,24 @@ def test_manual_numeric_limit_is_still_a_control(source: str):
         ("if under age 18", True),
         ("if age 55 or older", True),
         ("if employed 20 or more hours a week", True),
+        ("if s/he spends fifteen (15) or more calendar days", True),
+        ("value of fifty percent (50%) or less", True),
+        ("If the minor dependent child is age 16 to 18,", True),
+        ("A child 21 years of age and under", True),
+        ("all household members are age 60 and over", True),
+        ("if the child is younger than 6", True),
+        ("if between the ages of 18 and 49", True),
+        ("caring for a child under one year of age", True),
+        ("if two or more members apply", True),
         (PROCEDURE, False),
-        ("If the client calls over the phone, record the call.", False),
         ("When the household moves, update the address.", False),
+        # References after a comparator are not limits.
+        ("If the client calls over the phone at 1-800-555-1212, record it.", False),
+        ("Eligible under subsection (1)(a) or (b) of this section.", False),
+        ("The resource is excluded under WAC 388-450-0140 if verified.", False),
+        ("If you did not check any box above, go to Step 3.", False),
+        ("The waiver applies under section 1915(c) of the Act.", False),
+        ("Studies must comply with the rules under 42 CFR 50.", False),
     ),
 )
 def test_stated_numeric_limit(text: str, expected: bool):
