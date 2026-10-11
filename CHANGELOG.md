@@ -2,6 +2,19 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Fetch pinned corpus release objects from the Supabase release registry
+  first in targeted signed re-encode and, when a caller passes
+  validate-rulespec's registry inputs, in signed apply. The public r2.dev
+  mirror stays the fallback when the registry has no row for the pin or
+  cannot be reached: the September US unions exist only in the registry, and
+  ten country pins exist only on the mirror. Ambiguous, malformed, oversized
+  or pin-mismatched registry answers fail closed. Signed apply now validates
+  the response with the pinned encoder's `materialize_corpus_release.py`,
+  accepts only a plain HTTPS registry URL, and passes the citation to its
+  artifact notice through the environment instead of interpolating it into
+  the script. Every fetch is HTTPS-only, capped at 64 MiB, bounded by
+  timeouts and checked against the pin.
+
 - Keep US manual and form locators out of complete-source-unit numeric recall:
   `WAC` section citations, `policy NNN-N` cross-references, numbered manual
   section headings, telephone numbers, PO boxes, ZIP+4 codes and

@@ -163,31 +163,78 @@ def test_materializes_registry_response_larger_than_former_cap(
     assert json.loads(destination.read_text())["content_sha256"] == digest
 
 
-def test_every_release_object_fetch_uses_the_resolver_cap() -> None:
-    cap = release_acquisition.MAX_REGISTRY_RESPONSE_BYTES
-    assert cap == MAX_RELEASE_OBJECT_BYTES
-    fetch_steps = []
+def _release_fetch_steps() -> list[tuple[str, str, str]]:
+    steps = []
     for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
         document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
         for job in (document.get("jobs") or {}).values():
             for step in job.get("steps") or []:
                 command = step.get("run") or ""
-                if "release_objects" not in command and "/releases/" not in command:
-                    continue
-                fetch_steps.append((workflow.name, step.get("name")))
-                assert not re.search(
-                    r"\bwget\b|urlopen|gh release download", command
-                ), (workflow.name, step.get("name"))
-                curls = re.findall(
-                    r"curl (?:[^\n]*\\\n)*[^\n]*|\[\s*['\"]curl['\"][^\]]*\]",
-                    command,
-                )
-                assert curls, (workflow.name, step.get("name"))
-                for curl in curls:
-                    assert re.findall(
-                        r"--max-filesize(?:[= ]+|['\"]\s*,\s*['\"])([^\s'\",]+)", curl
-                    ) == [str(cap)], (workflow.name, curl)
+                if "release_objects" in command or "/releases/" in command:
+                    steps.append((workflow.name, step.get("name"), command))
+    return steps
+
+
+def _release_fetch_cap_violations(command: str, cap: int) -> list[str]:
+    """Return each way a release-fetch script escapes the byte cap."""
+
+    violations = []
+    if re.search(r"\bwget\b|urlopen|gh release download", command):
+        violations.append("uses a fetcher other than curl")
+    curls = re.findall(
+        r"curl (?:[^\n]*\\\n)*[^\n]*|\[\s*['\"]curl['\"][^\]]*\]",
+        command,
+    )
+    if not curls:
+        violations.append("has no curl the audit can parse")
+    for curl in curls:
+        caps = re.findall(
+            r"--max-filesize(?:[= ]+|['\"]\s*,\s*['\"])([^\s'\",]+)", curl
+        )
+        if caps != [str(cap)] or len(re.findall(r"\bcurl\b", curl)) != 1:
+            violations.append(f"curl without exactly one cap: {curl}")
+    # Every curl word must be one of the audited commands, so a tab, a quoted
+    # name, a continuation straight after curl, or a second curl on one line
+    # cannot add an uncapped fetch beside the capped ones.
+    if len(re.findall(r"\bcurl\b", command)) != len(curls):
+        violations.append("has a curl the audit did not parse")
+    return violations
+
+
+def test_every_release_object_fetch_uses_the_resolver_cap() -> None:
+    cap = release_acquisition.MAX_REGISTRY_RESPONSE_BYTES
+    assert cap == MAX_RELEASE_OBJECT_BYTES
+    fetch_steps = _release_fetch_steps()
+    for workflow, name, command in fetch_steps:
+        assert _release_fetch_cap_violations(command, cap) == [], (workflow, name)
     assert len(fetch_steps) >= 5, fetch_steps
+
+
+@pytest.mark.parametrize(
+    "uncapped",
+    [
+        "curl https://example/releases/uncapped.json",
+        "curl\thttps://example/releases/uncapped.json",
+        '"curl" https://example/releases/uncapped.json',
+        "curl\\\n https://example/releases/uncapped.json",
+        "curl --max-filesize 67108864 https://example/releases/capped.json; "
+        "curl https://example/releases/uncapped.json",
+        "curl --max-filesize 67108864 --max-filesize 999999999999 "
+        "https://example/releases/overridden.json",
+        "curl --max-filesize 134217728 https://example/releases/wider.json",
+        "command curl -o x https://example/releases/uncapped.json",
+        "wget https://example/releases/uncapped.json",
+        "python -c 'import urllib.request as u; u.urlopen(\"https://example\")'",
+        "gh release download --repo owner/repo",
+    ],
+)
+def test_release_fetch_cap_audit_catches_uncapped_fetches(uncapped: str) -> None:
+    cap = MAX_RELEASE_OBJECT_BYTES
+    for workflow, name, command in _release_fetch_steps():
+        assert _release_fetch_cap_violations(command + "\n" + uncapped + "\n", cap), (
+            workflow,
+            name,
+        )
 
 
 @pytest.mark.parametrize(
