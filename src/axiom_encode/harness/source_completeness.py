@@ -13145,23 +13145,86 @@ def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
 # standard filing unit ...`. The prose cites passages the same way (`Refer to
 # passage 2610.0103`, `passages 2610.0104.02 through 2610.0104.04`) and its
 # lettered appendices by letter and number (`Appendix A-1`). All are locators.
-# A heading is the number followed, without sentence punctuation, by a title
-# that ends in a parenthesized upper-case program code such as `(FS)`; a
-# number with any other neighbor keeps its value.
-_US_MANUAL_PASSAGE_NUMBER = r"\d{4}\.\d{4}(?:\.\d{2})?"
+# A heading opens a line or follows sentence-final punctuation, with a
+# title-cased, non-operative title ending in a parenthesized program code.
+# Amount/rate/date context invalidates a locator, including list continuations.
+# ASCII passage labels do not authenticate Unicode numeric look-alikes.
+_US_MANUAL_PASSAGE_NUMBER = r"[0-9]{4}\.[0-9]{4}(?:\.[0-9]{2})?"
+# Explicit noun phrases authenticate the relevant Florida eligibility headings;
+# arbitrary title casing cannot distinguish an unknown verb from a heading.
+_US_MANUAL_PASSAGE_HEADING_TITLES = frozenset(
+    {
+        "Eligible Assistance Groups",
+        "Categorically Eligible Assistance Groups",
+        "Noncategorically Eligible Assistance Groups",
+    }
+)
+_US_MANUAL_PASSAGE_PROGRAM_CODES = frozenset({"FS", "TCA", "MA", "SFP", "RAP"})
+# A locator stays on one line, but its value-context veto must see units
+# wrapped onto the next line. A separate following currency amount is kept.
+# Dotted currency abbreviations and parenthetical tails cannot authenticate
+# a value as a locator; retain the demand when the following context is unclear.
+_US_MANUAL_LOCATOR_VALUE_FOLLOWS = (
+    rf"(?:\s*[\[(]|\s*(?:%|-?(?:[A-Za-z]+[.\s-]+){{0,2}}{_RECALL_UNIT_WORD}\b)|"
+    r"[ \t]*[$€£¥₹]|\s*[$€£¥₹](?!\s*\d)|"
+    r"\s*[%+*/=<>^±∓×·•∗∙÷−–—-]|"
+    r"\s+(?:[A-Za-z]+[.\s-]+){0,3}"
+    r"(?i:dates?|rates?|amounts?|percentages?|euros?|pounds?|francs?|"
+    r"yen|yuan|renminbi|pesos?|rupees?|rubles?|roubles?|won|payments?|allowances?|"
+    r"maximum|minimum|usd|eur|gbp|cad|aud|chf|plus|minus|times|multiplied|divided)\b|"
+    r"\s+(?i:as|of|per|each|is|equals?)\b)"
+)
+# A unit veto alone cannot recognize every operative suffix. Require a complete
+# locator boundary or a known reference/body transition as well. Unknown prose,
+# including a unit wrapped onto the next line, keeps its demand.
+_US_MANUAL_LOCATOR_END = r"[ \t]*(?:[.!?;](?=\s|\Z)|\Z|\)[ \t]*(?:[.!?;](?=\s|\Z)|\Z))"
+_US_MANUAL_REFERENCE_AMOUNT = r"[$€£¥₹][ \t]*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?"
+_US_MANUAL_APPENDIX_FOLLOWS = (
+    rf"(?:{_US_MANUAL_LOCATOR_END}|"
+    r"[ \t]+(?:for[ \t]+the[ \t]+[0-9]{1,3}%[ \t]+Need[ \t]+Standard[ \t]+Table|"
+    rf"lists[ \t]+the[ \t]+{_US_MANUAL_REFERENCE_AMOUNT}[ \t]+asset[ \t]+limit|"
+    rf"shows[ \t]+[0-9]+[ \t]+rates)(?={_US_MANUAL_LOCATOR_END}))"
+)
+_US_MANUAL_PASSAGE_REFERENCE_FOLLOWS = (
+    rf"(?:{_US_MANUAL_LOCATOR_END}|"
+    r"[ \t]+and[ \t]+Appendix[ \t]+[A-Z]-[0-9]{1,3}\b(?![.,]?\d)"
+    rf"(?={_US_MANUAL_APPENDIX_FOLLOWS})|"
+    rf"[ \t]+now(?={_US_MANUAL_LOCATOR_END})|"
+    r"[ \t]+for[ \t]+(?:assistance[ \t]+groups[ \t]+not[ \t]+tested[ \t]+against"
+    r"[ \t]+the[ \t]+gross[ \t]+income[ \t]+limit|"
+    r"policy[ \t]+on[ \t]+(?:mandatory[ \t]+SFU[ \t]+members|"
+    r"the[ \t]+earned[ \t]+income[ \t]+disregard)|"
+    r"more[ \t]+information|the[ \t]+rules|"
+    rf"income[ \t]+of[ \t]+{_US_MANUAL_REFERENCE_AMOUNT})"
+    rf"(?={_US_MANUAL_LOCATOR_END}))"
+)
+_US_MANUAL_HEADING_FOLLOWS = (
+    rf"(?:{_US_MANUAL_LOCATOR_END}|[ \t]+If[ \t]+(?:the|it)\b|"
+    r"\r?\n[ \t]*[$€£¥₹][ \t]*[0-9])"
+)
+_US_MANUAL_PASSAGE_REFERENCE_NUMBER = (
+    rf"{_US_MANUAL_PASSAGE_NUMBER}(?![\w.,]?\d)(?!\w)"
+    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})"
+)
 _US_MANUAL_INLINE_PASSAGE_HEADING = re.compile(
-    rf"(?<![\w$.,])(?P<label>{_US_MANUAL_PASSAGE_NUMBER})(?![\w.,]?\d)"
-    r"(?=[ \t]+[^\s.!?;:()]+(?:[ \t]+[^\s.!?;:()]+){0,11}[ \t]+"
-    r"\([A-Z]{2,5}(?:[ \t]*[,/][ \t]*[A-Z]{2,5})*\))"
+    rf"(?:^[ \t]*|(?<=[.!?])[ \t]+)(?P<label>{_US_MANUAL_PASSAGE_NUMBER})"
+    r"(?![\w.,]?\d)[ \t]+(?P<title>[A-Z][A-Za-z'’]*"
+    r"(?:[ \t]+[A-Za-z'’]+){0,11})[ \t]+"
+    r"\((?P<program>[A-Z]{2,5}(?:[ \t]*[,/][ \t]*[A-Z]{2,5})*)\)"
+    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})(?={_US_MANUAL_HEADING_FOLLOWS})",
+    re.MULTILINE,
 )
 _US_MANUAL_PASSAGE_REFERENCE = re.compile(
-    rf"\bpassages?[ \t]+{_US_MANUAL_PASSAGE_NUMBER}"
-    rf"(?:[ \t]*(?:,|and|or|through|to)[ \t]*{_US_MANUAL_PASSAGE_NUMBER})*"
-    r"(?![\w.,]?\d)",
+    rf"\bpassages?[ \t]+{_US_MANUAL_PASSAGE_REFERENCE_NUMBER}"
+    rf"(?:[ \t]*(?:,[ \t]*|(?:and|or|through|to)[ \t]+)"
+    rf"{_US_MANUAL_PASSAGE_REFERENCE_NUMBER})*"
+    rf"(?={_US_MANUAL_PASSAGE_REFERENCE_FOLLOWS})",
     re.IGNORECASE,
 )
 _US_MANUAL_LETTERED_APPENDIX = re.compile(
-    r"\bAppendix[ \t]+[A-Z]-(?P<label>\d{1,3}(?:-\d{1,3})*)\b(?![.,]?\d)"
+    r"\bAppendix[ \t]+[A-Z]-(?P<label>[0-9]{1,3})\b(?![.,]?\d)"
+    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})"
+    rf"(?={_US_MANUAL_APPENDIX_FOLLOWS})"
 )
 
 
@@ -13170,16 +13233,22 @@ def _us_manual_passage_locator_spans(
 ) -> tuple[tuple[int, int], ...]:
     """Spans of inline passage numbers and lettered appendix numbers."""
 
-    if not (
-        _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
-        and "/manual/" in corpus_citation_path
-    ):
+    # corpus_resolver defines the second component as the document class;
+    # a later `manual` component in guidance/statute paths is just hierarchy.
+    if not re.match(r"us(?:-[a-z]{2,32})*/manual/", corpus_citation_path):
         return ()
     spans = {
         match.span("label")
-        for pattern in (_US_MANUAL_INLINE_PASSAGE_HEADING, _US_MANUAL_LETTERED_APPENDIX)
-        for match in pattern.finditer(text)
+        for match in _US_MANUAL_INLINE_PASSAGE_HEADING.finditer(text)
+        if " ".join(match.group("title").split()) in _US_MANUAL_PASSAGE_HEADING_TITLES
+        and all(
+            program in _US_MANUAL_PASSAGE_PROGRAM_CODES
+            for program in re.split(r"[ \t]*[,/][ \t]*", match.group("program"))
+        )
     }
+    spans.update(
+        match.span("label") for match in _US_MANUAL_LETTERED_APPENDIX.finditer(text)
+    )
     for reference in _US_MANUAL_PASSAGE_REFERENCE.finditer(text):
         for number in re.finditer(_US_MANUAL_PASSAGE_NUMBER, reference.group(0)):
             spans.add(
@@ -20161,10 +20230,9 @@ def _formula_execution_matches_source_branch(
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula.
 
-    A source rate of 100% executes as `rate * base`. Simplification folds that
-    identity factor away, erasing both the multiplication and the rate the
-    source states, so a leaf that fails folded is retried with identity-valued
-    numeric constants left in place.
+    Preserve the existing folded matcher first. New identity-rate credit is
+    restricted to an authenticated source limit with exactly its stated rate,
+    base, and subject; unrelated arithmetic or comparisons cannot gain credit.
     """
 
     if _formula_execution_leaf_matches_source_branch(
@@ -20182,6 +20250,110 @@ def _is_identity_numeric_constant(value: Any) -> bool:
         and not isinstance(value, bool)
         and value == 1
     )
+
+
+def _identity_rate_retry_matches_source_limits(
+    leaf: str,
+    branch: SourceStructureBranch,
+    *,
+    binding_environment: dict[str, Any],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> bool:
+    """Credit only the authenticated SFU net-income/asset-limit computation.
+
+    The exact source actor and compound limit clause authenticate the canonical
+    SFU operands. Generic name suffixes cannot borrow another actor's income or
+    assets. More complex computations keep their demand.
+    """
+
+    expression = _parse_formula_expression(leaf)
+    comparisons: list[ast.Compare] = []
+
+    def collect(node: ast.AST) -> bool:
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            return all(collect(value) for value in node.values)
+        if (
+            isinstance(node, ast.Compare)
+            and len(node.ops) == 1
+            and isinstance(node.ops[0], ast.LtE)
+            and isinstance(node.left, ast.Name)
+        ):
+            comparisons.append(node)
+            return True
+        return False
+
+    if expression is None or not collect(expression) or len(comparisons) != 2:
+        return False
+    by_subject = {comparison.left.id: comparison for comparison in comparisons}
+    if set(by_subject) != {"sfu_net_income", "sfu_countable_assets"} or any(
+        _known_numeric_formula_value(comparison.left, binding_environment) is not None
+        for comparison in comparisons
+    ):
+        return False
+    income_bound = by_subject["sfu_net_income"].comparators[0]
+    asset_bound = by_subject["sfu_countable_assets"].comparators[0]
+    if (
+        not isinstance(income_bound, ast.BinOp)
+        or not isinstance(income_bound.op, ast.Mult)
+        or not isinstance(income_bound.left, ast.Name)
+        or not isinstance(income_bound.right, ast.Name)
+        or not isinstance(asset_bound, (ast.Name, ast.Constant))
+    ):
+        return False
+    asset_value = _known_numeric_formula_value(asset_bound, binding_environment)
+    if asset_value is None or _is_identity_numeric_constant(asset_value):
+        return False
+    source_values = tuple(extract_numeric_occurrences(branch.text))
+    for rate, base in (
+        (income_bound.left, income_bound.right),
+        (income_bound.right, income_bound.left),
+    ):
+        base_name = _normalized_selector_name(base.id)
+        if (
+            not _is_identity_numeric_constant(binding_environment.get(rate.id))
+            or _known_numeric_formula_value(base, binding_environment) is not None
+            or base_name
+            not in {
+                "federal_poverty_level",
+                "poverty_level",
+                "fpl",
+                "federal_poverty_level_for_ag_size",
+                "fpl_for_ag_size",
+            }
+        ):
+            continue
+        for occurrence in source_values:
+            if not occurrence.has_rate_context or occurrence.value != 1:
+                continue
+            actor_prefix = re.split(r"[,;.!?\n]", branch.text[: occurrence.start])[-1]
+            if not re.fullmatch(
+                r"\s*(?:the\s+)?SFU\s+must\s+meet\s+the\s+net\s+income\s+limit\s+of\s*",
+                actor_prefix,
+                flags=re.IGNORECASE,
+            ):
+                continue
+            compound_limit = re.match(
+                r"\s*(?:%|percent)?\s+of\s+the\s+federal\s+poverty\s+level"
+                r"(?P<ag>\s+for\s+the\s+AG\s+size)?"
+                r"\s+and\s+the\s+asset\s+limit\s+of\s*",
+                branch.text[occurrence.end :],
+                flags=re.IGNORECASE,
+            )
+            if compound_limit is None or (
+                base_name.endswith("_for_ag_size") and not compound_limit.group("ag")
+            ):
+                continue
+            asset_start = occurrence.end + compound_limit.end()
+            if any(
+                not asset.has_rate_context
+                and asset.value == asset_value
+                and asset.start >= asset_start
+                and re.fullmatch(r"\s*\$?\s*", branch.text[asset_start : asset.start])
+                and re.match(r"\s*(?:[.;!?]|$)", branch.text[asset.end :])
+                for asset in source_values
+            ):
+                return True
+    return False
 
 
 def _formula_execution_leaf_matches_source_branch(
@@ -20211,6 +20383,13 @@ def _formula_execution_leaf_matches_source_branch(
             if not _is_identity_numeric_constant(value)
         }
         if simplification_environment == binding_environment:
+            return False
+        if not _identity_rate_retry_matches_source_limits(
+            execution.leaf,
+            branch,
+            binding_environment=binding_environment,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        ):
             return False
     operative_leaf = _simplified_formula_text(
         execution.leaf,

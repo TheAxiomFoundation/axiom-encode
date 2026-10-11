@@ -1,8 +1,8 @@
 """Florida ESS manual pages: passage and appendix locators, folded 100% rates.
 
-Two signed promotions of Florida ESS Program Policy Manual pages failed the
-complete-source-unit gate on demands the source does not make. The sentences
-below are verbatim from the pinned corpus rows
+The Florida ESS Program Policy Manual examples below reproduce passage
+locator and folded-rate demands in the complete-source-unit gate. The
+sentences are verbatim from the pinned corpus rows
 `us-fl/manual/dcf/ess-program-policy-manual/2000-coverage-groups/page-5` and
 `.../2600-calculation-of-benefits/page-8`:
 
@@ -124,7 +124,300 @@ def test_values_beside_florida_locator_shapes_are_kept(source, citation, expecte
     assert _recall_values(source, citation) == expected
 
 
-_TITLE_WORD = st.from_regex(r"[A-Z][a-z]{2,9}", fullmatch=True)
+@pytest.mark.parametrize(
+    "source",
+    (
+        "The maximum payment is 1234.5678 dollars for food stamps (FS).",
+        "The payment equals 1234.5678 percent of income for food stamps (FS).",
+        "The payment is １２３４.５６７８ dollars for Food Stamps (FS).",
+        "Pay 1234.5678 Food Stamps (FS).",
+        "1234.5678 Dollars for Food Stamps (FS)",
+        "1234.5678 Percent of Income (FS)",
+        "1234.5678 Benefit Limit in USD (FS)",
+        "1234.5678 Benefit Limit in EUR (FS)",
+        "1234.5678 Benefit Limit (FS) dollars per month",
+        "1234.5678 Benefit Limit (FS) percent of income",
+        "1234.5678 Benefit Limit (FS) USD per month",
+        "1234.5678 Income Is Allowed (FS)",
+        "1234.5678 Income Equals Benefits (FS)",
+        "1234.5678 Income eat Benefits (FS)",
+        "passage 1234.5678 dollars of income",
+        "passage 1234.5678% of income",
+        "passage 1234.5678 for the effective date",
+        "Appendix A-50% of income is allowed.",
+        "Appendix A-50 dollars of income is allowed.",
+    ),
+)
+def test_operative_contexts_are_never_passage_or_appendix_labels(source):
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "operative"),
+    (
+        ("See passage 2610.0103 and 1234.5678 dollars of income.", 1234.5678),
+        ("See passage 2610.0103 through 1234.5678 percent of income.", 12.345678),
+        ("See passage 2610.0103 to 1234.5678% of income.", 12.345678),
+        ("See passage 2610.0103 and 1234.5678 - 50 dollars.", 1234.5678),
+        ("Refer to passage 2610.0103 to 2026.1011 for the effective date.", 2026.1011),
+        ("Appendix A-1-50% of income is allowed.", 0.5),
+        ("Appendix A-1+50% of income is allowed.", 50.0),
+        ("Appendix A-1-50 dollars of income is allowed.", 50.0),
+        ("Appendix A-1*50 dollars of income is allowed.", 50.0),
+    ),
+)
+def test_locator_continuations_keep_operative_amounts_and_rates(source, operative):
+    assert operative in _recall_values(source, PAGE_8)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "See passage 2610.0103 and 1234.5678 as the maximum payment.",
+        "See passage 2610.0103 and 1234.5678 of income.",
+        "See passage 1234.5678 as the maximum payment.",
+        "See passage 1234.5678 of income.",
+        "Before. 1234.5678 Earns Interest (FS).",
+        "Before. 1234.5678 Income Generates Benefits (FS).",
+        "Before. 1234.5678 Eligible Assistance Groups (USD).",
+        "Before. 1234.5678 Eligible Assistance Groups (EUR).",
+        "Before. 1234.5678 Eligible Assistance Groups (FS, USD).",
+        "Before. 1234.5678 Eligible Assistance Groups (FS)\ndollars per month.",
+        "passage 1234.5678\ndollars of income",
+    ),
+)
+def test_independently_reviewed_operative_shapes_keep_their_demand(source):
+    assert 1234.5678 in _recall_values(source, PAGE_5)
+
+
+@pytest.mark.parametrize(
+    ("source", "operative"),
+    (
+        ("See passage 1234.5678 U.S. dollars.", 1234.5678),
+        ("Appendix A-50 U.S. dollars is allowed.", 50),
+        ("See passage 1234.5678 per child.", 1234.5678),
+        ("Appendix A-50 per child is allowed.", 50),
+        ("See passage 1234.5678 is the maximum payment.", 1234.5678),
+        ("See passage 1234.5678 maximum payment.", 1234.5678),
+        ("Appendix A-50 is the maximum payment.", 50),
+        ("Appendix A-50 maximum payment.", 50),
+        ("See passage 1234.5678 yen.", 1234.5678),
+        ("Appendix A-50 yen is allowed.", 50),
+        ("See passage 1234.5678 pesos.", 1234.5678),
+        ("Appendix A-50 pesos is allowed.", 50),
+        ("See passage 1234.5678 (dollars per month).", 1234.5678),
+        ("Appendix A-50 (U.S. dollars)", 50),
+        ("See passage 1234.5678 ($50 per month).", 1234.5678),
+        ("See passage 1234.5678 ^ 50 dollars.", 1234.5678),
+        ("See passage 1234.5678 ± 50 dollars.", 1234.5678),
+        ("Appendix A-1^50% of income is allowed.", 1),
+        ("Appendix A-1±50% of income is allowed.", 1),
+    ),
+)
+def test_explicit_operative_suffixes_keep_their_numeric_demand(source, operative):
+    assert operative in _recall_values(source, PAGE_5)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    appendix=st.integers(1, 999),
+    suffix=st.sampled_from(
+        (
+            "U.S. dollars",
+            "per child",
+            "is the maximum payment",
+            "maximum payment",
+            "yen",
+            "pesos",
+            "(dollars per month)",
+            "(U.S. dollars)",
+            "($50 per month)",
+        )
+    ),
+)
+def test_operative_suffix_property_keeps_passage_and_appendix_values(
+    major, minor, appendix, suffix
+):
+    number = f"{major}.{minor:04d}"
+    assert float(number) in _recall_values(f"See passage {number} {suffix}.", PAGE_5)
+    assert appendix in _recall_values(f"Appendix A-{appendix} {suffix}.", PAGE_5)
+
+
+_UNAUTHENTICATED_LOCATOR_TAILS = (
+    "basis points of income",
+    "bps of income",
+    "shekels",
+    "pennies",
+    "children",
+    "units",
+    "credits",
+    "unknownmeasure",
+)
+
+
+@pytest.mark.parametrize("suffix", _UNAUTHENTICATED_LOCATOR_TAILS)
+@pytest.mark.parametrize("shape", ("passage", "appendix"))
+def test_unrecognized_value_suffixes_cannot_authenticate_a_locator(shape, suffix):
+    if shape == "passage":
+        source, value = f"See passage 1234.5678 {suffix}.", 1234.5678
+    else:
+        source, value = f"Appendix A-50 {suffix}.", 50
+    assert value in _recall_values(source, PAGE_5)
+
+
+@pytest.mark.parametrize(
+    ("source", "operative"),
+    (
+        ("See passage 1234.5678\nbasis points of income.", 1234.5678),
+        ("Appendix A-50\nbasis points of income.", 50),
+        ("See passage 1234.5678, paid per child.", 1234.5678),
+        ("See passage 1234.5678: paid per child.", 1234.5678),
+        ("Appendix A-50, paid per child.", 50),
+        ("Appendix A-50: paid per child.", 50),
+        (
+            "Before. 1234.5678 Eligible Assistance Groups (FS) for each child.",
+            1234.5678,
+        ),
+        (
+            "Before. 1234.5678 Eligible Assistance Groups (FS) basis points of income.",
+            1234.5678,
+        ),
+    ),
+)
+def test_structural_boundary_cannot_hide_an_operative_tail(source, operative):
+    assert operative in _recall_values(source, PAGE_5)
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    (
+        "for assistance groups per child",
+        "for more information per child",
+        "for the rules per child",
+    ),
+)
+def test_reference_phrase_prefix_cannot_authenticate_operative_tail(suffix):
+    assert 1234.5678 in _recall_values(f"See passage 1234.5678 {suffix}.", PAGE_5)
+
+
+@pytest.mark.parametrize(
+    ("source", "operative"),
+    (
+        ("See passage 1234.5678.basis points of income.", 1234.5678),
+        ("See passage 1234.5678.BPS of income.", 1234.5678),
+        ("Appendix A-50.basis points of income.", 50),
+        ("Appendix A-50.per child.", 50),
+    ),
+)
+def test_glued_punctuation_cannot_authenticate_operative_tail(source, operative):
+    assert operative in _recall_values(source, PAGE_5)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    appendix=st.integers(1, 999),
+    punctuation=st.sampled_from((".", ";", "!", "?")),
+    suffix=st.one_of(
+        st.sampled_from(_UNAUTHENTICATED_LOCATOR_TAILS),
+        st.from_regex(r"unknown[a-z]{1,12}", fullmatch=True),
+    ),
+)
+def test_glued_punctuation_property_retains_numeric_demand(
+    major, minor, appendix, punctuation, suffix
+):
+    number = f"{major}.{minor:04d}"
+    for source in (
+        f"See passage {number}{punctuation}{suffix}.",
+        f"Appendix A-{appendix}{punctuation}{suffix}.",
+    ):
+        assert (
+            sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5)
+            == ()
+        )
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    appendix=st.integers(1, 999),
+    suffix=st.one_of(
+        st.sampled_from(_UNAUTHENTICATED_LOCATOR_TAILS),
+        st.from_regex(r"unknown[a-z]{1,12}", fullmatch=True),
+    ),
+)
+def test_unknown_suffix_property_retains_numeric_demand(major, minor, appendix, suffix):
+    number = f"{major}.{minor:04d}"
+    assert float(number) in _recall_values(f"See passage {number} {suffix}.", PAGE_5)
+    assert appendix in _recall_values(f"Appendix A-{appendix} {suffix}.", PAGE_5)
+    assert float(number) in _recall_values(
+        f"Before. {number} Eligible Assistance Groups (FS) {suffix}.", PAGE_5
+    )
+
+
+def test_line_wrapped_appendix_currency_value_keeps_its_demand():
+    assert 50 in _recall_values("Appendix A-50\nUSD is paid", PAGE_5)
+
+
+def test_authenticated_heading_keeps_a_separate_amount_line():
+    source = "2010.0202 Eligible Assistance Groups (FS)\n$4500"
+    assert _recall_values(source, PAGE_5) == {4500}
+
+
+@pytest.mark.parametrize("operator", ("×", "÷", "−", "–", "—", "·", "•", "∗", "∙"))
+def test_unicode_arithmetic_context_keeps_passage_value(operator):
+    source = f"See passage 1234.5678 {operator} 50 dollars."
+    assert 1234.5678 in _recall_values(source, PAGE_5)
+
+
+@pytest.mark.parametrize("operator", ("×", "÷", "−", "–", "—", "·", "•", "∗", "∙"))
+def test_unicode_arithmetic_context_keeps_appendix_numeric_inventory(operator):
+    source = f"Appendix A-1{operator}50% of income is allowed."
+    assert _recall_values(source, PAGE_5) == {
+        occurrence.value for occurrence in INVENTORY(source)
+    }
+
+
+def test_attached_currency_suffix_cannot_authenticate_a_passage_number():
+    source = "passage 1234.5678USD"
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+    assert _recall_values(source, PAGE_5) == {
+        occurrence.value for occurrence in INVENTORY(source)
+    }
+
+
+def test_passage_reference_range_masks_both_complete_labels():
+    source = "See passages 2610.0104.02 through 2610.0104.04."
+    spans = sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_8)
+    assert tuple(source[start:end] for start, end in spans) == (
+        "2610.0104.02",
+        "2610.0104.04",
+    )
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    unit=st.sampled_from(("dollars", "percent", "%")),
+    prefix=st.sampled_from(("The payment is ", "See passage 2610.0103 and ")),
+)
+def test_locator_shapes_never_hide_an_operative_number(major, minor, unit, prefix):
+    number = f"{major}.{minor:04d}"
+    source = f"{prefix}{number} {unit} for Food Stamps (FS)."
+    spans = sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5)
+    start = source.index(number, len(prefix))
+    assert all(end <= start or begin >= start + len(number) for begin, end in spans)
+
+
 _PROGRAM = st.sampled_from(("FS", "TCA", "MA", "SFP", "RAP"))
 
 
@@ -133,7 +426,13 @@ _PROGRAM = st.sampled_from(("FS", "TCA", "MA", "SFP", "RAP"))
     prefix=st.from_regex(r"[a-z ]{0,30}\.", fullmatch=True),
     major=st.integers(1000, 9999),
     minor=st.integers(0, 9999),
-    title=st.lists(_TITLE_WORD, min_size=1, max_size=6),
+    title=st.sampled_from(
+        (
+            ("Eligible", "Assistance", "Groups"),
+            ("Categorically", "Eligible", "Assistance", "Groups"),
+            ("Noncategorically", "Eligible", "Assistance", "Groups"),
+        )
+    ),
     program=_PROGRAM,
 )
 def test_heading_spans_cover_exactly_the_passage_number(
@@ -163,9 +462,31 @@ def test_untitled_four_by_four_numbers_never_mask(major, minor, tail):
 
 
 @settings(max_examples=100, deadline=None)
-@given(text=st.text(max_size=200))
-def test_locator_spans_are_inert_outside_us_manuals(text):
-    for citation in ("us/statute/7/2014", "de/statutes/estg/32a", ""):
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    appendix=st.integers(1, 999),
+)
+def test_locator_spans_are_inert_outside_us_manuals(major, minor, appendix):
+    text = (
+        f"{major}.{minor:04d} Eligible Assistance Groups (FS). "
+        f"See passage 2610.0103 and Appendix A-{appendix}."
+    )
+    # Every generated input exercises all three shapes on a manual citation.
+    assert (
+        len(sc._us_manual_passage_locator_spans(text, corpus_citation_path=PAGE_5)) == 3
+    )
+    for citation in (
+        "us/statute/7/2014",
+        "us/regulation/7/273",
+        "us/guidance/usda/example",
+        "us/guidance/usda/manual/example",
+        "us/statute/title/manual/example",
+        "us-fl/guidance/dcf/manual/example",
+        "de/manual/example",
+        "ca/manual/example",
+        "",
+    ):
         assert (
             sc._us_manual_passage_locator_spans(text, corpus_citation_path=citation)
             == ()
