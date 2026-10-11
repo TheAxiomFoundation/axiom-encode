@@ -44,6 +44,20 @@ def format_coverage_index(
     baseline: str | None = None,
 ) -> str:
     """Show all bounded clause coordinates, including late-source omissions."""
+    # Read the source exactly as the validator does for this citation path.
+    with sc._us_manual_prose_scope(citation):
+        return _format_coverage_index(
+            source_text, citation, candidate=candidate, baseline=baseline
+        )
+
+
+def _format_coverage_index(
+    source_text: str,
+    citation: str,
+    *,
+    candidate: str | None,
+    baseline: str | None,
+) -> str:
     source_hash = hashlib.sha256(source_text.encode()).hexdigest()
     branches = sc.recognize_source_structure(source_text)
     formulas = sc._source_formula_branches(

@@ -19,7 +19,7 @@ import itertools
 import math
 import re
 import textwrap
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from decimal import (
@@ -468,8 +468,8 @@ _LIST_BULLET = "•"
 _TYPOGRAPHY_MASK = "\x00"
 # In a US agency manual a slash or a spaced dash between two words is prose
 # ("case/individual", "SNAP/Cash", "Processing - SNAP"), not division or
-# subtraction. Only `analyze_complete_source_unit` sets this scope, for the
-# duration of one analysis of a US manual citation path.
+# subtraction. `_us_manual_prose_scope` sets this flag for one analysis or one
+# prompt coverage index of a US manual citation path.
 _US_MANUAL_PROSE_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_US_MANUAL_PROSE_SCOPE", default=False
 )
@@ -4904,10 +4904,7 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    scope = _US_MANUAL_PROSE_SCOPE.set(
-        _is_us_manual_citation_path(corpus_citation_path)
-    )
-    try:
+    with _us_manual_prose_scope(corpus_citation_path):
         source_text = authoritative_source_text.strip()
         if not source_text:
             issue = (
@@ -4942,8 +4939,6 @@ def analyze_complete_source_unit(
                 )
 
         return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
-    finally:
-        _US_MANUAL_PROSE_SCOPE.reset(scope)
 
 
 def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
@@ -13184,6 +13179,19 @@ def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
         _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
         and "/manual/" in corpus_citation_path
     )
+
+
+@contextlib.contextmanager
+def _us_manual_prose_scope(corpus_citation_path: str) -> Iterator[None]:
+    """Read word slashes and spaced word dashes as prose in a US manual."""
+
+    scope = _US_MANUAL_PROSE_SCOPE.set(
+        _is_us_manual_citation_path(corpus_citation_path)
+    )
+    try:
+        yield
+    finally:
+        _US_MANUAL_PROSE_SCOPE.reset(scope)
 
 
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
