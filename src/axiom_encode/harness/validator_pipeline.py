@@ -17381,9 +17381,6 @@ def _stated_conversion_ungrounded_literal_hint(
         or value not in _STATED_CONVERSION_CALENDAR_CONSTANTS
     ):
         return ""
-    with _us_manual_prose_scope(source_citation_path or ""):
-        if not source_states_stated_conversion_result(source_text):
-            return ""
     try:
         payload = yaml.safe_load(content)
     except (yaml.YAMLError, ValueError):
@@ -17398,6 +17395,10 @@ def _stated_conversion_ungrounded_literal_hint(
         and citation_path.strip() != source_citation_path.strip()
     ):
         return ""
+    # Read the source with the scope the complete-source-unit analysis uses.
+    with _us_manual_prose_scope(citation_path.strip()):
+        if not source_states_stated_conversion_result(source_text):
+            return ""
     return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"
 
 
