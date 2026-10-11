@@ -5207,6 +5207,7 @@ def _analyze_rulespec_payload(
         formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         deferred_clauses=deferred_clauses,
+        exception_controls=not _is_us_manual_citation_path(corpus_citation_path),
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -13148,6 +13149,15 @@ def _is_title_case_manual_heading(title: str) -> bool:
     return all(word[0].isupper() for word in words if len(word) >= 4)
 
 
+def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
+    """A US agency manual, the scope of the manual-only reading rules."""
+
+    return bool(
+        _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        and "/manual/" in corpus_citation_path
+    )
+
+
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
     """A cents-shaped label beside a `$` amount line is a budget-table row."""
 
@@ -17689,8 +17699,16 @@ def _source_control_branches(
     formula_branches: Sequence[SourceStructureBranch],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
+    exception_controls: bool = True,
 ) -> tuple[SourceStructureBranch, ...]:
-    """Return active boundary, exception, and applicability control clauses."""
+    """Return active boundary, exception, and applicability control clauses.
+
+    In a US agency manual only a stated numeric limit is a control. Its
+    `if`, `when` and `unless` sentences are procedure (`When child care hours
+    are requested due to schooling, verification ... is required`), not a
+    condition the encoding must derive, so callers pass
+    ``exception_controls=False`` there.
+    """
 
     boundary_branches = _active_or_root_source_branches(
         source_text,
@@ -17707,16 +17725,17 @@ def _source_control_branches(
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
-    controlled.extend(
-        _source_exception_branches(
-            source_text,
-            branches=branches,
-            active_branches=active_branches,
-            deferred_paths=deferred_paths,
-            formula_branches=formula_branches,
-            deferred_clauses=deferred_clauses,
+    if exception_controls:
+        controlled.extend(
+            _source_exception_branches(
+                source_text,
+                branches=branches,
+                active_branches=active_branches,
+                deferred_paths=deferred_paths,
+                formula_branches=formula_branches,
+                deferred_clauses=deferred_clauses,
+            )
         )
-    )
     return tuple(
         {
             (branch.path, branch.start, branch.end): branch
