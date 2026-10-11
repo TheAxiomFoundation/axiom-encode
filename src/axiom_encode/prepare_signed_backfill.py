@@ -150,6 +150,11 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
         ),
+        # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
+        (
+            "us",
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+        ),
         (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
@@ -192,6 +197,12 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
+        ),
+        # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
+        (
+            "us",
+            "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e",
+            "fl-snap-bbce-page5",
         ),
     }
 )
