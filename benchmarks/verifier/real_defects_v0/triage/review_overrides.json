@@ -1,0 +1,27 @@
+{
+ "about": "A reviewer's recorded corrections to single triage rows. tools/merge_triage.py applies them after its keep rules; each must match at least one kept row, and the row then carries the override in review_override.",
+ "overrides": [
+  {
+   "id": "promote-us-009-surviving-spouse-threshold",
+   "source": "PR #1659 round-two review, 2026-10-03: per-case calls on the unclear cases",
+   "match": {
+    "jurisdiction": "us",
+    "commit": "095d680d47",
+    "module_path": "statutes/26/24.yaml"
+   },
+   "set_triage_status": "fidelity",
+   "reason": "The same correction as the fidelity cases us-008 and us-410 (a surviving spouse was given the joint-return threshold); the verifier, unclear at 0.62, called the reading defensible on the source."
+  },
+  {
+   "id": "tariff-ieepa-family-rule-names",
+   "source": "PR #1659 round-two review, 2026-10-03: finding 7",
+   "match": {
+    "jurisdiction": "us",
+    "commit": "198bee703e",
+    "rule_path": "rules[ieepa_component_rate].versions[0].formula"
+   },
+   "drop_rule_names_matching": "(ch\\w+_)?s232_steel_heading_rate|section_232_steel_component_rate",
+   "reason": "The verifier found the steel change mechanical (the proof was re-grounded from 9903.81.87/.88 to 9903.82.02 and the formula stayed 0.50); only the two ieepa_* rules carry the defect."
+  }
+ ]
+}

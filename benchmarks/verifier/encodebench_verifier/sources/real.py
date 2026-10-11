@@ -1,7 +1,6 @@
 """Loader for recorded real defects (``benchmarks/verifier/real_defects_v0/``).
 
-The corpus is produced by another session (axiom-encode PR #1659); its README
-is the schema of record and this loader follows it. One ``case.json`` per
+The corpus README is the schema of record and this loader follows it. One ``case.json`` per
 case under ``cases/<id>/`` with, when ``artifacts_shipped`` is true, the
 sibling files ``pre_fix.yaml`` (module bytes before the correcting commit),
 ``post_fix.yaml`` (after) and ``provision.txt`` (the provision resolved from
@@ -27,9 +26,16 @@ three (``unrepresented_clause``, ``untraceable_branch``, ``other``) are kept
 as ``other:<kind>`` columns scored on every judge's verdict channel; forcing
 an unrepresented clause into "conjunct dropped" would overstate the match.
 
-Selection defaults follow the README's advice for independent cases: family
-representatives only, ``triage_status`` ``fidelity`` only (the ``unclear``
-cases are kept in the corpus for a reviewer to prune), any confidence.
+Selection defaults follow the README's advice for independent cases a judge
+can decide: family representatives only, ``triage_status`` ``fidelity`` only,
+any confidence, and ``judgeable_only``. The corpus records, per case, whether
+the provision carries the text that shows the pre-fix module wrong
+(``judgeable_from_provision``) and where that text sits
+(``provision_review.decisive_quotes[].span``, character offsets into
+``provision.txt``). ``judgeable_only`` skips a case recorded as not
+judgeable, and a case whose decisive text the provision window cuts away: a
+judge shown neither cannot be scored on it. A record without those fields
+(the fixture, a hand-written experiment) is kept.
 
 Tolerances for records written by hand (the fixture, small experiments):
 ``case_id`` for ``id``; ``provision`` / ``pre_fix`` / ``post_fix`` file
@@ -171,6 +177,27 @@ def _locator(payload: dict[str, Any]) -> Locator:
     return Locator(path="", detail="locator missing in case record")
 
 
+def decisive_text_in_window(
+    record: dict[str, Any], provision: str, window: str
+) -> bool:
+    """Whether every decisive passage the corpus recorded survives ``window``.
+
+    ``provision`` is the full text the spans index; ``window`` is what the
+    judge is shown. True when the record names no span.
+    """
+
+    review = record.get("provision_review")
+    if not isinstance(review, dict):
+        return True
+    for quote in review.get("decisive_quotes") or []:
+        span = quote.get("span") if isinstance(quote, dict) else None
+        if not (isinstance(span, list) and len(span) == 2):
+            continue
+        if provision[span[0] : span[1]] not in window:
+            return False
+    return True
+
+
 def read_case_record(path: Path) -> dict[str, Any]:
     path = Path(path)
     try:
@@ -297,6 +324,7 @@ def build_real_suite(
     triage_statuses: tuple[str, ...] = ("fidelity",),
     min_confidence: float = 0.0,
     jurisdictions: tuple[str, ...] = (),
+    judgeable_only: bool = True,
 ) -> tuple[CaseSuite, dict[str, Any]]:
     """Fold the selected case records under ``root`` into a suite.
 
@@ -335,17 +363,25 @@ def build_real_suite(
         if jurisdictions and record.get("jurisdiction") not in jurisdictions:
             skip("jurisdiction_excluded")
             continue
+        if judgeable_only and record.get("judgeable_from_provision") is False:
+            skip("not_judgeable_from_provision")
+            continue
         try:
             control, defective, _ = load_case_file(path)
         except MetadataOnlyCase:
             skip("metadata_only")
+            continue
+        window = truncate(control.provision_text, provision_chars)
+        if judgeable_only and not decisive_text_in_window(
+            record, control.provision_text, window
+        ):
+            skip("decisive_text_outside_window")
             continue
         kept_ids.append(defective.pair_id)
         if defective.defect_kind not in DEFECT_KINDS:
             other_kinds[defective.defect_kind] = (
                 other_kinds.get(defective.defect_kind, 0) + 1
             )
-        window = truncate(control.provision_text, provision_chars)
         full_sha = _sha256_text(control.provision_text)
         for case in (control, defective):
             cases.append(
@@ -380,6 +416,7 @@ def build_real_suite(
             "triage_statuses": list(triage_statuses),
             "min_confidence": min_confidence,
             "jurisdictions": list(jurisdictions),
+            "judgeable_only": judgeable_only,
         },
         "case_ids": kept_ids,
         "corpus_releases": releases,

@@ -1,0 +1,890 @@
+format: rulespec/v1
+rules:
+  - name: middlesbrough_council_tax_reduction_maximum_support_rate
+    kind: parameter
+    dtype: Rate
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraph 48.1
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-48
+              excerpt: "48.1 Subject to paragraphs (2) to (4), the amount of a person’s maximum Council Tax Reduction in respect of a day for which he is liable to pay council tax, shall be 90 per cent, of the amount A divided by B where;"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0.90
+
+  - name: middlesbrough_council_tax_reduction_per_cent_unit
+    kind: parameter
+    dtype: Rate
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 percentage notation
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-70
+              excerpt: "100 per cent. of such payments"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0.01
+
+  - name: middlesbrough_council_tax_reduction_capital_limit
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraph 26.1
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-37
+              excerpt: "26.1 For the purposes of this scheme, the prescribed amount is £10,000 and no reduction shall be granted when the applicant has an amount greater that this level."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          10000
+
+  - name: middlesbrough_council_tax_reduction_zero_band_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: &grid_source
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: &grid_excerpt |-
+                1. The authority’s Council Tax Reduction scheme from 2026/27 shall be calculated on the basis of the following Banded Discount Scheme: Discount Band Discount Single Person Single person with one child Single person with two or more children Couple Couple with one child Couple with two or more children WEEKLY Income Ranges Band 1* 90% £0 ­ £126.77 £0 ­ £200.80 £0 ­ £275.17 £0 ­ £177.47 £0 ­ £257.89 £0 ­ £326.00 Band 2 72% £126.78 ­ £228.17 £200.81 ­ £301.20 £275.18 ­ £368.99 £177.48 ­ £304.22 £257.90 ­ £353.49 £326.01 ­ £426.30 Band 3 36% £228.18 ­ £272.54 £301.21 ­ £320.03 £369.00 ­ £437.78 £304.23 ­ £367.60 £353.50 ­ £402.56 £426.31 ­ £501.54 Band 4 23% £272.55 ­ £323.24 £320.04 ­ £351.40 £437.79 ­ £562.87 £367.61 ­ £430.99 £402.57 ­ £465.45 £501.55 ­ £601.85 0% Over £323.24 Over £351.40 Over £562.87 Over £430.99 Over £465.45 Over £601.85
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0
+
+  - name: middlesbrough_council_tax_reduction_band_1_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 1
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          1
+
+  - name: middlesbrough_council_tax_reduction_band_2_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 2
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          2
+
+  - name: middlesbrough_council_tax_reduction_band_3_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 3
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          3
+
+  - name: middlesbrough_council_tax_reduction_band_4_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          4
+
+  - name: middlesbrough_council_tax_reduction_one_dependant_child_or_young_person_in_grid
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 one-dependant family columns
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          1
+
+  - name: middlesbrough_council_tax_reduction_maximum_dependant_children_or_young_persons_in_grid
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 paragraph 4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          2
+
+  - name: middlesbrough_council_tax_reduction_single_no_dependant_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 single family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0
+
+  - name: middlesbrough_council_tax_reduction_single_one_dependant_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 single-with-one-dependant family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          1
+
+  - name: middlesbrough_council_tax_reduction_single_two_plus_dependants_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 single-with-two-or-more-dependants family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          2
+
+  - name: middlesbrough_council_tax_reduction_couple_no_dependant_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 couples family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          3
+
+  - name: middlesbrough_council_tax_reduction_couple_one_dependant_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 couple-with-one-dependant family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          4
+
+  - name: middlesbrough_council_tax_reduction_couple_two_plus_dependants_family_index
+    kind: parameter
+    dtype: Number
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 couple-with-two-or-more-dependants family column
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          5
+
+  - name: middlesbrough_council_tax_reduction_zero_annual_amount
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 zero award
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          0
+
+  - name: middlesbrough_council_tax_reduction_support_rate_by_band
+    kind: parameter
+    dtype: Rate
+    indexed_by: middlesbrough_council_tax_reduction_selected_band_index
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 discount grid
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band
+                column_key: discount percentage
+          - path: versions[0].values
+            kind: ordering
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "2. The amount of discount to be granted is to be based on the following factors: a. The maximum Council Tax Reduction as defined within this scheme; b. The Council Tax family as defined within this scheme; c. The income of the applicant and partner as defined within this scheme; and d. The capital of the applicant and partner as defined within this scheme."
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 0
+          1: 0.90
+          2: 0.72
+          3: 0.36
+          4: 0.23
+
+  - name: middlesbrough_council_tax_reduction_band_2_lower_weekly_income_by_family
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    indexed_by: middlesbrough_council_tax_reduction_family_category_index
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 2 lower weekly income bounds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band 2
+                column_key: family weekly income range
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 126.78
+          1: 200.81
+          2: 275.18
+          3: 177.48
+          4: 257.90
+          5: 326.01
+
+  - name: middlesbrough_council_tax_reduction_band_3_lower_weekly_income_by_family
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    indexed_by: middlesbrough_council_tax_reduction_family_category_index
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 3 lower weekly income bounds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band 3
+                column_key: family weekly income range
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 228.18
+          1: 301.21
+          2: 369.00
+          3: 304.23
+          4: 353.50
+          5: 426.31
+
+  - name: middlesbrough_council_tax_reduction_band_4_lower_weekly_income_by_family
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    indexed_by: middlesbrough_council_tax_reduction_family_category_index
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 4 lower weekly income bounds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band 4
+                column_key: family weekly income range
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 272.55
+          1: 320.04
+          2: 437.79
+          3: 367.61
+          4: 402.57
+          5: 501.55
+
+  - name: middlesbrough_council_tax_reduction_zero_band_lower_weekly_income_by_family
+    kind: parameter
+    dtype: Money
+    period: Week
+    unit: GBP
+    indexed_by: middlesbrough_council_tax_reduction_family_category_index
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 Band 5 lower weekly income bounds
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].values
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band 5
+                column_key: family weekly income range
+    versions:
+      - effective_from: '2026-04-01'
+        values:
+          0: 323.24
+          1: 351.40
+          2: 562.87
+          3: 430.99
+          4: 465.45
+          5: 601.85
+
+  - name: middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_support
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Class D paragraph 1.7(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(b) he has attained the qualifying age for state pension credit and he, or if he has a partner, his partner, is a person on income support, on income-based jobseeker’s allowance or an income-related employment and support allowance; or a person with an award of universal credit."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_receives_income_support
+          or middlesbrough_council_tax_reduction_partner_receives_income_support
+
+  - name: middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_related_esa
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Class D paragraph 1.7(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(b) he has attained the qualifying age for state pension credit and he, or if he has a partner, his partner, is a person on income support, on income-based jobseeker’s allowance or an income-related employment and support allowance; or a person with an award of universal credit."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_receives_income_related_esa
+          or middlesbrough_council_tax_reduction_partner_receives_income_related_esa
+
+  - name: middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_based_jsa
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Class D paragraph 1.7(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(b) he has attained the qualifying age for state pension credit and he, or if he has a partner, his partner, is a person on income support, on income-based jobseeker’s allowance or an income-related employment and support allowance; or a person with an award of universal credit."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_receives_income_based_jsa
+          or middlesbrough_council_tax_reduction_partner_receives_income_based_jsa
+
+  - name: middlesbrough_council_tax_reduction_applicant_is_in_working_age_class
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraphs 1.6 and 1.7 working-age class
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "has not attained the qualifying age for state pension credit; or"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(b) he has attained the qualifying age for state pension credit and he, or if he has a partner, his partner, is a person on income support, on income-based jobseeker’s allowance or an income-related employment and support allowance; or a person with an award of universal credit."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_or_partner_is_below_state_pension_credit_qualifying_age
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_support
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_related_esa
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_based_jsa
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_universal_credit
+
+  - name: middlesbrough_council_tax_reduction_working_age_scheme_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraphs 1.6 and 1.7
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "The authority is required to specify a scheme for working age and therefore this scheme only applies to a person who;"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "has made a valid application for reduction."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          local_authority_is_middlesbrough
+          and council_tax_reduction_household_in_england
+          and middlesbrough_council_tax_reduction_applicant_is_in_working_age_class
+          and would_claim_council_tax_reduction
+
+  - name: middlesbrough_council_tax_reduction_applicant_or_partner_receives_schedule_3_paragraph_7_qualifying_benefit
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 3 paragraph 7
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-78
+              excerpt: "7. Where an applicant is on income support, an income-based jobseeker’s allowance or an income- related employment and support allowance, the whole of his capital."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_receives_income_support
+          or middlesbrough_council_tax_reduction_applicant_receives_income_based_jsa
+          or middlesbrough_council_tax_reduction_applicant_receives_income_related_esa
+
+  - name: middlesbrough_council_tax_reduction_capital_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraph 26.1 and Schedule 1 paragraph 4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-37
+              excerpt: "26.1 For the purposes of this scheme, the prescribed amount is £10,000 and no reduction shall be granted when the applicant has an amount greater that this level."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_capital_after_other_disregards_for_year <= middlesbrough_council_tax_reduction_capital_limit
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_schedule_3_paragraph_7_qualifying_benefit
+
+  - name: middlesbrough_council_tax_reduction_award_conditions_met
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 working-age eligibility and Schedule 1 capital condition
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "The authority is required to specify a scheme for working age and therefore this scheme only applies to a person who;"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "4. Discount bands vary depending on both weekly income and the household (family as defined within this scheme). Any applicant and any partner whose capital is greater than £10,000 shall not be entitled to any Council Tax Reduction whatsoever including where the authority determines that 8 below applies, but not where 7 only applies."
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(c) be liable to pay council tax in respect of a dwelling in which he is solely or mainly resident;"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(d) is not deemed to be absent from the dwelling;"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-7
+              excerpt: "(e) not fall within a class of person prescribed for the purposes of paragraph 2(9) of Schedule 1A to the Local Government Finance Act 1992 and excluded from the authority’s scheme;"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_working_age_scheme_applies
+          and middlesbrough_council_tax_reduction_capital_eligible
+          and middlesbrough_council_tax_reduction_class_d_residency_absence_and_exclusion_conditions_met
+
+  - name: middlesbrough_council_tax_reduction_passported_to_band_1
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 paragraph 7
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "7. *Where an applicant or partner is in receipt of Income Support, Income Related Employment and Support Allowance or Income Based Jobseeker’s Allowance, discount will be awarded at Band 1 level except where the authority determines that 8 below applies."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_support
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_related_esa
+          or middlesbrough_council_tax_reduction_applicant_or_partner_receives_income_based_jsa
+
+  - name: middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 paragraph 8
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "8. Where an applicant is otherwise entitled to discount in bands 1 to 4, where that band is determined as a result of state benefit entitlement, but the authority has evidence or there has been a failure to respond to a request for evidence concerning income or capital that would otherwise mean no discount then no discount may be granted."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_passported_to_band_1
+          and middlesbrough_council_tax_reduction_authority_has_paragraph_8_adverse_evidence_or_evidence_response_failure
+
+  - name: middlesbrough_council_tax_reduction_capped_dependant_children_or_young_persons_for_grid
+    kind: derived
+    entity: Household
+    dtype: Number
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 paragraph 4
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          min(middlesbrough_council_tax_reduction_number_of_dependant_children_or_young_persons, middlesbrough_council_tax_reduction_maximum_dependant_children_or_young_persons_in_grid)
+
+  - name: middlesbrough_council_tax_reduction_family_category_index
+    kind: derived
+    entity: Household
+    dtype: Number
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 family columns
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: household family column
+                column_key: weekly income range
+          - path: versions[0].formula
+            kind: formula
+            source: *grid_source
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if middlesbrough_council_tax_reduction_has_partner: if middlesbrough_council_tax_reduction_capped_dependant_children_or_young_persons_for_grid >= middlesbrough_council_tax_reduction_maximum_dependant_children_or_young_persons_in_grid: middlesbrough_council_tax_reduction_couple_two_plus_dependants_family_index else: if middlesbrough_council_tax_reduction_capped_dependant_children_or_young_persons_for_grid >= middlesbrough_council_tax_reduction_one_dependant_child_or_young_person_in_grid: middlesbrough_council_tax_reduction_couple_one_dependant_family_index else: middlesbrough_council_tax_reduction_couple_no_dependant_family_index else: if middlesbrough_council_tax_reduction_capped_dependant_children_or_young_persons_for_grid >= middlesbrough_council_tax_reduction_maximum_dependant_children_or_young_persons_in_grid: middlesbrough_council_tax_reduction_single_two_plus_dependants_family_index else: if middlesbrough_council_tax_reduction_capped_dependant_children_or_young_persons_for_grid >= middlesbrough_council_tax_reduction_one_dependant_child_or_young_person_in_grid: middlesbrough_council_tax_reduction_single_one_dependant_family_index else: middlesbrough_council_tax_reduction_single_no_dependant_family_index
+
+  - name: middlesbrough_council_tax_reduction_selected_band_index
+    kind: derived
+    entity: Household
+    dtype: Number
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 banded discount grid
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band
+                column_key: family weekly income range
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "7. *Where an applicant or partner is in receipt of Income Support, Income Related Employment and Support Allowance or Income Based Jobseeker’s Allowance, discount will be awarded at Band 1 level except where the authority determines that 8 below applies."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies: middlesbrough_council_tax_reduction_zero_band_index else: if middlesbrough_council_tax_reduction_passported_to_band_1: middlesbrough_council_tax_reduction_band_1_index else: if middlesbrough_council_tax_reduction_assessed_weekly_net_income < middlesbrough_council_tax_reduction_band_2_lower_weekly_income_by_family[middlesbrough_council_tax_reduction_family_category_index]: middlesbrough_council_tax_reduction_band_1_index else: if middlesbrough_council_tax_reduction_assessed_weekly_net_income < middlesbrough_council_tax_reduction_band_3_lower_weekly_income_by_family[middlesbrough_council_tax_reduction_family_category_index]: middlesbrough_council_tax_reduction_band_2_index else: if middlesbrough_council_tax_reduction_assessed_weekly_net_income < middlesbrough_council_tax_reduction_band_4_lower_weekly_income_by_family[middlesbrough_council_tax_reduction_family_category_index]: middlesbrough_council_tax_reduction_band_3_index else: if middlesbrough_council_tax_reduction_assessed_weekly_net_income <= middlesbrough_council_tax_reduction_zero_band_lower_weekly_income_by_family[middlesbrough_council_tax_reduction_family_category_index]: middlesbrough_council_tax_reduction_band_4_index else: middlesbrough_council_tax_reduction_zero_band_index
+
+  - name: middlesbrough_council_tax_reduction_selected_support_rate
+    kind: derived
+    entity: Household
+    dtype: Rate
+    period: Week
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 discount grid
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band
+                column_key: discount percentage
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_support_rate_by_band[middlesbrough_council_tax_reduction_selected_band_index]
+
+  - name: middlesbrough_council_tax_reduction_maximum_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 paragraph 48.1
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-48
+              excerpt: "48.1 Subject to paragraphs (2) to (4), the amount of a person’s maximum Council Tax Reduction in respect of a day for which he is liable to pay council tax, shall be 90 per cent, of the amount A divided by B where;"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_maximum_eligible_liability_for_year * middlesbrough_council_tax_reduction_maximum_support_rate
+
+  - name: middlesbrough_council_tax_reduction_amount_before_eligibility_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 Schedule 1 paragraph 2
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: ordering
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "The amount of discount to be granted is to be based on the following factors: a. The maximum Council Tax Reduction as defined within this scheme;"
+          - path: versions[0].formula
+            kind: parameter_table
+            source:
+              <<: *grid_source
+              table:
+                header: Discount Weekly Net Income (after disregards)
+                row_key: Band
+                column_key: discount percentage
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          middlesbrough_council_tax_reduction_maximum_for_year * middlesbrough_council_tax_reduction_selected_support_rate
+
+  - name: simulated_middlesbrough_council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 working-age Schedule 1 award
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "1. The authority’s Council Tax Reduction scheme from 2026/27 shall be calculated on the basis of the following Banded Discount Scheme:"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "4. Discount bands vary depending on both weekly income and the household (family as defined within this scheme). Any applicant and any partner whose capital is greater than £10,000 shall not be entitled to any Council Tax Reduction whatsoever including where the authority determines that 8 below applies, but not where 7 only applies."
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          if middlesbrough_council_tax_reduction_award_conditions_met: middlesbrough_council_tax_reduction_amount_before_eligibility_for_year else: middlesbrough_council_tax_reduction_zero_annual_amount
+
+  - name: middlesbrough_council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: Middlesbrough Council Council Tax Reduction Scheme 2026/27 operative working-age award
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: effective_period
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-4
+              excerpt: "is effective from 1st April 2026 for a period of one financial year."
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+              excerpt: "1. The authority’s Council Tax Reduction scheme from 2026/27 shall be calculated on the basis of the following Banded Discount Scheme:"
+    versions:
+      - effective_from: '2026-04-01'
+        formula: |-
+          simulated_middlesbrough_council_tax_reduction_annual_amount
+
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65
+    # upstream_source_check:
+    #   status: delegated_scheme
+    #   checked_paths: [uk/statutes/ukpga/1992/14/13A, uk/regulations/uksi/2012/2885, uk/regulations/uksi/2012/2886]
+    #   rationale: LGFA 1992 section 13A delegates the working-age scheme to Middlesbrough Council, so the adopted document is operative. The apply-stage encoder strips this attestation to the singular source-verification contract after local gates pass.
+  summary: |-
+    Middlesbrough’s 2026-27 working-age award is its Schedule 1 90/72/36/23/0-percent income-band grid applied to the paragraph 48.1 90-percent maximum. Capital above £10,000 ends entitlement except for the Schedule 3 paragraph 7 named-benefit full-capital disregard. The adopted award surface prints no tariff-income rule, taper, non-dependant deduction, or minimum-award floor.
+  deferred_outputs:
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/sections-11-to-24-and-schedules-2-and-4#assessed_weekly_net_income
+      reason: The working-age grid consumes weekly net income after the scheme’s income, earnings, Universal Credit, disregard, self-employment, and child-care calculations; those detailed assessment rules are outside this award-surface module.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/sections-25-to-34-and-schedule-3-except-paragraphs-7-and-8#capital_after_other_disregards_for_year
+      reason: This module applies the local £10,000 capital cliff and the Schedule 3 paragraphs 7 and 8 passported-capital disregards after the scheme’s valuation, attribution, notional-capital, and other capital-disregard calculations.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/schedule-3-paragraph-8#joint_claim_couple_status
+      reason: The paragraph 8 full-capital-disregard branch consumes the source-defined joint-claim-couple classification; the partner income-based-JSA fact is modeled directly with the shared household benefit-status inputs.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/paragraphs-48.2-to-48.4#maximum_eligible_liability_for_year
+      reason: This module consumes the source-defined liability after statutory discounts and joint-liability apportionment; dwelling charge calculation and liability allocation are outside this award surface.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/class-d-c-to-e#residency_absence_and_exclusion_conditions
+      reason: This module consumes the Class D resident-liability, absence, and prescribed-class eligibility determination; its fact-intensive classification is outside the locally parameterised award calculation.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/paragraph-48.1#number_of_days_in_financial_year
+      reason: The maximum is defined daily using the number of days in the financial year; this module consumes the calendar-day count for the award period rather than inventing a fixed annual-week constant.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/paragraphs-48.6-and-58.5-to-58.9#chargeable_non_dependant_deduction_units
+      reason: The flat per-unit deduction is encoded, while joint-liability apportionment, couple coordination, disability protection, benefit, student, absence, armed-forces, and Universal Credit no-earned-income exemption classification are deferred as the source-defined deduction-unit input.
+    - output: uk-middlesbrough:policies/middlesbrough/council-tax-reduction/class-c#alternative_maximum_council_tax_reduction
+      reason: The separate pension-age alternative maximum Council Tax Reduction is outside this working-age local award surface.
+
+inputs:
+  local_authority_is_middlesbrough: {dtype: Boolean, entity: Household, period: Year}
+  council_tax_reduction_household_in_england: {dtype: Boolean, entity: Household, period: Year}
+  would_claim_council_tax_reduction: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_applicant_or_partner_is_below_state_pension_credit_qualifying_age: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_class_d_residency_absence_and_exclusion_conditions_met: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_capital_after_other_disregards_for_year: {dtype: Money, entity: Household, period: Year, unit: GBP}
+  middlesbrough_council_tax_reduction_maximum_eligible_liability_for_year: {dtype: Money, entity: Household, period: Year, unit: GBP}
+  middlesbrough_council_tax_reduction_number_of_days_in_financial_year: {dtype: Number, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_assessed_weekly_net_income: {dtype: Money, entity: Household, period: Week, unit: GBP}
+  middlesbrough_council_tax_reduction_has_partner: {dtype: Boolean, entity: Household, period: Week}
+  middlesbrough_council_tax_reduction_number_of_dependant_children_or_young_persons: {dtype: Number, entity: Household, period: Week}
+  middlesbrough_council_tax_reduction_applicant_or_partner_receives_universal_credit: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_applicant_receives_income_support: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_applicant_receives_income_related_esa: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_applicant_receives_income_based_jsa: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_partner_receives_income_support: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_partner_receives_income_related_esa: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_partner_receives_income_based_jsa: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_authority_has_paragraph_8_adverse_evidence_or_evidence_response_failure: {dtype: Boolean, entity: Household, period: Week}
+  middlesbrough_council_tax_reduction_applicant_is_member_of_joint_claim_couple_for_jobseekers_act_1995: {dtype: Boolean, entity: Household, period: Year}
+  middlesbrough_council_tax_reduction_chargeable_non_dependant_deduction_units: {dtype: Number, entity: Household, period: Week}

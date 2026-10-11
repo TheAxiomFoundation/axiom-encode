@@ -33,4 +33,6 @@ boards/                         committed boards, each with the manifest of the 
 fixtures/real_defects_example/  two-case stand-in for real_defects_v0 (loader tests)
 ```
 
-`real_defects_v0/` is produced by another session and is never written here.
+`real_defects_v0/` is the corpus of recorded real defects. It has its own README
+(the case schema `sources/real.py` reads), build tools and tests
+(`tests/test_real_defects_corpus.py`); nothing in this package writes to it.

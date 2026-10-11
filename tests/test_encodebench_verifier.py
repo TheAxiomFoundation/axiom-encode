@@ -2711,6 +2711,71 @@ def test_real_loader_selection_filters_and_reads_readme_keys(tmp_path):
     )
 
 
+def test_real_loader_keeps_out_cases_a_judge_cannot_decide(tmp_path):
+    """The default selection drops a case the corpus records as not judgeable
+    from its provision, and a case whose decisive text the window cuts away;
+    ``judgeable_only=False`` keeps both, and the choice is in the identity."""
+
+    import shutil
+
+    root = tmp_path / "real"
+    shutil.copytree(FIXTURE_REAL, root)
+    case_path = root / "cases" / "rd-0001" / "case.json"
+    record = json.loads(case_path.read_text())
+    provision = (root / "cases" / "rd-0001" / "provision.txt").read_text()
+    assert len(provision) > 150
+
+    def head(text, max_chars):
+        return text[:max_chars]
+
+    def build(**kwargs):
+        return real_source.build_real_suite(
+            root, provision_chars=kwargs.pop("chars", 24_000), truncate=head, **kwargs
+        )
+
+    record["judgeable_from_provision"] = False
+    record["provision_review"] = {"verdict": "not_in_sources", "decisive_quotes": []}
+    case_path.write_text(json.dumps(record))
+    suite, report = build()
+    assert report["skipped"]["not_judgeable_from_provision"] == 1
+    assert suite.source_identity["case_ids"] == ["rd-0002"]
+    assert suite.source_identity["selection"]["judgeable_only"] is True
+    suite, report = build(judgeable_only=False)
+    assert suite.source_identity["case_ids"] == ["rd-0001", "rd-0002"]
+    assert suite.source_identity["selection"]["judgeable_only"] is False
+    assert "not_judgeable_from_provision" not in report["skipped"]
+
+    # Judgeable, with the decisive passage at characters 100 to 130.
+    record["judgeable_from_provision"] = True
+    record["provision_review"] = {
+        "verdict": "in_provision",
+        "decisive_quotes": [{"quote": provision[100:130], "span": [100, 130]}],
+    }
+    case_path.write_text(json.dumps(record))
+    suite, report = build()
+    assert suite.source_identity["case_ids"] == ["rd-0001", "rd-0002"]
+    suite, report = build(chars=110)  # the window ends inside the passage
+    assert report["skipped"]["decisive_text_outside_window"] == 1
+    assert suite.source_identity["case_ids"] == ["rd-0002"]
+    suite, report = build(chars=110, judgeable_only=False)
+    assert suite.source_identity["case_ids"] == ["rd-0001", "rd-0002"]
+    assert real_source.decisive_text_in_window(record, provision, provision[:130])
+    assert not real_source.decisive_text_in_window(record, provision, provision[:129])
+    assert real_source.decisive_text_in_window({}, provision, "")
+
+    record["judgeable_from_provision"] = False
+    case_path.write_text(json.dumps(record))
+    for flags, pairs in (([], 1), (["--include-not-judgeable"], 2)):
+        out = tmp_path / f"out{pairs}"
+        assert (
+            verifier_cli.main(
+                ["build-real", "--dir", str(root), "--out", str(out), *flags]
+            )
+            == 0
+        )
+        assert CaseSuite.load(out).summary()["pair_count"] == pairs
+
+
 def test_cli_filter_suite_by_max_case_chars(tmp_path):
     suite = _suite_for_board()
     suite.write(tmp_path / "suite")
@@ -3230,8 +3295,10 @@ def test_report_renders_a_missing_latency():
 # -- committed boards reproduce -----------------------------------------------
 
 BOARDS_ROOT = VERIFIER_ROOT / "boards"
-# The real-defects boards are held for the corpus evidence check (decision
-# d885) on branch encodebench-verifier-real-board, with their reproduction test.
+# The 2026-09 real-defects boards are on branch encodebench-verifier-real-board,
+# with their reproduction test. The corpus has changed since (the per-case
+# provision review, decision d885), so they no longer rebuild from it; whether
+# a board over the reviewed corpus is published is a separate decision.
 COMMITTED_BOARDS = ("synthetic_us_v1",)
 
 
