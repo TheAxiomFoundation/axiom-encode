@@ -558,7 +558,9 @@ def test_generated_authenticated_header_and_heading_sequence_only_mask_locators(
     )
     source = (
         f"{page} {stamp} Chapter 2:Eligibility\n"
+        f"Section {section}: Applications\n"
         f"{first_heading} Application Process\n"
+        f"Section {section}: Applications\n"
         f"{second_heading} Retroactive Applications\n{body}"
     )
     citation = f"us-sc/manual/scdhhs/mppm/page-{page}"
@@ -601,9 +603,9 @@ def test_generated_authenticated_header_and_heading_sequence_only_mask_locators(
         ),
     )
 )
-def test_manual_locator_mask_is_idempotent_and_never_lengthens(source):
+def test_manual_locator_mask_is_idempotent_and_preserves_length(source):
     masked = sc._without_us_manual_locators(source, corpus_citation_path=OREGON_PAGE)
-    assert len(masked) <= len(source)
+    assert len(masked) == len(source)
     assert (
         sc._without_us_manual_locators(masked, corpus_citation_path=OREGON_PAGE)
         == masked
