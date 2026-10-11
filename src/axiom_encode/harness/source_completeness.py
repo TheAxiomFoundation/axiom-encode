@@ -13153,11 +13153,11 @@ def _is_title_case_manual_heading(title: str) -> bool:
 
 # A numeric limit stated as a comparison: `exceeds $500`, `over $2,750`,
 # `fewer than 2 members`, `under age 18`, `younger than 6`, `between the ages of
-# 18 and 49`, `age 16 to 18`, `$4,650 or less`, `fifteen (15) or more days`,
-# `age 55 or older`, `21 years of age and under`, `under one year of age`. A
-# reference after the comparator (`under subsection (1)`, `under WAC
-# 388-450-0140`, `over the phone at 1-800-...`, `above, go to Step 3`) is not a
-# limit.
+# 18 and 49`, `age 16 to 18`, `$4,650 or less`, `$.49 or less`, `fifteen (15) or
+# more days`, `age 55 or older`, `21 years of age and under`, `under one year of
+# age`. A reference after the comparator (`under subsection (1)`, `under WAC
+# 388-450-0140`, `under §243`, `over the phone at 1-800-...`, `above, go to Step
+# 3`) is not a limit.
 _LIMIT_SPELLED_NUMBER = (
     r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
     r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
@@ -13175,9 +13175,11 @@ _STATED_NUMERIC_LIMIT = re.compile(
     r"(?:minimum|maximum)(?:\s+of)?)\b"
     rf"(?:(?!\b{_LIMIT_REFERENCE_WORD}\b)[^.;:\n\d§]){{0,30}}?"
     r"(?:\$?\d(?![\d,]*\s*(?:CFR|U\.?S\.?C)\b|\d*-\d|\d*\()"
-    rf"|\b{_LIMIT_SPELLED_NUMBER}\b)"
-    rf"|(?:(?<![\d,.])\d[\d,.]{{0,24}}|\b{_LIMIT_SPELLED_NUMBER})"
-    r"[ \t]*%?\)?[ \t]*(?:[A-Za-z]+[ \t]+){0,3}?"
+    # `one of the following` and `one or more of` mean "any", not a limit.
+    rf"|\b{_LIMIT_SPELLED_NUMBER}\b(?![ \t]+of\b))"
+    rf"|(?:(?<![\d,])\d[\d,.]{{0,24}}"
+    rf"|\b(?!one[ \t]+or[ \t]+more\b){_LIMIT_SPELLED_NUMBER})"
+    r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
     r"(?:or[ \t]+(?:more|less|fewer|greater|higher|lower)"
     r"|(?:or|and)[ \t]+(?:older|younger|over|under|above|below))\b"
     r"|\bage[sd]?[ \t]+\d{1,3}[ \t]*(?:to|through|-|–)[ \t]*\d",
