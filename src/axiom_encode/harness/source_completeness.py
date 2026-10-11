@@ -5192,12 +5192,14 @@ def _analyze_rulespec_payload(
         branches=branches,
         active_branches=branches,
         deferred_paths=set(),
+        corpus_citation_path=corpus_citation_path,
     )
     formula_branches = _source_formula_branches(
         source_text,
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
+        corpus_citation_path=corpus_citation_path,
     )
     control_branches = _source_control_branches(
         source_text,
@@ -13135,6 +13137,57 @@ def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
     )
 
 
+# Florida's ESS Program Policy Manual numbers passages `NNNN.NNNN` (and
+# `NNNN.NNNN.NN` below that). Its PDF extraction flattens a page into a few
+# long lines, so a passage heading lands mid-line, between the previous
+# passage's last sentence and the next passage's first: `... the asset limit
+# of $4,500. 2010.0202 Noncategorically Eligible Assistance Groups (FS) If the
+# standard filing unit ...`. The prose cites passages the same way (`Refer to
+# passage 2610.0103`, `passages 2610.0104.02 through 2610.0104.04`) and its
+# lettered appendices by letter and number (`Appendix A-1`). All are locators.
+# A heading is the number followed, without sentence punctuation, by a title
+# that ends in a parenthesized upper-case program code such as `(FS)`; a
+# number with any other neighbor keeps its value.
+_US_MANUAL_PASSAGE_NUMBER = r"\d{4}\.\d{4}(?:\.\d{2})?"
+_US_MANUAL_INLINE_PASSAGE_HEADING = re.compile(
+    rf"(?<![\w$.,])(?P<label>{_US_MANUAL_PASSAGE_NUMBER})(?![\w.,]?\d)"
+    r"(?=[ \t]+[^\s.!?;:()]+(?:[ \t]+[^\s.!?;:()]+){0,11}[ \t]+"
+    r"\([A-Z]{2,5}(?:[ \t]*[,/][ \t]*[A-Z]{2,5})*\))"
+)
+_US_MANUAL_PASSAGE_REFERENCE = re.compile(
+    rf"\bpassages?[ \t]+{_US_MANUAL_PASSAGE_NUMBER}"
+    rf"(?:[ \t]*(?:,|and|or|through|to)[ \t]*{_US_MANUAL_PASSAGE_NUMBER})*"
+    r"(?![\w.,]?\d)",
+    re.IGNORECASE,
+)
+_US_MANUAL_LETTERED_APPENDIX = re.compile(
+    r"\bAppendix[ \t]+[A-Z]-(?P<label>\d{1,3}(?:-\d{1,3})*)\b(?![.,]?\d)"
+)
+
+
+def _us_manual_passage_locator_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Spans of inline passage numbers and lettered appendix numbers."""
+
+    if not (
+        _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        and "/manual/" in corpus_citation_path
+    ):
+        return ()
+    spans = {
+        match.span("label")
+        for pattern in (_US_MANUAL_INLINE_PASSAGE_HEADING, _US_MANUAL_LETTERED_APPENDIX)
+        for match in pattern.finditer(text)
+    }
+    for reference in _US_MANUAL_PASSAGE_REFERENCE.finditer(text):
+        for number in re.finditer(_US_MANUAL_PASSAGE_NUMBER, reference.group(0)):
+            spans.add(
+                (reference.start() + number.start(), reference.start() + number.end())
+            )
+    return tuple(sorted(spans))
+
+
 def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
     for start, end in sorted(spans, reverse=True):
         text = text[:start] + " " * (end - start) + text[end:]
@@ -13412,6 +13465,12 @@ def authoritative_numeric_recall_text(
     source_text = _mask_numeric_spans(
         source_text,
         (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
+    )
+    source_text = _mask_numeric_spans(
+        source_text,
+        _us_manual_passage_locator_spans(
+            source_text, corpus_citation_path=corpus_citation_path
+        ),
     )
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
@@ -17472,6 +17531,7 @@ def _source_formula_branches(
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
+    corpus_citation_path: str = "",
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
@@ -17479,6 +17539,13 @@ def _source_formula_branches(
         sorted(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
+            # A passage heading flattened into a computation clause is a
+            # locator, not an operand the formula must contain.
+            | set(
+                _us_manual_passage_locator_spans(
+                    source_text, corpus_citation_path=corpus_citation_path
+                )
+            )
         )
     )
     obligations: list[SourceStructureBranch] = []
@@ -20090,7 +20157,38 @@ def _reached_constant_comparison_values(
 def _formula_execution_matches_source_branch(
     execution: _FormulaExecution,
     branch: SourceStructureBranch,
+    **kwargs: Any,
+) -> bool:
+    """Bind a reached leaf to numeric evidence in its exact source formula.
+
+    A source rate of 100% executes as `rate * base`. Simplification folds that
+    identity factor away, erasing both the multiplication and the rate the
+    source states, so a leaf that fails folded is retried with identity-valued
+    numeric constants left in place.
+    """
+
+    if _formula_execution_leaf_matches_source_branch(
+        execution, branch, keep_identity_factors=False, **kwargs
+    ):
+        return True
+    return _formula_execution_leaf_matches_source_branch(
+        execution, branch, keep_identity_factors=True, **kwargs
+    )
+
+
+def _is_identity_numeric_constant(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float, Decimal))
+        and not isinstance(value, bool)
+        and value == 1
+    )
+
+
+def _formula_execution_leaf_matches_source_branch(
+    execution: _FormulaExecution,
+    branch: SourceStructureBranch,
     *,
+    keep_identity_factors: bool,
     annual_evidence: tuple[_AnnualSourceEvidence, ...] = (),
     interval: _NumericInterval | None,
     formula_environment: dict[str, Any],
@@ -20098,8 +20196,6 @@ def _formula_execution_matches_source_branch(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
 ) -> bool:
-    """Bind a reached leaf to numeric evidence in its exact source formula."""
-
     source_operations = _formula_operation_kinds(branch.text)
     binding_environment = {
         name: value
@@ -20107,9 +20203,18 @@ def _formula_execution_matches_source_branch(
         if not isinstance(value, _TemporalFormulaValue)
     }
     binding_environment.update(execution.constant_environment)
+    simplification_environment = binding_environment
+    if keep_identity_factors:
+        simplification_environment = {
+            name: value
+            for name, value in binding_environment.items()
+            if not _is_identity_numeric_constant(value)
+        }
+        if simplification_environment == binding_environment:
+            return False
     operative_leaf = _simplified_formula_text(
         execution.leaf,
-        environment=binding_environment,
+        environment=simplification_environment,
     )
     clamp_subject_names = _formula_progressive_clamp_subject_names(operative_leaf)
     if interval is not None and clamp_subject_names:
