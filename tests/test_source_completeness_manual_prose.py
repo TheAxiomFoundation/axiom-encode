@@ -23,6 +23,7 @@ import pytest
 import yaml
 
 from axiom_encode.harness import source_completeness as completeness_module
+from axiom_encode.harness.coverage_index import format_coverage_index
 from axiom_encode.harness.source_completeness import (
     analyze_complete_source_unit,
     source_states_explicit_computation,
@@ -168,3 +169,17 @@ def test_scope_masks_keep_offsets():
     assert "/" not in masked
     assert " - " not in masked
     assert masked.startswith("Case") and masked.endswith("Processing")
+    # The sentinel, unlike a space, keeps the words apart (#1771).
+    assert masked == "Case\x00individual records\x00\x00\x00Processing"
+
+
+@pytest.mark.parametrize(
+    ("citation", "coordinates"),
+    ((MANUAL, 0), (STATUTE, 1)),
+)
+def test_prompt_coverage_index_reads_the_source_like_the_validator(
+    citation: str, coordinates: int
+):
+    index = format_coverage_index("The SNAP/Cash worker reviews it.", citation)
+
+    assert f"formula_coordinates={coordinates}" in index
