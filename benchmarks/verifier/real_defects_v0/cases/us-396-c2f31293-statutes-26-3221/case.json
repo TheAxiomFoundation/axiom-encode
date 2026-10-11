@@ -172,7 +172,7 @@
     ],
     "why": "The nearest passage, not a decisive one. Subsection (c) only points to section 3231(e)(2); the contribution-base rule itself is not in the provision, no other citation resolved, and nothing in the provision defines compensation_paid as uncapped remuneration, so a reader holding the provision cannot see that the pre-fix tier 2 formula applies the rate to too large a base.",
     "missing_basis": "Section 3231(e)(2), the contribution-base rule that 3221(c) cross-references (it excludes remuneration above the applicable base from compensation for the tier 2 taxes). Neither module cites it, and the bundle does not carry it.",
-    "pre_fix_restates_it": true,
+    "pre_fix_restates_it": false,
     "basis": "adjudicated",
     "adjudication_note": "Corrects the first adjudication (in_provision) after the round-three review of PR #1659 (GPT-6.1 Sol), confirmed by the maintaining session's own reading of the bundle: the brief's missing-clause test requires the omitted clause to be in the quoted text, and 3221(c) is only a cross-reference to it. Reader A made the same call.",
     "readers": {
