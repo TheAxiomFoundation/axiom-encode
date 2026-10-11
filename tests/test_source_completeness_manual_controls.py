@@ -18,6 +18,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -210,6 +211,8 @@ def test_manual_numeric_limit_is_still_a_control(source: str):
         ("When the budgetary deficiency is $.49 or less, no payment is made.", True),
         ("A child aged 16 to 18 must attend school.", True),
         ("if one year or more has passed", True),
+        # A spelled count is a limit even before `of` (FNS 340 utility rule).
+        ("If the unit incurs at least two of these expenses, it is eligible.", True),
         (PROCEDURE, False),
         ("When the household moves, update the address.", False),
         # References after a comparator are not limits.
@@ -231,6 +234,14 @@ def test_manual_numeric_limit_is_still_a_control(source: str):
 )
 def test_stated_numeric_limit(text: str, expected: bool):
     assert bool(completeness_module._STATED_NUMERIC_LIMIT.search(text)) is expected
+
+
+def test_stated_numeric_limit_stays_linear_on_long_space_runs():
+    # Two adjacent unbounded space runs took about 36 s on this input.
+    started = time.perf_counter()
+
+    assert not completeness_module._STATED_NUMERIC_LIMIT.search("1" + " " * 50_000)
+    assert time.perf_counter() - started < 2
 
 
 def test_manual_procedure_needs_no_paired_test_cases():
