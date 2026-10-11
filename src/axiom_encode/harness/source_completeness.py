@@ -9,7 +9,6 @@ from the source-unit admission policy implemented here.
 from __future__ import annotations
 
 import ast
-import bisect
 import calendar
 import contextlib
 import copy
@@ -2141,6 +2140,13 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+# A complete parenthesis containing only a Statutes at Large volume/page
+# reference is bibliographic metadata. Do not accept dollar signs, ranges,
+# additional text, or a citation split across lines.
+_STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION = re.compile(
+    r"\([ \t]*[1-9]\d{0,3}[ \t]+Stat\.[ \t]+[1-9]\d{0,5}[ \t]*\)",
+    flags=re.IGNORECASE,
+)
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
@@ -2279,51 +2285,107 @@ _STRUCTURAL_REFERENCE = re.compile(
     r"(?:\s*(?:,|und|bis|[-–—])\s*\d+[a-z]?)*\b",
     flags=re.IGNORECASE,
 )
+# Session-law history is a finite bibliographic grammar, not a blanket year or
+# chapter-number filter. Singular `c.` takes one chapter; plural `cc.` takes
+# at least two comma-separated chapters. Special sessions are explicitly
+# bounded to Roman I-X. All entries and calendar dates must validate before
+# the terminal suffix can be removed from computational recall.
+_SESSION_LAW_ACTION = (
+    r"amended(?:\s+by)?|as\s+amended|added(?:\s+by)?|"
+    r"supplemented(?:\s+by)?|repealed(?:\s+by)?"
+)
+_SESSION_LAW_PUBLICATION = r"(?:P\.?\s*L\.?|L\.|Laws\b)\s*"
+_SESSION_LAW_YEAR_CHAPTER = (
+    r"\d{4}\s*,\s*"
+    r"(?:Sp\.\s*Sess\.\s*(?:VIII|VII|VI|IV|III|II|IX|V|I|X)\s*,\s*)?"
+    r"(?:c\.\s*\d+|cc\.\s*\d+(?:\s*,\s*\d+)+)"
+)
+_SESSION_LAW_PREFIX = (
+    r"(?:(?P<history_label>history|source)\s*[:.\-–—]+\s*)?"
+    rf"(?:(?P<action>{_SESSION_LAW_ACTION})\s+)?"
+    rf"(?:{_SESSION_LAW_PUBLICATION})?"
+)
+# An explicit History label or an action plus a publication authenticates a
+# history start even when its payload is empty or malformed. Weaker leaders
+# (ordinary Source metadata and bare actions) need a year plus chapter marker.
+# Discovery does not validate entries: every discovered suffix must pass the
+# strict grammar below, so a malformed first entry cannot be bypassed.
+_SESSION_LAW_HISTORY_LEADER = (
+    r"(?:history|source)\s*[:.\-–—]+\s*|"
+    rf"(?:{_SESSION_LAW_ACTION})\s+|{_SESSION_LAW_PUBLICATION}"
+)
+_SESSION_LAW_UNNAMED_PREFIX = (
+    r"(?:(?:history|source)\s*[:.\-–—]+\s*)?"
+    rf"(?:(?:{_SESSION_LAW_ACTION})\s+)?"
+    rf"(?:{_SESSION_LAW_PUBLICATION})?"
+)
+_SESSION_LAW_EXPLICIT_HISTORY_LABEL = r"history\s*[:.\-–—]+\s*"
+_SESSION_LAW_ACTION_PUBLICATION_START = (
+    r"(?:(?:history|source)\s*[:.\-–—]+\s*)?"
+    rf"(?:{_SESSION_LAW_ACTION})\s+{_SESSION_LAW_PUBLICATION}"
+)
+_SESSION_LAW_YEAR_CHAPTER_MARKER = (
+    r"\d[A-Za-z\d]{0,7}\s*,\s*(?:Sp\.\s*Sess\.\s*[IVX]+\s*,\s*)?cc?\."
+)
 _SESSION_LAW_TAIL_START = re.compile(
-    r"(?:(?P<history_label>history|source)\s*[:.\-–—]+\s*|"
-    r"(?P<action>amended(?:\s+by)?|as\s+amended|added|supplemented|repealed)"
-    r"\s+)?"
-    r"(?:(?:P\.?\s*L\.?|L\.)\s*)?"
-    r"\d{4}\s*,\s*c\.\s*\d+",
+    rf"(?<!\w)(?={_SESSION_LAW_EXPLICIT_HISTORY_LABEL}|"
+    rf"{_SESSION_LAW_ACTION_PUBLICATION_START}|"
+    rf"(?={_SESSION_LAW_HISTORY_LEADER})"
+    rf"{_SESSION_LAW_UNNAMED_PREFIX}{_SESSION_LAW_YEAR_CHAPTER_MARKER}|"
+    rf"{_SESSION_LAW_YEAR_CHAPTER_MARKER})"
+    rf"{_SESSION_LAW_PREFIX}(?:\d{{4}}(?!\d))?",
     flags=re.IGNORECASE,
 )
+_SESSION_LAW_MONTH = (
+    r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|"
+    r"Aug(?:ust)?|Sept(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
+)
 _SESSION_LAW_ENTRY = re.compile(
-    r"\s*"
-    r"(?:(?P<history_label>history|source)\s*[:.\-–—]+\s*)?"
-    r"(?:(?P<action>amended(?:\s+by)?|as\s+amended|added|supplemented|repealed)"
-    r"\s+)?"
-    r"(?:(?:P\.?\s*L\.?|L\.)\s*)?"
-    r"\d{4}\s*,\s*c\.\s*\d+"
-    r"(?:\s*(?:,|\.)\s*(?:s|ss)\.\s*[A-Za-z0-9]+"
+    rf"\s*{_SESSION_LAW_PREFIX}{_SESSION_LAW_YEAR_CHAPTER}"
+    r"(?:\s*(?:,|\.)\s*(?:(?:s|ss)\.|§{1,2})\s*[A-Za-z0-9]+"
     r"(?:[.:\-–—][A-Za-z0-9]+)*"
     r"(?:\s*(?:through|to|[-–—])\s*[A-Za-z0-9]+)?)?"
     r"(?:\s*,\s*eff(?:ective)?\.\s*"
-    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|"
-    r"Aug(?:ust)?|Sept(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+\d{1,2}\s*,\s*\d{4})?"
+    rf"(?P<effective_month>{_SESSION_LAW_MONTH})"
+    r"\.?\s+(?P<effective_day>\d{1,2})\s*,\s*(?P<effective_year>\d{4}))?"
     r"(?:\s*,\s*operative\s+"
-    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|"
-    r"Aug(?:ust)?|Sept(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-    r"\.?\s+\d{1,2}\s*,\s*\d{4})?"
+    rf"(?P<operative_month>{_SESSION_LAW_MONTH})"
+    r"\.?\s+(?P<operative_day>\d{1,2})\s*,\s*(?P<operative_year>\d{4}))?"
     r"\s*\.?\s*",
     flags=re.IGNORECASE,
 )
 _SESSION_LAW_SENTENCE_SEPARATOR = re.compile(
-    r"(?<=\d)\.\s+(?=(?:(?:amended(?:\s+by)?|as\s+amended|added|supplemented|repealed)"
-    r"\s+)?(?:(?:P\.?\s*L\.?|L\.)\s*)?\d{4}\s*,\s*c\.)",
+    r"(?<=\d)\.\s+(?="
+    rf"(?:(?:{_SESSION_LAW_ACTION})\s+)?"
+    rf"(?:{_SESSION_LAW_PUBLICATION})?{_SESSION_LAW_YEAR_CHAPTER})",
     flags=re.IGNORECASE,
 )
-_STANDALONE_HISTORY_LEADER = re.compile(
-    r"(?:(?:history|source)\s*[:.\-–—]+\s*"
-    r"(?:(?:P\.?\s*L\.?|L\.)\s*)?|"
-    r"(?:amended(?:\s+by)?|as\s+amended|added|supplemented|repealed)\s+"
-    r"(?:(?:P\.?\s*L\.?|L\.)\s*)?|"
-    r"(?:P\.?\s*L\.?|L\.)\s*)"
-    r"\d{4}\s*,\s*c\.\s*\d+",
-    flags=re.IGNORECASE,
-)
-_SESSION_LAW_YEAR_CHAPTER = re.compile(
-    r"(?:(?:P\.?\s*L\.?|L\.)\s*)?\d{4}\s*,\s*c\.\s*\d+",
+# A validated citation can introduce body prose in an earlier paragraph.
+# The opening must be ordinary prose, currency or a number with a unit or
+# arithmetic operator, with finite history continuations excluded. Dates,
+# section/chapter lists, qualifiers and actions cannot release a malformed
+# chain. The body prose is retained in full.
+_SESSION_LAW_OPERATIVE_CONTINUATION = re.compile(
+    r"^(?!"
+    r"(?:history|source)\s*[:.\-–—]|"
+    rf"(?:{_SESSION_LAW_ACTION})\s+(?:{_SESSION_LAW_PUBLICATION}|\d|"
+    r"unknown\b|incomplete\b|missing\b)|"
+    rf"(?:{_SESSION_LAW_ACTION})(?=\s*[.;]|\s*$)|"
+    rf"{_SESSION_LAW_PUBLICATION}(?:\d|[.;,]|unknown\b|incomplete\b|missing\b|$)|"
+    r"(?:s|ss|c|cc|eff|effective|Sp|Sess)\.|"
+    r"(?:s|ss|c|cc|sections?|chapters?)\s+(?:\d|unknown\b|incomplete\b|missing\b)|"
+    r"Sp\.?\s+Sess\.?(?:\s|$)|"
+    r"Acts?\s+\d|"
+    rf"(?:eff|effective|operative)\s+(?:{_SESSION_LAW_MONTH}\b|\d|"
+    r"unknown\b|incomplete\b|missing\b)|"
+    r"(?:effective|operative)(?=\s*[.;]|\s*$)|"
+    r"(?:unknown|incomplete|missing)\b|"
+    rf"(?:{_SESSION_LAW_MONTH})\.?\s+\d"
+    r")"
+    r"(?:[A-Za-z]+\b(?=[ \t\r\n$])|\$\d|"
+    r"\d+(?:[.,]\d+)?[ \t]+"
+    r"(?!(?:c|cc|s|ss|Sp|Sess|Laws?|history|source|amended|added|supplemented|repealed)\b)"
+    r"[A-Za-z]+\b|\d+\s*[-+*/]\s*\d+\b)",
     flags=re.IGNORECASE,
 )
 _ALABAMA_TERMINAL_ACT_HISTORY_ENTRY = re.compile(
@@ -12882,8 +12944,82 @@ def _branch_citation(
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
 
 
+def _validated_session_law_history_entries(
+    history: str,
+) -> tuple[re.Match[str], ...] | None:
+    """Validate every semicolon/period-separated entry and optional date."""
+
+    normalized = _SESSION_LAW_SENTENCE_SEPARATOR.sub("; ", history)
+    entries = []
+    for part in normalized.split(";"):
+        entry = _SESSION_LAW_ENTRY.fullmatch(part)
+        if entry is None:
+            return None
+        for qualifier in ("effective", "operative"):
+            month = entry.group(f"{qualifier}_month")
+            if month is None:
+                continue
+            month_number = tuple(calendar.month_abbr).index(month[:3].title())
+            try:
+                date(
+                    int(entry.group(f"{qualifier}_year")),
+                    month_number,
+                    int(entry.group(f"{qualifier}_day")),
+                )
+            except ValueError:
+                return None
+        entries.append(entry)
+    return tuple(entries)
+
+
+def _operative_session_law_body_resume_offset(
+    source_text: str, candidate: re.Match[str]
+) -> int | None:
+    """Keep a citation introducing body prose distinct from a later footer.
+
+    An unlabeled or Source-labelled, valid citation prefix followed immediately
+    by non-history prose can release discovery to the next authenticated
+    history start or blank-line-delimited paragraph. The next candidate still
+    owns validation of its entire suffix. A malformed first entry or explicit
+    History chain cannot be bypassed this way.
+    """
+
+    if (candidate.group("history_label") or "").lower() == "history":
+        return None
+    suffix = source_text[candidate.start() :]
+    paragraph_break = re.search(r"\r?\n[ \t]*\r?\n", suffix)
+    paragraph = suffix[: paragraph_break.start()] if paragraph_break else suffix
+    entry = _SESSION_LAW_ENTRY.match(paragraph)
+    if entry is None or _validated_session_law_history_entries(entry.group()) is None:
+        return None
+    continuation = paragraph[entry.end() :]
+    # Structural markers inside parenthetical/quoted prose still fail the
+    # predicate; the original body text, including its wrappers, is retained.
+    continuation = re.sub(r"^(?:[('\"“‘][ \t]*){0,2}", "", continuation)
+    if _SESSION_LAW_OPERATIVE_CONTINUATION.match(continuation) is None:
+        return None
+    for paragraph_candidate in _SESSION_LAW_TAIL_START.finditer(paragraph, entry.end()):
+        preceding = paragraph[: paragraph_candidate.start()].rstrip()
+        separator = paragraph[len(preceding) : paragraph_candidate.start()]
+        label = (paragraph_candidate.group("history_label") or "").lower()
+        if (
+            not label
+            and preceding
+            and "\n" not in separator
+            and preceding[-1] not in ".!?"
+        ):
+            continue
+        return candidate.start() + paragraph_candidate.start()
+    return candidate.start() + paragraph_break.end() if paragraph_break else None
+
+
 def _strip_terminal_session_law_history(source_text: str) -> str:
-    """Remove only a fully validated terminal session-law history chain."""
+    """Remove only a fully validated terminal session-law history chain.
+
+    A failed history entry cannot be bypassed by restarting at a later chapter
+    or action in the same suffix. Source/provenance text itself is unchanged;
+    this helper is used solely to construct computational recall text.
+    """
 
     terminal_parenthetical = re.search(
         r"\s+\((?P<history>[^()]*)\)\s*$",
@@ -12901,80 +13037,41 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
         ):
             return source_text[: terminal_parenthetical.start()].rstrip()
 
-    blank_lines = tuple(re.finditer(r"\n[ \t]*\n", source_text))
-    if blank_lines:
-        block_start = blank_lines[-1].end()
-        history_block = source_text[block_start:].lstrip()
-        normalized_history_block = _SESSION_LAW_SENTENCE_SEPARATOR.sub(
-            "; ",
-            history_block,
-        )
-        history_entries = tuple(
-            _SESSION_LAW_ENTRY.fullmatch(part)
-            for part in normalized_history_block.split(";")
-        )
-        if (
-            _STANDALONE_HISTORY_LEADER.match(history_block)
-            and _SESSION_LAW_YEAR_CHAPTER.search(history_block)
-            and history_entries
-            and all(entry is not None for entry in history_entries)
-        ):
-            return source_text[: blank_lines[-1].start()].rstrip()
-
-    separators = tuple(match.start() for match in re.finditer(";", source_text))
-    segment_starts = (0, *(position + 1 for position in separators))
-    segment_ends = (*separators, len(source_text))
-    segment_matches = tuple(
-        _SESSION_LAW_ENTRY.fullmatch(source_text[start:end])
-        for start, end in zip(segment_starts, segment_ends)
-    )
-    suffix_is_valid = [False] * (len(segment_matches) + 1)
-    suffix_has_action = [False] * (len(segment_matches) + 1)
-    suffix_is_valid[-1] = True
-    for index in range(len(segment_matches) - 1, -1, -1):
-        entry = segment_matches[index]
-        suffix_is_valid[index] = entry is not None and suffix_is_valid[index + 1]
-        suffix_has_action[index] = (
-            entry is not None and entry.group("action") is not None
-        ) or suffix_has_action[index + 1]
-
-    last_candidate_by_segment: dict[int, re.Match[str]] = {}
+    retained_body_end = 0
     for candidate in _SESSION_LAW_TAIL_START.finditer(source_text):
-        segment_index = bisect.bisect_right(separators, candidate.start())
-        last_candidate_by_segment[segment_index] = candidate
-
-    for segment_index, candidate in sorted(last_candidate_by_segment.items()):
-        first_entry = _SESSION_LAW_ENTRY.fullmatch(
-            source_text[candidate.start() : segment_ends[segment_index]]
-        )
-        if first_entry is None or not suffix_is_valid[segment_index + 1]:
+        if candidate.start() < retained_body_end:
             continue
-
-        explicitly_labeled = first_entry.group("history_label") is not None
-        has_action = (
-            first_entry.group("action") is not None
-            or suffix_has_action[segment_index + 1]
-        )
-        entry_count = len(segment_matches) - segment_index
-
         prefix = source_text[: candidate.start()]
         preceding = prefix.rstrip()
         separator = prefix[len(preceding) :]
+        explicitly_labeled = candidate.group("history_label") is not None
         strong_layout = not preceding or "\n" in separator
+        if not explicitly_labeled and not strong_layout and preceding[-1] not in ".!?":
+            continue
+
+        entries = _validated_session_law_history_entries(
+            source_text[candidate.start() :]
+        )
+        if entries is None:
+            resume_offset = _operative_session_law_body_resume_offset(
+                source_text, candidate
+            )
+            if resume_offset is not None:
+                retained_body_end = resume_offset
+                continue
+            # The earliest authenticated history start owns the entire chain.
+            # Retaining malformed history is safer than stripping a valid-looking
+            # later fragment out of a partially operative or malformed suffix.
+            return source_text
         if (
             not explicitly_labeled
             and not strong_layout
-            and (entry_count < 2 or not has_action)
+            and (
+                len(entries) < 2 or not any(entry.group("action") for entry in entries)
+            )
         ):
             continue
-        if (
-            not explicitly_labeled
-            and not strong_layout
-            and preceding
-            and preceding[-1] not in ".!?"
-        ):
-            continue
-        return source_text[: candidate.start()].rstrip()
+        return prefix.rstrip()
 
     return source_text
 
@@ -13449,6 +13546,12 @@ def authoritative_numeric_recall_text(
         cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
+        cleaned = _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION.sub(
+            # Keep punctuation and the bibliography marker between neighboring
+            # values: spaces alone can turn `49(...)620` into grouped `49 620`.
+            lambda match: re.sub(r"\d", " ", match.group(0)),
+            cleaned,
+        )
         if "/manual/" in corpus_citation_path:
             cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub(
                 lambda match: (
