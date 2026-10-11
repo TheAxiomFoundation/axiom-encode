@@ -1167,6 +1167,38 @@ def test_every_board_eligible_case_carries_its_provision_review():
     assert sum(record["counts"].values()) == len(reviewed)
 
 
+def test_a_case_said_to_restate_the_passage_has_a_quoting_proof_atom():
+    """pre_fix_restates_it means the pre-fix module quotes the passage in a
+    proof atom (``excerpt``, or ``text`` or ``span`` in older modules), so a
+    case flagged true must have at least one such atom."""
+
+    import yaml
+
+    flagged = 0
+    for case in _cases():
+        review = case["provision_review"]
+        if review is None or not review["pre_fix_restates_it"]:
+            continue
+        flagged += 1
+        module = yaml.safe_load(
+            (CORPUS_DIR / "cases" / case["id"] / "pre_fix.yaml").read_text("utf-8")
+        )
+        quoting = [
+            atom
+            for rule in module.get("rules") or []
+            for atom in ((rule.get("metadata") or {}).get("proof") or {}).get("atoms")
+            or []
+            if isinstance(atom, dict)
+            and any(
+                isinstance((atom.get("source") or {}).get(key), str)
+                and (atom.get("source") or {})[key].strip()
+                for key in ("excerpt", "text", "span")
+            )
+        ]
+        assert quoting, case["id"]
+    assert flagged
+
+
 def _hand_call_agreement() -> dict[str, tuple[int, int]]:
     """Per recorded set of earlier hand calls: (agreeing, compared).
 
