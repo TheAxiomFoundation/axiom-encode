@@ -121,6 +121,28 @@ def test_manual_arithmetic_stays_a_computation(source: str):
     assert _computations(source, MANUAL)
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        # Formulas that main read as computations only through a word slash or
+        # spaced dash, because `$` operands, `÷` and parentheses are not
+        # recognized (corpus differential, review of this PR).
+        "Family member allowance = (monthly maintenance needs standard - family "
+        "member income) ÷ 3.",
+        "In this situation, the actual value of the S/M is $216.67 or $300 CMRV - "
+        "$83.33 client's voluntary payment = $216.67.",
+    ),
+)
+def test_manual_equation_keeps_its_slashes_and_dashes(source: str):
+    assert _computations(source, MANUAL)
+
+
+def test_web_address_equals_sign_does_not_keep_word_slashes():
+    assert not _computations(
+        "See https://example.gov/forms?s=7 for the SNAP/Cash worker guide.", MANUAL
+    )
+
+
 def test_word_only_manual_subtraction_is_prose():
     # Decided trade-off: a formula written only with words and a spaced dash
     # reads as prose in a US manual.
