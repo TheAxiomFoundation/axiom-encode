@@ -2132,13 +2132,23 @@ REVIEWED_MANUAL_LOCATOR_SPANS = {
         ),
     },
     # The unchanged legacy heading regression combines reviewed Maryland
-    # and Utah captions under this fixture citation. Preserve its two known
+    # and Utah captions under this fixture citation. Preserve its three known
     # section labels without granting the caption immunity in other bodies.
     "us-wa/manual/dshs/eaz/example": {
         "55e18930a95aec07beb5ef6d2c454906e3eb732530247f89191f6bebe01f1f93": (
             (32, 37),
             (112, 117),
+            (175, 180),
         ),
+    },
+    # Complete Utah positive controls: the numeric label identifies the
+    # advance-notice policy; the independent amount and notice periods stay.
+    # Changes to any surrounding text invalidate these locator roles.
+    "us-ut/manual/dws/snap/page-1": {
+        "89cc3e7940eb8f66eda5efe677bd3b34632ffaeec5dcd7992b0262551cb53305": ((43, 48),),
+    },
+    "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm": {
+        "e7229d486b3a84bf4503dedfea70d93f7ba82d3752d1a2e02506dc96fa1bafe5": ((0, 5),),
     },
     "us-ak/manual/dpa/snap": {
         "d846e4659c814c926d885a5fbfdc43c7fc54fdbca5fbe46eb8e5070ff86dbae4": (

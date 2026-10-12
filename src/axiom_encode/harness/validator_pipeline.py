@@ -16786,6 +16786,10 @@ def _tokenize_numeric_occurrences_from_text(
             ):
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
+            # Prefer a grouped reading only when this same source token
+            # supplied it. An unrelated integer (such as a retained page
+            # number) cannot disambiguate an operative decimal amount.
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16795,7 +16799,8 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    math.isclose(
+                    occurrence.span == source_span
+                    and math.isclose(
                         grouped_value,
                         occurrence.value,
                         rel_tol=0,

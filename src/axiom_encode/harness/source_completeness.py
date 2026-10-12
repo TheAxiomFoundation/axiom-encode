@@ -2236,6 +2236,13 @@ _MANUAL_QUANTITY_CAPTION = re.compile(
     r"allotments?|deductions?|allowances?)\b",
     re.IGNORECASE,
 )
+_MANUAL_OPERATIVE_HEADING_CONTEXT = re.compile(
+    _MANUAL_QUANTITY_CAPTION.pattern
+    + r"|\b(?:monetary|payments?)\b"
+    + r"|\b(?:shown[ \t]+(?:above|below)|(?:month|date|year)[ \t]+shown|"
+    r"this[ \t]+date|effective[ \t]+date|as[ \t]+of)\b",
+    re.IGNORECASE,
+)
 _MANUAL_TABLE_COLUMN = re.compile(
     r"[ \t]*(?:household[ \t]+(?:type|size)|assistance[ \t]+group|"
     r"benefit[ \t]+type|payment[ \t]+type)[ \t]*\r?\n?",
@@ -5232,6 +5239,9 @@ def _analyze_rulespec_payload(
         formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
         deferred_clauses=deferred_clauses,
+        numeric_exception_controls_only=_is_us_manual_citation_path(
+            corpus_citation_path
+        ),
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -13173,6 +13183,51 @@ def _is_title_case_manual_heading(title: str) -> bool:
     return all(word[0].isupper() for word in words if len(word) >= 4)
 
 
+# A numeric limit stated as a comparison: `exceeds $500`, `over $2,750`,
+# `fewer than 2 members`, `under age 18`, `younger than 6`, `between the ages of
+# 18 and 49`, `age 16 to 18`, `$4,650 or less`, `$.49 or less`, `fifteen (15) or
+# more days`, `age 55 or older`, `21 years of age and under`, `under one year of
+# age`. A reference after the comparator (`under subsection (1)`, `under WAC
+# 388-450-0140`, `under §243`, `over the phone at 1-800-...`, `above, go to Step
+# 3`) is not a limit.
+_LIMIT_SPELLED_NUMBER = (
+    r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)"
+)
+_LIMIT_REFERENCE_WORD = (
+    r"(?:sections?|subsections?|paragraphs?|subparagraphs?|chapters?|titles?|"
+    r"parts?|steps?|lines?|items?|rules?|boxes?|forms?|WAC|CFR|OAR|USC|ARM|NCAC|"
+    r"law|policy|phone|telephone)"
+)
+_STATED_NUMERIC_LIMIT = re.compile(
+    r"\b(?:exceed(?:s|ed|ing)?|over|under|above|below|beyond|between|"
+    r"(?:more|less|fewer|greater|higher|lower|older|younger)\s+than|"
+    r"at\s+(?:least|most)|up\s+to|in\s+excess\s+of|not\s+to\s+exceed|"
+    r"(?:minimum|maximum)(?:\s+of)?)\b"
+    rf"(?:(?!\b{_LIMIT_REFERENCE_WORD}\b)[^.;:\n\d§]){{0,30}}?"
+    r"(?:\$?\d(?![\d,]*\s*(?:CFR|U\.?S\.?C)\b|\d*-\d|\d*\()"
+    # `one of the following` and `one or more of` mean "any", not a limit.
+    rf"|\b(?!one[ \t]+of\b){_LIMIT_SPELLED_NUMBER}\b)"
+    rf"|(?:(?<![\d,])\d[\d,.]{{0,24}}"
+    rf"|\b(?!one[ \t]+or[ \t]+more\b){_LIMIT_SPELLED_NUMBER})"
+    r"[ \t]*(?:%[ \t]*)?(?:\)[ \t]*)?(?:[A-Za-z]+[ \t]+){0,3}?"
+    r"(?:or[ \t]+(?:more|less|fewer|greater|higher|lower)"
+    r"|(?:or|and)[ \t]+(?:older|younger|over|under|above|below))\b"
+    r"|\bage[sd]?[ \t]+\d{1,3}[ \t]*(?:to|through|-|–)[ \t]*\d",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_us_manual_citation_path(corpus_citation_path: str) -> bool:
+    """A US agency manual, the scope of the manual-only reading rules."""
+
+    return bool(
+        _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        and "/manual/" in corpus_citation_path
+    )
+
+
 def _is_manual_amount_row(label: re.Match[str]) -> bool:
     """A cents-shaped label beside a `$` amount line is a budget-table row."""
 
@@ -13400,6 +13455,77 @@ def _manual_ambiguous_numeric_line_starts(
     return frozenset(starts)
 
 
+def _manual_heading_context_is_independent(
+    text: str,
+    candidates: Iterable[re.Match[str]],
+    *,
+    reviewed_titles: Iterable[str],
+) -> bool:
+    """Prove the complete context harmless before using heuristic headings.
+
+    A title/numbering scheme establishes a locator only in a closed context.
+    Unknown captions, columns, qualifiers, footnotes and prose keep every
+    candidate number. In particular, no vocabulary or qualifier length can
+    turn an unrecognised monetary caption into permission to mask its rows.
+    Numbered lines also require an exact independently reviewed title: an
+    unknown numbered sentence cannot authenticate the context of its neighbors.
+    Self-contained facts follow all candidate headings; before another row
+    they might be its monetary or date caption and cannot authorize masking.
+    Exact reviewed complete-source roles are authenticated separately.
+    """
+
+    headings = {candidate.start(): candidate for candidate in candidates}
+    last_heading_end = max((heading.end() for heading in headings.values()), default=0)
+    titles = frozenset(reviewed_titles)
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        content = line.strip()
+        candidate = headings.get(offset)
+        if not content or re.fullmatch(r"Page \d+", content):
+            pass
+        elif candidate:
+            if candidate[
+                "title"
+            ] not in titles or _MANUAL_OPERATIVE_HEADING_CONTEXT.search(
+                candidate["title"]
+            ):
+                return False
+        elif re.fullmatch(
+            r"(?:TABLE OF CONTENTS|CONTENTS PAGES|SUBJECT PAGES)", content
+        ):
+            pass
+        elif re.fullmatch(
+            r"\d{1,4}[ \t]+"
+            + _US_MANUAL_REVISION_STAMP.pattern
+            + r"[ \t]+Chapter 2:[ \t]*Eligibility",
+            content,
+        ):
+            pass
+        elif re.fullmatch(
+            r"(?:Chapter|Section)[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
+            r"[ \t]*(?:Applications?|Policy)",
+            content,
+        ):
+            pass
+        elif content == "Fees may be waived for a category.":
+            # This complete modal sentence supplies no table/date reference.
+            pass
+        elif re.fullmatch(
+            r"CAPS Policy – Provider Rights and Responsibilities No\.: CAPS/00-\d+ "
+            r"Effective Date: \d{2}/\d{2}/\d{4} Revised: \d{2}/\d{2}/\d{4} "
+            r"Revision Effective: \d{2}/\d{2}/\d{4}|CAPS Policy Manual",
+            content,
+        ):
+            # Each date in this complete metadata header is printed explicitly.
+            pass
+        elif offset < last_heading_end or not _manual_section_remainder_is_independent(
+            line, heading_spans=()
+        ):
+            return False
+        offset += len(line)
+    return True
+
+
 def _manual_heading_spans(
     text: str, *, corpus_citation_path: str
 ) -> tuple[tuple[int, int], ...]:
@@ -13515,6 +13641,17 @@ def _manual_heading_spans(
                 )
             )
             break
+    reviewed_titles = {
+        title for _number, title in (*contents_headings, *caption_headings)
+    }
+    if corpus_citation_path.startswith("us-ut/manual/dws/"):
+        reviewed_titles.add("Advance Notice of Adverse Action")
+    if corpus_citation_path.startswith("us-ga/manual/decal/caps/policy-manual/"):
+        reviewed_titles.add("Warranties, Representations and Covenants")
+    if not _manual_heading_context_is_independent(
+        heading_text, candidates, reviewed_titles=reviewed_titles
+    ):
+        return tuple(sorted(set(spans)))
     for candidate in candidates:
         if not _is_title_case_manual_heading(candidate["title"]):
             continue
@@ -13861,8 +13998,9 @@ def _manual_revision_stamp_spans(
                 continue
         if (
             corpus_citation_path.startswith("us-va/manual/dss/snap/")
-            and re.search(
-                r"(?:\A|\n)(?:[ \t_]*|Other[ \t_]{4,})"
+            and re.fullmatch(
+                r"\s*(?:Issuance/Administrative Worker\s+Date\s+)?"
+                r"(?:[ \t_]*|Other[ \t_]{4,})"
                 r"(?:This institution is an equal opportunity provider[ \t]+)?"
                 r"032-(?:02|03|12)-\d{3}[\dA-Z]-\d{2}(?:-eng)?[ \t]+$",
                 prefix,
@@ -17999,6 +18137,8 @@ def _companion_test_issues(
         deferred_paths=deferred_paths,
         formula_branches=formula_branches,
         deferred_clauses=deferred_clauses,
+        # Manual procedure needs no paired witnesses either.
+        numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
     )
     if exception_branches:
         independently_covered_paths = {
@@ -18443,8 +18583,17 @@ def _source_control_branches(
     formula_branches: Sequence[SourceStructureBranch],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
+    numeric_exception_controls_only: bool = False,
 ) -> tuple[SourceStructureBranch, ...]:
-    """Return active boundary, exception, and applicability control clauses."""
+    """Return active boundary, exception, and applicability control clauses.
+
+    In a US agency manual only a stated numeric limit is a control. Its
+    `if`, `when` and `unless` sentences are procedure (`When child care hours
+    are requested due to schooling, verification ... is required`), not a
+    condition the encoding must derive, so callers pass
+    ``numeric_exception_controls_only=True`` there and only exception
+    sentences that state a numeric limit (`unless income exceeds $500`) stay.
+    """
 
     boundary_branches = _active_or_root_source_branches(
         source_text,
@@ -18469,6 +18618,7 @@ def _source_control_branches(
             deferred_paths=deferred_paths,
             formula_branches=formula_branches,
             deferred_clauses=deferred_clauses,
+            numeric_limits_only=numeric_exception_controls_only,
         )
     )
     return tuple(
@@ -26443,6 +26593,7 @@ def _source_exception_branches(
     deferred_paths: set[tuple[str, ...]],
     formula_branches: Sequence[SourceStructureBranch] = (),
     deferred_clauses: Sequence[SourceStructureBranch] = (),
+    numeric_limits_only: bool = False,
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
     source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
@@ -26523,6 +26674,8 @@ def _source_exception_branches(
                     for formula_branch in formula_branches
                 )
             ):
+                continue
+            if numeric_limits_only and not _STATED_NUMERIC_LIMIT.search(branch_text):
                 continue
             obligations.append(
                 SourceStructureBranch(

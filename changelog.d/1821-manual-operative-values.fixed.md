@@ -1,1 +1,1 @@
-Strengthen US manual numeric recall for qualified fee and payment table captions and operative revision-date references in raw and composed source text, while retaining authenticated locator exclusions.
+Make US manual locator masks fail closed on unknown surrounding captions and prose, including qualified monetary captions and referenced footer dates, while retaining authenticated non-operative locator exclusions. Prevent unrelated retained numbers from suppressing decimal amounts in the legacy numeric profile.
