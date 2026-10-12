@@ -9817,6 +9817,41 @@ def test_snap_table_range_plus_labels_do_not_create_computation_obligation():
     assert source_states_explicit_computation("Benefit = 6+ 48.")
 
 
+def test_snap_fy2026_geographic_label_is_not_a_numeric_policy_value():
+    source = (
+        "Page 2 of 2 Deductions Household Size 1 2 3 4 5 6+ "
+        "48 States & District of Columbia $209 $209 $209 $223 $261 $299 "
+        "Table 2: Standard Deductions Alaska Guam $358 $420 $358 $420 "
+        "$358 $420 $358 $445 $358 $522 $374 $598 Hawaii $295 $295 $295 "
+        "$295 $300 $344 Virgin Islands $184 $184 $185 $223 $261 $299 "
+        "Table 3: Maximum Excess Shelter Deductions 48 States & Virgin "
+        "District of Alaska Guam Hawaii Islands Columbia $744 $1,189 $873 "
+        "$1,003 $586 Table 4: Homeless Shelter Deduction 48 States & Virgin "
+        "District of Alaska Guam Hawaii Islands Columbia $198.99 $198.99 "
+        "$198.99 $198.99 $198.99 Table 5: Maximum Asset Limits Household "
+        "with at All other least 1 member households age 60+ or disabled "
+        "$4,500 $3,000"
+    )
+    cleaned = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path="us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    )
+    values = [item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)]
+
+    assert 48 not in values
+    assert 209 in values
+    assert 744 in values
+    assert 4500 in values
+    assert "$48" in authoritative_numeric_recall_text(
+        "A separate $48 amount applies to a SNAP household.",
+        corpus_citation_path="us/guidance/usda/fns/snap-fy2026-cola/page-2",
+    )
+    assert "48 States" in authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path="us/guidance/example/page-1",
+    )
+
+
 @pytest.mark.parametrize(
     "conjunction", ["und/oder", "und / oder", "UND/ODER", "and/or", "and / or"]
 )
