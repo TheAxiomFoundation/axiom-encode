@@ -21959,7 +21959,11 @@ def guard_generated_change_issues(
     all_files: bool = False,
     expected_encoder_checkout: Path | None = None,
 ) -> list[str]:
-    """Return issues for RuleSpec changes not bound to the signed local release."""
+    """Return issues for changes not bound to the signed local release.
+
+    Every added or modified encoding manifest in a PR is verified, whether
+    or not a module changed. Manifest discovery uses the recognized layouts.
+    """
     repo_path = Path(repo_path).resolve()
     pending_transaction = repo_path / _APPLY_TRANSACTION_DIRECTORY
     if pending_transaction.exists() or pending_transaction.is_symlink():
@@ -22030,8 +22034,18 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
+    manifest_paths: list[str] = []
     if not protected:
-        return []
+        # Ignore true deletions, but send unsafe paths (including dangling
+        # symlinks) to the trusted loader rather than treating them as absent.
+        manifest_paths = [
+            path
+            for path in changed
+            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+            and not _is_unambiguously_absent_repo_path(repo_path, Path(path))
+        ]
+        if not manifest_paths:
+            return []
 
     expected_manifest_waiver_set_sha256, waiver_transition_issues = (
         _guard_manifest_waiver_set_identity(
@@ -22045,15 +22059,16 @@ def guard_generated_change_issues(
     if waiver_transition_issues:
         return waiver_transition_issues
 
-    manifest_paths = (
-        _all_applied_encoding_manifest_paths(repo_path, roots=roots)
-        if all_files
-        else [
-            path
-            for path in changed
-            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
-        ]
-    )
+    if protected:
+        manifest_paths = (
+            _all_applied_encoding_manifest_paths(repo_path, roots=roots)
+            if all_files
+            else [
+                path
+                for path in changed
+                if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+            ]
+        )
     if not manifest_paths:
         if all_files:
             return [
@@ -22076,9 +22091,11 @@ def guard_generated_change_issues(
     # protected files they covered must be accounted for (as content or
     # deletion entries) by a changed manifest that still exists. Missing
     # manifests are only reported when coverage actually fails below.
-    surviving_manifest_paths = [
-        path for path in manifest_paths if (repo_path / path).exists()
-    ]
+    surviving_manifest_paths = (
+        [path for path in manifest_paths if (repo_path / path).exists()]
+        if protected
+        else manifest_paths
+    )
     missing_manifest_paths = [
         path for path in manifest_paths if not (repo_path / path).exists()
     ]
@@ -22097,7 +22114,7 @@ def guard_generated_change_issues(
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
     )
-    if manifest_issues:
+    if manifest_issues or not protected:
         return manifest_issues
 
     issues: list[str] = []

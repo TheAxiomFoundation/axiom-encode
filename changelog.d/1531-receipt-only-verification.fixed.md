@@ -1,0 +1,1 @@
+Verify added or modified encoding manifests even when no protected RuleSpec module changes, using the same signature, schema, file-hash, and provenance checks as module changes. Manifest deletions retain their existing coverage behavior.

@@ -31,6 +31,8 @@ from axiom_oracles.bridges.snap_populace import (
     project_income_resource_inputs,
     project_jurisdiction_household_inputs,
 )
+from hypothesis import HealthCheck, example, given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
@@ -43404,6 +43406,253 @@ class TestGuardGenerated:
 
         assert len(issues) == 1
         assert "RuleSpec corpus/toolchain binding is invalid" in issues[0]
+
+    def _receipt_only_manifest(
+        self,
+        repo: Path,
+        *,
+        fault: str = "valid",
+        stem: str = "example",
+        manifest_relative: str | None = None,
+    ) -> tuple[str, str]:
+        relative = f"us/regulations/{stem}.yaml"
+        rule = repo / relative
+        self._source_backed_rule(rule)
+        payload = self._model_manifest(
+            [{"path": relative, "sha256": _sha256_file(rule)}]
+        )
+        if fault == "unsigned":
+            payload.pop("signature")
+        elif fault == "schema":
+            payload["legacy_compatibility"] = True
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "tampered":
+            payload["model"] = "changed after signing"
+        elif fault == "stale":
+            payload["applied_files"][0]["sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        elif fault == "provenance":
+            payload["source_attestation"]["corpus_release_content_sha256"] = "f" * 64
+            _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        else:
+            assert fault == "valid"
+        manifest_relative = manifest_relative or (
+            f".axiom/encoding-manifests/us/regulations/{stem}.json"
+        )
+        manifest = repo / manifest_relative
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+        return relative, manifest_relative
+
+    @pytest.mark.parametrize(
+        "manifest_relative",
+        [
+            ".axiom/encoding-manifests/example.json",
+            ".axiom/encoding-manifests/us/regulations/example.json",
+            ".axiom/encoding-manifests/uk/policies/example.json",
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("fault", "expected_issue"),
+        [
+            ("unsigned", "missing an encoder apply manifest signature"),
+            ("schema", "exact model"),
+            ("tampered", "invalid encoder apply manifest signature"),
+            ("stale", "stale sha256"),
+            ("provenance", "source_attestation.corpus_release_content_sha256"),
+        ],
+    )
+    def test_receipt_only_addition_is_verified(
+        self, tmp_path, manifest_relative, fault, expected_issue
+    ):
+        self._receipt_only_manifest(
+            tmp_path, fault=fault, manifest_relative=manifest_relative
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any(expected_issue in issue for issue in issues), issues
+
+    def test_receipt_only_minimal_unsigned_addition_is_rejected(self, tmp_path):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).write_text(
+            json.dumps(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "applied_files": [
+                        {"path": relative, "sha256": _sha256_file(tmp_path / relative)}
+                    ],
+                }
+            )
+        )
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("missing an encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_existing_signature_cannot_authorize_changed_bytes(
+        self, tmp_path
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        assert (
+            guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[manifest_relative],
+            )
+            == []
+        )
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize signed receipt")
+        manifest = tmp_path / manifest_relative
+        payload = json.loads(manifest.read_text())
+        payload["model"] = "changed after signing"
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path, corpus_path=self.corpus_path, base_ref="HEAD"
+        )
+
+        assert any("invalid encoder apply manifest signature" in i for i in issues)
+
+    def test_receipt_only_retirement_verifies_nested_signature(self, tmp_path):
+        relative = "us/regulations/retired.yaml"
+        manifest_relative = ".axiom/encoding-manifests/us/regulations/retired.json"
+        payload = self._retirement_manifest([relative])
+        payload["retired_manifest"]["model"] = "changed after signing"
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = tmp_path / manifest_relative
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("retired_manifest has an invalid" in issue for issue in issues)
+
+    @pytest.mark.parametrize("symlink_kind", ["manifest", "ancestor"])
+    def test_receipt_only_dangling_symlink_is_verified(self, tmp_path, symlink_kind):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        manifest = tmp_path / manifest_relative
+        manifest.unlink()
+        if symlink_kind == "manifest":
+            manifest.symlink_to(tmp_path / "missing.json")
+        else:
+            manifest.parent.rmdir()
+            manifest.parent.symlink_to(tmp_path / "missing-directory")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    def test_receipt_only_deletion_does_not_initialize_verification(
+        self, tmp_path, monkeypatch
+    ):
+        _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        (tmp_path / manifest_relative).unlink()
+
+        def unexpected_verification(*_args, **_kwargs):
+            pytest.fail("deleted receipt must not initialize manifest verification")
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+            unexpected_verification,
+        )
+        monkeypatch.setattr(
+            "axiom_encode.cli._applied_encoding_manifest_verifier",
+            unexpected_verification,
+        )
+
+        assert (
+            guard_generated_change_issues(
+                tmp_path,
+                corpus_path=self.corpus_path,
+                changed_files=[manifest_relative],
+            )
+            == []
+        )
+
+    @settings(
+        max_examples=40,
+        deadline=None,
+        suppress_health_check=[HealthCheck.function_scoped_fixture],
+    )
+    @example(changes=[("manifest", "unsigned")])
+    @example(changes=[("manifest", "valid")])
+    @example(
+        changes=[
+            ("manifest", "valid"),
+            ("both", "tampered"),
+            ("other", "schema"),
+            ("deleted", "stale"),
+        ]
+    )
+    @given(
+        changes=st.lists(
+            st.tuples(
+                st.sampled_from(["module", "manifest", "both", "other", "deleted"]),
+                st.sampled_from(
+                    ["valid", "unsigned", "schema", "tampered", "stale", "provenance"]
+                ),
+            ),
+            max_size=5,
+        )
+    )
+    def test_changed_manifest_verification_invariant(self, tmp_path, changes):
+        """Every changed surviving receipt is verified in any mixed diff.
+
+        The toolchain/corpus fixture is immutable between examples. Each
+        generated receipt group overwrites its files; selection uses only the
+        explicit changed paths, so unselected files cannot affect the result.
+        """
+        changed: list[str] = []
+        expected_manifests: set[str] = set()
+        expected_rejection = False
+        for index, (kind, fault) in enumerate(changes):
+            relative, manifest_relative = self._receipt_only_manifest(
+                tmp_path, stem=f"property_{index}", fault=fault
+            )
+            if kind in {"module", "both"}:
+                changed.append(relative)
+            if kind in {"manifest", "both"}:
+                changed.append(manifest_relative)
+                expected_manifests.add(manifest_relative)
+                expected_rejection |= fault != "valid"
+            elif kind == "deleted":
+                (tmp_path / manifest_relative).unlink()
+                changed.append(manifest_relative)
+            elif kind == "other":
+                changed.append(f"docs/property_{index}.md")
+            expected_rejection |= kind == "module"
+
+        with patch(
+            "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
+            wraps=_load_verified_applied_encoding_manifest_payload,
+        ) as loader:
+            issues = guard_generated_change_issues(
+                tmp_path, corpus_path=self.corpus_path, changed_files=changed
+            )
+
+        assert bool(issues) == expected_rejection, issues
+        assert {call.args[1] for call in loader.call_args_list} == expected_manifests
 
     def test_base_guard_includes_committed_and_worktree_changes(self, tmp_path):
         repo = self._canonical_guard_repo(tmp_path)
