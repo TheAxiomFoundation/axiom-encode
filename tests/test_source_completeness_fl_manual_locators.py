@@ -144,6 +144,394 @@ def test_transport_cost_heading_keeps_first_class_passage_fare():
     assert _recall_values(source, PAGE_5) == {1234.5678}
 
 
+def _empty_encoding_analysis(source: str):
+    return sc.analyze_complete_source_unit(
+        yaml.safe_dump({"format": "rulespec/v1", "rules": []}),
+        source,
+        corpus_citation_path=PAGE_5,
+        test_cases=[],
+        extract_numeric_occurrences=INVENTORY,
+        extract_numeric_grounding_occurrences=GROUNDING,
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def _assert_empty_encoding_demands(source: str, value: float) -> None:
+    # Use the same typed inventory and grounding callbacks as the public gate.
+    # The unmasked inventory is the operative-value oracle; it also guards
+    # against generated examples whose spelling never exposed a numeric value.
+    assert value in {occurrence.value for occurrence in INVENTORY(source)}, source
+    result = _empty_encoding_analysis(source)
+    expected = (
+        "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+        f"value {value:g} has no named scalar representation. "
+        "`module.summary` is not consulted."
+    )
+    assert expected in result.issues, (source, result.issues)
+    assert value in _recall_values(source, PAGE_5), source
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "The fare for adults (e.g. first-class passage 1234.5678).",
+        "The fare in U.S. currency for first-class passage 1234.5678.",
+        "Item | USD¹ | Quantity |\nFirst-class passage 1234.5678.",
+        "Item | $¹\nEconomy: free.\nFirst-class passage 1234.5678.",
+        "Fares (USD)¹\nEconomy: free.\nFirst-class passage 1234.5678.",
+    ),
+)
+def test_reviewed_abbreviations_and_footnoted_headers_keep_public_fare_demand(source):
+    _assert_empty_encoding_demands(source, 1234.5678)
+
+
+@pytest.mark.parametrize(
+    ("source", "value"),
+    (
+        ("First-class passage 1234.5678. USD¹", 1234.5678),
+        ("First-class passage 1234.5678.\nUSD¹", 1234.5678),
+        ("First-class passage 1234.5678. A.\nUSD¹", 1234.5678),
+        ("Appendix A-100. Sec.\nRate†", 100.0),
+        ("1234.5678 Eligible Assistance Groups (FS). A.\nUSD¹", 1234.5678),
+        ("Item | USD¹\nReferences:\nFirst-class passage 1234.5678.", 1234.5678),
+        ("Weight (kg):\nFirst-class passage 1234.5678.", 1234.5678),
+        ("Number of tickets:\nFirst-class passage 1234.5678.", 1234.5678),
+        ("First-class passage 1234.5678. BPS of income.", 1234.5678),
+    ),
+)
+def test_reviewed_abbreviations_and_footnoted_headers_keep_wrapped_suffix_demand(
+    source, value
+):
+    _assert_empty_encoding_demands(source, value)
+
+
+def test_real_page_five_paragraph_keeps_public_operands_and_masks_passage_heading():
+    source = (
+        "Broad-based categorically eligible SFUs must meet the 200% gross income "
+        "limits. If the SFU contains a member who is age 60 or over or meets the "
+        "definition of food stamp disabled, the SFU must meet the gross income "
+        "limit of 200% of the federal poverty level for the AG size. "
+        + CLAUSE_ACROSS_HEADING
+    )
+    assert _recall_values(source, PAGE_5) == {2.0, 60.0, 1.0, 4500.0}
+    result = _empty_encoding_analysis(source)
+    assert result.source_numeric_occurrence_count == 4
+    assert result.missing_source_numeric_occurrence_count == 4
+    assert {
+        issue
+        for issue in result.issues
+        if "[complete-source-unit:numeric-recall]" in issue
+    } == {
+        "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+        f"value {value:g} has no named scalar representation. "
+        "`module.summary` is not consulted."
+        for value in (2.0, 60.0, 1.0, 4500.0)
+    }
+
+
+# These spellings cover the existing locator unit veto and monetary-context
+# recognizers, including currency codes preserved by the typed inventory.
+# Parametrizing the vocabulary ensures every token runs; Hypothesis composes
+# its context rather than relying on a few hand-picked document shapes.
+_OPERATIVE_CONTEXT_TOKENS = (
+    "$",
+    "€",
+    "£",
+    "¥",
+    "₹",
+    "¢",
+    "₵",
+    "￠",
+    "₦",
+    "₪",
+    "₩",
+    "₽",
+    "USD",
+    "EUR",
+    "GBP",
+    "CAD",
+    "AUD",
+    "CHF",
+    "FRW",
+    "RWF",
+    "GHS",
+    "GHP",
+    "NGN",
+    "UGX",
+    "ZMW",
+    "ETB",
+    "KES",
+    "TZS",
+    "XAF",
+    "XOF",
+    "ZAR",
+    "ILS",
+    "NIS",
+    "JPY",
+    "dollar",
+    "dollars",
+    "cent",
+    "cents",
+    "euro",
+    "euros",
+    "pound",
+    "pounds",
+    "franc",
+    "francs",
+    "Swiss francs",
+    "U.S. dollars",
+    "United States dollars",
+    "Canadian dollars",
+    "Australian dollars",
+    "yen",
+    "yuan",
+    "renminbi",
+    "peso",
+    "pesos",
+    "rupee",
+    "rupees",
+    "ruble",
+    "rubles",
+    "rouble",
+    "roubles",
+    "won",
+    "kr",
+    "kroner",
+    "øre",
+    "שקלים חדשים",
+    "שקלים",
+    "שקל",
+    'ש"ח',
+    "דולר",
+    "דולרים",
+    "יורו",
+    "אירו",
+    'ליש"ט',
+    "לירות",
+    "לירה",
+    "אגורות",
+    "אגורה",
+    "fee",
+    "fees",
+    "fare",
+    "fares",
+    "payment",
+    "payments",
+    "amount",
+    "amounts",
+    "rate",
+    "rates",
+    "price",
+    "prices",
+    "cost",
+    "costs",
+    "charge",
+    "charges",
+    "allowance",
+    "allowances",
+    "percent",
+    "percentage",
+    "percentages",
+    "day",
+    "days",
+    "week",
+    "weeks",
+    "month",
+    "months",
+    "year",
+    "years",
+    "hour",
+    "hours",
+    "member",
+    "members",
+    "person",
+    "persons",
+    "people",
+    "quantity",
+    "quantities",
+    "unit",
+    "units",
+    "child",
+    "children",
+    "kg",
+    "kilogram",
+    "kilograms",
+    "weight",
+    "count",
+    "number",
+    "tickets",
+)
+_CONTEXT_ABBREVIATIONS = (
+    "e.g.",
+    "i.e.",
+    "U.S.",
+    "etc.",
+    "No.",
+    "Sec.",
+    "St.",
+    "a.m.",
+    "p.m.",
+    "A.",
+    "Z.",
+    "A.B.",
+    "Q.R.S.",
+    "approx.",
+    "Assn.",
+)
+_CONTEXT_FOOTNOTES = (
+    "",
+    "¹",
+    "²",
+    "⁽¹⁾",
+    "*",
+    "**",
+    "†",
+    "‡",
+    "[a]",
+    "(a)",
+    "[1]",
+    "(1)",
+    ".",
+    ":",
+    ",",
+    ";",
+    "!",
+    "?",
+    "_",
+)
+
+
+@st.composite
+def _adversarial_operative_documents(draw, context):
+    major = draw(st.integers(1000, 9999))
+    minor = draw(st.integers(1, 9999))
+    appendix = draw(st.integers(100, 999))
+    number = f"{major}.{minor:04d}"
+    abbreviation = draw(st.sampled_from(_CONTEXT_ABBREVIATIONS))
+    marker = draw(st.sampled_from(_CONTEXT_FOOTNOTES))
+    separator = draw(st.sampled_from((" ", "\n", "\r\n", "\n\n")))
+    row_count = draw(st.integers(0, 8))
+    row = draw(
+        st.sampled_from(
+            (
+                "Economy: free.\n",
+                "Other row 50.\n",
+                "Economy:\nfree.\n",
+                "| Economy | free | adults |\n",
+                "References:\n",
+                "Citations:\n",
+            )
+        )
+    )
+    layout = draw(
+        st.sampled_from(
+            (
+                "inline-prefix",
+                "wrapped-prefix",
+                "plain-heading",
+                "wrapped-heading",
+                "table-header",
+                "parenthesized-header",
+                "table-column",
+                "flattened-heading",
+                "flattened-table-row",
+                "operative-suffix",
+            )
+        )
+    )
+    token = context.upper() if draw(st.booleans()) else context
+    annotated = f"{token}{marker}"
+    if layout == "inline-prefix":
+        prefix = f"The {annotated} for adults ({abbreviation}{separator}"
+        suffix = ")."
+    elif layout == "wrapped-prefix":
+        prefix = f"The {annotated} for\n{abbreviation}{separator}"
+        suffix = "."
+    elif layout == "plain-heading":
+        prefix = f"{annotated}{separator}"
+        suffix = "."
+    elif layout == "wrapped-heading":
+        prefix = f"Transport\n{annotated}:{separator}"
+        suffix = "."
+    elif layout == "parenthesized-header":
+        prefix = f"Transport ({token}){marker}{separator}"
+        suffix = "."
+    elif layout == "table-column":
+        prefix = f"| Item | {annotated} | Category |\n"
+        suffix = " | adults |"
+    elif layout == "flattened-heading":
+        prefix = f"{annotated}: Economy: free. " + row.replace("\n", " ") * row_count
+        suffix = "."
+    elif layout == "flattened-table-row":
+        prefix = f"Item | {annotated} | Category | Economy: free. Other row 50. "
+        suffix = "."
+    elif layout == "operative-suffix":
+        prefix = ""
+        suffix = f". {abbreviation}{separator}{annotated}"
+    else:
+        prefix = f"Item | {annotated}\n"
+        suffix = "."
+    if abbreviation in {"Sec.", "No."} and layout in {
+        "inline-prefix",
+        "wrapped-prefix",
+    }:
+        # A dotted value immediately after Sec. is already an authenticated
+        # statutory citation on the baseline. Generate an operative row, while
+        # still exercising the abbreviation inside its monetary sentence.
+        prefix += "listed item "
+    if layout not in {
+        "inline-prefix",
+        "wrapped-prefix",
+        "flattened-heading",
+        "flattened-table-row",
+        "operative-suffix",
+    }:
+        prefix += row * row_count
+    return tuple(
+        (prefix + body + suffix, value)
+        for body, value in (
+            (f"First-class passage {number}", float(number)),
+            (f"Appendix A-{appendix}", float(appendix)),
+            (f"{number} Eligible Assistance Groups (FS)", float(number)),
+        )
+    )
+
+
+@pytest.mark.parametrize("context", _OPERATIVE_CONTEXT_TOKENS)
+@settings(max_examples=10, deadline=None, database=None)
+@given(data=st.data())
+def test_adversarial_operative_context_property_keeps_public_demands(context, data):
+    for source, value in data.draw(_adversarial_operative_documents(context)):
+        _assert_empty_encoding_demands(source, value)
+
+
+@settings(max_examples=30, deadline=None, database=None)
+@given(symbol=st.characters(categories=("Sc",)), data=st.data())
+def test_any_unicode_currency_symbol_keeps_public_operative_demands(symbol, data):
+    for source, value in data.draw(_adversarial_operative_documents(symbol)):
+        _assert_empty_encoding_demands(source, value)
+
+
+@settings(max_examples=80, deadline=None, database=None)
+@given(
+    context=st.sampled_from(_OPERATIVE_CONTEXT_TOKENS),
+    cue=st.sampled_from(("See passage", "Refer to passage", "presented in passages")),
+    data=st.data(),
+)
+def test_reference_cues_cannot_override_generated_public_value_context(
+    context, cue, data
+):
+    source, value = data.draw(_adversarial_operative_documents(context))[0]
+    source = source.replace("First-class passage", cue)
+    # A genuine References section intentionally ends the prior table in the
+    # positive controls. Here the intervening labels are still operative rows.
+    source = source.replace("References:", "Reference row:").replace(
+        "Citations:", "Citation row:"
+    )
+    _assert_empty_encoding_demands(source, value)
+
+
 _MONETARY_HEADINGS = (
     "Transport costs (USD)",
     "First-class fares",
