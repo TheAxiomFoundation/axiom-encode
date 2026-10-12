@@ -60,6 +60,8 @@ def test_wrapped_reference_keeps_its_owning_subsection():
         "\n(2) or\n(5)(a)",
         " (2) or (5)\n(a)",
         "\n(2)\nor\n(5)\n(a)",
+        " (2),\n(5)(a)",
+        "\n(2), and\n(5)(a)",
     ],
 )
 def test_wraps_inside_a_cross_reference_keep_all_locators_in_the_owner(reference):
@@ -77,6 +79,69 @@ def test_wraps_inside_a_cross_reference_keep_all_locators_in_the_owner(reference
         ("4", "b"),
         ("5",),
     ]
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "\n(a) to (f)",
+        " (a) to\n(f)",
+        "\n(a)\nto\n(f)",
+        "\n(a) through\n(f)",
+    ],
+)
+def test_wrapped_citation_range_retains_the_owning_paragraph(reference):
+    # C.R.S. 39-22-601(6)(g) cites the preceding paragraphs as a range.
+    source = (
+        "(6) (g) Any assessment made by reason of the provisions of paragraphs"
+        + reference
+        + " of this subsection (6) shall be limited to federal adjustments.\n"
+        "(h) The department must provide requested information.\n"
+        "(7) The next subsection."
+    )
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("6",),
+        ("6", "g"),
+        ("6", "h"),
+        ("7",),
+    ]
+    assert reference.strip() in branches[1].text
+
+
+@pytest.mark.parametrize("label", ["2.3", "2.5", "4.5", "9.5", "11.6"])
+def test_wrapped_decimal_self_reference_for_credit_retains_its_owner(label):
+    # C.R.S. 39-22-516.8 repeats each credit's own decimal subsection locator.
+    next_root = str(int(label.split(".")[0]) + 1)
+    source = (
+        "(1) Definitions.\n"
+        f"({label}) (a) There is allowed a credit in an amount set forth in "
+        "paragraph (b) of this subsection\n"
+        f"({label}) for each lease of a truck during the tax year.\n"
+        "(b) The credit amount is determined by the purchase year.\n"
+        f"({next_root}) The next subsection."
+    )
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("1",),
+        (label,),
+        (label, "a"),
+        (label, "b"),
+        (next_root,),
+    ]
+    assert f"({label}) for each lease" in branches[2].text
+
+
+@pytest.mark.parametrize("body", ["For each lease", "for each lease", "For purposes"])
+def test_for_continuation_does_not_hide_a_new_decimal_subsection(body):
+    source = (
+        "(1) For purposes of this subsection\n"
+        f"(2.5) {body} the department must provide requested information.\n"
+        "(3) The next subsection."
+    )
+    branches = {branch.path: branch for branch in _branches(source)}
+    assert set(branches) == {("1",), ("2.5",), ("3",)}
+    assert "must provide requested information" in branches[("2.5",)].text
 
 
 def test_decimal_subsections_have_separate_roots_and_children():
@@ -447,7 +512,15 @@ def test_joined_repeal_authentication_requires_each_exact_named_branch(first):
 @settings(max_examples=32, deadline=None)
 @given(
     lead=st.sampled_from([["subsection"], ["section", "39-22-2002"]]),
-    locator=st.sampled_from([["(3)"], ["(2)", "or", "(5)", "(a)"], ["(1.5)", "(b)"]]),
+    locator=st.sampled_from(
+        [
+            ["(3)"],
+            ["(2)", "or", "(5)", "(a)"],
+            ["(2)", "to", "(5)", "(a)"],
+            ["(2)", "through", "(5)", "(a)"],
+            ["(1.5)", "(b)"],
+        ]
+    ),
     breaks=st.sets(st.integers(min_value=0, max_value=6), max_size=6),
     separator=st.sampled_from([" ", "\n", "\n  ", "\r\n"]),
 )
@@ -468,6 +541,36 @@ def test_reference_line_wrapping_preserves_legal_paths(
     )
     unwrapped = source.replace(reference, " " + " ".join(tokens), 1)
     expected = [("4",), ("4", "a"), ("4", "a", "i"), ("4", "b"), ("5",)]
+    assert [branch.path for branch in _branches(source)] == expected
+    assert [branch.path for branch in _branches(unwrapped)] == expected
+
+
+@settings(max_examples=32, deadline=None)
+@given(
+    root=st.integers(min_value=2, max_value=98),
+    decimal=st.integers(min_value=1, max_value=9),
+    breaks=st.sets(st.integers(min_value=0, max_value=5), max_size=6),
+    separator=st.sampled_from([" ", "\n", "\n  ", "\r\n"]),
+)
+def test_decimal_self_reference_wrapping_preserves_legal_paths(
+    root, decimal, breaks, separator
+):
+    label = f"{root}.{decimal}"
+    tokens = ["this", "subsection", f"({label})", "for", "each", "lease"]
+    reference = "".join(
+        (separator if index in breaks else " ") + token
+        for index, token in enumerate(tokens)
+    )
+    source = (
+        "(1) Definitions.\n"
+        f"({label}) (a) The credit amount is set forth in paragraph (b) of"
+        + reference
+        + " of a truck during the tax year.\n"
+        "(b) The credit depends on the purchase year.\n"
+        f"({root + 1}) The next subsection."
+    )
+    unwrapped = source.replace(reference, " " + " ".join(tokens), 1)
+    expected = [("1",), (label,), (label, "a"), (label, "b"), (str(root + 1),)]
     assert [branch.path for branch in _branches(source)] == expected
     assert [branch.path for branch in _branches(unwrapped)] == expected
 

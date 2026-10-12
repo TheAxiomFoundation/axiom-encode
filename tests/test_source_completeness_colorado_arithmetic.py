@@ -306,9 +306,13 @@ def test_serial_fact_member_cannot_be_replaced_by_its_declarative_tail(separator
     )
 
 
-def test_unbulleted_fact_list_keeps_each_explicit_condition():
+@pytest.mark.parametrize(
+    "chapeau",
+    ["the following conditions are met", "all of these conditions hold"],
+)
+def test_unbulleted_fact_list_keeps_each_explicit_condition(chapeau):
     source = (
-        "A credit applies if the following conditions are met:\n"
+        f"A credit applies if {chapeau}:\n"
         "The taxpayer is a resident\n"
         "The spouse is blind."
     )
@@ -325,13 +329,25 @@ def test_unbulleted_fact_list_keeps_each_explicit_condition():
     assert _execute("if taxpayer_is_resident: refund_amount else: 0", environment) == 50
 
 
-@pytest.mark.parametrize("spouse_conditions", [("has no income", "is blind"), ("is blind", "has no income")])
+@pytest.mark.parametrize(
+    "spouse_conditions", [("has no income", "is blind"), ("is blind", "has no income")]
+)
 @pytest.mark.parametrize("include_taxpayer", [False, True])
-def test_unbulleted_fact_list_keeps_inherited_spouse_blindness(spouse_conditions, include_taxpayer):
+@pytest.mark.parametrize(
+    "chapeau",
+    ["the following conditions are met", "all of these conditions hold"],
+)
+def test_unbulleted_fact_list_keeps_inherited_spouse_blindness(
+    spouse_conditions, include_taxpayer, chapeau
+):
     source = (
-        "A credit applies if the following conditions are met:\n"
+        f"A credit applies if {chapeau}:\n"
         + ("The taxpayer is resident\n" if include_taxpayer else "")
-        + "The spouse " + spouse_conditions[0] + "\n" + spouse_conditions[1] + "."
+        + "The spouse "
+        + spouse_conditions[0]
+        + "\n"
+        + spouse_conditions[1]
+        + "."
     )
     gates = sc._source_conjunctive_fact_gates(source)
     assert (frozenset({"spouse"}), frozenset({"blind"})) in gates
@@ -339,23 +355,68 @@ def test_unbulleted_fact_list_keeps_inherited_spouse_blindness(spouse_conditions
     if include_taxpayer:
         names |= {"taxpayer_is_resident"}
     evidence = sc._terminal_gate_evidence(
-        {"inputs": [{"name": name, "description": name.replace("_", " ")} for name in names]}
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
     )
-    assert not sc._terminal_names_corroborate_source_gates(names, gates, terminal_evidence=evidence)
-    environment = {"taxpayer_is_resident": True, "spouse_has_no_income": True, "spouse_is_blind": False, "refund_amount": 50}
-    assert _execute("if taxpayer_is_resident and spouse_has_no_income and spouse_is_blind: refund_amount else: 0", environment) == 0
-    assert _execute("if taxpayer_is_resident and spouse_has_no_income: refund_amount else: 0", environment) == 50
+    assert not sc._terminal_names_corroborate_source_gates(
+        names, gates, terminal_evidence=evidence
+    )
+    environment = {
+        "taxpayer_is_resident": True,
+        "spouse_has_no_income": True,
+        "spouse_is_blind": False,
+        "refund_amount": 50,
+    }
+    assert (
+        _execute(
+            "if taxpayer_is_resident and spouse_has_no_income and spouse_is_blind: refund_amount else: 0",
+            environment,
+        )
+        == 0
+    )
+    assert (
+        _execute(
+            "if taxpayer_is_resident and spouse_has_no_income: refund_amount else: 0",
+            environment,
+        )
+        == 50
+    )
 
 
 @settings(max_examples=25, deadline=None)
-@example(breaks={9, 13, 18}, reverse=False, income_fact="has no income", include_taxpayer=False)
-@given(breaks=st.sets(st.integers(min_value=1, max_value=20), max_size=15), reverse=st.booleans(), income_fact=st.sampled_from(["has no income", "has income"]), include_taxpayer=st.booleans())
-def test_inherited_unbulleted_fact_list_wraps_keep_independent_conditions(breaks, reverse, income_fact, include_taxpayer):
-    spouse_conditions = "is blind " + income_fact if reverse else income_fact + " is blind"
+@example(
+    breaks={9, 13, 18},
+    reverse=False,
+    income_fact="has no income",
+    include_taxpayer=False,
+    chapeau="the following conditions are met",
+)
+@given(
+    breaks=st.sets(st.integers(min_value=1, max_value=20), max_size=15),
+    reverse=st.booleans(),
+    income_fact=st.sampled_from(
+        ["has no income", "has income", "does not have income", "never has income"]
+    ),
+    include_taxpayer=st.booleans(),
+    chapeau=st.sampled_from(
+        ["the following conditions are met", "all of these conditions hold"]
+    ),
+)
+def test_inherited_unbulleted_fact_list_wraps_keep_independent_conditions(
+    breaks, reverse, income_fact, include_taxpayer, chapeau
+):
+    spouse_conditions = (
+        "is blind " + income_fact if reverse else income_fact + " is blind"
+    )
     source = (
-        "A credit applies if the following conditions are met: "
+        f"A credit applies if {chapeau}: "
         + ("The taxpayer is resident " if include_taxpayer else "")
-        + "The spouse " + spouse_conditions + "."
+        + "The spouse "
+        + spouse_conditions
+        + "."
     )
     wrapped = "".join(
         word + ("\n" if index in breaks else " ")
@@ -363,8 +424,11 @@ def test_inherited_unbulleted_fact_list_wraps_keep_independent_conditions(breaks
     ).strip()
     gates = sc._source_conjunctive_fact_gates(wrapped)
     assert gates == sc._source_conjunctive_fact_gates(source)
-    income_predicate = "no_income" if income_fact == "has no income" else "income"
-    assert (frozenset({"spouse"}), frozenset({income_predicate})) in gates
+    income_predicate = "income" if income_fact == "has income" else "no_income"
+    assert any(
+        entities == frozenset({"spouse"}) and income_predicate in predicates
+        for entities, predicates in gates
+    )
     assert (frozenset({"spouse"}), frozenset({"blind"})) in gates
 
 
@@ -389,6 +453,118 @@ def test_inherited_fact_list_head_does_not_split_an_income_noun_complement():
     assert gates == (
         (frozenset({"taxpayer"}), frozenset({"resident"})),
         (frozenset({"spouse"}), frozenset({"amount", "receive", "unknown_income"})),
+    )
+
+
+@pytest.mark.parametrize(
+    "spouse_clause,expected",
+    [
+        ("is not allowed to have income", {"allowed", "income"}),
+        ("may have income", {"may", "income"}),
+        ("does not ever have income", {"does", "ever", "income"}),
+        ("may potentially have income", {"may", "potentially", "income"}),
+        (
+            "receives an amount that generally is income",
+            {"receive", "amount", "generally", "unknown_income"},
+        ),
+        (
+            "receives an amount that really is income",
+            {"receive", "amount", "really", "unknown_income"},
+        ),
+    ],
+)
+def test_inherited_list_heads_preserve_governing_verb_and_relative_scope(
+    spouse_clause, expected
+):
+    source = (
+        "A credit applies if all of these conditions hold:\n"
+        "The taxpayer is resident\n"
+        "The spouse " + spouse_clause.replace(" is income", "\nis income") + "."
+    )
+    gates = tuple(gate for gate in sc._source_conjunctive_fact_gates(source) if gate[0])
+    assert gates == (
+        (frozenset({"taxpayer"}), frozenset({"resident"})),
+        (frozenset({"spouse"}), frozenset(expected)),
+    )
+
+
+@pytest.mark.parametrize("negative", ["does not have income", "never has income"])
+def test_named_auxiliary_income_fact_preserves_its_negation(negative):
+    source = (
+        "A credit applies if all of these conditions hold:\n"
+        "The taxpayer is resident\nThe spouse " + negative + "."
+    )
+    gates = tuple(gate for gate in sc._source_conjunctive_fact_gates(source) if gate[0])
+    assert len(gates) == 2
+    assert gates[0] == (frozenset({"taxpayer"}), frozenset({"resident"}))
+    assert gates[1][0] == frozenset({"spouse"})
+    assert "no_income" in gates[1][1]
+    assert "income" not in gates[1][1]
+    complete_names = frozenset({"taxpayer_is_resident", "spouse_has_no_income"})
+    for names in (
+        frozenset({"taxpayer_is_resident"}),
+        frozenset({"taxpayer_is_resident", "spouse_has_income"}),
+        complete_names,
+    ):
+        evidence = sc._terminal_gate_evidence(
+            {
+                "inputs": [
+                    {"name": name, "description": name.replace("_", " ")}
+                    for name in names
+                ]
+            }
+        )
+        assert sc._terminal_names_corroborate_source_gates(
+            names, gates, terminal_evidence=evidence
+        ) == (names == complete_names)
+    formula = "if taxpayer_is_resident and spouse_has_no_income: refund_amount else: 0"
+    environment = {
+        "taxpayer_is_resident": True,
+        "spouse_has_no_income": False,
+        "refund_amount": 50,
+    }
+    assert _execute(formula, environment) == 0
+    assert _execute("if taxpayer_is_resident: refund_amount else: 0", environment) == 50
+
+
+@settings(max_examples=25, deadline=None)
+@given(
+    modifier=st.sampled_from(
+        ["really", "plainly", "apparently", "ordinarily", "typically", "normally"]
+    ),
+    breaks=st.sets(st.integers(min_value=1, max_value=30), max_size=15),
+)
+def test_relative_income_classification_keeps_full_scope_under_word_wraps(
+    modifier, breaks
+):
+    source = (
+        "A credit applies if all of these conditions hold: "
+        "The taxpayer is resident The spouse receives an amount that "
+        + modifier
+        + " is income."
+    )
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(source.split(), start=1)
+    ).strip()
+    gates = tuple(
+        gate for gate in sc._source_conjunctive_fact_gates(wrapped) if gate[0]
+    )
+    assert gates == tuple(
+        gate for gate in sc._source_conjunctive_fact_gates(source) if gate[0]
+    )
+    assert len(gates) == 2
+    assert gates[0] == (frozenset({"taxpayer"}), frozenset({"resident"}))
+    assert gates[1][0] == frozenset({"spouse"})
+    assert {"receive", "amount", "unknown_income"} <= gates[1][1]
+    inputs = [
+        {"name": name, "description": name.replace("_", " ")}
+        for name in ("taxpayer_is_resident", "spouse_has_income")
+    ]
+    assert not sc._terminal_names_corroborate_source_gates(
+        frozenset(item["name"] for item in inputs),
+        gates,
+        terminal_evidence=sc._terminal_gate_evidence({"inputs": inputs}),
     )
 
 

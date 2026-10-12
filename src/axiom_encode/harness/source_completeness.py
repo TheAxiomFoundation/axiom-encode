@@ -366,8 +366,12 @@ _LINE_WRAPPED_OUTLINE_REFERENCE_CONTEXT = re.compile(
     r"title|article|subarticle)s?"
     rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}+\d+[A-Za-z]?(?:[-.:]\d+[A-Za-z]?)*)?"
     rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}*"
-    rf"(?:(?:and|or){_OUTLINE_REFERENCE_SOFT_SPACE}+)?\([A-Za-z0-9.]+\))*"
-    rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:and|or))?"
+    rf"(?:,{_OUTLINE_REFERENCE_SOFT_SPACE}*)?"
+    rf"(?:(?:and|or|to|through){_OUTLINE_REFERENCE_SOFT_SPACE}+)?"
+    rf"\([A-Za-z0-9.]+\))*"
+    rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}*"
+    rf"(?:,(?:{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:and|or))?|"
+    rf"{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:and|or|to|through)))?"
     r"[ \t]*\r?\n[ \t]*\Z",
     flags=re.IGNORECASE,
 )
@@ -376,7 +380,7 @@ _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL = re.compile(
     rf"{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:(?:this|the|that|such)"
     rf"{_OUTLINE_REFERENCE_SOFT_SPACE}+)?"
     r"(?:section|subsection|paragraph|subparagraph|clause|subclause|"
-    rf"item|subitem|part|chapter|title|article)\b|(?:and|or)"
+    rf"item|subitem|part|chapter|title|article)\b|(?:and|or|to|through)"
     rf"{_OUTLINE_REFERENCE_SOFT_SPACE}*\(|,{_OUTLINE_REFERENCE_SOFT_SPACE}*"
     rf"(?:(?:and|or){_OUTLINE_REFERENCE_SOFT_SPACE}*)?\()",
     flags=re.IGNORECASE,
@@ -3406,7 +3410,10 @@ def _inline_outline_marker_has_reference_context(
 
 
 def _line_start_is_wrapped_outline_reference(
-    source_text: str, marker_start: int
+    source_text: str,
+    marker_start: int,
+    *,
+    _active_numeric_root: str | None = None,
 ) -> bool:
     """Keep a PDF-wrapped citation in its existing legal branch.
 
@@ -3437,9 +3444,45 @@ def _line_start_is_wrapped_outline_reference(
     chain = re.compile(
         rf"(?:\([A-Za-z0-9.]+\){_OUTLINE_REFERENCE_SOFT_SPACE}*)+"
     ).match(source_text, marker_start)
-    return chain is not None and (
-        _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL.match(source_text, chain.end()) is not None
-    )
+    if chain is None:
+        return False
+    if _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL.match(source_text, chain.end()) is not None:
+        return True
+    # A decimal credit can repeat its own locator in "this subsection (2.5)
+    # for each lease". Admit that continuation only for the current root;
+    # "For purposes of this subsection" cannot hide a new decimal branch.
+    labels = re.findall(r"\(([A-Za-z0-9.]+)\)", chain.group())
+    if (
+        len(labels) != 1
+        or re.fullmatch(r"\d+\.\d+[a-z]?", labels[0], flags=re.IGNORECASE) is None
+        or re.search(
+            rf"\bthis{_OUTLINE_REFERENCE_SOFT_SPACE}+subsection"
+            r"[ \t]*\r?\n[ \t]*\Z",
+            prefix,
+            flags=re.IGNORECASE,
+        )
+        is None
+        or re.match(r"for\b", source_text[chain.end() :], flags=re.IGNORECASE) is None
+    ):
+        return False
+    if _active_numeric_root is None:
+        _active_numeric_root = ""
+        for previous in _PARENTHESIZED_OUTLINE_MARKER.finditer(
+            source_text, 0, marker_start
+        ):
+            previous_labels = re.findall(
+                r"\(([A-Za-z0-9.]+)\)", previous.group("marker")
+            )
+            previous_root = previous_labels[0]
+            if not previous_root[0].isdigit():
+                continue
+            if not _line_start_is_wrapped_outline_reference(
+                source_text,
+                previous.start("marker"),
+                _active_numeric_root=_active_numeric_root,
+            ):
+                _active_numeric_root = previous_root.lower()
+    return labels[0].lower() == _active_numeric_root
 
 
 def _joined_parenthesized_repeal_locators(
@@ -14605,12 +14648,15 @@ def _source_gate_has_preposed_result(text: str, conditional_start: int) -> bool:
 
 
 def _source_gate_unbulleted_fact_list_boundaries(text: str) -> str:
-    """Retain named factual rows owned by an explicit conjunctive chapeau."""
+    """Retain named and inherited facts owned by a conjunctive chapeau."""
 
     chapeau = re.match(
-        r"^\s*(?:(?:all|both)(?:\s+of)?\s+)?(?:the\s+)?following\s+"
+        r"^\s*(?:"
+        r"(?:(?:all|both)(?:\s+of)?\s+)?(?:the\s+)?following\s+"
         r"(?:conditions?|criteria|requirements?)"
-        r"(?:\s+(?:is|are|must\s+be)\s+(?:met|satisfied|fulfilled|true))?\s*:\s*",
+        r"(?:\s+(?:is|are|must\s+be)\s+(?:met|satisfied|fulfilled|true))?"
+        r"|(?:all|both)(?:\s+of)?\s+these\s+"
+        r"(?:conditions?|criteria|requirements?)\s+hold)\s*:\s*",
         text,
         flags=re.IGNORECASE,
     )
@@ -14619,22 +14665,58 @@ def _source_gate_unbulleted_fact_list_boundaries(text: str) -> str:
     body = text[chapeau.end() :]
     paragraph = re.search(r"\n[ \t]*\n", body)
     scope_end = paragraph.start() if paragraph is not None else len(body)
-    fact_head = re.compile(
-        r"\b(?:(?:the|an?|each|any)\s+)?"
-        rf"{_SOURCE_GATE_ENTITY_PATTERN}\s+"
+    modifiers = (
+        r"(?:[A-Za-z]+ly|ever|never|always|often|sometimes|still|already|"
+        r"also|yet|just|even|now|well|not)"
+    )
+    finite_verb = (
         r"(?:is|are|was|were|has|have|had|elects?|elected|"
         r"files?|filed|owns?|owned|works?|worked|lives?|lived|"
         r"resides?|resided|receives?|received|earns?|earned|"
         r"supports?|supported|qualifies|qualify|qualified|meets?|"
-        r"exceeds?|exceeded|attains?|attained)\b\s+\S",
+        r"exceeds?|exceeded|attains?|attained)"
+    )
+    governed_verb = (
+        r"(?:do|does|did|may|might|can|could|would|should|must|shall|will)"
+        rf"\s+(?:{modifiers}\s+)*(?:have|be|elect|file|own|work|live|reside|"
+        r"receive|earn|support|qualify|meet|exceed|attain)"
+    )
+    fact_head = re.compile(
+        r"\b(?:(?P<subject>(?:(?:the|an?|each|any)\s+)?"
+        rf"{_SOURCE_GATE_ENTITY_PATTERN})\s+"
+        rf"(?:(?:{modifiers}\s+)*{finite_verb}|{governed_verb})"
+        rf"|(?:{modifiers}\s+)*(?:is|are|was|were|has|have|had)"
+        rf"|(?:do|does|did)\s+(?:{modifiers}\s+)*have)\b\s+\S",
         flags=re.IGNORECASE,
     )
+    # A complement retains its governing verb and negation, even when an
+    # adverb intervenes. Only complete finite member heads create boundaries.
     heads = tuple(
         head
         for head in fact_head.finditer(body, 0, scope_end)
-        if re.search(r"\bor\s*$", body[: head.start()], flags=re.IGNORECASE) is None
+        if re.search(
+            rf"\bor(?:\s+{modifiers})*\s*$",
+            body[: head.start()],
+            flags=re.IGNORECASE,
+        )
+        is None
+        and (
+            head.group("subject") is not None
+            or re.search(
+                r"\b(?:that|which|who|whose|to|not|never|"
+                r"do|does|did|may|might|can|could|would|should|must|shall|will)"
+                rf"(?:\s+{modifiers})*\s*$",
+                body[: head.start()],
+                flags=re.IGNORECASE,
+            )
+            is None
+        )
     )
-    if len(heads) < 2 or body[: heads[0].start()].strip():
+    if (
+        len(heads) < 2
+        or heads[0].group("subject") is None
+        or body[: heads[0].start()].strip()
+    ):
         return text
     pieces = [text[: chapeau.end()].rstrip()]
     for index, head in enumerate(heads):
