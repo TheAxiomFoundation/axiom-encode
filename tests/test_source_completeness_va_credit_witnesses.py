@@ -13,7 +13,7 @@ EXTRACT = partial(
     vp.extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
 )
 
-# Exact computational sentences retained by signed encode 38131544124.
+# Computational source sentences used as local arithmetic/window controls.
 B2 = (
     "For taxable years beginning on and after January 1, 2006, any individual or "
     "married individuals filing jointly, eligible for a tax credit pursuant to "

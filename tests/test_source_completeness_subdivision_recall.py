@@ -6,7 +6,7 @@ import functools
 import re
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as completeness
@@ -41,26 +41,31 @@ def _clean(text: str) -> str:
         ("under subdivision B3", []),
         ("a credit under subdivision 2 of this section for taxpayers", []),
         ("subdivision B3 is required for low-income families", []),
-        ("under subdivision 2 b", []),
+        ("under subdivision 2 b", ["2"]),
+        ("under subdivision 2(b)", []),
         ("under subdivisions 2, 3, 5, 15, and 16", []),
         ("under subdivisions B 2 or B 3", []),
         ("under subdivisions 3 through 5 of this section", []),
         ("under subdivision 1 or 3 for the same taxable year", []),
         ("under subdivision 1 or 2 for the same taxable year", []),
-        ("under subdivision 2 and 20 per cent", ["20"]),
-        ("under subdivision 2 or 3 times the credit", ["3"]),
-        ("under subdivision 2 and 2025 taxable years", ["2025"]),
+        ("under subdivision 2 and 20 per cent", ["2", "20"]),
+        ("under subdivision 2 or 3 times the credit", ["2", "3"]),
+        ("under subdivision 2 and 2025 taxable years", ["2", "2025"]),
         ("under subdivision 2, 3 dependents", ["3"]),
         ("under subdivision 2, 3 returns", ["3"]),
-        ("under subdivision 2 or 20.5 percent", []),
-        ("under subdivision 2 or 2,000 dollars", ["2", "000"]),
-        ("under subdivision 2 or 3 eligible nonresident married taxpayers", ["3"]),
-        ("under subdivision 2 and 20 annual qualifying student members", ["20"]),
-        ("under subdivision 2 or 14 senators", ["14"]),
+        ("under subdivision 2 or 20.5 percent", ["2", "20.5"]),
+        ("under subdivision 2 or 2,000 dollars", ["2", "2", "000"]),
+        ("under subdivision 2 or 3 eligible nonresident married taxpayers", ["2", "3"]),
+        ("under subdivision 2 and 20 annual qualifying student members", ["2", "20"]),
+        ("under subdivision 2 or 14 senators", ["2", "14"]),
     ),
 )
 def test_issue_1841_reduced_reproduction(source, expected):
-    assert re.findall(r"(?<![\d.])\d+(?![\d.])", _clean(source)) == expected
+    cleaned = _clean(source)
+    assert re.findall(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])", cleaned) == expected
+    if "20.5 percent" in source:
+        assert "20.5 percent" in cleaned
+        assert 20.5 in {item.value for item in EXTRACT_NUMBERS(cleaned)}
 
 
 @pytest.mark.parametrize(
@@ -99,6 +104,50 @@ def test_subdivision_mask_preserves_operative_amounts_rates_counts_and_years(sou
 )
 def test_geography_mask_requires_the_exact_bounded_identifier(source):
     assert _clean(source) == source
+
+
+@pytest.mark.parametrize("separator", ("\n", "\r\n"))
+def test_wrapped_currency_is_not_poverty_geography(separator):
+    source = f"${separator}48 contiguous states"
+    assert _clean(source) == source
+
+
+@pytest.mark.parametrize("prefix", ("₩", "USD ", "usd ", "yuan "))
+def test_currency_geography_counts_remain_demanded(prefix):
+    source = f"{prefix}48 contiguous states"
+    assert _clean(source) == source
+    result = completeness.analyze_complete_source_unit(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=VA_CITATION,
+        test_cases=[],
+        extract_numeric_occurrences=EXTRACT_NUMBERS,
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert any(
+        "Authoritative corpus numeric value 48 has no named scalar" in issue
+        for issue in result.issues
+    ), result.issues
+
+
+@given(
+    marker=st.one_of(
+        st.characters(categories=("Sc",)),
+        st.text(alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ", min_size=3, max_size=3).filter(
+            lambda word: word != "THE"
+        ),
+    ),
+    gap=st.sampled_from(("", " ", "\t", "\n", "\r\n", "\u202f")),
+)
+@example(marker="USD", gap=" ")
+@settings(max_examples=35, deadline=None)
+def test_unknown_money_markers_never_become_geography_identifiers(marker, gap):
+    source = f"{marker}{gap}48 contiguous states"
+    assert _clean(source) == source
+    assert tuple(item.value for item in EXTRACT_NUMBERS(_clean(source))) == tuple(
+        item.value for item in EXTRACT_NUMBERS(source)
+    )
 
 
 @pytest.mark.parametrize("source", ("subdivision 2.5", "subdivision 2,500"))
@@ -142,7 +191,7 @@ def test_coordinated_operative_ranges_keep_both_endpoints(quantity):
     source = f"Under subdivision 2 or {quantity}, the credit is $300."
     assert quantity in _clean(source)
     assert tuple(item.value for item in EXTRACT_NUMBERS(_clean(source))) == tuple(
-        item.value for item in EXTRACT_NUMBERS(f"{quantity}, the credit is $300.")
+        item.value for item in EXTRACT_NUMBERS(f"2 or {quantity}, the credit is $300.")
     )
 
 
@@ -166,7 +215,7 @@ def test_numeric_gate_keeps_values_equal_to_locator_and_geography_numbers():
 
 @given(
     locator=st.sampled_from(
-        ("subdivision 8", "subdivision 1 or 2", "subdivision B 3", "subdivision 2 b")
+        ("subdivision 8", "subdivision 1 or 2", "subdivision B 3", "subdivision 2(b)")
     ),
     amount=st.integers(min_value=1, max_value=999999),
     count=st.integers(min_value=1, max_value=999),

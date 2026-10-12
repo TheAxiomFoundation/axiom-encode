@@ -1,0 +1,312 @@
+"""A locator mask must retain every occurrence of an operative quantity."""
+
+from __future__ import annotations
+
+import functools
+import re
+from dataclasses import dataclass
+
+import pytest
+from hypothesis import HealthCheck, Phase, example, given, settings
+from hypothesis import strategies as st
+
+from axiom_encode.harness import source_completeness as completeness
+from axiom_encode.harness.validator_pipeline import (
+    extract_named_scalar_occurrences,
+    extract_typed_numeric_inventory_occurrences_from_text,
+    numeric_value_is_grounded,
+)
+
+VA_CITATION = "us-va/statute/58.1/58.1-339.8"
+EMPTY_RULESPEC = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+EXTRACT_NUMBERS = functools.partial(
+    extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+)
+
+
+@dataclass(frozen=True)
+class QuantitySource:
+    text: str
+    locator_spans: tuple[tuple[int, int], ...]
+
+    def expected_recall(self) -> str:
+        characters = list(self.text)
+        for start, end in self.locator_spans:
+            characters[start:end] = " " * (end - start)
+        return "".join(characters)
+
+
+def _assert_quantity_source(case: QuantitySource) -> None:
+    cleaned = completeness.authoritative_numeric_recall_text(
+        case.text, corpus_citation_path=VA_CITATION
+    )
+    expected = case.expected_recall()
+    # This checks both exact operative tokens and every surrounding character.
+    # Value sets alone cannot catch a lost occurrence equal to a locator value.
+    assert cleaned == expected
+    expected_occurrences = EXTRACT_NUMBERS(expected)
+    assert [
+        (item.value, item.start, item.end, item.raw)
+        for item in EXTRACT_NUMBERS(cleaned)
+    ] == [(item.value, item.start, item.end, item.raw) for item in expected_occurrences]
+    result = completeness.analyze_complete_source_unit(
+        EMPTY_RULESPEC,
+        case.text,
+        corpus_citation_path=VA_CITATION,
+        test_cases=[],
+        extract_numeric_occurrences=EXTRACT_NUMBERS,
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert result.source_numeric_occurrence_count == len(expected_occurrences)
+    assert result.missing_source_numeric_occurrence_count == len(expected_occurrences)
+    assert result.covered_source_numeric_occurrence_count == 0
+    actual_demands = {
+        float(match.group(1))
+        for issue in result.issues
+        if (
+            match := re.search(
+                r"Authoritative corpus numeric value (\S+) has no named scalar", issue
+            )
+        )
+    }
+    assert actual_demands == {item.value for item in expected_occurrences}
+
+
+@st.composite
+def _mixed_quantity_sources(draw):
+    """Every example includes each construction; values and wording vary."""
+    locator = draw(st.integers(min_value=701, max_value=799))
+    first = draw(st.integers(min_value=2, max_value=49))
+    second = first + draw(st.integers(min_value=1, max_value=24))
+    third = second + draw(st.integers(min_value=1, max_value=24))
+    decimal = f"{draw(st.integers(min_value=2, max_value=49))}.5"
+    unit = draw(st.sampled_from(("children", "applicants", "kilograms", "widgets")))
+    label = draw(
+        st.sampled_from(
+            (
+                f"subdivision {locator}",
+                f"subdivision B {locator}",
+                f"subdivision B{locator}",
+                f"subdivision {locator}(b)",
+            )
+        )
+    )
+    quantities = [
+        *(
+            f"{first} or {comparison} eligible {unit} must qualify"
+            for comparison in ("more", "fewer", "less", "greater")
+        ),
+        f"{first} of every {second} {unit} qualify",
+        *(
+            f"{first}{connector}{second} of the taxpayer’s children must qualify"
+            for connector in (" to ", "-", "–", " through ")
+        ),
+        *(
+            f"{first} {rate} of income is allowed"
+            for rate in ("percent", "per cent", "%")
+        ),
+        *(
+            f"{decimal} {rate} of income is allowed"
+            for rate in ("percent", "per cent", "%")
+        ),
+        f"${first} is allowed",
+        f"€{second} is allowed",
+        f"{first} qualifying {unit} are allowed",
+        *(
+            f"{prefix} {first} {unit} must qualify"
+            for prefix in ("at least", "at most", "not more than", "up to")
+        ),
+        f"{first} or {decimal} or {third} percent of income is allowed",
+        f"{first}, {second}, and {third} {unit} must qualify",
+        f"{first} and {second} and {third} per cent of income is allowed",
+        f"{first} or {second} or {third}% of income is allowed",
+        # An operative occurrence equal to the identifier must still survive.
+        f"${locator} is allowed",
+    ]
+    clauses = []
+    spans = []
+    offset = 0
+    for quantity in quantities:
+        clause = f"Under {label}, {quantity}. "
+        number_start = clause.index(str(locator))
+        spans.append((offset + number_start, offset + number_start + len(str(locator))))
+        clauses.append(clause)
+        offset += len(clause)
+
+    # Quantity context attached to the first number also prevents masking.
+    clauses.extend(
+        (
+            *(
+                f"Under subdivision {first} or {comparison} eligible {unit}, the credit applies. "
+                for comparison in ("more", "fewer", "less", "greater")
+            ),
+            f"Under subdivision {first} of every {second} {unit}, the credit applies. ",
+            *(
+                f"Under subdivision {first} of this {legal_object}{possessive}s {second} {unit}, the credit applies. "
+                for legal_object in (
+                    "section",
+                    "subsection",
+                    "paragraph",
+                    "subdivision",
+                )
+                for possessive in ("'", "’")
+            ),
+            *(
+                f"Under subdivision {first}{connector}{second} of the taxpayer’s children, the credit applies. "
+                for connector in (" to ", "-", "–", " through ")
+            ),
+            f"Under subdivision {decimal} percent of income, the credit applies. ",
+            *(
+                f"Under subdivision {first}{spacing}{rate} of income, the credit applies. "
+                for rate in ("percent", "per cent", "%")
+                for spacing in ("", " ")
+            ),
+            *(
+                f"Under subdivision {first}{connector}{decimal}{connector}{third} {rate} of income, the credit applies. "
+                for rate in ("percent", "per cent", "%")
+                for connector in (" or ", " and ")
+            ),
+            f"Under subdivisions {first}, {second}, and {third} {unit}, the credit applies. ",
+            f"Under subdivisions {first}, {decimal}, and {third} percent of income, the credit applies. ",
+            *(
+                f"A land subdivision {first}{spacing}{quantity_unit}{tail} "
+                for quantity_unit in ("m", "g", "l", "s")
+                for spacing in ("", " ")
+                for tail in (".", " is required.")
+            ),
+            f"Under subdivision {first} eligible {unit}, the credit applies. ",
+            f"Under subdivision ${first}, the credit applies. ",
+        )
+    )
+    # This locator has no equal-valued operative occurrence: the gate must not
+    # demand it, as well as retaining the equal-valued occurrence above.
+    final_label = f"subdivision {locator + 1000}"
+    final_clause = f"Under {final_label}, the credit applies."
+    offset = sum(map(len, clauses))
+    number_start = final_clause.index(str(locator + 1000))
+    spans.append(
+        (offset + number_start, offset + number_start + len(str(locator + 1000)))
+    )
+    clauses.append(final_clause)
+    return QuantitySource("".join(clauses), tuple(spans))
+
+
+@given(case=_mixed_quantity_sources())
+@example(
+    case=QuantitySource(
+        "Under subdivision 2, 3 or more eligible children must qualify.", ((18, 19),)
+    )
+)
+@example(
+    case=QuantitySource(
+        "Under subdivision 2, 20 of every 100 applicants qualify.", ((18, 19),)
+    )
+)
+@example(
+    case=QuantitySource(
+        "Under subdivision 2, 3–5 of the taxpayer’s children must qualify.", ((18, 19),)
+    )
+)
+@example(
+    case=QuantitySource(
+        "Under subdivision 2 or 20 or 30 percent of income, the credit is $300.", ()
+    )
+)
+@settings(
+    max_examples=35,
+    deadline=None,
+    phases=(Phase.explicit, Phase.reuse, Phase.generate, Phase.shrink),
+    suppress_health_check=[HealthCheck.too_slow],
+)
+def test_every_quantity_occurrence_survives_only_proven_locator_removal(case):
+    _assert_quantity_source(case)
+
+
+@pytest.mark.parametrize(
+    ("source", "operative_values", "locator_is_unambiguous"),
+    (
+        (
+            "Under subdivision 2, 3 or more eligible children must qualify.",
+            {3},
+            True,
+        ),
+        (
+            "Under subdivision 2, 20 of every 100 applicants qualify.",
+            {20, 100},
+            True,
+        ),
+        (
+            "Under subdivision 2, 3–5 of the taxpayer’s children must qualify.",
+            {3, 5},
+            True,
+        ),
+        (
+            "Under subdivision 2 or 20 or 30 percent of income, the credit is $300.",
+            {2, 20, 30, 300},
+            False,
+        ),
+    ),
+)
+def test_review_quantity_probes(source, operative_values, locator_is_unambiguous):
+    cleaned = completeness.authoritative_numeric_recall_text(
+        source, corpus_citation_path=VA_CITATION
+    )
+    if locator_is_unambiguous:
+        _assert_quantity_source(QuantitySource(source, ((18, 19),)))
+    else:
+        # A shared quantity suffix makes the entire coordination ambiguous.
+        assert cleaned == source
+        result = completeness.analyze_complete_source_unit(
+            EMPTY_RULESPEC,
+            source,
+            corpus_citation_path=VA_CITATION,
+            test_cases=[],
+            extract_numeric_occurrences=EXTRACT_NUMBERS,
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+        for value in operative_values:
+            assert any(
+                f"Authoritative corpus numeric value {value:g} has no named scalar"
+                in issue
+                for issue in result.issues
+            ), result.issues
+    assert operative_values <= {item.value for item in EXTRACT_NUMBERS(cleaned)}
+
+
+@pytest.mark.parametrize(
+    ("source", "locator_spans"),
+    (
+        (
+            "Under subdivision 2, 20 of this section's 100 applicants qualify.",
+            ((18, 19),),
+        ),
+        (
+            "Under subdivision 2, 20 of this section’s 100 applicants qualify.",
+            ((18, 19),),
+        ),
+        ("A land subdivision 3 m is required.", ()),
+        ("A land subdivision 3m.", ()),
+        ("A land subdivision 3 g is required.", ()),
+        ("A land subdivision 3g.", ()),
+    ),
+)
+def test_possessive_counts_and_single_letter_units_are_operative(source, locator_spans):
+    _assert_quantity_source(QuantitySource(source, locator_spans))
+
+
+def test_coordinated_decimal_rate_requires_the_full_operative_token():
+    source = "under subdivision 2 or 20.5 percent"
+    cleaned = completeness.authoritative_numeric_recall_text(
+        source, corpus_citation_path=VA_CITATION
+    )
+    assert "20.5 percent" in cleaned
+    decimal_start = source.index("20.5")
+    assert any(
+        item.value == 20.5
+        and item.raw == "20.5"
+        and item.start == decimal_start
+        and item.end == decimal_start + len("20.5")
+        for item in EXTRACT_NUMBERS(cleaned)
+    )
