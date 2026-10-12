@@ -11015,6 +11015,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
