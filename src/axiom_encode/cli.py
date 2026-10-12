@@ -99,6 +99,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
 from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
@@ -281,11 +288,13 @@ from .harness.validator_pipeline import (
     _normalize_validation_staging_text,
     _numeric_profile_for_citation_path,
     _parse_rulespec_target,
+    _resolve_rulespec_import_file_static,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
     _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_import_prefix_static,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -5477,6 +5486,7 @@ def _execute_rulespec_test_file(
                     declared_relation_slots=declared_relation_slots,
                     compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
+                    rulespec_roots=rulespec_roots,
                 )
             )
         except Exception as error:
@@ -5517,12 +5527,24 @@ def _execute_rulespec_test_case(
     declared_relation_slots: dict[str, tuple[str, ...]],
     compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
+    rulespec_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
     expected = case.get("output") or {}
+    expected_entities = {
+        str(derived_by_id[str(output)].get("entity") or "Case")
+        for output in expected
+        if str(output) in derived_by_id
+    }
+    if len(expected_entities) > 1:
+        raise ValueError(
+            "mixes derived output entities "
+            f"({', '.join(sorted(expected_entities))}); put outputs for each "
+            "entity in separate test cases."
+        )
     query_entity = next(
         (
             str(derived_by_id[str(output)].get("entity") or "Case")
@@ -5542,6 +5564,34 @@ def _execute_rulespec_test_case(
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
+    flat_input_records: list[dict] = []
+    generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    occupied_entity_ids = {root_entity_id: {query_entity}}
+    module_file = _rulespec_program_for_test_file(test_file)
+    input_entities = declared_input_entities(
+        module_file,
+        (
+            str(key)
+            for key, value in (case.get("input") or {}).items()
+            if not isinstance(value, (dict, list))
+        ),
+        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+            key,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
+            target,
+            rules_file=current,
+            policy_repo_path=(
+                policy_repo_path
+                if _rulespec_import_prefix_static(target)
+                else find_policy_repo_root(current) or policy_repo_path
+            ),
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+    )
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -5618,6 +5668,7 @@ def _execute_rulespec_test_case(
                         }
                     )
                     continue
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     inputs.append(
                         {
@@ -5628,18 +5679,27 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                generated_relation_rows.append(
+                    (
+                        related_entity,
+                        relation_tuple,
+                        1 if current_slot == 0 else 0,
+                        inputs[input_start:],
+                    )
+                )
         else:
-            inputs.append(
-                {
-                    "name": key,
-                    "entity": query_entity,
-                    "entity_id": root_entity_id,
-                    "interval": interval,
-                    "value": _rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(key, query_entity)
+            record = {
+                "name": key,
+                "entity": input_entity,
+                "entity_id": root_entity_id,
+                "interval": interval,
+                "value": _rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
-    table_rows_by_entity: dict[str, list[tuple[str, dict]]] = {}
+    table_rows_by_entity: dict[str, list[tuple[list[str], dict]]] = {}
     tables = case.get("tables")
     if tables is not None:
         if not isinstance(tables, dict):
@@ -5662,7 +5722,8 @@ def _execute_rulespec_test_case(
                     }
                 )
                 return failures
-            resolved_rows: list[tuple[str, dict]] = []
+            resolved_rows: list[tuple[list[str], dict]] = []
+            row_id_keys = {"id", "entity_id", f"{_snake_case(table_entity)}_id"}
             for row_index, row in enumerate(rows, 1):
                 if not isinstance(row, dict):
                     failures.append(
@@ -5677,9 +5738,16 @@ def _execute_rulespec_test_case(
                     )
                     return failures
                 row_id = _rulespec_table_row_entity_id(table_entity, row, row_index)
-                resolved_rows.append((row_id, row))
+                row_ids = [row_id]
+                resolved_rows.append((row_ids, row))
+                explicit_id = any(key in row for key in row_id_keys)
+                if explicit_id:
+                    occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     key = str(row_key)
+                    if key in row_id_keys:
+                        continue
                     flat_inputs[key] = row_value
                     inputs.append(
                         {
@@ -5690,7 +5758,32 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                if not explicit_id:
+                    generated_table_rows.append(
+                        (table_entity, row_ids, 0, inputs[input_start:])
+                    )
             table_rows_by_entity[table_entity] = resolved_rows
+
+    require_distinct_entity_ids(occupied_entity_ids)
+    assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+    assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+    flat_entity_ids: dict[str, str] = {}
+    for record in flat_input_records:
+        input_entity = record["entity"]
+        if input_entity not in flat_entity_ids:
+            entity_id = flat_input_entity_id(
+                input_entity,
+                query_entity,
+                root_entity_id,
+                reserved_entity_ids=(
+                    entity_id
+                    for entity_id, entities in occupied_entity_ids.items()
+                    if entities - {input_entity}
+                ),
+            )
+            flat_entity_ids[input_entity] = entity_id
+            occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+        record["entity_id"] = flat_entity_ids[input_entity]
 
     parameter_expected = {
         str(key): value
@@ -5771,7 +5864,7 @@ def _execute_rulespec_test_case(
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
     if table_rows:
-        query_entity_ids = [row_id for row_id, _row in table_rows]
+        query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]
             if len(expected_value) != len(table_rows):
@@ -5826,11 +5919,20 @@ def _execute_rulespec_test_case(
     )
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
+        findings = cross_entity_input_findings(
+            message,
+            case.get("input") or {},
+            input_entities,
+            output_entities,
+            declared_relation_slots,
+        )
         failures.append(
             {
                 "file": str(test_file),
                 "case": case_name,
-                "message": _translate_rulespec_engine_envelope_error(message),
+                "message": " ".join(
+                    [_translate_rulespec_engine_envelope_error(message), *findings]
+                ),
             }
         )
         return failures
