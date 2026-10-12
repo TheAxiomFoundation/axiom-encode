@@ -3,8 +3,10 @@
 A test that compiles or runs RuleSpec through the actual engine requests the
 ``real_engine`` fixture defined here (``tests/conftest.py`` installs it and the
 hooks below), which also marks it ``real_engine``. CI's ``real-engine`` job (``.github/workflows/ci.yml``) builds
-the engine at the commit pinned in that job's ``AXIOM_RULES_ENGINE_REF``,
-exports the checkout as ``AXIOM_RULES_ENGINE_ROOT``, and runs
+the engine from a checkout of the commit pinned in that job's
+``AXIOM_RULES_ENGINE_REF`` with ``axiom-encode engine-bind``, which writes a
+receipt binding the binary's bytes to that commit, exports the checkout as
+``AXIOM_RULES_ENGINE_ROOT``, and runs
 ``pytest -m real_engine`` with ``AXIOM_REQUIRE_REAL_ENGINE=1``. Under that flag
 an engine that is missing, unusable, or at the wrong commit fails the test
 instead of skipping it, so a provisioning regression cannot silently drop the
@@ -26,9 +28,11 @@ to discovery. The binary is always the one ``ValidatorPipeline`` binds for the
 checkout (release, then debug, then bare), so tests that pass the checkout and
 tests that run the binary exercise the same build. When
 ``AXIOM_RULES_ENGINE_REF`` is set, the checkout must be a clean git checkout at
-that commit. To reproduce CI locally, build the pinned commit with
-``cargo build --release --locked`` and run::
+that commit and the binary must carry a verified engine-binding receipt for it.
+To reproduce CI locally, check out the pinned commit and run::
 
+    .venv/bin/axiom-encode engine-bind --axiom-rules-engine-path <checkout> \\
+        --pin <pin>
     AXIOM_RULES_ENGINE_ROOT=<checkout> AXIOM_RULES_ENGINE_REF=<pin> \\
     AXIOM_REQUIRE_REAL_ENGINE=1 .venv/bin/pytest -m real_engine
 """
@@ -45,6 +49,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+
+from axiom_encode.engine_binding import (
+    EngineBindingError,
+    EnginePin,
+    resolve_pinned_engine_binary,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BINARY_NAME = "axiom-rules-engine"
@@ -121,6 +131,8 @@ def _git(root: Path, *args: str) -> str | None:
 
 def _usable(root: Path, origin: str) -> tuple[RealEngine | None, str]:
     """The engine bound in ``root``, or why it cannot be used."""
+    # Absolute, so a bare relative candidate runs from root, not via PATH.
+    root = root.absolute()
     existing = [path for path in _candidates(root) if path.exists()]
     if not existing:
         return None, f"{origin}: no {BINARY_NAME} binary under {root}"
@@ -158,12 +170,26 @@ def _usable(root: Path, origin: str) -> tuple[RealEngine | None, str]:
         status = _git(root, "status", "--porcelain", "--untracked-files=no")
         if status is None or status:
             return None, f"{origin}: {root} has tracked changes at {REF_ENV}={pin}"
+        # The checkout says nothing about the binary's bytes. Require the
+        # engine-binding receipt `axiom-encode engine-bind` writes when it
+        # builds the pin, the same proof a pinned ValidatorPipeline demands.
+        try:
+            bound = resolve_pinned_engine_binary(
+                root, EnginePin(sha=pin, source=Path(REF_ENV)), allow_build=False
+            )
+        except EngineBindingError as error:
+            return None, f"{origin}: {binary} is not bound to {REF_ENV}={pin}: {error}"
+        if bound.resolve() != binary.resolve():
+            return None, (
+                f"{origin}: {binary} carries no verified receipt for "
+                f"{REF_ENV}={pin} ({bound} does)"
+            )
     return RealEngine(root=root.resolve(), binary=binary.resolve()), ""
 
 
 def _from_binary(raw: str) -> tuple[RealEngine | None, str]:
     origin = f"{BINARY_ENV}={raw}"
-    binary = Path(raw).expanduser()
+    binary = Path(raw).expanduser().absolute()
     if not binary.is_file():
         return None, f"{origin}: no such file"
     engine, why = _usable(_root_of(binary), origin)

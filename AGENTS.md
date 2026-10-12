@@ -25,8 +25,9 @@ uv run pytest
 
 Use focused tests for small changes, then broaden checks when the change touches shared encoder behavior.
 
-Tests that execute the real axiom-rules-engine take the `real_engine` fixture (`tests/real_engine.py`) and skip without an engine. CI's `real-engine` job builds the commit pinned in `.github/workflows/ci.yml` (`AXIOM_RULES_ENGINE_REF`) and runs them with `AXIOM_REQUIRE_REAL_ENGINE=1`, which fails rather than skips them. To run them locally against that build:
+Tests that execute the real axiom-rules-engine take the `real_engine` fixture (`tests/real_engine.py`) and skip without an engine. CI's `real-engine` job builds the commit pinned in `.github/workflows/ci.yml` (`AXIOM_RULES_ENGINE_REF`) with `axiom-encode engine-bind`, which receipts the binary's bytes, and runs them with `AXIOM_REQUIRE_REAL_ENGINE=1`, which fails rather than skips them. To run them locally against that pin, from a checkout of it:
 
 ```bash
+uv run axiom-encode engine-bind --axiom-rules-engine-path <engine checkout> --pin <pin>
 AXIOM_RULES_ENGINE_ROOT=<engine checkout> AXIOM_RULES_ENGINE_REF=<pin> AXIOM_REQUIRE_REAL_ENGINE=1 uv run pytest -m real_engine
 ```

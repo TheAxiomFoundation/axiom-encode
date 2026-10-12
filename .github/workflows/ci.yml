@@ -57,7 +57,7 @@ jobs:
       # The engine rulespec-us's reviewed workflow toolchain validates with
       # (.axiom/workflow-toolchain.toml axiom_rules_engine_ref), also pinned by
       # issue233-canada-source-diagnostic.yml. The tests check the checkout is
-      # clean at this commit.
+      # clean at this commit and the binary carries a receipt for it.
       AXIOM_RULES_ENGINE_REF: 89571cc2a938707fd60a5489b951135345697296
 
     steps:
@@ -93,30 +93,25 @@ jobs:
           git -C "$engine" checkout -q --detach FETCH_HEAD
           test "$(git -C "$engine" rev-parse HEAD)" = "$AXIOM_RULES_ENGINE_REF"
 
-      # The build is keyed by the pinned commit, so it is rebuilt only when the
-      # pin moves (or the cache is evicted).
-      - name: Restore the pinned engine build
-        id: engine-build
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/axiom-rules-engine/target/release/axiom-rules-engine
-          key: axiom-rules-engine-${{ runner.os }}-${{ runner.arch }}-${{ env.AXIOM_RULES_ENGINE_REF }}-release
-
       - name: Install Rust toolchain
-        if: steps.engine-build.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
 
-      - name: Build the pinned engine
-        if: steps.engine-build.outputs.cache-hit != 'true'
-        working-directory: ${{ runner.temp }}/axiom-rules-engine
-        run: cargo build --release --locked
-
-      - name: Save the pinned engine build
-        if: steps.engine-build.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Dependencies only: rust-cache never caches workspace crates, so the
+      # engine binary itself is compiled below from the pinned checkout on
+      # every run and no cached executable stands in for it.
+      - name: Cache the engine's cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: ${{ runner.temp }}/axiom-rules-engine/target/release/axiom-rules-engine
-          key: ${{ steps.engine-build.outputs.cache-primary-key }}
+          workspaces: ${{ runner.temp }}/axiom-rules-engine
+
+      # engine-bind builds with `cargo build --release --locked`, re-checks the
+      # checkout is clean at the pin afterwards, and writes the receipt that
+      # binds the binary's bytes to the commit; the tests verify it.
+      - name: Build and bind the pinned engine
+        run: >-
+          .venv/bin/axiom-encode engine-bind
+          --axiom-rules-engine-path "$RUNNER_TEMP/axiom-rules-engine"
+          --pin "$AXIOM_RULES_ENGINE_REF"
 
       - name: Run real-engine tests
         env:

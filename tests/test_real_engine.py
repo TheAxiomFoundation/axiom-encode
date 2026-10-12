@@ -30,10 +30,15 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from axiom_encode.engine_binding import _engine_binary_candidates
+from axiom_encode.engine_binding import (
+    _engine_binary_candidates,
+    engine_binding_receipt_path,
+    write_engine_binding_receipt,
+)
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 from tests import real_engine
 
+REPO = Path(__file__).resolve().parents[1]
 ENGINE_ENV = (
     real_engine.REQUIRE_ENV,
     real_engine.BINARY_ENV,
@@ -87,7 +92,8 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _committed_checkout(root: Path) -> str:
-    _engine(root)
+    """A clean engine checkout whose release binary carries a receipt for HEAD."""
+    binary = _engine(root)
     (root / ".gitignore").write_text("/target\n")
     (root / "Cargo.toml").write_text('[package]\nname = "axiom-rules-engine"\n')
     _git(root, "init", "-q")
@@ -103,7 +109,9 @@ def _committed_checkout(root: Path) -> str:
         "-m",
         "engine",
     )
-    return _git(root, "rev-parse", "HEAD")
+    head = _git(root, "rev-parse", "HEAD")
+    write_engine_binding_receipt(binary, head, "release")
+    return head
 
 
 # Resolution
@@ -247,7 +255,9 @@ def test_an_engine_that_cannot_compile_with_explicit_roots_is_unusable(
 # The pin
 
 
-def test_the_pin_holds_for_a_clean_checkout_at_that_commit(monkeypatch, tmp_path):
+def test_the_pin_holds_for_a_receipted_binary_in_a_clean_checkout(
+    monkeypatch, tmp_path
+):
     root = tmp_path / "engine"
     head = _committed_checkout(root)
     monkeypatch.setenv(real_engine.ROOT_ENV, str(root))
@@ -260,27 +270,57 @@ def test_the_pin_holds_for_a_clean_checkout_at_that_commit(monkeypatch, tmp_path
     assert f"commit {head}" in real_engine.describe()
 
 
+def _break_pin(root: Path, head: str, tmp_path: Path, breakage: str):
+    """Return (root, pin) for ``breakage``; every one must fail closed."""
+    release = root / "target" / "release" / real_engine.BINARY_NAME
+    if breakage == "other commit":
+        return root, "0" * 40
+    if breakage == "short sha":
+        return root, head[:12]
+    if breakage == "tracked change":
+        (root / "Cargo.toml").write_text("changed\n")
+    elif breakage == "not a checkout":
+        root = tmp_path / "plain"
+        write_engine_binding_receipt(_engine(root), head, "release")
+    elif breakage == "nested":
+        # A receipted build inside some other repository at the right commit.
+        root = root / "vendored"
+        write_engine_binding_receipt(_engine(root), head, "release")
+    elif breakage == "no receipt":
+        engine_binding_receipt_path(release).unlink()
+    elif breakage == "swapped binary":
+        # Round-1 review: other bytes in the clean pinned checkout still print
+        # --rulespec-root; only the receipt's digest tells them apart.
+        release.write_text(FAKE_ENGINE + "# other bytes\n")
+    elif breakage == "receipt for another commit":
+        write_engine_binding_receipt(release, "1" * 40, "release")
+    elif breakage == "receipt on another build":
+        # ValidatorPipeline would run the unreceipted release binary.
+        engine_binding_receipt_path(release).unlink()
+        write_engine_binding_receipt(_engine(root, "debug"), head, "debug")
+    else:
+        raise AssertionError(breakage)
+    return root, head
+
+
 @pytest.mark.parametrize(
     "breakage",
-    ["other commit", "short sha", "tracked change", "not a checkout", "nested"],
+    [
+        "other commit",
+        "short sha",
+        "tracked change",
+        "not a checkout",
+        "nested",
+        "no receipt",
+        "swapped binary",
+        "receipt for another commit",
+        "receipt on another build",
+    ],
 )
 def test_the_pin_fails_closed(monkeypatch, tmp_path, breakage):
     root = tmp_path / "engine"
     head = _committed_checkout(root)
-    pin = head
-    if breakage == "other commit":
-        pin = "0" * 40
-    elif breakage == "short sha":
-        pin = head[:12]
-    elif breakage == "tracked change":
-        (root / "Cargo.toml").write_text("changed\n")
-    elif breakage == "not a checkout":
-        root = tmp_path / "plain"
-        _engine(root)
-    elif breakage == "nested":
-        # A build directory inside some other repository at the right commit.
-        root = root / "vendored"
-        _engine(root)
+    root, pin = _break_pin(root, head, tmp_path, breakage)
     monkeypatch.setenv(real_engine.ROOT_ENV, str(root))
     monkeypatch.setenv(real_engine.REF_ENV, pin)
 
@@ -288,6 +328,24 @@ def test_the_pin_fails_closed(monkeypatch, tmp_path, breakage):
 
     assert engine is None
     assert real_engine.REF_ENV in why
+
+
+@pytest.mark.parametrize("variable", [real_engine.ROOT_ENV, real_engine.BINARY_ENV])
+def test_relative_paths_name_the_file_not_a_path_lookup(
+    monkeypatch, tmp_path, variable
+):
+    # Round-1 review: a bare relative candidate was probed through PATH.
+    root = tmp_path / "engine"
+    binary = _engine(root, "bare")
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    relative = "." if variable == real_engine.ROOT_ENV else real_engine.BINARY_NAME
+    monkeypatch.setenv(variable, relative)
+
+    engine, why = real_engine.locate()
+
+    assert why == ""
+    assert engine.binary == binary.resolve()
 
 
 # The fixture
@@ -506,7 +564,11 @@ def _run_sample(
             *args,
         ],
         cwd=project,
-        env={**base, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), **env},
+        env={
+            **base,
+            "PYTHONPATH": os.pathsep.join([str(REPO), str(REPO / "src")]),
+            **env,
+        },
         capture_output=True,
         text=True,
         timeout=300,
