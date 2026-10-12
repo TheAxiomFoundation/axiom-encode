@@ -1423,6 +1423,22 @@ _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN = re.compile(
 _TABLE_HEADING_PATTERN = re.compile(
     r"^\s*table\s+\d+[A-Za-z]?(?:\s*:.*)?$", re.IGNORECASE
 )
+_TABLE_HEADING_PREFIX_PATTERN = re.compile(
+    r"^\s*table\s+\d+[A-Za-z]?(?=\s*:)", re.IGNORECASE
+)
+_INLINE_TABLE_VALUE_PATTERN = re.compile(
+    r"[$£€]\s*\d|\b(?:(?:household|unit)\s+)?size\s+\d{1,3}(?:\s+|:)-?[\d,]+",
+    re.IGNORECASE,
+)
+_COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN = re.compile(
+    r"(?P<amount>[$£€]\s*\d[\d,.]*)"
+    r"(?P<separator>[ \t]+)(?P<row>\d{1,2})(?=[ \t]+[$£€]\s*\d)"
+)
+_COLLAPSED_SIZE_TABLE_ROW_PATTERN = re.compile(
+    r"(?P<label>\b(?:(?:household|unit)[ \t]+)?size[ \t]+\d{1,3})"
+    r"(?P<separator>[ \t]+)(?=-?[\d,]+)",
+    re.IGNORECASE,
+)
 _ORDINAL_NUMBER_PATTERN = re.compile(r"\b(\d+)(?:st|nd|rd|th)\b", re.IGNORECASE)
 _ORDINAL_WORD_VALUES = {
     "first": 1.0,
@@ -12924,6 +12940,18 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(
         re.compile("\u05be(?=[\\d\u00bc-\u00be\u2150-\u215e]|\\.\\d)"), " "
     )
+    # OCR can concatenate successive currency-table rows into one line:
+    # "$2,474 2 $2,909". Keep a row boundary so the strict locale parser
+    # does not reserve "2,474 2" as one malformed numeric envelope.
+    tracked = tracked.sub(
+        _COLLAPSED_CURRENCY_TABLE_ROW_BOUNDARY_PATTERN,
+        lambda match: (
+            match.group("amount")
+            + "\n"
+            + match.group("separator")[1:]
+            + match.group("row")
+        ),
+    )
     cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
     for tracked_line in tracked.lines():
@@ -12936,6 +12964,20 @@ def _clean_source_text_for_numeric_extraction_tracked(
         line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
+            # Only on an identified table line, separate explicit "size N V"
+            # cells. Applying this to prose would reinterpret "size 1 100"
+            # as an amount, although strict locale parsing rejects it there.
+            content = content.sub(
+                _COLLAPSED_SIZE_TABLE_ROW_PATTERN,
+                lambda match: (
+                    match.group("label") + ":" + match.group("separator")[1:]
+                ),
+            )
+            line = content.text
+            structural_stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12962,7 +13004,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _TABLE_HEADING_PATTERN.match(structural_stripped):
+        if _TABLE_HEADING_PATTERN.match(
+            structural_stripped
+        ) and not _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -12983,6 +13027,14 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = content.blank(
             0, len(line) - len(line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS))
         )
+        # PDF extraction may flatten a table title with currency cells or
+        # explicit "size N V" rows. In those recognized cases only the table
+        # number is structural; bare numeric grids remain ambiguous and fail
+        # closed rather than inventing a row/value interpretation.
+        if _INLINE_TABLE_VALUE_PATTERN.search(normalized.text):
+            normalized = normalized.sub(
+                _TABLE_HEADING_PREFIX_PATTERN, _blank_match, count=1
+            )
         normalized = normalized.sub(
             _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN, _blank_match, count=1
         )

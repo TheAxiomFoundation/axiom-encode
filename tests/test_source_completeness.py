@@ -44347,6 +44347,56 @@ def test_irs_revenue_procedure_headings_are_not_numeric_obligations(suffix):
     assert "Low-Income Housing Credit." in cleaned
 
 
+def test_fns_fy2026_income_page_two_flattened_table_preserves_all_currency_cells():
+    source = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+    ).read_text().strip()
+    citation_path = "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    # Exact committed corpus provision body, not a synthetic table excerpt.
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=citation_path
+    )
+    inventory = EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)
+    grounding = EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(cleaned)
+    currency_values = {
+        2152, 2689, 2474, 2909, 3635, 3344, 3665, 4581, 4215,
+        4421, 5527, 5085, 5177, 6473, 5956, 5934, 7419, 6826,
+        6690, 8365, 7696, 7446, 9311, 8567, 757, 946, 871,
+    }
+    assert currency_values <= {item.value for item in inventory}
+    assert currency_values <= {item.value for item in grounding}
+    for occurrence in inventory:
+        if occurrence.value in currency_values:
+            assert cleaned[occurrence.start : occurrence.end].replace(",", "").isdigit()
+
+    content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    all_values = tuple(sorted({item.value for item in inventory}))
+    covered = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=all_values,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(covered, "numeric-recall"), covered.issues
+    missing = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=tuple(value for value in all_values if value != 2474),
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert _has_issue(missing, "numeric-recall", "2474"), missing.issues
+
+
 @pytest.mark.parametrize(
     "source",
     [
