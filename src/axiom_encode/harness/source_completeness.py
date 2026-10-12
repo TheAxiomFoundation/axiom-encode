@@ -13226,6 +13226,22 @@ _US_MANUAL_LETTERED_APPENDIX = re.compile(
     rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})"
     rf"(?={_US_MANUAL_APPENDIX_FOLLOWS})"
 )
+# A fare can have the same spelling as a complete passage reference. Monetary
+# headings own following rows until an explicit policy-reference heading,
+# including blank lines and numeric/text table rows. Currency-only table
+# headers need no colon; arbitrary row titles cannot authenticate a reset.
+_US_MANUAL_MONETARY_CONTEXT = re.compile(
+    r"[$€£¥₹]|\b(?:fares?|costs?|prices?|charges?|fees?|payments?|amounts?|"
+    r"allowances?|dollars?|euros?|pounds?|usd|eur|gbp|cad|aud|chf)\b",
+    re.IGNORECASE,
+)
+_US_MANUAL_CONTEXT_HEADING = re.compile(
+    r"^[ \t]*(?P<title>[^:\r\n]+)(?::|"
+    r"(?<=[)])[ \t]*(?=\r?$)|"
+    r"(?<=[|])[ \t]*(?:[$€£¥₹]|USD|EUR|GBP|CAD|AUD|CHF)[ \t]*"
+    r"(?:[|][^\r\n]*)?(?=\r?$))",
+    re.MULTILINE | re.IGNORECASE,
+)
 
 
 def _us_manual_passage_locator_spans(
@@ -13254,7 +13270,41 @@ def _us_manual_passage_locator_spans(
             spans.add(
                 (reference.start() + number.start(), reference.start() + number.end())
             )
-    return tuple(sorted(spans))
+    headings = iter(_US_MANUAL_CONTEXT_HEADING.finditer(text))
+    heading = next(headings, None)
+    monetary_heading = False
+    sentence_ends = iter(re.finditer(r"[.!?](?=\s)", text))
+    sentence_end = next(sentence_ends, None)
+    prefix_start = 0
+    authenticated = []
+    for start, end in sorted(spans):
+        while heading is not None and heading.end() <= start:
+            if _US_MANUAL_MONETARY_CONTEXT.search(heading[0]):
+                monetary_heading = True
+            else:
+                line_end = text.find("\n", heading.end())
+                line = text[heading.start() : line_end if line_end >= 0 else len(text)]
+                # Even a text-valued row ("Economy: free.") or subsection
+                # label ("Economy:") remains monetary. Only a complete,
+                # explicit reference-section heading authenticates a reset.
+                if re.fullmatch(
+                    r"(?:policy[ \t]+)?(?:references|citations)[ \t]*:",
+                    line.strip(),
+                    flags=re.IGNORECASE,
+                ):
+                    monetary_heading = False
+                    prefix_start = max(prefix_start, heading.end())
+            heading = next(headings, None)
+        # A completed sentence's amount does not make the next passage heading
+        # monetary, e.g. "$4,500. 2010.0202 Eligible Assistance Groups (FS)".
+        # Line wrapping alone does not end a monetary prefix.
+        while sentence_end is not None and sentence_end.end() <= start:
+            prefix_start = max(prefix_start, sentence_end.end())
+            sentence_end = next(sentence_ends, None)
+        prefix = text[prefix_start:start]
+        if not monetary_heading and not _US_MANUAL_MONETARY_CONTEXT.search(prefix):
+            authenticated.append((start, end))
+    return tuple(authenticated)
 
 
 def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:

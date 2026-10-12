@@ -124,6 +124,119 @@ def test_values_beside_florida_locator_shapes_are_kept(source, citation, expecte
     assert _recall_values(source, citation) == expected
 
 
+def test_transport_cost_heading_keeps_first_class_passage_fare():
+    source = "Transport costs (USD):\nFirst-class passage 1234.5678."
+    result = sc.analyze_complete_source_unit(
+        yaml.safe_dump({"format": "rulespec/v1", "rules": []}),
+        source,
+        corpus_citation_path=PAGE_5,
+        test_cases=[],
+        extract_numeric_occurrences=INVENTORY,
+        extract_numeric_grounding_occurrences=GROUNDING,
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert any(
+        "[complete-source-unit:numeric-recall]" in issue
+        and "has no named scalar representation" in issue
+        for issue in result.issues
+    ), result.issues
+    assert _recall_values(source, PAGE_5) == {1234.5678}
+
+
+_MONETARY_HEADINGS = (
+    "Transport costs (USD)",
+    "First-class fares",
+    "Ticket prices (EUR)",
+    "Service charges",
+    "Fees",
+    "Payment amounts",
+    "Allowances (GBP)",
+    "Amounts in dollars",
+    "Item | USD",
+    "Item | $",
+)
+
+
+@pytest.mark.parametrize("heading", _MONETARY_HEADINGS)
+def test_each_monetary_heading_keeps_a_passage_fare(heading):
+    assert _recall_values(f"{heading}:\nFirst-class passage 1234.5678.", PAGE_5) == {
+        1234.5678
+    }
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Transport costs (USD)\nFirst-class passage 1234.5678.",
+        "Item | USD\nFirst-class passage 1234.5678.",
+        "Item | $\nFirst-class passage 1234.5678.",
+        "| Item | USD |\nFirst-class passage 1234.5678.",
+        "| Item | USD | Quantity |\nFirst-class passage 1234.5678.",
+        "Transport costs (USD):\nEconomy: 50.\nFirst-class passage 1234.5678.",
+        "Transport costs (USD):\nEconomy 50 (adult)\nFirst-class passage 1234.5678.",
+        "Transport costs (USD):\nEconomy: free.\nFirst-class passage 1234.5678.",
+        "Transport costs (USD):\nOther fare 50.\nEconomy (free)\n"
+        "First-class passage 1234.5678.",
+        "Transport costs (USD):\nEconomy:\nfree.\nFirst-class passage 1234.5678.",
+        "The fare for passage 1234.5678.",
+        "The fare for\npassage 1234.5678.",
+        "The cost of\npassage 1234.5678.",
+        "The cost of passage 1234.5678.",
+        "Pay $ passage 1234.5678.",
+        "Transport costs (USD):\n"
+        + "Other row 50.\n" * 100
+        + "First-class passage 1234.5678.",
+    ),
+)
+def test_preceding_currency_and_cost_context_keeps_the_fare(source):
+    assert 1234.5678 in _recall_values(source, PAGE_5)
+
+
+@pytest.mark.parametrize("row", ("", "Other fare 50.\n", "Economy 50 (adult)\n"))
+@pytest.mark.parametrize("heading", ("Policy references", "References", "Citations"))
+def test_a_new_heading_ends_the_monetary_table_context(row, heading):
+    source = f"Transport costs (USD):\n{row}{heading}:\nSee passage 2610.0103."
+    assert _recall_values(source, PAGE_5) == ({50} if row else set())
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    heading=st.sampled_from(_MONETARY_HEADINGS),
+    major=st.integers(1000, 9999),
+    minor=st.integers(0, 9999),
+    appendix=st.integers(1, 999),
+    separator=st.sampled_from((" ", "\n", "\r\n", "\n\n")),
+    preceding_rows=st.integers(0, 5),
+    row=st.sampled_from(
+        (
+            "Other fare 50.\n",
+            "Economy: 50.\n",
+            "Economy 50 (adult)\n",
+            "Economy: free.\n",
+            "Economy (free)\n",
+            "Economy:\nfree.\n",
+        )
+    ),
+)
+def test_monetary_heading_property_keeps_locator_shaped_values(
+    heading, major, minor, appendix, separator, preceding_rows, row
+):
+    number = f"{major}.{minor:04d}"
+    prefix = f"{heading}:{separator}" + row * preceding_rows
+    for row, value in (
+        (f"First-class passage {number}.", float(number)),
+        (f"Appendix A-{appendix}.", appendix),
+        (f"{number} Eligible Assistance Groups (FS).", float(number)),
+    ):
+        source = prefix + row
+        assert (
+            sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5)
+            == ()
+        )
+        assert value in _recall_values(source, PAGE_5)
+
+
 @pytest.mark.parametrize(
     "source",
     (
