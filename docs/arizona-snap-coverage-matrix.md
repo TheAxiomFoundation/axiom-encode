@@ -200,6 +200,16 @@ FNS approval or binding determination, and it does not explain the contrary
 FNS first-quarter status entry. Keep October–February geography unencoded
 until the discrepancy is reconciled against approval-level authority.
 
+[FNS's February 26, 2026 time-limit-waiver status memo](https://www.usda.gov/sites/default/files/guidance-documents/fna.obbb-time-limit-waivers-reinstatement.pdf)
+states that waivers terminated under its October 3, 2025 guidance remain in
+effect through their original expiration dates following a court order. Its
+Appendix A enumerates the affected state agencies and expiration dates, but
+does **not** list Arizona. The directly fetched official PDF has SHA-256
+`54cbcda281de7eb19c6b9035f507940e875f42c6693c46ac289adbc0ff6614c6`.
+This memo therefore provides no Arizona-specific approval for October
+2025–February 2026; it does not correct or explain the conflicting FNS
+first-quarter status entry.
+
 The [archived DES FAA2 ABAWD exemption policy preceding its H.R. 1
 implementation](https://dbmefaapolicy.azdes.gov/Archived_Policy/baggage/FAA2.M09B_ABAWD_Exemptions_09-22-2025_Revision53.pdf)
 also explicitly ends its listed geographic exemption on September 30, 2025.
