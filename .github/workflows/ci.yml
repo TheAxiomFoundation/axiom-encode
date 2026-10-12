@@ -42,9 +42,10 @@ jobs:
       - name: Check changelog fragments
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
-      # The real-engine job runs the tests that execute the engine.
+      # The real-engine and real-core jobs run the tests that execute the
+      # engine and the core CLI.
       - name: Run tests
-        run: .venv/bin/pytest tests/ -m "not real_engine"
+        run: .venv/bin/pytest tests/ -m "not real_engine and not real_core"
 
   real-engine:
     # Tests that execute the real axiom-rules-engine (tests/real_engine.py),
@@ -118,6 +119,76 @@ jobs:
           AXIOM_REQUIRE_REAL_ENGINE: "1"
           AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
         run: .venv/bin/pytest tests/ -m real_engine
+
+  real-core:
+    # The cross-repository export tests (tests/real_core.py), against an
+    # axiom-core CLI compiled from the pinned commit in this run. The test job
+    # has no core and deselects them; with AXIOM_REQUIRE_REAL_CORE=1 a missing,
+    # unusable or unpinned core fails them here instead of skipping them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # axiom-core main since 2026-09-17 (#4). Core's own encoder-interop job
+      # ran these tests at this commit against encoder 629b8f9f, the commit
+      # that last changed them: 6 passed, no skips (axiom-core run
+      # 35266183509). It differs from 8ac3a54f, where that job was reviewed,
+      # only in its license. The tests check the binary was built in a clean
+      # checkout of this commit, from its Cargo.lock.
+      AXIOM_CORE_REF: d989fb08c58ec401612e01e4a5af72a07aa83b07
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Outside the workspace, so the encoder checkout stays clean.
+      - name: Check out the pinned axiom-core
+        run: |
+          set -euo pipefail
+          core="$RUNNER_TEMP/axiom-core"
+          git init -q "$core"
+          git -C "$core" fetch -q --depth=1 \
+            https://github.com/TheAxiomFoundation/axiom-core.git \
+            "$AXIOM_CORE_REF"
+          git -C "$core" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$core" rev-parse HEAD)" = "$AXIOM_CORE_REF"
+
+      # The toolchain the pinned checkout's rust-toolchain.toml names.
+      - name: Install core's Rust toolchain
+        working-directory: ${{ runner.temp }}/axiom-core
+        run: rustup toolchain install
+
+      # Dependencies only, including the axiom-rules-engine revision core
+      # links: rust-cache never caches workspace crates, so the core binary is
+      # compiled below from the pinned checkout on every run.
+      - name: Cache core's cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: ${{ runner.temp }}/axiom-core
+
+      - name: Build the pinned core
+        working-directory: ${{ runner.temp }}/axiom-core
+        run: cargo build --locked --bin axiom-core
+
+      - name: Run real-core tests
+        env:
+          AXIOM_REQUIRE_REAL_CORE: "1"
+          AXIOM_CORE_BIN: ${{ runner.temp }}/axiom-core/target/debug/axiom-core
+        run: .venv/bin/pytest tests/ -m real_core
 
   lint:
     runs-on: ubuntu-latest

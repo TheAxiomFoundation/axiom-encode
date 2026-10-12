@@ -33,6 +33,10 @@ from tests.real_engine import (  # noqa: F401 - the real_engine fixture and its 
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
 
+# The real_core fixture and its hooks. A plugin rather than an import, because
+# this module already takes the same hook names from tests.real_engine.
+pytest_plugins = ("tests.real_core",)
+
 
 @pytest.fixture(autouse=True)
 def _trusted_test_corpus_release_broker(monkeypatch):

@@ -1,9 +1,14 @@
-"""Opt-in interoperability checks against an explicitly supplied real core CLI.
+"""Interoperability checks against a real axiom-core CLI.
 
-Set AXIOM_CORE_BIN to an executable axiom-core file to run these tests. They do
-not discover, download, build, or replace core, so public encoder CI can skip
-them without access to the core repository. All RuleSpec and inputs below are
-synthetic software fixtures; Python only transports JSON and checks results.
+These tests export candidates with the encoder, then build, verify and run them
+in the axiom-core executable that the ``real_core`` fixture
+(``tests/real_core.py``) supplies from AXIOM_CORE_BIN; they never discover,
+download or build core themselves. CI's ``real-core`` job compiles
+TheAxiomFoundation/axiom-core at the commit pinned in ``.github/workflows/ci.yml``
+(``AXIOM_CORE_REF``) and runs them with AXIOM_REQUIRE_REAL_CORE=1, so a missing
+or unpinned core fails them there. Elsewhere they skip without AXIOM_CORE_BIN,
+and a configured but unusable binary fails them. All RuleSpec and inputs below
+are synthetic software fixtures; Python only transports JSON and checks results.
 """
 
 import hashlib
@@ -77,23 +82,9 @@ def _success(process):
 
 
 @pytest.fixture(scope="module")
-def core_binary():
-    configured = os.environ.get("AXIOM_CORE_BIN")
-    if not configured:
-        pytest.skip("AXIOM_CORE_BIN is unset; provide a real axiom-core executable")
-    binary = Path(configured).expanduser().resolve()
-    assert binary.is_file(), f"AXIOM_CORE_BIN is not a file: {binary}"
-    assert os.access(binary, os.X_OK), f"AXIOM_CORE_BIN is not executable: {binary}"
-    capabilities = _success(_command([binary, "capabilities"]))
-    assert capabilities["format"] == "axiom/capabilities/v0"
-    assert capabilities["engine"]["repository"] == (
-        "https://github.com/TheAxiomFoundation/axiom-rules-engine"
-    )
-    assert (
-        capabilities["engine"]["execution_host_sha256"]
-        == hashlib.sha256(binary.read_bytes()).hexdigest()
-    )
-    return binary
+def core_binary(real_core):
+    # real_core has checked the binary's capabilities and self-reported digest.
+    return real_core.binary
 
 
 @pytest.fixture

@@ -59,7 +59,7 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "real-engine", "lint"},
+    "ci.yml": {"test", "real-engine", "real-core", "lint"},
     "signing-supervisor.yml": {"build-and-test"},
 }
 LOCKED_DEV_SYNCS = {
@@ -222,6 +222,7 @@ def test_discovery_is_not_vacuous():
     assert {
         ("ci.yml:test", "sync"),
         ("ci.yml:real-engine", "sync"),
+        ("ci.yml:real-core", "sync"),
         ("ci.yml:lint", "sync"),
         ("signing-supervisor.yml:build-and-test", "sync"),
         ("prepare-all-state-snap-queue.yml:prepare", "run"),
