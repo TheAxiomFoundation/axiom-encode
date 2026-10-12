@@ -272,7 +272,7 @@ with maximum allotments also feeding 273.10 and 2017(a). The deductions
 replacement cannot compile against the old 2012(j) relation because its tuple
 slots lack entity kinds. This is a coupled protected-migration problem, not a
 reason to retry 273.10 alone or manually strip signed legacy fields. The
-existing targeted workflow has at most two dependent generations; its atomic
+existing targeted workflow accepts at most two direct dependents per target; its atomic
 source-bundle mode does not stage this full multi-source dependent DAG. Thus,
 the whole chain needs a reviewed, source-bound staged transaction or equivalent
 protected migration with final program validation and fresh signatures.
