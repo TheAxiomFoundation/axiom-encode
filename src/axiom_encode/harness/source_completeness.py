@@ -34,7 +34,10 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
 
-from axiom_encode.harness.proof_validator import _normalize_atom_path
+from axiom_encode.harness.proof_validator import (
+    _normalize_atom_path,
+    _source_proof_evidence_spans,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
     CitationParts,
@@ -5342,6 +5345,7 @@ def _analyze_rulespec_payload(
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
+        source_text=source_text,
         principal_rules=principal_rules,
         principal_rule_paths=principal_rule_paths,
         named_rules=named_rules,
@@ -5689,6 +5693,7 @@ def _source_bound_constant_numeric_occurrences(
 def _principal_formula_clause_rules(
     formula_branches: Sequence[SourceStructureBranch],
     *,
+    source_text: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     named_rules: dict[str, dict[str, Any]],
@@ -5698,7 +5703,8 @@ def _principal_formula_clause_rules(
 
     A direct source path is sufficient when its structural branch contains one
     computation. When several computations share that path, each one needs a
-    source-verbatim proof excerpt on the principal rule that claims it.
+    source-verbatim proof excerpt on the principal rule that claims it. A
+    repeated instruction must be anchored by its own unique source context.
     """
 
     clause_count_by_path: dict[tuple[str, ...], int] = {}
@@ -5707,6 +5713,31 @@ def _principal_formula_clause_rules(
 
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
+
+    @functools.cache
+    def excerpt_spans(excerpt: str) -> tuple[tuple[int, int], ...]:
+        return _source_proof_evidence_spans(
+            source_text=source_text, evidence_text=excerpt
+        )
+
+    def excerpt_covers_clause(excerpt: str, clause: SourceStructureBranch) -> bool:
+        if not (
+            type(clause.start) is int
+            and type(clause.end) is int
+            and 0 <= clause.start < clause.end <= len(source_text)
+            and source_text[clause.start : clause.end] == clause.text
+        ):
+            return False
+        spans = excerpt_spans(excerpt)
+        if len(spans) != 1:
+            return False
+        start, end = spans[0]
+        body = _strip_source_clause_marker(clause.text)
+        body_start = clause.end - len(body)
+        return (start <= body_start and clause.end <= end) or (
+            body_start <= start and end <= clause.end
+        )
+
     for clause in formula_branches:
         path_rules = set(_rules_covering_branch(clause, principal_rule_paths))
         if clause_count_by_path[clause.path] == 1:
@@ -5741,6 +5772,7 @@ def _principal_formula_clause_rules(
                 and excerpt_citation_path.strip("/").lower() == normalized_citation_path
                 and source_states_explicit_computation(excerpt)
                 and (excerpt_text in clause_text or clause_text in excerpt_text)
+                and excerpt_covers_clause(excerpt, clause)
                 for excerpt_citation_path, excerpt in (
                     _formula_dependency_source_excerpts(
                         principal_rules[rule_name],
