@@ -8662,6 +8662,124 @@ _HEBREW_WEEKDAY_PATTERN = re.compile(
     "(?<![\u0590-\u05ff])[\u05d1\u05dc\u05de]?יום\\s+"
     "(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)(?![\u0590-\u05ff])"
 )
+# A Hebrew statute names a calendar month by its Gregorian name ("ביום 1
+# בינואר", "ספטמבר 1939 עד אפריל 1940"), and an encoding that compares a
+# month of birth or of payment reads the name as its number, 1 to 12. National
+# Insurance Law schedule A1 part D sets a woman's pension age by her birth
+# month and prints no month number at all. The corpus spells March "מרס", and
+# "מרץ" in a few later amendments.
+_HEBREW_GREGORIAN_MONTH_NUMBERS = {
+    "ינואר": 1.0,
+    "פברואר": 2.0,
+    "מרס": 3.0,
+    "מרץ": 3.0,
+    "אפריל": 4.0,
+    "מאי": 5.0,
+    "יוני": 6.0,
+    "יולי": 7.0,
+    "אוגוסט": 8.0,
+    "ספטמבר": 9.0,
+    "אוקטובר": 10.0,
+    "נובמבר": 11.0,
+    "דצמבר": 12.0,
+}
+_HEBREW_GREGORIAN_MONTH_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<month>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_GREGORIAN_MONTH_NUMBERS, key=len, reverse=True)
+    )
+    + ")"
+    "(?![\u0590-\u05ff])"
+)
+# The name is a month only where the text uses it as a date: a year after it
+# ("מאי 1942", "אפריל שנת 2011", "של כל שנה"), a day before it ("4 במאי",
+# "באחד באפריל"), the word month before it ("בחודש יולי", "מהחודשים אפריל,
+# יולי"), or another month beside it ("מאי עד דצמבר 1940"), all on the name's
+# own line and table cell. Elsewhere a homograph may be speaking: "הסובל מאי
+# ספיקת לב" (National Health Insurance Law, schedule 2) is "suffering from
+# heart failure", "במאי" is also a director and "מרץ" vigour.
+_HEBREW_MONTH_LIST_GAP_PATTERN = re.compile(
+    "[^\\S\\n]*(?:,|;|[\u05be\u2013\u2014-]|עד|ועד|או)?[^\\S\\n]*"
+)
+_HEBREW_MONTH_YEAR_AFTER_PATTERN = re.compile(
+    rf"[^\S\n]*,?[^\S\n]*(?:(?:ב|של[^\S\n]+)?שנת[^\S\n]+)?"
+    rf"{_TEMPORAL_YEAR_BODY}{_TEMPORAL_YEAR_END}"
+)
+_HEBREW_MONTH_YEAR_OF_AFTER_PATTERN = re.compile(
+    "[^\\S\\n]+(?:של|ב)[^\\S\\n]*(?:כל[^\\S\\n]+|אותה[^\\S\\n]+)?"
+    "(?:ה[\u05be-]?)?שנ[הת](?![\u05d0-\u05ea])"
+)
+_HEBREW_MONTH_DAY_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\\d.,])(?:0?[1-9]|[12]\\d|3[01])"
+    "|(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?:"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(
+            {*_HEBREW_NUMBER_WORD_VALUES, "עשרים", "שלושים", "שלשים"},
+            key=len,
+            reverse=True,
+        )
+    )
+    + "))(?:[^\\S\\n]|[\u05be-])*$"
+)
+_HEBREW_MONTH_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?:חודש|חדש)(?:ים|י)?[^\\S\\n]*$"
+)
+# How far back a day or the word month can stand from the name it dates.
+_HEBREW_MONTH_CONTEXT_WINDOW = 40
+
+
+def _iter_hebrew_gregorian_month_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Read each Hebrew Gregorian month name the text uses as a date.
+
+    Month names side by side, joined by a comma, a dash, "עד" or "או" or by
+    the conjunction the next name carries, are one list or range, and it is
+    dated as a whole: "יולי ואוגוסט 1939" dates July by the year after August.
+    """
+    matches = list(_HEBREW_GREGORIAN_MONTH_PATTERN.finditer(text))
+    if not matches:
+        return []
+    groups: list[list[re.Match[str]]] = [[matches[0]]]
+    for previous, current in zip(matches, matches[1:]):
+        if _HEBREW_MONTH_LIST_GAP_PATTERN.fullmatch(
+            text, previous.end(), current.start()
+        ):
+            groups[-1].append(current)
+        else:
+            groups.append([current])
+    dated: list[tuple[tuple[int, int], float]] = []
+    for group in groups:
+        first, last = group[0].start(), group[-1].end()
+        window_start = max(
+            first - _HEBREW_MONTH_CONTEXT_WINDOW,
+            text.rfind("\n", 0, first) + 1,
+            text.rfind("|", 0, first) + 1,
+        )
+        before = text[window_start:first]
+        if not (
+            len(group) > 1
+            or _HEBREW_MONTH_YEAR_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_YEAR_OF_AFTER_PATTERN.match(text, last)
+            or _HEBREW_MONTH_DAY_BEFORE_PATTERN.search(before)
+            or _HEBREW_MONTH_WORD_BEFORE_PATTERN.search(before)
+        ):
+            continue
+        dated.extend(
+            (match.span(), _HEBREW_GREGORIAN_MONTH_NUMBERS[match.group("month")])
+            for match in group
+        )
+    return dated
+
+
 _STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
     r"(?m)^[ \t]*(?:"
     r"\(\d+[a-z]?\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
@@ -9695,6 +9813,7 @@ def _rule_grounding_values(
     rule: Any,
     *,
     selector_table_keys: Mapping[str, Any] | None = None,
+    index_selectors: frozenset[str] = frozenset(),
 ) -> list[tuple[int, str, float]]:
     """Extract the grounding-required numeric literals declared by one rule."""
     values: list[tuple[int, str, float]] = []
@@ -9719,7 +9838,9 @@ def _rule_grounding_values(
                     formula,
                     structural_selector_keys=(
                         (selector_table_keys or {}).get(rule_name)
-                        if _is_structural_selector_rule(rule)
+                        if _is_structural_selector_rule(
+                            rule, index_selectors=index_selectors
+                        )
                         else None
                     ),
                 )
@@ -9740,6 +9861,7 @@ def _rule_grounding_values_by_path(
     rule: Any,
     *,
     selector_table_keys: Mapping[str, Any] | None = None,
+    index_selectors: frozenset[str] = frozenset(),
 ) -> list[tuple[str, str, float]]:
     """Like ``_rule_grounding_values`` but anchors each literal to its version path.
 
@@ -9770,7 +9892,9 @@ def _rule_grounding_values_by_path(
                 formula,
                 structural_selector_keys=(
                     (selector_table_keys or {}).get(rule_name)
-                    if _is_structural_selector_rule(rule)
+                    if _is_structural_selector_rule(
+                        rule, index_selectors=index_selectors
+                    )
                     else None
                 ),
             ):
@@ -10004,10 +10128,15 @@ def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
         ):
             values: list[tuple[int, str, float]] = []
             selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+            index_selectors = _rulespec_index_selectors(
+                payload["rules"], selector_table_keys
+            )
             for rule in payload["rules"]:
                 values.extend(
                     _rule_grounding_values(
-                        rule, selector_table_keys=selector_table_keys
+                        rule,
+                        selector_table_keys=selector_table_keys,
+                        index_selectors=index_selectors,
                     )
                 )
             return values
@@ -10070,11 +10199,107 @@ def _extract_formula_grounding_values(
     return values
 
 
-def _is_structural_selector_rule(rule: dict[str, Any]) -> bool:
+def _is_structural_selector_rule(
+    rule: dict[str, Any],
+    *,
+    index_selectors: frozenset[str] = frozenset(),
+) -> bool:
+    """Whether an integer rule only selects a row, by its name or its shape.
+
+    ``index_selectors`` names the rules ``_rulespec_index_selectors`` found to
+    be index selectors whatever they are called.
+    """
     if str(rule.get("dtype") or "").strip().lower() != "integer":
         return False
-    name = str(rule.get("name") or "").strip().lower()
-    return bool(re.search(r"(?:^|_)(?:band|bracket|tier|index)(?:_|$)", name))
+    name = str(rule.get("name") or "").strip()
+    if name and name in index_selectors:
+        return True
+    return bool(re.search(r"(?:^|_)(?:band|bracket|tier|index)(?:_|$)", name.lower()))
+
+
+def _rulespec_index_selectors(
+    rules: list[Any],
+    selector_table_keys: Mapping[str, set[str]] | None = None,
+) -> frozenset[str]:
+    """Name the rules that only pick a row of the tables indexed by them.
+
+    A derived integer rule is an index selector, whatever its name, when every
+    result its formula returns is a key of a local parameter table
+    ``indexed_by`` it, and every other local formula reads it only as that
+    subscript (``pension_age_years[woman_birth_cohort]``). Its results then
+    label rows: renumbering them together with the table keys changes no
+    output, so there is no number for the source to print. National Insurance
+    Law schedule A1 part D numbers none of its sixteen birth-month rows, and an
+    encoding that picks a row returns 0 to 15. A rule whose value is also
+    compared, counted or computed with is a quantity, and its literals stay
+    under the grounding check.
+    """
+    if selector_table_keys is None:
+        selector_table_keys = _rulespec_index_selector_keys(rules)
+    if not selector_table_keys:
+        return frozenset()
+    selectors: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        name = str(rule.get("name") or "").strip()
+        keys = selector_table_keys.get(name)
+        if not keys:
+            continue
+        if str(rule.get("kind") or "").strip().lower() != "derived":
+            continue
+        if str(rule.get("dtype") or "").strip().lower() != "integer":
+            continue
+        formulas = _rulespec_rule_formula_strings(rule)
+        if not formulas or not all(
+            _formula_returns_only_selector_keys(formula, keys) for formula in formulas
+        ):
+            continue
+        if not _rule_is_read_only_as_subscript(name, rules, selector_rule=rule):
+            continue
+        selectors.add(name)
+    return frozenset(selectors)
+
+
+def _formula_returns_only_selector_keys(formula: str, keys: set[str]) -> bool:
+    """Whether every branch of a conditional returns a literal table key."""
+    uncommented = "\n".join(line.split("#", 1)[0] for line in formula.splitlines())
+    # A chain written one "else: if" per line is one inline conditional; an
+    # indented block or an elif chain is read line by line.
+    for results in (
+        _split_inline_conditional_result_expressions(" ".join(uncommented.split())),
+        _formula_result_expressions(uncommented),
+    ):
+        if len(results) > 1 and all(
+            _structural_integer_key(result) in keys for result in results
+        ):
+            return True
+    return False
+
+
+def _rule_is_read_only_as_subscript(
+    name: str,
+    rules: list[Any],
+    *,
+    selector_rule: dict[str, Any],
+) -> bool:
+    """Whether every other local formula reads ``name`` only as ``table[name]``."""
+    reference = re.compile(rf"(?<![A-Za-z0-9_.]){re.escape(name)}(?![A-Za-z0-9_])")
+    for rule in rules:
+        if rule is selector_rule or not isinstance(rule, dict):
+            continue
+        for formula in _rulespec_rule_formula_strings(rule):
+            code = _QUOTED_STRING_PATTERN.sub(
+                lambda match: " " * len(match.group(0)),
+                "\n".join(line.split("#", 1)[0] for line in formula.splitlines()),
+            )
+            for match in reference.finditer(code):
+                if not (
+                    code[: match.start()].rstrip().endswith("[")
+                    and code[match.end() :].lstrip().startswith("]")
+                ):
+                    return False
+    return True
 
 
 def _rulespec_index_selector_keys(rules: list[Any]) -> dict[str, set[str]]:
@@ -10492,6 +10717,7 @@ def source_backed_half_up_rounding_helper_count(
         rules = payload.get("rules") if isinstance(payload, dict) else None
         if isinstance(rules, list):
             selector_table_keys = _rulespec_index_selector_keys(rules)
+            index_selectors = _rulespec_index_selectors(rules, selector_table_keys)
             for rule in rules:
                 rule_name = (
                     str(rule.get("name") or "").strip()
@@ -10501,6 +10727,7 @@ def source_backed_half_up_rounding_helper_count(
                 for anchor_path, _raw, value in _rule_grounding_values_by_path(
                     rule,
                     selector_table_keys=selector_table_keys,
+                    index_selectors=index_selectors,
                 ):
                     if not _is_direct_half_up_rounding_helper_value(
                         rule, anchor_path, value
@@ -15360,6 +15587,7 @@ def _temporal_numeric_component_spans(
                 match.group("years")
             )
         )
+    spans.update(span for span, _value in _iter_hebrew_gregorian_month_matches(text))
     return tuple(sorted(spans))
 
 
@@ -16863,6 +17091,12 @@ def _tokenize_numeric_occurrences_from_text(
         )
         grounding_spans.append(match.span(1))
 
+    # A Hebrew month name used as a date grounds its month number, and only
+    # grounds it: the encoding compares a month with it, but the statute sets
+    # no value there for the encoding to recall.
+    for span, value in _iter_hebrew_gregorian_month_matches(collector.context_text):
+        collector.add_grounding(source_view, span, value)
+
     collector.grounding = list(
         _complete_typed_year_occurrences(collector, collector.grounding)
     )
@@ -17238,6 +17472,7 @@ def evaluate_numeric_grounding_values(
         rules = payload.get("rules") if isinstance(payload, dict) else None
         if isinstance(rules, list):
             selector_table_keys = _rulespec_index_selector_keys(rules)
+            index_selectors = _rulespec_index_selectors(rules, selector_table_keys)
             decisions: list[tuple[int, str, float, bool]] = []
             source_indexes: dict[
                 tuple[str, str],
@@ -17245,7 +17480,9 @@ def evaluate_numeric_grounding_values(
             ] = {}
             for rule in rules:
                 anchored_values = _rule_grounding_values_by_path(
-                    rule, selector_table_keys=selector_table_keys
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                    index_selectors=index_selectors,
                 )
                 rule_name = (
                     str(rule.get("name") or "").strip()
@@ -17443,6 +17680,7 @@ def evaluate_numeric_grounding_values_scoped(
         for rule in payload["rules"]
     ]
     selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+    index_selectors = _rulespec_index_selectors(payload["rules"], selector_table_keys)
     evidence_index_cache: dict[
         tuple[str, str],
         tuple[tuple[NumericOccurrence, ...], frozenset[float]],
@@ -17456,6 +17694,7 @@ def evaluate_numeric_grounding_values_scoped(
         anchored_values = _rule_grounding_values_by_path(
             rule,
             selector_table_keys=selector_table_keys,
+            index_selectors=index_selectors,
         )
         if not anchored_values:
             continue
@@ -39579,6 +39818,9 @@ class ValidatorPipeline:
         if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
             return []
         selector_table_keys = _rulespec_index_selector_keys(payload["rules"])
+        index_selectors = _rulespec_index_selectors(
+            payload["rules"], selector_table_keys
+        )
         source_text = extract_embedded_source_text(content) or ""
         parameter_scalar_values = _source_backed_parameter_scalar_values(
             payload["rules"],
@@ -39612,7 +39854,9 @@ class ValidatorPipeline:
                     continue
                 structural_selector_keys = (
                     selector_table_keys.get(name)
-                    if _is_structural_selector_rule(rule)
+                    if _is_structural_selector_rule(
+                        rule, index_selectors=index_selectors
+                    )
                     else None
                 )
                 previous_stripped = ""

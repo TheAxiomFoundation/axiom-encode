@@ -1,0 +1,1 @@
+Numeric grounding reads a Hebrew Gregorian month name used as a date (ינואר…דצמבר, מרס/מרץ) as its month number, grounding only; an integer rule that only picks a row of the tables indexed by it counts as a structural selector whatever its name, so its row labels are neither ungrounded nor lifted into parameters by the embedded-scalar repair.
