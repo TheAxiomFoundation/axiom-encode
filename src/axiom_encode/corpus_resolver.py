@@ -20,6 +20,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
 
+from axiom_encode.bare_structure import bare_outline, slice_bare_path
 from axiom_encode.corpus_materialize import (
     CorpusMaterializationError,
     corpus_uses_lock_files,
@@ -1653,12 +1654,17 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             f"Could not isolate {requested_path!r} from active parent "
             f"{resolved_path!r}; missing structural marker path {missing!r}"
         )
-    sliced = _slice_parenthetical_fragments(
-        text,
-        fragments,
-        depth=0,
-        budget=_ParentheticalSliceBudget(),
-    )
+    # Choose by authenticated source layout, never by jurisdiction. Leave
+    # the existing parenthetical walker untouched for all other bodies.
+    if bare_outline(text) is not None:
+        sliced = slice_bare_path(text, fragments)
+    else:
+        sliced = _slice_parenthetical_fragments(
+            text,
+            fragments,
+            depth=0,
+            budget=_ParentheticalSliceBudget(),
+        )
     if sliced is None:
         missing = "/".join(fragments)
         raise CorpusSourceSliceError(

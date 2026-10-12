@@ -34,6 +34,7 @@ from typing import Any, Mapping, Protocol
 
 import yaml
 
+from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.harness.proof_validator import _normalize_atom_path
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
@@ -2516,6 +2517,26 @@ def recognize_source_structure(
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
         return _irs_revenue_procedure_structure(source_text)
+
+    outline = bare_outline(source_text)
+    if outline:
+        masked = mask_bare_labels(source_text)
+        return tuple(
+            SourceStructureBranch(
+                label.path,
+                "paragraph" if label.token[0].isdigit() else "letter",
+                f"({label.token})",
+                masked[label.start : label.end],
+                label.start,
+                label.end,
+                structural_numeric_spans=(
+                    ((label.start, label.marker_end),)
+                    if label.token[0].isdigit()
+                    else ()
+                ),
+            )
+            for label in outline
+        )
 
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
@@ -13406,6 +13427,7 @@ def authoritative_numeric_recall_text(
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = mask_bare_labels(source_text)
     source_text = _mask_numeric_spans(
         source_text, _corroborated_form_output_label_spans(source_text)
     )
@@ -17816,7 +17838,9 @@ def _source_clause_spans(
 
     # Mask only authenticated structural labels; preserve offsets and return
     # original source slices so proof atoms remain text-bound.
-    boundary_text = _mask_spaced_german_sentence_labels(source_text)
+    bare_labels = bare_outline(source_text) or ()
+    display_text = mask_bare_labels(source_text)
+    boundary_text = _mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
         r";|:(?=\s*(?i:provided)\s*,?\s*(?i:that)\b)|"
         r"[.!?](?=(?:[ \t]+[A-ZÄÖÜ(]|\s*$))",
@@ -17873,6 +17897,8 @@ def _source_clause_spans(
         ),
         *(branch.start for branch in branches),
         *(branch.end for branch in branches),
+        *(label.start for label in bare_labels),
+        *(label.marker_end for label in bare_labels),
     }
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
@@ -17882,7 +17908,7 @@ def _source_clause_spans(
             yield (
                 start + left_trimmed,
                 start + right_trimmed,
-                source_text[start + left_trimmed : start + right_trimmed],
+                display_text[start + left_trimmed : start + right_trimmed],
             )
 
 
