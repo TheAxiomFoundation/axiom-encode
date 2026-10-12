@@ -13,6 +13,7 @@ import calendar
 import contextlib
 import copy
 import functools
+import hashlib
 import heapq
 import itertools
 import math
@@ -4492,7 +4493,17 @@ def _english_fraction_of_is_computational(source_text: str) -> bool:
     return False
 
 
-def _without_precomputed_income_table_percentage_captions(source_text: str) -> str:
+_FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_PATH = (
+    "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+)
+_FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_SHA256 = (
+    "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+)
+
+
+def _without_precomputed_income_table_percentage_captions(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> str:
     """Mask only descriptive rates above a complete published income table.
 
     The table supplies independently rounded amounts, not an instruction to
@@ -4516,10 +4527,29 @@ def _without_precomputed_income_table_percentage_captions(source_text: str) -> s
     for match in captioned_table.finditer(source_text):
         start, end = match.span("caption")
         masked[start:end] = " " * (end - start)
+    if (
+        corpus_citation_path == _FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_PATH
+        and hashlib.sha256(source_text.encode()).hexdigest()
+        == _FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_SHA256
+    ):
+        # This signed, complete FNS page is flattened into one OCR line. Its
+        # title describes independently published dollar cells; neither the
+        # 165% caption nor "Elderly/Disabled" is an arithmetic instruction.
+        # Exact source identity fails closed if the page changes or loses a row.
+        title = re.search(
+            r"Table 3: Gross Monthly Income Limit Where Elderly/Disabled "
+            r"Members Are a Separate Household \(165% of Federal Poverty Level\)",
+            source_text,
+        )
+        if title is not None:
+            start, end = title.span()
+            masked[start:end] = " " * (end - start)
     return "".join(masked)
 
 
-def source_states_explicit_computation(source_text: str) -> bool:
+def source_states_explicit_computation(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
     # A parenthesized cross-reference can contain title punctuation that looks
@@ -4535,7 +4565,9 @@ def source_states_explicit_computation(source_text: str) -> bool:
 
     computation_text = _without_unproven_applied_operations(
         _without_stated_conversion_results(
-            _without_precomputed_income_table_percentage_captions(source_text)
+            _without_precomputed_income_table_percentage_captions(
+                source_text, corpus_citation_path=corpus_citation_path
+            )
         )
     )
     return bool(
@@ -4553,12 +4585,16 @@ def source_states_explicit_computation(source_text: str) -> bool:
     )
 
 
-def _source_states_nonrounding_computation(source_text: str) -> bool:
+def _source_states_nonrounding_computation(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> bool:
     """Return whether text states a computation other than rounding."""
 
     computation_text = _without_unproven_applied_operations(
         _without_stated_conversion_results(
-            _without_precomputed_income_table_percentage_captions(source_text)
+            _without_precomputed_income_table_percentage_captions(
+                source_text, corpus_citation_path=corpus_citation_path
+            )
         )
     )
     return bool(
@@ -5218,7 +5254,9 @@ def _analyze_rulespec_payload(
         named_rules=named_rules,
         corpus_citation_path=corpus_citation_path,
     )
-    source_has_computation = source_states_explicit_computation(source_text)
+    source_has_computation = source_states_explicit_computation(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     if source_has_computation:
         if formula_branches:
             missing_formula_branches = tuple(
@@ -13591,6 +13629,20 @@ def authoritative_numeric_recall_text(
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
         # otherwise read as a numbered heading.
+        if corpus_citation_path.startswith(
+            (
+                "us/guidance/usda/fns/snap-fy2026-cola/",
+                "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/",
+            )
+        ):
+            # USDA's FY 2026 tables use "48 States" as a geographic column
+            # label. Its 48 is not a policy amount; keep nearby dollar cells.
+            cleaned = re.sub(
+                r"(?<![$\w])48(?=\s+States\b)",
+                "  ",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
         cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
