@@ -1,0 +1,45 @@
+format: rulespec/v1
+module:
+  summary: Reduced claimant-to-household entity mismatch from issue 1851.
+inputs:
+  - name: claimant_is_resident
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_meets_age_requirement
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_owns_homestead
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_occupies_homestead
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_meets_income_requirement
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_paid_property_tax
+    entity: Person
+    dtype: Boolean
+    period: Month
+  - name: claimant_filed_timely_claim
+    entity: Person
+    dtype: Boolean
+    period: Month
+rules:
+  - name: ok_property_tax_relief_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: >-
+          claimant_is_resident and claimant_meets_age_requirement and
+          claimant_owns_homestead and claimant_occupies_homestead and
+          claimant_meets_income_requirement and claimant_paid_property_tax and
+          claimant_filed_timely_claim
