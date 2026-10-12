@@ -375,25 +375,26 @@ in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
 
 `module.interpretations` records each reading adopted when provisions conflict,
 the encoding departs from literal text, or a question has been put to the
-publisher. It is also inert at runtime. For example, an encoder can record an
-unresolved reading as:
+publisher. It is also inert at runtime. **Synthetic example:** an encoder can
+record an unresolved reading for the invented Example District Council Support
+Scheme as follows. The citation, excerpt, and readings below are fictional:
 
 ```yaml
 module:
   interpretations:
-    - id: daily-twenty-per-cent
-      question: Is the daily percentage applied once a week or for each day?
+    - id: household-change-notice
+      question: Must each adult notify the council separately of a household change?
       texts:
-        - corpus_citation_path: uk-babergh/manual/council-tax-reduction-scheme-2026-2027/page-87
-          excerpt: "The prescribed daily percentage"
-      reading: 20% of weekly excess income, applied once a week.
+        - corpus_citation_path: xx-fictional/manual/example-district-support-scheme/notifications
+          excerpt: "Applicants must notify the council when household circumstances change."
+      reading: One household notification satisfies the notice requirement.
       alternatives:
-        - reading: 20% of weekly excess income for each day, 140% a week.
-          effect: Support ends at a lower excess income.
-      basis: The weekly reading follows the scheme's weekly income table.
+        - reading: Each adult must notify the council separately.
+          effect: Applicants would need to send separate notices.
+      basis: The scheme addresses the household as one applicant.
       status: open
       affects:
-        - babergh_council_tax_reduction_weekly_taper_rate
+        - example_support_change_notice_required
 ```
 
 Each entry requires a module-unique `id` matching

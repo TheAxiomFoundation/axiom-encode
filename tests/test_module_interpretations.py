@@ -594,13 +594,17 @@ def test_generated_valid_entries_pass_and_each_missing_required_field_has_one_fi
         ("reading",): "must be a non-blank string.",
         ("basis",): "must be a non-blank string.",
         ("texts",): "must be a non-empty list.",
-        ("texts", 0, "corpus_citation_path"): "must be a non-blank string.",
-        ("texts", 0, "excerpt"): "must be a non-blank string.",
         ("alternatives",): "must be a non-empty list.",
-        ("alternatives", 0, "reading"): "must be a non-blank string.",
         ("status",): "must be open, ruled, confirmed or contradicted.",
         ("affects",): "must be a non-empty list.",
     }
+    for text_index in range(len(entry["texts"])):
+        for field in ("corpus_citation_path", "excerpt"):
+            expectations[("texts", text_index, field)] = "must be a non-blank string."
+    for alternative_index in range(len(entry["alternatives"])):
+        expectations[("alternatives", alternative_index, "reading")] = (
+            "must be a non-blank string."
+        )
     for field in ("ruling", "confirmation"):
         if field not in entry:
             continue
