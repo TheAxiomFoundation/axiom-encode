@@ -60,6 +60,7 @@ LEGAL_CLOSE = re.compile(
 REFERENCE_CLOSE = re.compile(
     r"[ \t]*(?:$|[.;:](?!\d)|,[ \t]*(?:claim|use|"
     r"the[ \t]+(?:credit|tax|deduction|subtraction))\b|"
+    r",[ \t]*the[ \t]+following[ \t]+applies[ \t]*:|"
     r"(?:hereof|herein|for[ \t]+the[ \t]+same[ \t]+taxable[ \t]+year)\b"
     r"(?=[ \t]*(?:$|[,.;:](?!\d))))",
     re.IGNORECASE,
@@ -87,7 +88,57 @@ def complete_legal_tail(tail: str):
             re.IGNORECASE,
         ):
             return True
-    return bool(REFERENCE_CLOSE.match(tail))
+    if REFERENCE_CLOSE.match(tail):
+        return True
+    # A finite definition of a quoted, nonnumeric term starts a new clause.
+    # Its comma therefore cannot be joining another member of a quantity list.
+    definition = re.match(
+        r"[ \t]*,[ \t]+(?P<term>\"[^\"\d\r\n]+\"|“[^”\d\r\n]+”|"
+        r"'[^'\d\r\n]+'|‘[^’\d\r\n]+’)[ \t]+"
+        r"(?:means|includes|refers[ \t]+to)\b",
+        tail,
+        re.IGNORECASE,
+    )
+    return bool(definition and re.search(r"[A-Za-z]", definition.group("term")))
+
+
+def independent_quantity_clause(tail: str):
+    """A complete finite clause proves the preceding comma is a boundary.
+
+    Parse a numeric subject separately from its predicate. Shared comma and
+    conjunction lists cannot prove that a preceding number is a locator.
+    Only a local numeric range or comparison belongs to one numeric subject.
+    """
+    opener = re.match(
+        r"[ \t]*,[ \t]+\d+(?:\.\d+)?"
+        r"(?:[ \t]*(?:[-–—]|\bto\b|\bthrough\b)[ \t]*\d+(?:\.\d+)?)?"
+        r"(?:[ \t]+or[ \t]+(?:more|fewer|less|greater)\b)?[ \t]+",
+        tail,
+        re.IGNORECASE,
+    )
+    if opener is None:
+        return False
+    closing = re.search(r"[.;:](?!\d)|$", tail[opener.end() :])
+    if closing is None:
+        return False
+    clause = tail[opener.end() : opener.end() + closing.start()].strip()
+    if not clause or re.search(r"\b(?:and|or)\b", clause, re.IGNORECASE):
+        return False
+    if re.search(r"[^\w'’% \t-]", clause):
+        return False
+    words = clause.lower().split()
+    for index, word in enumerate(words):
+        if index == 0:
+            continue  # The numeric subject must include its noun or unit.
+        if word in {"qualify", "qualifies"} and index == len(words) - 1:
+            return True
+        if word in {"must", "shall", "may", "can", "is", "are"}:
+            complement = words[index + 1 :]
+            if complement and all(
+                re.fullmatch(r"[a-z][\w'’-]*", part) for part in complement
+            ):
+                return True
+    return False
 
 
 def sha256(data: bytes) -> str:
@@ -189,7 +240,7 @@ def independent_identifier_context(source: str, start: int, end: int):
             comma_boundary = (
                 match is labels[0]
                 and prefix.group().strip().lower() == "subdivision"
-                and bool(re.match(r"[ \t]*,", local_tail))
+                and independent_quantity_clause(local_tail)
             )
             prefix_predicate = (
                 len(labels) == 1

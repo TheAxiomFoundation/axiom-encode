@@ -2243,7 +2243,25 @@ _ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY = re.compile(
     r"[ \t]*(?:$|[.;:](?!\d)|"
     r"(?:for[ \t]+the[ \t]+same[ \t]+taxable[ \t]+year|hereof|herein)"
     r"(?=[ \t]*(?:$|[,.;:](?!\d)))|"
-    r",[ \t]*(?:claim\b|use\b|the[ \t]+(?:credit|tax|deduction|subtraction)\b))",
+    r",[ \t]*(?:claim\b|use\b|the[ \t]+(?:credit|tax|deduction|subtraction)\b|"
+    r"the[ \t]+following[ \t]+applies[ \t]*:|"
+    r'(?:"[A-Za-z][A-Za-z -]*"|“[A-Za-z][A-Za-z -]*”)[ \t]+'
+    r"(?:means?|includes?|refers?[ \t]+to)\b))",
+    flags=re.IGNORECASE,
+)
+_ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY = re.compile(
+    # A comma alone cannot separate a locator from a shared quantity list.
+    # Prove a complete, independent quantity subject and finite predicate.
+    # Coordination stays ambiguous; a local comparison or range is one subject.
+    r"[ \t]*,[ \t]+\d+(?:\.\d+)?"
+    r"(?:[ \t]*(?:[-–—]|to\b|through\b)[ \t]*\d+(?:\.\d+)?)?"
+    r"(?:[ \t]+or[ \t]+(?:more|fewer|less|greater)\b)?[ \t]+"
+    # Bound positive proof work; longer or ambiguous clauses stay demanded.
+    r"(?:(?!(?:and|or)\b)[\w'’%-]+[ \t]+){0,32}"
+    r"(?:qualif(?:y|ies)|(?:must|shall|may|can|is|are)[ \t]+"
+    r"(?:(?!(?:and|or)\b)[A-Za-z][\w'’-]*[ \t]+){0,32}"
+    r"(?!(?:and|or)\b)[A-Za-z][\w'’-]*)"
+    r"(?=[ \t]*(?:$|[.;:](?!\d)))",
     flags=re.IGNORECASE,
 )
 _ENGLISH_SUBDIVISION_SINGLE_REFERENCE_PREDICATE = re.compile(
@@ -13830,12 +13848,14 @@ def _english_subdivision_numeric_recall_spans(
             complete = False
         if complete:
             selected = labels
-        elif citation.group("keyword").lower() == "subdivision" and re.match(
-            r"[ \t]*,", source_text[labels[0].end() :]
+        elif (
+            citation.group("keyword").lower() == "subdivision"
+            and _ENGLISH_SUBDIVISION_QUANTITY_CLAUSE_BOUNDARY.match(
+                source_text, labels[0].end()
+            )
         ):
-            # The explicitly introduced locator ends at this comma. Every
-            # unproven sibling, including intermediate comma-list members,
-            # remains demanded regardless of the vocabulary of its quantity.
+            # Only a positively completed new clause proves this boundary.
+            # A bare comma or a shared quantity suffix never proves a locator.
             selected = labels[:1]
         elif (
             len(labels) == 1

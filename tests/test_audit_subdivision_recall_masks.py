@@ -53,10 +53,52 @@ def test_audit_does_not_classify_operative_values_as_identifiers(source):
 )
 def test_intermediate_commas_do_not_prove_coordinated_quantities_are_locators(source):
     for match in re.finditer(r"\d+", source):
-        if match.group() == "2" and "subdivisions" not in source:
+        assert independent_identifier_context(source, *match.span()) is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Under subdivision 2, 20, or 30 percent of income, the credit is $300.",
+        "A land subdivision 3, or more acres, qualifies.",
+    ),
+)
+def test_comma_fallback_cannot_prove_an_ambiguous_quantity_is_a_locator(source):
+    for match in re.finditer(r"\d+", source):
+        assert independent_identifier_context(source, *match.span()) is None
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Under subdivision 2, 3 or more eligible children must qualify.",
+        "Under subdivision 2, 20 of every 100 applicants qualify.",
+        "Under subdivision 2, 3–5 of the taxpayer’s children must qualify.",
+        "Under subdivision 2, the following applies: 20 percent of income.",
+    ),
+)
+def test_a_complete_quantity_clause_independently_proves_the_locator_boundary(source):
+    for match in re.finditer(r"\d+", source):
+        if match.start() == source.index("2"):
             assert independent_identifier_context(source, *match.span()) is not None
         else:
             assert independent_identifier_context(source, *match.span()) is None
+
+
+def test_a_quoted_term_definition_independently_proves_the_locator_boundary():
+    source = (
+        'For purposes of subdivision 15, "business interest" means the same as '
+        "that term is defined under § 163(j) of the Internal Revenue Code."
+    )
+    start = source.index("15")
+    assert independent_identifier_context(source, start, start + 2) is not None
+
+
+@pytest.mark.parametrize("term", ('"20 percent"', "“20 percent”", "'20 percent'"))
+def test_a_numeric_quoted_term_cannot_prove_a_locator_boundary(term):
+    source = f"Under subdivision 2, {term} means the applicable rate."
+    start = source.index("2")
+    assert independent_identifier_context(source, start, start + 1) is None
 
 
 @pytest.mark.parametrize(
@@ -113,8 +155,8 @@ def test_audit_classifies_complete_identifiers(source):
 
 
 def test_entry_removal_audit_preserves_offsets_and_nonnumeric_text():
-    source = "Under subdivision 2, 20 percent applies."
-    masked = "Under subdivision  , 20 percent applies."
+    source = "Under subdivision 2, the following applies: 20 percent."
+    masked = "Under subdivision  , the following applies: 20 percent."
     removals = entry_removals(source, masked)
     assert len(removals) == 1
     assert removals[0]["raw"] == "2"

@@ -128,7 +128,8 @@ def _mixed_quantity_sources(draw):
     spans = []
     offset = 0
     for quantity in quantities:
-        clause = f"Under {label}, {quantity}. "
+        # Prove the locator independently of any shared quantity suffix.
+        clause = f"Under {label}, the following applies: {quantity}. "
         number_start = clause.index(str(locator))
         spans.append((offset + number_start, offset + number_start + len(str(locator))))
         clauses.append(clause)
@@ -169,6 +170,15 @@ def _mixed_quantity_sources(draw):
             ),
             f"Under subdivisions {first}, {second}, and {third} {unit}, the credit applies. ",
             f"Under subdivisions {first}, {decimal}, and {third} percent of income, the credit applies. ",
+            *(
+                f"Under subdivision {first}, {second}{connector}{third} {rate} of income, the credit applies. "
+                for connector in (", or ", ", and ", " or ", " and ")
+                for rate in ("percent", "per cent", "%")
+            ),
+            *(
+                f"A land subdivision {first}, or {comparison} acres, qualifies. "
+                for comparison in ("more", "fewer", "less", "greater")
+            ),
             *(
                 f"A land subdivision {first}{spacing}{quantity_unit}{tail} "
                 for quantity_unit in ("m", "g", "l", "s")
@@ -290,6 +300,11 @@ def test_review_quantity_probes(source, operative_values, locator_is_unambiguous
         ("A land subdivision 3m.", ()),
         ("A land subdivision 3 g is required.", ()),
         ("A land subdivision 3g.", ()),
+        (
+            "Under subdivision 2, 20, or 30 percent of income, the credit is $300.",
+            (),
+        ),
+        ("A land subdivision 3, or more acres, qualifies.", ()),
     ),
 )
 def test_possessive_counts_and_single_letter_units_are_operative(source, locator_spans):
@@ -310,3 +325,22 @@ def test_coordinated_decimal_rate_requires_the_full_operative_token():
         and item.end == decimal_start + len("20.5")
         for item in EXTRACT_NUMBERS(cleaned)
     )
+
+
+def test_long_unproven_quantity_clause_keeps_every_number():
+    source = "Under subdivision 2, 3 " + "must " * 1600 + "!"
+    cleaned = completeness.authoritative_numeric_recall_text(
+        source, corpus_citation_path=VA_CITATION
+    )
+    assert cleaned == source
+    assert [item.value for item in EXTRACT_NUMBERS(cleaned)] == [2, 3]
+
+
+@pytest.mark.parametrize(("opening", "closing"), (('"', '"'), ("“", "”")))
+def test_quoted_definition_proves_a_complete_legal_locator(opening, closing):
+    source = (
+        f"For purposes of subdivision 15, {opening}business interest{closing} "
+        "means 20 percent of deductible interest."
+    )
+    start = source.index("15")
+    _assert_quantity_source(QuantitySource(source, ((start, start + 2),)))
