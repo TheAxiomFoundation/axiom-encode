@@ -31,3 +31,10 @@ Tests that execute the real axiom-rules-engine take the `real_engine` fixture (`
 uv run axiom-encode engine-bind --axiom-rules-engine-path <engine checkout> --pin <pin>
 AXIOM_RULES_ENGINE_ROOT=<engine checkout> AXIOM_RULES_ENGINE_REF=<pin> AXIOM_REQUIRE_REAL_ENGINE=1 uv run pytest -m real_engine
 ```
+
+The cross-repository tests in `tests/test_core_export_integration.py` take the `real_core` fixture (`tests/real_core.py`) and skip without `AXIOM_CORE_BIN`. CI's `real-core` job compiles axiom-core at the commit pinned in `.github/workflows/ci.yml` (`AXIOM_CORE_REF`) and runs them with `AXIOM_REQUIRE_REAL_CORE=1`, which fails rather than skips them. To run them locally against that pin, from a checkout of it:
+
+```bash
+cargo build --locked --bin axiom-core
+AXIOM_CORE_BIN=<core checkout>/target/debug/axiom-core AXIOM_CORE_REF=<pin> AXIOM_REQUIRE_REAL_CORE=1 uv run pytest -m real_core
+```
