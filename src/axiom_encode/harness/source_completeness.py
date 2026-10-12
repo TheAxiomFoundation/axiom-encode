@@ -13591,6 +13591,20 @@ def authoritative_numeric_recall_text(
     if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
         # US-only: a German line such as `1.000 Euro Freibetrag` would
         # otherwise read as a numbered heading.
+        if corpus_citation_path.startswith(
+            (
+                "us/guidance/usda/fns/snap-fy2026-cola/",
+                "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/",
+            )
+        ):
+            # USDA's FY 2026 tables use "48 States" as a geographic column
+            # label. Its 48 is not a policy amount; keep nearby dollar cells.
+            cleaned = re.sub(
+                r"(?<![$\w])48(?=\s+States\b)",
+                "  ",
+                cleaned,
+                flags=re.IGNORECASE,
+            )
         cleaned = _BRACKETED_USC_ET_SEQ_CITATION_LIST.sub("", cleaned)
         cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
         cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
