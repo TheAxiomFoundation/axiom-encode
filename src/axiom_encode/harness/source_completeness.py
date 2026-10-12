@@ -14770,6 +14770,10 @@ def _source_conjunctive_fact_gates(
             continue
         if not (
             _SOURCE_GATE_PREDICATE_LANGUAGE.search(segment)
+            # Keep the noun phrase's existing admission as a care fact after
+            # removing its false dependency-status reading. Its other tokens
+            # still demand distinct expense, claim, or care-action evidence.
+            or _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.search(segment)
             or predicates
             & (
                 _SOURCE_GATE_NOMINAL_PREDICATES

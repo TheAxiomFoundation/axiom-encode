@@ -122,6 +122,180 @@ def test_dependent_care_subject_matter_is_not_dependency_polarity():
     } & sc._source_gate_semantic_tokens(phrase)
 
 
+@pytest.mark.parametrize(
+    ("clause", "expected_predicates"),
+    [
+        (
+            "If a parent or guardian report that they are unable to provide care "
+            "for the child and require dependent care, see Special Dependent Care Situations.",
+            ({"unable", "provide", "care"}, {"require", "care"}),
+        ),
+        (
+            "If a school, institution, program, or other grantor earmarks part of "
+            "educational assistance for dependent care expenses, and this income "
+            "is excluded for SNAP purposes, it cannot be allowed as a deduction.",
+            ({"earmark", "educational", "assistance", "care"}, {"excluded", "snap"}),
+        ),
+    ],
+)
+def test_dependent_care_actions_retain_distinct_factual_gates(
+    clause, expected_predicates
+):
+    gates = sc._source_conjunctive_fact_gates(clause)
+    assert len(gates) == len(expected_predicates)
+    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+    for (_, predicates), expected in zip(gates, expected_predicates, strict=True):
+        assert expected <= predicates
+
+
+def test_dependent_care_actions_require_distinct_corroborating_terminals():
+    clause = (
+        "If a parent or guardian report that they are unable to provide care "
+        "for the child and require dependent care, see Special Dependent Care Situations."
+    )
+    gates = sc._source_conjunctive_fact_gates(clause)
+    assert len(gates) == 2
+    collapsed = {
+        "inputs": [
+            {
+                "name": "parent_conditions",
+                "description": "The parent is unable to provide care for the child and requires dependent care.",
+            }
+        ]
+    }
+    assert not sc._terminal_names_corroborate_source_gates(
+        frozenset({"parent_conditions"}),
+        gates,
+        terminal_evidence=sc._terminal_gate_evidence(collapsed),
+    )
+    distinct = {
+        "inputs": [
+            {
+                "name": "parent_unable_to_provide_child_care",
+                "description": "The parent is unable to provide care for the child.",
+            },
+            {
+                "name": "parent_requires_dependent_care",
+                "description": "The parent requires dependent care.",
+            },
+        ]
+    }
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(item["name"] for item in distinct["inputs"]),
+        gates,
+        terminal_evidence=sc._terminal_gate_evidence(distinct),
+    )
+
+
+def test_dependent_care_billed_or_paid_expense_retains_its_factual_gate():
+    clause = (
+        "If the ineligible member has income and dependent care expense billed "
+        "to or paid by the ineligible member(s), we determine the deduction by "
+        "dividing the expenses evenly among eligible and ineligible members."
+    )
+    gates = sc._source_conjunctive_fact_gates(clause)
+    assert len(gates) == 2
+    assert "income" in gates[0][1]
+    assert {"billed", "paid", "care", "expense"} <= gates[1][1]
+    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+
+
+@pytest.mark.parametrize(
+    ("clause", "expected_predicates"),
+    [
+        (
+            "If a resident individual has federal adjusted gross income below "
+            "sixty thousand dollars and the individual claims the federal "
+            "dependent care credit;",
+            ({"income"}, {"claim", "federal", "care"}),
+        ),
+        (
+            "If the household reports a change in dependent care payments "
+            "and the information is questionable;",
+            ({"report", "change", "care", "payment"}, {"questionable"}),
+        ),
+    ],
+)
+def test_care_credit_claim_and_reported_change_keep_real_conjunctions(
+    clause, expected_predicates
+):
+    # Reduced factual antecedents from CO credit eligibility and PA SAR
+    # verification; the exact multiline/list source remains in the corpus audit.
+    gates = sc._source_conjunctive_fact_gates(clause)
+    assert len(gates) == 2
+    for (_, predicates), expected in zip(gates, expected_predicates, strict=True):
+        assert expected <= predicates
+    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+
+
+@given(
+    fact=st.sampled_from(
+        [
+            ("dependent care expenses", frozenset({"care", "expense"})),
+            (
+                "the taxpayer claims the dependent care credit",
+                frozenset({"claim", "care"}),
+            ),
+            (
+                "the taxpayer reports a change in dependent care payments",
+                frozenset({"report", "change", "care", "payment"}),
+            ),
+            (
+                "dependent care expense billed to the taxpayer",
+                frozenset({"billed", "care", "expense"}),
+            ),
+            (
+                "dependent care expense paid by the taxpayer",
+                frozenset({"paid", "care", "expense"}),
+            ),
+        ]
+    ),
+    whitespace=st.sampled_from([" ", "\t", "  "]),
+    uppercase=st.booleans(),
+)
+@settings(deadline=None, max_examples=80)
+def test_care_noun_retains_its_non_dependency_tokens_and_gate_count(
+    fact, whitespace, uppercase
+):
+    wording, expected_predicates = fact
+    source = "If the taxpayer is resident and " + wording.replace(" ", whitespace) + ";"
+    if uppercase:
+        source = source.upper()
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert "resident" in gates[0][1]
+    assert expected_predicates <= gates[1][1]
+    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+
+
+@given(
+    action=st.sampled_from(
+        ["requires", "required", "requiring", "earmarks", "earmarked", "earmarking"]
+    ),
+    subject=st.sampled_from(["parent", "taxpayer", "applicant"]),
+    whitespace=st.sampled_from([" ", "\t", "  "]),
+    uppercase=st.booleans(),
+)
+@settings(deadline=None, max_examples=80)
+def test_dependent_care_noun_keeps_transitive_action_facts(
+    action, subject, whitespace, uppercase
+):
+    source = (
+        f"If the {subject} {action} dependent{whitespace}care expenses "
+        "and the spouse is disabled, the credit applies."
+    )
+    if uppercase:
+        source = source.upper()
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert subject in gates[0][0]
+    assert "care" in gates[0][1]
+    assert any(token.startswith(("requir", "earmark")) for token in gates[0][1])
+    assert "spouse" in gates[1][0]
+    assert "disabled" in gates[1][1]
+    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+
+
 @pytest.mark.parametrize("punctuation", [",", ";", ":", ".", " —"])
 def test_punctuation_keeps_dependency_status_separate_from_care(punctuation):
     phrase = f"the child is dependent{punctuation} care expenses are deductible"
