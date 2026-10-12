@@ -42,8 +42,87 @@ jobs:
       - name: Check changelog fragments
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
+      # The real-engine job runs the tests that execute the engine.
       - name: Run tests
-        run: .venv/bin/pytest tests/
+        run: .venv/bin/pytest tests/ -m "not real_engine"
+
+  real-engine:
+    # Tests that execute the real axiom-rules-engine (tests/real_engine.py),
+    # against an engine built from the pinned commit. The test job has no
+    # engine and deselects them; with AXIOM_REQUIRE_REAL_ENGINE=1 a missing,
+    # unusable or unpinned engine fails them here instead of skipping them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # The engine rulespec-us's reviewed workflow toolchain validates with
+      # (.axiom/workflow-toolchain.toml axiom_rules_engine_ref), also pinned by
+      # issue233-canada-source-diagnostic.yml. The tests check the checkout is
+      # clean at this commit.
+      AXIOM_RULES_ENGINE_REF: 89571cc2a938707fd60a5489b951135345697296
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Outside the workspace, so the encoder checkout stays clean.
+      - name: Check out the pinned axiom-rules-engine
+        run: |
+          set -euo pipefail
+          engine="$RUNNER_TEMP/axiom-rules-engine"
+          git init -q "$engine"
+          git -C "$engine" fetch -q --depth=1 \
+            https://github.com/TheAxiomFoundation/axiom-rules-engine.git \
+            "$AXIOM_RULES_ENGINE_REF"
+          git -C "$engine" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$engine" rev-parse HEAD)" = "$AXIOM_RULES_ENGINE_REF"
+
+      # The build is keyed by the pinned commit, so it is rebuilt only when the
+      # pin moves (or the cache is evicted).
+      - name: Restore the pinned engine build
+        id: engine-build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/axiom-rules-engine/target/release/axiom-rules-engine
+          key: axiom-rules-engine-${{ runner.os }}-${{ runner.arch }}-${{ env.AXIOM_RULES_ENGINE_REF }}-release
+
+      - name: Install Rust toolchain
+        if: steps.engine-build.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - name: Build the pinned engine
+        if: steps.engine-build.outputs.cache-hit != 'true'
+        working-directory: ${{ runner.temp }}/axiom-rules-engine
+        run: cargo build --release --locked
+
+      - name: Save the pinned engine build
+        if: steps.engine-build.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/axiom-rules-engine/target/release/axiom-rules-engine
+          key: ${{ steps.engine-build.outputs.cache-primary-key }}
+
+      - name: Run real-engine tests
+        env:
+          AXIOM_REQUIRE_REAL_ENGINE: "1"
+          AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
+        run: .venv/bin/pytest tests/ -m real_engine
 
   lint:
     runs-on: ubuntu-latest
