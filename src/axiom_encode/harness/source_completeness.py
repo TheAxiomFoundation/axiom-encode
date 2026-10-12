@@ -30,7 +30,7 @@ from decimal import (
     InvalidOperation,
     localcontext,
 )
-from typing import Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
 
@@ -41,6 +41,14 @@ from axiom_encode.statute import (
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+
+if TYPE_CHECKING:
+    from axiom_encode.harness.worksheet_composition_evidence import (
+        BoundWorksheetComposition,
+    )
+    from axiom_encode.harness.worksheet_replacement_evidence import (
+        BoundWorksheetReplacement,
+    )
 
 _UNBOUND_FORMULA_DIAGNOSTIC_RULE_LIMIT = 32
 _UNBOUND_FORMULA_DIAGNOSTIC_CASE_LIMIT = 8
@@ -5128,6 +5136,28 @@ def _analyze_rulespec_payload(
         )
     )
 
+    from axiom_encode.harness.worksheet_replacement_evidence import (
+        bind_worksheet_replacement,
+    )
+
+    certified_replacement = (
+        bind_worksheet_replacement(
+            payload, test_cases, source_text, source_context, certified_transfers
+        )
+        if not source_condition_issues and certified_transfers is not None
+        else None
+    )
+
+    from axiom_encode.harness.worksheet_composition_evidence import (
+        bind_worksheet_composition,
+    )
+
+    certified_composition = (
+        bind_worksheet_composition(certified_replacement)
+        if certified_replacement is not None
+        else None
+    )
+
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -5320,6 +5350,8 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                certified_composition=certified_composition,
+                certified_replacement=certified_replacement,
                 represented_annual_spans=represented_annual_spans,
                 certified_paths=certified_paths,
                 certified_operations=certified_operations,
@@ -17111,6 +17143,8 @@ def _companion_test_issues(
     certified_transfers: Any = None,
     certified_paths: Any = None,
     certified_operations: Any = None,
+    certified_replacement: BoundWorksheetReplacement | None = None,
+    certified_composition: BoundWorksheetComposition | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -17182,6 +17216,7 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        certified_replacement=certified_replacement,
         source_text=source_text,
         represented_annual_spans=represented_annual_spans,
         corpus_citation_path=corpus_citation_path,
@@ -17356,6 +17391,8 @@ def _companion_test_issues(
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
+            certified_composition=certified_composition,
+            certified_replacement=certified_replacement,
             certified_paths=certified_paths,
             certified_operations=certified_operations,
             certified_transfers=certified_transfers,
@@ -18078,12 +18115,14 @@ def _unwitnessed_formula_branches(
     formula_environment: dict[str, Any],
     dependency_cache: dict[int, dict[str, Any]],
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
 
     candidate_witnesses = {
         branch: _formula_branch_test_witnesses(
             branch,
+            certified_replacement=certified_replacement,
             source_text=source_text,
             represented_annual_spans=represented_annual_spans,
             corpus_citation_path=corpus_citation_path,
@@ -18306,6 +18345,7 @@ def _formula_branch_test_witnesses(
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
     max_cases_per_rule: int | None = None,
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> set[tuple[str, str]]:
     interval = _formula_branch_interval(
         branch,
@@ -18354,6 +18394,7 @@ def _formula_branch_test_witnesses(
             if not _formula_execution_is_source_branch_witness(
                 execution,
                 branch,
+                certified_replacement=certified_replacement,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
@@ -18944,6 +18985,7 @@ def _formula_execution_is_source_branch_witness(
     formula_environment: dict[str, Any],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
 
@@ -18975,6 +19017,13 @@ def _formula_execution_is_source_branch_witness(
         return _formula_execution_matches_source_branch(
             binding_execution,
             branch,
+            source_operation_kinds=(
+                certified_replacement.operation_kinds(
+                    rule=rule, case=case, branch=branch, execution=binding_execution
+                )
+                if certified_replacement is not None
+                else None
+            ),
             interval=interval,
             annual_evidence=annual_evidence,
             formula_environment=formula_environment,
@@ -20188,10 +20237,15 @@ def _formula_execution_matches_source_branch(
     execution_environment: dict[str, Any] | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    source_operation_kinds: frozenset[str] | None = None,
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
-    source_operations = _formula_operation_kinds(branch.text)
+    source_operations = (
+        set(source_operation_kinds)
+        if source_operation_kinds is not None
+        else _formula_operation_kinds(branch.text)
+    )
     binding_environment = {
         name: value
         for name, value in formula_environment.items()
@@ -26621,6 +26675,8 @@ def _rounding_source_formula_branches(
 def _unwitnessed_exception_branches(
     exception_branches: Sequence[SourceStructureBranch],
     *,
+    certified_replacement: BoundWorksheetReplacement | None = None,
+    certified_composition: BoundWorksheetComposition | None = None,
     source_text: str = "",
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
     formula_environment: dict[str, Any] | None = None,
@@ -26669,6 +26725,36 @@ def _unwitnessed_exception_branches(
                 )
                 if evidence is not None and evidence.annual_span is not None:
                     represented_annual_spans.add(evidence.annual_span)
+    # Preserve both the legacy candidate map and its allocation above: a new
+    # equality edge must not activate annual/cardinality evidence.
+    augmented_witnesses = candidate_witnesses
+    if certified_replacement is not None:
+        from axiom_encode.harness.worksheet_exception_evidence import existing_witnesses
+
+        augmented_witnesses = {
+            branch: witnesses | existing_witnesses(
+                certified_replacement,
+                branch,
+                toggled_exception_selectors,
+                principal_rules=principal_rules,
+                asserted_by_rule=asserted_by_rule,
+            )
+            for branch, witnesses in candidate_witnesses.items()
+        }
+    if certified_composition is not None:
+        # Tags make mixed evidence sortable without changing existing witness
+        # identity. Every duplicate worksheet obligation competes for one resource.
+        normalized = {
+            branch: {(0, witness) for witness in witnesses}
+            for branch, witnesses in augmented_witnesses.items()
+        }
+        for branch, resources in normalized.items():
+            resource = certified_composition.resource_for(branch, principal_rules)
+            if resource is not None:
+                resources.add((1, resource))
+        missing = _unmatched_evidence_obligations(normalized)
+    elif certified_replacement is not None:
+        missing = _unmatched_evidence_obligations(augmented_witnesses)
     # New operation evidence cannot retroactively authorize annual evidence
     # from an otherwise unmatched legacy witness. Annual activation is separate.
     if certified_paths is not None:

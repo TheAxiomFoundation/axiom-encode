@@ -1,3 +1,7 @@
+## 0.2.2173
+
+- Bind worksheet replacement operations, existing equality witnesses and the complete worksheet operation block to current source proofs, selected versions and independently executed companion cases. Preserve distinct-witness allocation and annual coverage accounting; reject stale private rounding context.
+
 ## 0.2.2172
 
 - Recognize the source-owned foreign-country count and tax threshold only with exact typed facts, complete proofs, effective dates, and independently corroborated boundary cases. Preserve unrelated income-condition findings.

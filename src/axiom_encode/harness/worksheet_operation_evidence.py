@@ -120,6 +120,24 @@ class WorksheetOperationCoverage:
     case_links: tuple[tuple[str, int], ...] = ()
     unresolved: tuple[str, ...] = ()
     source_sha256: str = ""
+    input_identity: str = ""
+    context_identity: str = ""
+
+    def matches(self, payload, cases, source_text, source_context) -> bool:
+        """Rebind successful universal evidence to its exact scalar inputs."""
+        try:
+            return (
+                bool(self.outputs)
+                and not self.unresolved
+                and (
+                    self.input_identity == path_input_identity(payload, cases)
+                    and self.context_identity == path_input_identity(source_context, ())
+                    and self.source_sha256
+                    == hashlib.sha256(source_text.encode()).hexdigest()
+                )
+            )
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return False
 
     def remaining_exception(
         self, branch, *, source_text, principal_rules, corpus_citation_path
@@ -881,4 +899,6 @@ def certify_worksheet_operations(
         tuple(links),
         (),
         hashlib.sha256(source_text.encode()).hexdigest(),
+        path_input_identity(payload, test_cases),
+        path_input_identity(source_context, ()),
     )
