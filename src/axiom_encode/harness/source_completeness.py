@@ -34,7 +34,11 @@ from typing import Any, Mapping, Protocol
 
 import yaml
 
-from axiom_encode.bare_structure import bare_outline, mask_bare_labels
+from axiom_encode.bare_structure import (
+    bare_definition_headers,
+    bare_outline,
+    mask_bare_labels,
+)
 from axiom_encode.harness.proof_validator import _normalize_atom_path
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
@@ -2520,10 +2524,10 @@ def recognize_source_structure(
 
     outline = bare_outline(source_text)
     if outline:
-        masked = mask_bare_labels(source_text)
-        return tuple(
+        masked = mask_bare_labels(source_text, outline)
+        branches = [
             SourceStructureBranch(
-                label.path,
+                tuple(part.lower() for part in label.path),
                 "paragraph" if label.token[0].isdigit() else "letter",
                 f"({label.token})",
                 masked[label.start : label.end],
@@ -2536,7 +2540,20 @@ def recognize_source_structure(
                 ),
             )
             for label in outline
-        )
+        ]
+        definitions = bare_definition_headers(source_text, outline)
+        for index, (start, term) in enumerate(definitions):
+            end = (
+                definitions[index + 1][0]
+                if index + 1 < len(definitions)
+                else len(source_text)
+            )
+            branches.append(
+                SourceStructureBranch(
+                    (), "definition", term, masked[start:end].strip(), start, end
+                )
+            )
+        return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
@@ -17836,10 +17853,10 @@ def _source_clause_spans(
 ) -> Iterable[tuple[int, int, str]]:
     """Yield offset-preserving clauses split at punctuation and structure."""
 
-    # Mask only authenticated structural labels; preserve offsets and return
-    # original source slices so proof atoms remain text-bound.
+    # Mask only authenticated structural labels, preserving offsets. The
+    # resulting excerpts retain every operative character of the source.
     bare_labels = bare_outline(source_text) or ()
-    display_text = mask_bare_labels(source_text)
+    display_text = mask_bare_labels(source_text, bare_labels)
     boundary_text = _mask_spaced_german_sentence_labels(display_text)
     boundary = re.compile(
         r";|:(?=\s*(?i:provided)\s*,?\s*(?i:that)\b)|"
@@ -17899,6 +17916,11 @@ def _source_clause_spans(
         *(branch.end for branch in branches),
         *(label.start for label in bare_labels),
         *(label.marker_end for label in bare_labels),
+        *(
+            (start for start, _term in bare_definition_headers(source_text, bare_labels))
+            if bare_labels
+            else ()
+        ),
     }
     for start, end in zip(sorted(split_points), sorted(split_points)[1:]):
         raw = boundary_text[start:end]
