@@ -831,6 +831,13 @@ _FORMULA_RESULT_OPERATION_LANGUAGE = re.compile(
     r"[^.;:\n]{1,120}\bby\b)",
     flags=re.IGNORECASE,
 )
+_STATUTORY_CREDIT_DIFFERENCE_CONSEQUENCE = (
+    r"the taxpayer shall claim from the state not more than the difference "
+    r"between the amount of the state child care credit for which the taxpayer "
+    r"is eligible and the federal credit for child and dependent care expenses "
+    r"the taxpayer is able to deduct from federal tax liability "
+    r"for the same taxable year[.;]?"
+)
 _FORMULA_DIRECT_FOLLOWING_OPERANDS = re.compile(
     r"\b(?:addition|average|difference|greater|greatest|higher|highest|larger|"
     r"largest|least|lesser|lower|lowest|max|maximum|mean|median|min|minimum|"
@@ -4404,6 +4411,13 @@ def _formula_states_contextual_operator(
 
     if include_unconditional and _FORMULA_UNCONDITIONAL_OPERATOR_LANGUAGE.search(
         source_text
+    ):
+        return True
+    # This closed statutory instruction names both numeric credit operands.
+    # Its claimant subject does not supply the generic numeric result head.
+    if re.search(
+        _STATUTORY_CREDIT_DIFFERENCE_CONSEQUENCE + r"(?=\s*(?:[.;]|$))",
+        " ".join(source_text.split()),
     ):
         return True
     for pattern in (
@@ -13860,10 +13874,19 @@ def _source_gate_normalized_token(token: str) -> str:
     return aliases.get(normalized, normalized)
 
 
+_SOURCE_GATE_DEPENDENT_CARE_LANGUAGE = re.compile(
+    r"\bdependent(?=\s+care\b)", flags=re.IGNORECASE
+)
+
+
 def _source_gate_semantic_tokens(text: str) -> frozenset[str]:
+    # In a care credit/expense name, ``dependent`` modifies ``care``; it does
+    # not state whether anyone is another taxpayer's dependent. Keep separate
+    # dependency-status occurrences in the same text for polarity analysis.
+    subject_text = _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub("", text)
     tokens = {
         normalized
-        for token in re.findall(r"[A-Za-z][A-Za-z'-]*", text)
+        for token in re.findall(r"[A-Za-z][A-Za-z'-]*", subject_text)
         if (normalized := _source_gate_normalized_token(token.strip("'-")))
         and normalized not in _SOURCE_GATE_STOPWORDS
         and len(normalized) > 1
@@ -14345,6 +14368,11 @@ def _source_gate_dependent_reading(
 def _source_gate_predicate_readings(
     text: str,
 ) -> tuple[_SourceGatePredicateReading, ...]:
+    # Exclude only the contiguous noun adjunct before tokenization discards
+    # punctuation. Preserve its token slot and character width so other
+    # predicates keep their bounded negation windows. ``is dependent, care
+    # ...`` remains a fact. The neutral noun adjunct has the same nine letters.
+    text = _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub("ancillary", text)
     readings: list[_SourceGatePredicateReading] = []
     for clause in _source_gate_polarity_clauses(text):
         clause_tokens, wrapper_parity = _source_gate_unwrap_negation(
@@ -14524,7 +14552,7 @@ def _closed_monetary_consequence_antecedents(body: str) -> str | None:
 
 
 def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
-    """Recognize closed monetary instructions without erasing operand qualifiers.
+    """Recognize closed monetary consequences without erasing operand qualifiers.
 
     Only the factual-selector view consumes this prefix. Proof, formula and
     numeric analysis retain the complete original operation and source offsets.
@@ -14549,6 +14577,11 @@ def _worksheet_monetary_operation_antecedent(body: str) -> str | None:
         rf"The result from line {number} is your "
         r"(?:provincial or territorial tax otherwise payable|tax otherwise payable|"
         r"tax payable|credit|refund|balance due)\.",
+        # A statutory credit difference has amount operands, not additional
+        # claimant facts. Only this closed consequence is recognized; added
+        # restrictions keep the conservative scan. The original source still
+        # supplies the complete computation and operand proof obligations.
+        _STATUTORY_CREDIT_DIFFERENCE_CONSEQUENCE,
     )
     # Validate the entire input before trying a comma. An unmatched delimiter
     # cannot turn a quoted command or parenthetical condition into a boundary.
@@ -25822,12 +25855,41 @@ def _source_exception_or_applicability_matches(
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
         if not _is_concessive_condition_cue(source_text, match)
+        and not _is_coordinated_parenthetical_if_any_cue(source_text, match)
     )
     return tuple(
         {
             (match.start(), match.end()): match
             for match in sorted(matches, key=lambda item: (item.start(), item.end()))
         }.values()
+    )
+
+
+def _is_coordinated_parenthetical_if_any_cue(
+    source_text: str,
+    match: re.Match[str],
+) -> bool:
+    """Keep attached ``if any and if ...`` wording in the actual condition.
+
+    The parenthetical has no independent predicate to witness. Its complete
+    enclosing source clause remains owned by the following condition cue.
+    A standalone presence condition and quantified ``if any ...`` predicates
+    remain cues, including ``if any, but not all, dependents ...``.
+    """
+
+    if match.group(0).strip().lower() != "if":
+        return False
+    prefix_end = match.start()
+    while prefix_end and source_text[prefix_end - 1].isspace():
+        prefix_end -= 1
+    if not prefix_end or source_text[prefix_end - 1] not in ",([":
+        return False
+    return (
+        re.compile(
+            r"\s+any\b\s*[,\)\]]?\s*(?:and|or)\s+(?:if|when|unless)\b",
+            flags=re.IGNORECASE,
+        ).match(source_text, match.end())
+        is not None
     )
 
 
