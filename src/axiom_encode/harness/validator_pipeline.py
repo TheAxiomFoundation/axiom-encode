@@ -61,6 +61,13 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
 from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
@@ -36301,6 +36308,8 @@ class ValidatorPipeline:
         declared_relation_names: set[str] | None = None,
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         executable_directions: dict[str, tuple[int, str | None]] | None = None,
+        input_entities: dict[str, str] | None = None,
+        table_entity_ids: dict[str, list[str]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -36311,10 +36320,20 @@ class ValidatorPipeline:
         interval = {"start": period["start"], "end": period["end"]}
         inputs: list[dict[str, Any]] = []
         relations: list[dict[str, Any]] = []
+        flat_input_records: list[dict[str, Any]] = []
+        generated_relation_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        generated_table_rows: list[
+            tuple[str, list[str], int, list[dict[str, Any]]]
+        ] = []
+        table_id_containers: dict[str, list[list[str]]] = {}
+        occupied_entity_ids = {query_entity_id: {query_entity}}
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
         declared_relation_slots = declared_relation_slots or {}
         executable_directions = executable_directions or {}
+        input_entities = input_entities or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -36385,11 +36404,14 @@ class ValidatorPipeline:
                         raise ValueError(
                             f"relation `{name}` item #{item_index} must be a mapping"
                         )
+                    explicit_id = item.get("id") or item.get("entity_id")
                     related_id = str(
-                        item.get("id")
-                        or item.get("entity_id")
-                        or f"{query_entity_id}-{name}-{item_index}"
+                        explicit_id or f"{query_entity_id}-{name}-{item_index}"
                     )
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(related_id, set()).add(
+                            related_entity
+                        )
                     relation_tuple = [related_id, query_entity_id]
                     if current_slot == 0:
                         relation_tuple.reverse()
@@ -36401,6 +36423,7 @@ class ValidatorPipeline:
                                 "interval": interval,
                             }
                         )
+                    input_start = len(inputs)
                     for child_name, child_value in item.items():
                         if child_name in {"id", "entity_id"}:
                             continue
@@ -36435,6 +36458,15 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_relation_rows.append(
+                            (
+                                related_entity,
+                                relation_tuple,
+                                1 if current_slot == 0 else 0,
+                                inputs[input_start:],
+                            )
+                        )
                 continue
 
             if isinstance(value, dict):
@@ -36457,15 +36489,16 @@ class ValidatorPipeline:
                 require_legal_input_keys=require_legal_input_keys,
                 policy_repo_path=self.policy_repo_path,
             )
-            inputs.append(
-                {
-                    "name": input_request_name,
-                    "entity": query_entity,
-                    "entity_id": query_entity_id,
-                    "interval": interval,
-                    "value": self._rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(input_key, query_entity)
+            record = {
+                "name": input_request_name,
+                "entity": input_entity,
+                "entity_id": query_entity_id,
+                "interval": interval,
+                "value": self._rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
         if case_tables not in (None, ""):
             if not isinstance(case_tables, dict):
@@ -36491,6 +36524,12 @@ class ValidatorPipeline:
                         row,
                         row_index,
                     )
+                    row_ids = [row_id]
+                    table_id_containers.setdefault(table_entity, []).append(row_ids)
+                    explicit_id = any(key in row for key in row_id_keys)
+                    if explicit_id:
+                        occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                    input_start = len(inputs)
                     for child_name, child_value in row.items():
                         child_key = str(child_name)
                         if child_key in row_id_keys:
@@ -36525,6 +36564,38 @@ class ValidatorPipeline:
                                 "value": self._rulespec_scalar_value(child_value),
                             }
                         )
+                    if not explicit_id:
+                        generated_table_rows.append(
+                            (table_entity, row_ids, 0, inputs[input_start:])
+                        )
+
+        require_distinct_entity_ids(occupied_entity_ids)
+        assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+        assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+        if table_entity_ids is not None:
+            table_entity_ids.update(
+                {
+                    entity: [row_ids[0] for row_ids in containers]
+                    for entity, containers in table_id_containers.items()
+                }
+            )
+        flat_entity_ids: dict[str, str] = {}
+        for record in flat_input_records:
+            input_entity = record["entity"]
+            if input_entity not in flat_entity_ids:
+                entity_id = flat_input_entity_id(
+                    input_entity,
+                    query_entity,
+                    query_entity_id,
+                    reserved_entity_ids=(
+                        entity_id
+                        for entity_id, entities in occupied_entity_ids.items()
+                        if entities - {input_entity}
+                    ),
+                )
+                flat_entity_ids[input_entity] = entity_id
+                occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+            record["entity_id"] = flat_entity_ids[input_entity]
 
         return {"inputs": inputs, "relations": relations}
 
@@ -36868,12 +36939,14 @@ class ValidatorPipeline:
         declared_relation_names: set[str],
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
         compiled_relations: list[dict] | None = None,
+        input_entities: dict[str, str] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
         query_entity_id = self._rulespec_case_query_entity_id(
             case, query_entity, case_index
         )
+        table_entity_ids: dict[str, list[str]] = {}
         try:
             executable_directions = executable_relation_directions(
                 derived_by_key,
@@ -36895,6 +36968,8 @@ class ValidatorPipeline:
                 declared_relation_names=declared_relation_names,
                 declared_relation_slots=declared_relation_slots,
                 executable_directions=executable_directions,
+                input_entities=input_entities,
+                table_entity_ids=table_entity_ids,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -36941,7 +37016,9 @@ class ValidatorPipeline:
                         f"{len(expected_value)} row value(s), but "
                         f"`tables.{query_entity}` has {expected_row_count} row(s)."
                     ]
-            query_entity_ids = [row_id for row_id, _row in table_rows]
+            query_entity_ids = table_entity_ids.get(query_entity) or [
+                row_id for row_id, _row in table_rows
+            ]
 
         request = {
             "mode": "explain",
@@ -36989,7 +37066,23 @@ class ValidatorPipeline:
                 compiled_path.parent,
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
-            return None, [f"Test case `{case_name}` execution failed: {detail}"]
+            output_entities = {
+                str(output): str(derived_by_key[runtime_key].get("entity") or "Case")
+                for output in output_map
+                if (runtime_key := output_runtime_keys.get(str(output), str(output)))
+                in output_names
+            }
+            findings = cross_entity_input_findings(
+                detail,
+                case.get("input") or {},
+                input_entities or {},
+                output_entities,
+                declared_relation_slots or {},
+            )
+            return None, [
+                f"Test case `{case_name}` execution failed: {detail}",
+                *(f"Test case `{case_name}` {finding}" for finding in findings),
+            ]
 
         def unique_response_object(pairs):
             result = {}
@@ -37249,6 +37342,13 @@ class ValidatorPipeline:
                         "test cases."
                     )
                     continue
+                try:
+                    input_entities = self._rulespec_companion_input_entities(
+                        rules_file, case.get("input", {})
+                    )
+                except (OSError, ValueError, yaml.YAMLError) as exc:
+                    issues.append(f"Test case `{case_name}` input invalid: {exc}")
+                    continue
                 if binary is None:
                     binary = self._axiom_rules_binary()
                 response_outputs, execution_issues = (
@@ -37270,6 +37370,7 @@ class ValidatorPipeline:
                         compiled_relations=compiled_payload.get("program", {}).get(
                             "relations", []
                         ),
+                        input_entities=input_entities,
                     )
                 )
                 issues.extend(execution_issues)
@@ -37318,6 +37419,52 @@ class ValidatorPipeline:
                     issues.append(mismatch)
 
         return issues
+
+    def _rulespec_companion_input_entities(
+        self,
+        rules_file: Path,
+        case_input: Any,
+    ) -> dict[str, str]:
+        """Bind flat facts to declarations through the authorized source roots."""
+        if not isinstance(case_input, dict) or not case_input:
+            return {}
+        # Direct compiled-artifact callers may omit source files; production
+        # validation always supplies the original module alongside its artifact.
+        if not rules_file.exists() and not rules_file.is_symlink():
+            return {}
+        source_root = self._validation_source_root(rules_file)
+
+        def resolve_reference(reference: str) -> Path | None:
+            target = _parse_rulespec_target(reference)
+            if target is None:
+                return None
+            return _resolve_rulespec_target_file(
+                target,
+                source_root,
+                rulespec_dependency_roots=self.rulespec_dependency_roots,
+            )
+
+        return declared_input_entities(
+            rules_file,
+            (
+                str(key)
+                for key, value in case_input.items()
+                if not isinstance(value, (dict, list))
+            ),
+            resolve_reference=resolve_reference,
+            resolve_import=lambda imported, current: (
+                _resolve_rulespec_import_file_static(
+                    imported,
+                    rules_file=current,
+                    policy_repo_path=(
+                        source_root
+                        if _rulespec_import_prefix_static(imported)
+                        else find_policy_repo_root(current) or source_root
+                    ),
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+            ),
+        )
 
     def _run_rulespec_ci(self, rules_file: Path) -> ValidationResult:
         """Run RuleSpec compile, executable tests, and source-grounding checks."""
