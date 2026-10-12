@@ -43563,14 +43563,64 @@ class TestGuardGenerated:
 
         assert any("cannot be read safely" in issue for issue in issues), issues
 
-    def test_receipt_only_deletion_does_not_initialize_verification(
+    @pytest.mark.parametrize(
+        "symlink_kind", ["manifest", "ancestor", "existing_target"]
+    )
+    def test_mixed_change_verifies_unsafe_receipt(self, tmp_path, symlink_kind):
+        relative, manifest_relative = self._receipt_only_manifest(tmp_path)
+        unsafe_relative = ".axiom/encoding-manifests/unsafe/example.json"
+        unsafe_manifest = tmp_path / unsafe_relative
+        unsafe_manifest.parent.parent.mkdir(parents=True, exist_ok=True)
+        if symlink_kind == "ancestor":
+            unsafe_manifest.parent.symlink_to(tmp_path / "missing-directory")
+        else:
+            unsafe_manifest.parent.mkdir()
+            target = (
+                tmp_path / manifest_relative
+                if symlink_kind == "existing_target"
+                else tmp_path / "missing.json"
+            )
+            unsafe_manifest.symlink_to(target)
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[relative, manifest_relative, unsafe_relative],
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    @pytest.mark.parametrize("all_files", [False, True])
+    def test_git_discovered_mixed_change_verifies_dangling_receipt(
+        self, tmp_path, all_files
+    ):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize guard checkout")
+        self._receipt_only_manifest(tmp_path)
+        unsafe_manifest = tmp_path / ".axiom/encoding-manifests/dangling.json"
+        unsafe_manifest.symlink_to(tmp_path / "missing.json")
+        _git(tmp_path, "add", ".")
+
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            base_ref="HEAD",
+            all_files=all_files,
+        )
+
+        assert any("cannot be read safely" in issue for issue in issues), issues
+
+    def test_receipt_only_deletion_requires_an_inspectable_base(
         self, tmp_path, monkeypatch
     ):
         _relative, manifest_relative = self._receipt_only_manifest(tmp_path)
         (tmp_path / manifest_relative).unlink()
 
         def unexpected_verification(*_args, **_kwargs):
-            pytest.fail("deleted receipt must not initialize manifest verification")
+            pytest.fail("an uninspectable base must fail before manifest verification")
 
         monkeypatch.setattr(
             "axiom_encode.cli._read_only_guard_encoder_execution_identity",
@@ -43581,14 +43631,12 @@ class TestGuardGenerated:
             unexpected_verification,
         )
 
-        assert (
-            guard_generated_change_issues(
-                tmp_path,
-                corpus_path=self.corpus_path,
-                changed_files=[manifest_relative],
-            )
-            == []
+        issues = guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            changed_files=[manifest_relative],
         )
+        assert any("cannot inspect its immutable base receipt" in i for i in issues)
 
     @settings(
         max_examples=40,
@@ -43597,6 +43645,11 @@ class TestGuardGenerated:
     )
     @example(changes=[("manifest", "unsigned")])
     @example(changes=[("manifest", "valid")])
+    @example(changes=[("both_dangling", "valid")])
+    @example(changes=[("deleted", "valid")])
+    @example(changes=[("rename", "valid")])
+    @example(changes=[("aux_migration", "tampered")])
+    @example(changes=[("aux_legacy", "unsigned")])
     @example(
         changes=[
             ("manifest", "valid"),
@@ -43608,7 +43661,23 @@ class TestGuardGenerated:
     @given(
         changes=st.lists(
             st.tuples(
-                st.sampled_from(["module", "manifest", "both", "other", "deleted"]),
+                st.sampled_from(
+                    [
+                        "module",
+                        "manifest",
+                        "both",
+                        "other",
+                        "deleted",
+                        "rename",
+                        "symlink",
+                        "dangling",
+                        "ancestor",
+                        "both_dangling",
+                        "aux_migration",
+                        "aux_legacy",
+                        "aux_deleted",
+                    ]
+                ),
                 st.sampled_from(
                     ["valid", "unsigned", "schema", "tampered", "stale", "provenance"]
                 ),
@@ -43617,28 +43686,88 @@ class TestGuardGenerated:
         )
     )
     def test_changed_manifest_verification_invariant(self, tmp_path, changes):
-        """Every changed surviving receipt is verified in any mixed diff.
+        """Changed receipts are verified and base ownership cannot disappear."""
+        # Hypothesis shares the fixture between examples. Give each example
+        # an isolated Git base so deletions and renames have real base claims.
+        with tempfile.TemporaryDirectory(dir=tmp_path.parent) as temporary:
+            repo = Path(temporary) / "rulespec-us"
+            shutil.copytree(tmp_path / ".axiom", repo / ".axiom")
+            shutil.copyfile(
+                tmp_path / "known-validation-gaps.yaml",
+                repo / "known-validation-gaps.yaml",
+            )
+            self._check_changed_receipt_invariant(repo, changes)
 
-        The toolchain/corpus fixture is immutable between examples. Each
-        generated receipt group overwrites its files; selection uses only the
-        explicit changed paths, so unselected files cannot affect the result.
-        """
+    def _check_changed_receipt_invariant(self, repo, changes):
         changed: list[str] = []
         expected_manifests: set[str] = set()
         expected_rejection = False
+        base_pairs = [
+            self._receipt_only_manifest(repo, stem=f"property_{index}")
+            for index in range(len(changes))
+        ]
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--allow-empty", "-m", "initialize provenance base")
         for index, (kind, fault) in enumerate(changes):
+            relative, base_manifest_relative = base_pairs[index]
+            manifest_relative = base_manifest_relative
+            if kind == "rename":
+                manifest_relative = f".axiom/encoding-manifests/renamed_{index}.json"
+                (repo / base_manifest_relative).unlink()
+                changed.append(base_manifest_relative)
             relative, manifest_relative = self._receipt_only_manifest(
-                tmp_path, stem=f"property_{index}", fault=fault
+                repo,
+                stem=f"property_{index}",
+                fault=fault,
+                manifest_relative=manifest_relative,
             )
-            if kind in {"module", "both"}:
+            if kind in {"module", "both", "both_dangling"}:
                 changed.append(relative)
-            if kind in {"manifest", "both"}:
+            if kind in {"manifest", "both", "rename"}:
                 changed.append(manifest_relative)
                 expected_manifests.add(manifest_relative)
                 expected_rejection |= fault != "valid"
             elif kind == "deleted":
-                (tmp_path / manifest_relative).unlink()
+                (repo / manifest_relative).unlink()
                 changed.append(manifest_relative)
+                expected_rejection = True
+            elif kind in {"symlink", "dangling", "ancestor", "both_dangling"}:
+                unsafe_relative = (
+                    f".axiom/encoding-manifests/unsafe_{index}/receipt.json"
+                )
+                unsafe = repo / unsafe_relative
+                if kind == "ancestor":
+                    unsafe.parent.symlink_to(repo / "missing-directory")
+                else:
+                    unsafe.parent.mkdir()
+                    unsafe.symlink_to(
+                        repo / manifest_relative
+                        if kind == "symlink"
+                        else repo / "missing.json"
+                    )
+                changed.append(unsafe_relative)
+                expected_manifests.add(unsafe_relative)
+                if kind == "both_dangling":
+                    changed.append(manifest_relative)
+                    expected_manifests.add(manifest_relative)
+                expected_rejection = True
+            elif kind in {"aux_migration", "aux_legacy", "aux_deleted"}:
+                tree = (
+                    "legacy-replacements" if kind == "aux_legacy" else "path-migrations"
+                )
+                auxiliary_relative = f".axiom/{tree}/property_{index}.json"
+                auxiliary = repo / auxiliary_relative
+                auxiliary.parent.mkdir(parents=True, exist_ok=True)
+                auxiliary.write_text("{}\n")
+                if kind == "aux_deleted":
+                    _git(repo, "add", auxiliary_relative)
+                    _git(repo, "commit", "-m", "add auxiliary base receipt")
+                    auxiliary.unlink()
+                changed.append(auxiliary_relative)
+                expected_rejection = True
             elif kind == "other":
                 changed.append(f"docs/property_{index}.md")
             expected_rejection |= kind == "module"
@@ -43648,11 +43777,16 @@ class TestGuardGenerated:
             wraps=_load_verified_applied_encoding_manifest_payload,
         ) as loader:
             issues = guard_generated_change_issues(
-                tmp_path, corpus_path=self.corpus_path, changed_files=changed
+                repo,
+                corpus_path=self.corpus_path,
+                base_ref="HEAD",
+                changed_files=changed,
             )
 
         assert bool(issues) == expected_rejection, issues
-        assert {call.args[1] for call in loader.call_args_list} == expected_manifests
+        # Base preservation and auxiliary checks may also load unchanged
+        # owners. Every changed surviving manifest must still reach the loader.
+        assert expected_manifests <= {call.args[1] for call in loader.call_args_list}
 
     def test_base_guard_includes_committed_and_worktree_changes(self, tmp_path):
         repo = self._canonical_guard_repo(tmp_path)
@@ -45219,6 +45353,12 @@ rules: []
         ]
 
     def test_tolerates_manifest_deleted_in_same_change(self, tmp_path):
+        # Establish that the omitted stale receipt had no base ownership.
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-m", "initialize provenance base")
         manifest = tmp_path / ".axiom/encoding-manifests/us/regulations/removal.json"
         manifest.parent.mkdir(parents=True)
         manifest_payload = self._retirement_manifest(["us/regulations/example.yaml"])
@@ -45231,6 +45371,7 @@ rules: []
             issues = guard_generated_change_issues(
                 tmp_path,
                 corpus_path=self.corpus_path,
+                base_ref="HEAD",
                 changed_files=[
                     "us/regulations/example.yaml",
                     ".axiom/encoding-manifests/us/regulations/removal.json",

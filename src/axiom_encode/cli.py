@@ -21961,8 +21961,8 @@ def guard_generated_change_issues(
 ) -> list[str]:
     """Return issues for changes not bound to the signed local release.
 
-    Every added or modified encoding manifest in a PR is verified, whether
-    or not a module changed. Manifest discovery uses the recognized layouts.
+    Every changed provenance receipt is verified, independently of module
+    changes, and live modules retain verified coverage from the base.
     """
     repo_path = Path(repo_path).resolve()
     pending_transaction = repo_path / _APPLY_TRANSACTION_DIRECTORY
@@ -22034,18 +22034,16 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
-    manifest_paths: list[str] = []
-    if not protected:
-        # Ignore true deletions, but send unsafe paths (including dangling
-        # symlinks) to the trusted loader rather than treating them as absent.
-        manifest_paths = [
-            path
-            for path in changed
-            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
-            and not _is_unambiguously_absent_repo_path(repo_path, Path(path))
-        ]
-        if not manifest_paths:
-            return []
+    changed_manifest_paths = [
+        path
+        for path in changed
+        if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+    ]
+    auxiliary_receipt_paths = [
+        path for path in changed if _is_auxiliary_provenance_receipt_path(Path(path))
+    ]
+    if not protected and not changed_manifest_paths and not auxiliary_receipt_paths:
+        return []
 
     expected_manifest_waiver_set_sha256, waiver_transition_issues = (
         _guard_manifest_waiver_set_identity(
@@ -22059,17 +22057,15 @@ def guard_generated_change_issues(
     if waiver_transition_issues:
         return waiver_transition_issues
 
-    if protected:
-        manifest_paths = (
-            _all_applied_encoding_manifest_paths(repo_path, roots=roots)
-            if all_files
-            else [
-                path
-                for path in changed
-                if _is_applied_encoding_manifest_path(Path(path), roots=roots)
-            ]
+    manifest_paths = (
+        sorted(
+            set(_all_applied_encoding_manifest_paths(repo_path, roots=roots))
+            | set(changed_manifest_paths)
         )
-    if not manifest_paths:
+        if all_files
+        else changed_manifest_paths
+    )
+    if not manifest_paths and not auxiliary_receipt_paths:
         if all_files:
             return [
                 f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
@@ -22080,6 +22076,37 @@ def guard_generated_change_issues(
             for path in protected
         ]
 
+    # Only genuinely absent paths can be omitted from head verification.
+    # Symlinks and other unsafe paths must reach the trusted bounded reader.
+    surviving_manifest_paths = [
+        path
+        for path in manifest_paths
+        if not _is_unambiguously_absent_repo_path(repo_path, Path(path))
+    ]
+    missing_manifest_paths = [
+        path
+        for path in manifest_paths
+        if _is_unambiguously_absent_repo_path(repo_path, Path(path))
+    ]
+    if all_files and not surviving_manifest_paths and not auxiliary_receipt_paths:
+        return [
+            f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+            for path in protected
+        ]
+    if not protected and not surviving_manifest_paths and not auxiliary_receipt_paths:
+        # An explicit absent path with no base claim needs no verifier. Missing
+        # base access fails closed instead of erasing a possible ownership claim.
+        base_issues: list[str] = []
+        has_base_receipt = False
+        for path in missing_manifest_paths:
+            raw, read_issues = _guard_base_receipt_bytes(
+                repo_path, base_ref or head_ref, Path(path)
+            )
+            base_issues.extend(read_issues)
+            has_base_receipt |= raw is not None
+        if base_issues or not has_base_receipt:
+            return base_issues
+
     try:
         expected_encoder_identity = _read_only_guard_encoder_execution_identity(
             expected_encoder_checkout
@@ -22087,18 +22114,6 @@ def guard_generated_change_issues(
     except RuntimeError as exc:
         return [f"Cannot verify the running pinned encoder identity: {exc}"]
 
-    # Manifests deleted in the same change set are not consulted: the
-    # protected files they covered must be accounted for (as content or
-    # deletion entries) by a changed manifest that still exists. Missing
-    # manifests are only reported when coverage actually fails below.
-    surviving_manifest_paths = (
-        [path for path in manifest_paths if (repo_path / path).exists()]
-        if protected
-        else manifest_paths
-    )
-    missing_manifest_paths = [
-        path for path in manifest_paths if not (repo_path / path).exists()
-    ]
     # A migration receipt may authorize many replacement manifests. Its
     # immutable-base/live-file proof is intentionally snapshotted once for
     # this guard operation; the cache is discarded before the next operation,
@@ -22113,6 +22128,34 @@ def guard_generated_change_issues(
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+    )
+    manifest_issues.extend(
+        _guard_changed_manifest_coverage_issues(
+            repo_path,
+            changed=changed,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            all_files=all_files,
+            roots=roots,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
+            expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        )
+    )
+    manifest_issues.extend(
+        _guard_auxiliary_provenance_issues(
+            repo_path,
+            changed_receipt_paths=auxiliary_receipt_paths,
+            base_ref=base_ref or head_ref,
+            roots=roots,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
+            expected_legacy_replacement_waiver_set_sha256=current_waiver_set_sha256,
+            path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        )
     )
     if manifest_issues or not protected:
         return manifest_issues
@@ -22169,9 +22212,364 @@ def guard_generated_change_issues(
     return issues
 
 
+def _guard_base_receipt_bytes(
+    repo_path: Path,
+    base_ref: str,
+    relative: Path,
+) -> tuple[bytes | None, list[str]]:
+    """Read a bounded, exact regular Git blob without following base symlinks."""
+
+    label = relative.as_posix()
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        return None, [f"{label} is not a safe base receipt path"]
+    try:
+        listing = subprocess.run(
+            [
+                "git",
+                "--literal-pathspecs",
+                "-C",
+                str(repo_path),
+                "ls-tree",
+                "-l",
+                "-z",
+                "--full-tree",
+                base_ref,
+                "--",
+                label,
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None, [f"{label} cannot inspect its immutable base receipt"]
+    if listing.returncode:
+        return None, [f"{label} cannot inspect its immutable base receipt"]
+    records = [record for record in listing.stdout.split(b"\0") if record]
+    if not records:
+        return None, []
+    try:
+        if len(records) != 1:
+            raise ValueError("ambiguous base entry")
+        metadata, encoded_path = records[0].split(b"\t", 1)
+        mode, kind, object_id, raw_size = metadata.decode("ascii").split()
+        size = int(raw_size)
+        if (
+            mode != "100644"
+            or kind != "blob"
+            or encoded_path != os.fsencode(label)
+            or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
+            or not 0 <= size <= 4 * 1024 * 1024
+        ):
+            raise ValueError("unsafe base entry")
+        completed = subprocess.run(
+            ["git", "-C", str(repo_path), "cat-file", "blob", object_id],
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode or len(completed.stdout) != size:
+            raise ValueError("unavailable base blob")
+    except (OSError, ValueError, UnicodeError):
+        return None, [f"{label} is not an exact bounded regular base receipt"]
+    return completed.stdout, []
+
+
+def _guard_base_manifest_claims(
+    raw: bytes,
+    *,
+    manifest_path: str,
+    roots: tuple[str, ...],
+    signing_broker: SigningBroker | Ed25519PublicKey,
+) -> tuple[set[str], list[str]]:
+    """Authenticate base claims as obligations, never as head authorization."""
+
+    label = f"{manifest_path} at the immutable base"
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, RecursionError):
+        return set(), [f"{label} is not valid JSON"]
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+    ):
+        return set(), [f"{label} is not an encoder apply manifest"]
+    backend = payload.get("backend")
+    tool = payload.get("tool")
+    if not (
+        isinstance(backend, str)
+        and backend in APPLIED_ENCODING_ENCODER_BACKENDS
+        or backend is None
+        and isinstance(tool, str)
+        and tool
+        in {
+            APPLIED_ENCODING_RETIRE_TOOL,
+            APPLIED_ENCODING_PATH_MIGRATION_TOOL,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
+            APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
+            APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        }
+    ):
+        return set(), [f"{label} has no allowlisted tool/backend contract"]
+    try:
+        issues = _applied_manifest_exact_schema_issues(payload, manifest_label=label)
+    except (TypeError, ValueError):
+        return set(), [f"{label} does not match an exact encoder receipt schema"]
+    signature_issue = _applied_encoding_manifest_signature_issue(
+        payload, signing_broker
+    )
+    if signature_issue:
+        issues.append(f"{label} {signature_issue}")
+    root_prefix = _applied_encoding_manifest_root_prefix(
+        Path(manifest_path), roots=roots
+    )
+    entries = payload.get("applied_files")
+    if root_prefix is None or not isinstance(entries, list) or not entries:
+        return set(), [*issues, f"{label} does not list applied files"]
+    claims: set[str] = set()
+    for index, item in enumerate(entries):
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+            issues.append(f"{label} applied_files[{index}].path is invalid")
+            continue
+        relative = Path(item["path"])
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != item["path"]
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            issues.append(f"{label} applied_files[{index}].path is not canonical")
+            continue
+        path = _prefix_applied_manifest_path(item["path"], root_prefix)
+        if path in claims:
+            issues.append(f"{label} lists duplicate applied file {path}")
+        claims.add(path)
+        if item.get("deleted") is not True and (
+            not isinstance(item.get("sha256"), str)
+            or _SHA256_HEX_PATTERN.fullmatch(item["sha256"]) is None
+        ):
+            issues.append(f"{label} applied_files[{index}].sha256 is invalid")
+    return claims, issues
+
+
+def _guard_changed_manifest_coverage_issues(
+    repo_path: Path,
+    *,
+    changed: list[str],
+    base_ref: str | None,
+    head_ref: str,
+    all_files: bool,
+    roots: tuple[str, ...],
+    local_corpus_release: LocalCorpusRelease,
+    expected_encoder_identity: Mapping[str, str],
+    expected_waiver_set_sha256: str,
+    expected_legacy_replacement_waiver_set_sha256: str,
+    path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+) -> list[str]:
+    """Require verified head ownership for every changed base receipt claim."""
+
+    manifest_paths = sorted(
+        {
+            path
+            for path in changed
+            if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+        }
+    )
+    if not manifest_paths:
+        return []
+    # Gitless explicit additions still receive the normal head verification.
+    # An absent receipt cannot establish that it had no protected-base owner.
+    if base_ref is None and not (repo_path / ".git").exists():
+        return [
+            f"{path} cannot inspect its immutable base receipt"
+            for path in manifest_paths
+            if _is_unambiguously_absent_repo_path(repo_path, Path(path))
+        ]
+    base_blobs: dict[str, bytes] = {}
+    issues: list[str] = []
+    for manifest_path in manifest_paths:
+        raw, read_issues = _guard_base_receipt_bytes(
+            repo_path, base_ref or head_ref, Path(manifest_path)
+        )
+        issues.extend(read_issues)
+        if raw is not None:
+            base_blobs[manifest_path] = raw
+    if issues or not base_blobs:
+        return issues
+    try:
+        signing_broker = _applied_encoding_manifest_verifier()
+    except SigningBrokerError as exc:
+        return [str(exc)]
+    if not signing_broker:
+        return ["A protected signing broker is required to verify base receipts"]
+    claims: set[str] = set()
+    replacement_bases: dict[str, tuple[str, list[str]]] = {}
+    for manifest_path, raw in base_blobs.items():
+        receipt_claims, receipt_issues = _guard_base_manifest_claims(
+            raw,
+            manifest_path=manifest_path,
+            roots=roots,
+            signing_broker=signing_broker,
+        )
+        if receipt_issues:
+            replacement_bases[manifest_path] = (
+                hashlib.sha256(raw).hexdigest(),
+                receipt_issues,
+            )
+        else:
+            claims.update(receipt_claims)
+    if issues or not (claims or replacement_bases):
+        return issues
+
+    head_paths, inventory_issues = _guard_head_manifest_inventory(
+        repo_path, roots=roots
+    )
+    if inventory_issues:
+        return inventory_issues
+    claimants: list[str] = []
+    replacement_claimants: dict[str, list[str]] = defaultdict(list)
+    for manifest_path in head_paths:
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / manifest_path,
+                label="head provenance claimant",
+                max_bytes=1024 * 1024,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except (
+            UnsafeCorpusPathError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+        ):
+            return [f"{manifest_path} cannot inspect head provenance claims safely"]
+        if not isinstance(payload, dict):
+            return [f"{manifest_path} cannot inspect head provenance claims safely"]
+        for binding_name, allowed_tools in (
+            ("replacement", {APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL}),
+            (
+                "legacy_migration",
+                {
+                    APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
+                    APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+                },
+            ),
+        ):
+            binding = payload.get(binding_name)
+            tool = payload.get("tool")
+            if (
+                isinstance(tool, str)
+                and tool in allowed_tools
+                and isinstance(binding, dict)
+                and isinstance(binding.get("legacy_manifest_path"), str)
+            ):
+                base_path = binding["legacy_manifest_path"]
+                base = replacement_bases.get(base_path)
+                if base and binding.get("legacy_manifest_sha256") == base[0]:
+                    replacement_claimants[base_path].append(manifest_path)
+                    claimants.append(manifest_path)
+        entries = payload.get("applied_files")
+        if not isinstance(entries, list):
+            continue
+        root_prefix = _applied_encoding_manifest_root_prefix(
+            Path(manifest_path), roots=roots
+        )
+        if root_prefix is not None and any(
+            isinstance(item, dict)
+            and isinstance(item.get("path"), str)
+            and _prefix_applied_manifest_path(item["path"], root_prefix) in claims
+            for item in entries
+        ):
+            claimants.append(manifest_path)
+    # A supervised legacy replacement authenticates an obsolete predecessor
+    # as exact opaque base bytes. Only its fully verified head payload creates
+    # obligations; the predecessor's unsigned or obsolete fields authorize none.
+    for base_path, (_digest, base_issues) in replacement_bases.items():
+        authenticated = False
+        for manifest_path in replacement_claimants.get(base_path, []):
+            payload, root_prefix, _sha256, verification_issues = (
+                _load_verified_applied_encoding_manifest_payload(
+                    repo_path,
+                    manifest_path,
+                    roots=roots,
+                    signing_broker=signing_broker,
+                    local_corpus_release=local_corpus_release,
+                    expected_encoder_identity=expected_encoder_identity,
+                    expected_waiver_set_sha256=expected_waiver_set_sha256,
+                    expected_legacy_replacement_waiver_set_sha256=(
+                        expected_legacy_replacement_waiver_set_sha256
+                    ),
+                    path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+                )
+            )
+            if payload is None or root_prefix is None or verification_issues:
+                continue
+            authenticated = True
+            for item in payload["applied_files"]:
+                claims.add(_prefix_applied_manifest_path(item["path"], root_prefix))
+        if not authenticated:
+            issues.extend(base_issues)
+    if issues:
+        return issues
+    claimants = sorted(set(claimants))
+    head_entries, verification_issues = _load_applied_encoding_manifest_entries(
+        repo_path,
+        claimants,
+        roots=roots,
+        local_corpus_release=local_corpus_release,
+        expected_encoder_identity=expected_encoder_identity,
+        expected_waiver_set_sha256=expected_waiver_set_sha256,
+        expected_legacy_replacement_waiver_set_sha256=(
+            expected_legacy_replacement_waiver_set_sha256
+        ),
+        path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+    )
+    issues.extend(verification_issues)
+    live_claims: list[str] = []
+    for path in sorted(claims):
+        hashes = head_entries.get(path, set())
+        if _is_unambiguously_absent_repo_path(repo_path, Path(path)):
+            if APPLIED_ENCODING_DELETED_MARKER not in hashes:
+                issues.append(
+                    f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+                    if all_files
+                    else f"{path} loses authenticated retirement coverage from a changed base receipt"
+                )
+        else:
+            live_claims.append(path)
+            if not hashes or hashes == {APPLIED_ENCODING_DELETED_MARKER}:
+                issues.append(
+                    f"{path} is missing a matching {APPLIED_ENCODING_MANIFEST_DIR.as_posix()} manifest"
+                    if all_files
+                    else f"{path} loses verified provenance from a changed base receipt"
+                )
+    issues.extend(
+        _generated_provenance_gate_issues(
+            repo_path,
+            protected=live_claims,
+            surviving_manifest_paths=claimants,
+            roots=roots,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            expected_waiver_set_sha256=expected_waiver_set_sha256,
+            expected_legacy_replacement_waiver_set_sha256=(
+                expected_legacy_replacement_waiver_set_sha256
+            ),
+            path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        )
+    )
+    return issues
+
+
 def _is_unambiguously_absent_repo_path(repo_path: Path, relative: Path) -> bool:
     """Return true only when a canonical repo path is absent without symlinks."""
 
+    if relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        return False
     cursor = repo_path
     for index, part in enumerate(relative.parts):
         cursor /= part
@@ -22186,6 +22584,285 @@ def _is_unambiguously_absent_repo_path(repo_path: Path, relative: Path) -> bool:
         if index < len(relative.parts) - 1 and not stat.S_ISDIR(metadata.st_mode):
             return False
     return False
+
+
+def _is_auxiliary_provenance_receipt_path(path: Path) -> bool:
+    """Recognize changed receipts even when their layout is noncanonical."""
+
+    return path.suffix == ".json" and any(
+        path.parts[: len(directory.parts)] == directory.parts
+        for directory in (
+            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        )
+    )
+
+
+def _guard_head_manifest_inventory(
+    repo_path: Path,
+    *,
+    roots: tuple[str, ...],
+) -> tuple[list[str], list[str]]:
+    """Enumerate head ownership without following unsafe directory links."""
+
+    cursor = repo_path
+    for part in APPLIED_ENCODING_MANIFEST_DIR.parts:
+        cursor /= part
+        try:
+            metadata = cursor.lstat()
+        except FileNotFoundError:
+            return [], []
+        except OSError as exc:
+            return [], [f"Manifest inventory cannot be read safely: {exc}"]
+        if not stat.S_ISDIR(metadata.st_mode):
+            return [], [
+                f"{cursor.relative_to(repo_path).as_posix()} manifest inventory "
+                "cannot be read safely: not a regular directory"
+            ]
+    paths: list[str] = []
+    issues: list[str] = []
+
+    def unreadable_directory(exc: OSError) -> None:
+        issues.append(f"Manifest inventory cannot be read safely: {exc}")
+
+    for directory, children, filenames in os.walk(
+        cursor, followlinks=False, onerror=unreadable_directory
+    ):
+        for name in list(children):
+            child = Path(directory) / name
+            try:
+                safe_directory = stat.S_ISDIR(child.lstat().st_mode)
+            except OSError:
+                safe_directory = False
+            if not safe_directory:
+                children.remove(name)
+                issues.append(
+                    f"{child.relative_to(repo_path).as_posix()} manifest inventory "
+                    "cannot be read safely: not a regular directory"
+                )
+        for name in filenames:
+            relative = (Path(directory) / name).relative_to(repo_path)
+            if _is_applied_encoding_manifest_path(relative, roots=roots):
+                # Include unsafe file types; their bounded reader rejects them.
+                paths.append(relative.as_posix())
+    return sorted(paths), issues
+
+
+def _guard_manifest_auxiliary_receipt_paths(payload: object) -> set[str]:
+    """Find dependency bindings, including nested migration wrappers."""
+
+    paths: set[str] = set()
+    pending = [payload]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            receipt_path = item.get("receipt_path")
+            if isinstance(receipt_path, str) and _is_auxiliary_provenance_receipt_path(
+                Path(receipt_path)
+            ):
+                # The legacy dependency reader accepts Path-normalized spelling;
+                # discover the same dependency even before its wrapper is checked.
+                paths.add(Path(receipt_path).as_posix())
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return paths
+
+
+def _guard_auxiliary_receipt_authentication_issues(
+    payload: object,
+    *,
+    receipt_path: str,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+) -> list[str]:
+    """Authenticate immutable auxiliary evidence before trusting its bindings."""
+
+    relative = Path(receipt_path)
+    migration = (
+        relative.parts[: len(APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts)]
+        == APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts
+    )
+    directory = (
+        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR
+        if migration
+        else APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+    )
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != receipt_path
+        or relative.parent != directory
+        or relative.suffix != ".json"
+    ):
+        return [f"{receipt_path} is not a canonical auxiliary receipt path"]
+    if not isinstance(payload, dict):
+        return [f"{receipt_path} is not a JSON object"]
+    issues: list[str] = []
+    fields = (
+        _PATH_MIGRATION_RECEIPT_FIELDS
+        if migration
+        else _LEGACY_REPLACEMENT_RECEIPT_FIELDS
+    )
+    schemas = (
+        {APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_SCHEMA}
+        if migration
+        else {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V1,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V2,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V3,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+        }
+    )
+    tool = (
+        APPLIED_ENCODING_PATH_MIGRATION_TOOL
+        if migration
+        else APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+    )
+    if (
+        set(payload) != fields
+        or not isinstance(payload.get("schema_version"), str)
+        or payload.get("schema_version") not in schemas
+        or payload.get("tool") != tool
+    ):
+        issues.append(
+            f"{receipt_path} does not match the exact auxiliary receipt schema"
+        )
+    signature_issue = _applied_encoding_manifest_signature_issue(
+        payload, signing_broker
+    )
+    if signature_issue:
+        issues.append(f"{receipt_path} {signature_issue}")
+    return issues
+
+
+def _guard_auxiliary_provenance_issues(
+    repo_path: Path,
+    *,
+    changed_receipt_paths: list[str],
+    base_ref: str,
+    roots: tuple[str, ...],
+    local_corpus_release: LocalCorpusRelease,
+    expected_encoder_identity: Mapping[str, str],
+    expected_waiver_set_sha256: str,
+    expected_legacy_replacement_waiver_set_sha256: str,
+    path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]],
+) -> list[str]:
+    """Verify changed auxiliary evidence and all head manifests using it."""
+
+    if not changed_receipt_paths:
+        return []
+    try:
+        signing_broker = _applied_encoding_manifest_verifier()
+    except SigningBrokerError as exc:
+        return [str(exc)]
+    if not signing_broker:
+        return ["A protected signing broker is required to verify auxiliary receipts"]
+    manifest_paths, issues = _guard_head_manifest_inventory(repo_path, roots=roots)
+    dependencies: dict[str, set[str]] = {path: set() for path in changed_receipt_paths}
+    for manifest_path in manifest_paths:
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / manifest_path,
+                label="auxiliary receipt dependent manifest inventory",
+                max_bytes=1024 * 1024,
+            )
+            payload = json.loads(raw.decode("utf-8"))
+        except UnsafeCorpusPathError as exc:
+            issues.append(f"{manifest_path} cannot be read safely: {exc}")
+            continue
+        except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+            issues.append(
+                f"{manifest_path} auxiliary dependency inventory is invalid JSON"
+            )
+            continue
+        for receipt_path in _guard_manifest_auxiliary_receipt_paths(payload):
+            if receipt_path in dependencies:
+                dependencies[receipt_path].add(manifest_path)
+
+    for receipt_path in sorted(dependencies):
+        relative = Path(receipt_path)
+        if _is_unambiguously_absent_repo_path(repo_path, relative):
+            raw, base_issues = _guard_base_receipt_bytes(repo_path, base_ref, relative)
+            issues.extend(base_issues)
+            if raw is None:
+                if not base_issues:
+                    issues.append(
+                        f"{receipt_path} is absent from both the protected base and head"
+                    )
+                continue
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError, RecursionError):
+                issues.append(f"{receipt_path} protected-base receipt is invalid JSON")
+                continue
+            issues.extend(
+                _guard_auxiliary_receipt_authentication_issues(
+                    payload,
+                    receipt_path=receipt_path,
+                    signing_broker=signing_broker,
+                )
+            )
+        elif relative.parent == APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR:
+            _, _, receipt_issues = _load_verified_path_migration_receipt(
+                repo_path,
+                receipt_path,
+                signing_broker=signing_broker,
+                expected_waiver_set_sha256=expected_waiver_set_sha256,
+                local_corpus_release=local_corpus_release,
+                proof_cache=path_migration_receipt_proof_cache,
+            )
+            issues.extend(receipt_issues)
+        else:
+            try:
+                raw = read_bounded_regular_file(
+                    repo_path,
+                    repo_path / relative,
+                    label="legacy replacement receipt",
+                    max_bytes=4 * 1024 * 1024,
+                    required_mode=0o644,
+                )
+                payload = json.loads(raw.decode("utf-8"))
+            except UnsafeCorpusPathError as exc:
+                issues.append(f"{receipt_path} cannot be read safely: {exc}")
+                continue
+            except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
+                issues.append(f"{receipt_path} is not valid JSON")
+                continue
+            issues.extend(
+                _guard_auxiliary_receipt_authentication_issues(
+                    payload,
+                    receipt_path=receipt_path,
+                    signing_broker=signing_broker,
+                )
+            )
+            if not dependencies[receipt_path]:
+                issues.append(
+                    f"{receipt_path} has no surviving dependent manifest through "
+                    "which its replacement proof can be verified"
+                )
+
+    # Do not stop after receipt faults: every surviving owner must independently
+    # pass the same trusted loader, including its exact-byte dependency binding.
+    for manifest_path in sorted(set().union(*dependencies.values())):
+        _, _, _, manifest_issues = _load_verified_applied_encoding_manifest_payload(
+            repo_path,
+            manifest_path,
+            roots=roots,
+            signing_broker=signing_broker,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            expected_waiver_set_sha256=expected_waiver_set_sha256,
+            expected_legacy_replacement_waiver_set_sha256=(
+                expected_legacy_replacement_waiver_set_sha256
+            ),
+            path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        )
+        issues.extend(manifest_issues)
+    return issues
 
 
 def _guard_manifest_waiver_set_identity(

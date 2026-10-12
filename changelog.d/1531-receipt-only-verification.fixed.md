@@ -1,1 +1,1 @@
-Verify added or modified encoding manifests even when no protected RuleSpec module changes, using the same signature, schema, file-hash, and provenance checks as module changes. Manifest deletions retain their existing coverage behavior.
+Verify changes to encoding manifests and signed path-migration or legacy-replacement receipts even when no protected RuleSpec module changes. Reject unsafe receipt paths and changes that remove verified module provenance, including manifest deletions, renames, and removal of covered-file claims.
