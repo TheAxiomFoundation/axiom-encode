@@ -6539,6 +6539,56 @@ class TestCmdValidate:
         assert exc_info.value.code == 0
         assert "Result: ✓ PASSED" in capsys.readouterr().out
 
+    def test_validate_reports_interpretation_finding_from_shared_pipeline(
+        self, capsys, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        rulespec_file = self._module(tmp_path, "interpretations.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        args = SimpleNamespace(
+            files=[rulespec_file],
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=True,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+
+        class InterpretationPipeline(validator_pipeline.ValidatorPipeline):
+            def _validate_with_authoritative_roots(
+                self, rulespec_file, skip_reviewers=False
+            ):
+                issues = validator_pipeline.find_rulespec_proof_issues(
+                    rulespec_file.read_text(), source_texts={}
+                )
+                return validator_pipeline.PipelineResult(
+                    results={
+                        "ci": validator_pipeline.ValidationResult(
+                            "ci",
+                            not issues,
+                            issues=issues,
+                            error=issues[0] if issues else None,
+                        )
+                    },
+                    total_duration_ms=0,
+                    all_passed=not issues,
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", InterpretationPipeline),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_validate(args)
+
+        assert exc_info.value.code == 1
+        assert "module.interpretations must be a list" in capsys.readouterr().out
+
     def test_policyengine_oracle_requires_explicit_runtime_root(
         self, tmp_path, monkeypatch
     ):
@@ -49157,6 +49207,51 @@ rules: []
         assert issues == []
         assert supplemental == {}
         assert seen_require_policy_proofs == [True]
+
+    def test_apply_overlay_blocks_interpretation_shape_through_shared_pipeline(
+        self, tmp_path
+    ):
+        from axiom_encode.harness import validator_pipeline
+
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        generated = output_root / "codex-test-model" / "statutes/7/2014/a.yaml"
+        generated.parent.mkdir(parents=True)
+        policy_repo.mkdir(parents=True)
+        content = (
+            "format: rulespec/v1\nmodule:\n  interpretations: invalid\nrules: []\n"
+        )
+        generated.write_text(content)
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class CompilationStubPipeline(validator_pipeline.ValidatorPipeline):
+            def _run_compile_check(self, rulespec_file):
+                return validator_pipeline.ValidationResult("compile", True)
+
+            def _compile_rulespec_to_artifact(self, rulespec_file, output_path):
+                return (
+                    subprocess.CompletedProcess(["axiom-rules-engine"], 0, "", ""),
+                    {"program": {"parameters": [], "derived": [], "relations": []}},
+                )
+
+        with patch("axiom_encode.cli.ValidatorPipeline", CompilationStubPipeline):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+            )
+
+        assert not ok
+        assert any("module.interpretations must be a list" in issue for issue in issues)
+        assert generated.read_text() == content
+        assert supplemental == {}
+        assert not (policy_repo / "statutes/7/2014/a.yaml").exists()
 
     def test_repair_medicaid_optional_senior_composition_updates_rule_and_tests(
         self,

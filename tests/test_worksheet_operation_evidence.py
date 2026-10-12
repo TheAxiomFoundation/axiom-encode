@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import functools
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import yaml
 from axiom_encode.harness import source_path_evidence as paths
 from axiom_encode.harness import validator_pipeline as v
 from axiom_encode.harness import worksheet_operation_evidence as operations
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 FIXTURE = Path(__file__).parent / "fixtures/worksheet_operations"
 SOURCE = (FIXTURE.parent / "source_path_shadow/source.txt").read_text()
@@ -83,6 +85,59 @@ def certify(payload, cases, context=None, source=SOURCE):
 
 def named(payload, name):
     return next(r for r in payload["rules"] if r["name"] == name)
+
+
+def test_interpretation_of_an_omitted_rule_does_not_change_operation_evidence():
+    payload, cases = inputs()
+    baseline = certify(payload, cases)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "separate-country-forms",
+            "question": "Should a separate form be used for each country?",
+            "texts": [
+                {
+                    "corpus_citation_path": operations._PRIMARY,
+                    "excerpt": "Country or countries for which you are making this claim:",
+                }
+            ],
+            "reading": "The country count governs separate forms.",
+            "alternatives": [{"reading": "One form always covers every country."}],
+            "basis": "The source distinguishes country counts.",
+            "status": "open",
+            "affects": ["separate_country_form_required"],
+        }
+    ]
+
+    # Keep all declarations for affects resolution; unrelated fixture proofs
+    # are outside this assertion about interpretation metadata.
+    metadata_context = {
+        "format": payload["format"],
+        "module": {
+            key: copy.deepcopy(value)
+            for key, value in payload["module"].items()
+            if key in {"interpretations", "deferred_outputs"}
+        },
+        "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+    }
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts=CONTEXT
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+    original_payload = copy.deepcopy(payload)
+    result = certify(payload, cases)
+    assert not baseline.unresolved and not result.unresolved
+    assert result.annual_spans == baseline.annual_spans
+    assert result.outputs == baseline.outputs
+    assert result.case_links == baseline.case_links
+    assert result.cap_span == baseline.cap_span
+    assert payload == original_payload
+
+    metadata_context["module"]["interpretations"][0]["affects"] = ["undefined_output"]
+    invalid = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts=CONTEXT
+    )
+    assert not invalid.passed
+    assert any("must name a rule defined in this module" in x for x in invalid.issues)
 
 
 @pytest.mark.parametrize(

@@ -400,7 +400,8 @@ Each entry requires a module-unique `id` matching
 `[a-z0-9]+(-[a-z0-9]+)*`, non-blank `question`, `reading`, and `basis`, and
 non-empty `texts`, `alternatives`, and `affects` lists. A text has only
 `corpus_citation_path` and `excerpt`; an alternative has `reading` and an
-optional `effect`. Unknown keys are rejected throughout the block.
+optional `effect`. All string fields, including optional fields when present,
+must be non-blank. Unknown keys are rejected throughout the block.
 Each canonical corpus citation must resolve, and its excerpt must match the
 corpus using the same normalization and matcher as source proof atoms.
 `affects` names must be local `rules[].name` values, never deferred outputs.
@@ -422,10 +423,11 @@ date), and `record` (an https URL to a public PR, issue, or comment).
 publisher's verbatim `excerpt`, plus an optional public https `record`.
 Quote dates in YAML. Use organisations, never people's names, and omit private
 decision identifiers, session identifiers, and local paths. The encoder creates
-`open` entries only; repair rounds may carry a recorded human ruling or publisher
-reply supplied through `--review-findings` into these blocks. A `contradicted`
-entry blocks validation: repair the module, move the old reading into
-`alternatives`, and set the new reading's status.
+`open` entries only; repair rounds may copy a recorded human ruling supplied
+through `--review-findings` and set `status: ruled`. A supplied publisher reply
+permits `confirmed` or `contradicted` only with both evidence blocks. A
+`contradicted` entry blocks validation: repair the module, move the old reading
+into `alternatives`, and set the new reading's status.
 
 Check every pinned module in a jurisdiction checkout against a local
 `axiom-corpus` checkout:

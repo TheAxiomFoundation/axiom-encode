@@ -374,16 +374,25 @@ def _validate_module_interpretations(
     issues: list[str] = []
     seen_ids: set[str] = set()
     rules = payload.get("rules")
-    rule_names = {
-        rule["name"]
-        for rule in rules if isinstance(rule, dict) and isinstance(rule.get("name"), str)
-    } if isinstance(rules, list) else set()
+    rule_names = (
+        {
+            rule["name"]
+            for rule in rules
+            if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+        }
+        if isinstance(rules, list)
+        else set()
+    )
     deferred = module.get("deferred_outputs")
-    deferred_names = {
-        record["output"].rsplit("#", 1)[-1].strip()
-        for record in deferred
-        if isinstance(record, dict) and isinstance(record.get("output"), str)
-    } if isinstance(deferred, list) else set()
+    deferred_names = (
+        {
+            record["output"].rsplit("#", 1)[-1].strip()
+            for record in deferred
+            if isinstance(record, dict) and isinstance(record.get("output"), str)
+        }
+        if isinstance(deferred, list)
+        else set()
+    )
     for index, entry in enumerate(entries):
         location = f"module.interpretations[{index}]"
         entry_id = entry.get("id") if isinstance(entry, dict) else None
@@ -396,8 +405,16 @@ def _validate_module_interpretations(
             entry,
             label=label,
             allowed={
-                "id", "question", "texts", "reading", "alternatives", "basis",
-                "status", "ruling", "confirmation", "affects",
+                "id",
+                "question",
+                "texts",
+                "reading",
+                "alternatives",
+                "basis",
+                "status",
+                "ruling",
+                "confirmation",
+                "affects",
             },
             issues=issues,
         ):
@@ -408,49 +425,71 @@ def _validate_module_interpretations(
             if entry_id in seen_ids:
                 issues.append(f"{label}.id duplicates interpretation `{entry_id}`.")
             seen_ids.add(entry_id)
-        for field in ("question", "reading", "basis"):
-            _interpretation_string(entry.get(field), label=f"{label}.{field}", issues=issues)
+        for field_name in ("question", "reading", "basis"):
+            _interpretation_string(
+                entry.get(field_name), label=f"{label}.{field_name}", issues=issues
+            )
         texts = entry.get("texts")
         if _interpretation_list(texts, label=f"{label}.texts", issues=issues):
             for text_index, text in enumerate(texts):
                 text_label = f"{label}.texts[{text_index}]"
                 if not _interpretation_mapping(
-                    text, label=text_label,
-                    allowed={"corpus_citation_path", "excerpt"}, issues=issues,
+                    text,
+                    label=text_label,
+                    allowed={"corpus_citation_path", "excerpt"},
+                    issues=issues,
                 ):
                     continue
                 valid_path = _interpretation_string(
                     text.get("corpus_citation_path"),
-                    label=f"{text_label}.corpus_citation_path", issues=issues,
+                    label=f"{text_label}.corpus_citation_path",
+                    issues=issues,
                 )
                 valid_excerpt = _interpretation_string(
-                    text.get("excerpt"), label=f"{text_label}.excerpt", issues=issues,
+                    text.get("excerpt"),
+                    label=f"{text_label}.excerpt",
+                    issues=issues,
                 )
                 if valid_path and valid_excerpt:
-                    issues.extend(_validate_source_proof_atom(
-                        source=text, label=text_label, kind="definition",
-                        rule_source=None, source_texts=source_texts,
-                    ))
+                    issues.extend(
+                        _validate_source_proof_atom(
+                            source=text,
+                            label=text_label,
+                            kind="definition",
+                            rule_source=None,
+                            source_texts=source_texts,
+                        )
+                    )
         alternatives = entry.get("alternatives")
-        if _interpretation_list(alternatives, label=f"{label}.alternatives", issues=issues):
+        if _interpretation_list(
+            alternatives, label=f"{label}.alternatives", issues=issues
+        ):
             for alternative_index, alternative in enumerate(alternatives):
                 alternative_label = f"{label}.alternatives[{alternative_index}]"
                 if not _interpretation_mapping(
-                    alternative, label=alternative_label,
-                    allowed={"reading", "effect"}, issues=issues,
+                    alternative,
+                    label=alternative_label,
+                    allowed={"reading", "effect"},
+                    issues=issues,
                 ):
                     continue
-                for field in ("reading", "effect"):
-                    if field == "reading" or field in alternative:
+                for field_name in ("reading", "effect"):
+                    if field_name == "reading" or field_name in alternative:
                         _interpretation_string(
-                            alternative.get(field), label=f"{alternative_label}.{field}",
+                            alternative.get(field_name),
+                            label=f"{alternative_label}.{field_name}",
                             issues=issues,
                         )
         status = entry.get("status")
         if not isinstance(status, str) or status not in {
-            "open", "ruled", "confirmed", "contradicted"
+            "open",
+            "ruled",
+            "confirmed",
+            "contradicted",
         }:
-            issues.append(f"{label}.status must be open, ruled, confirmed or contradicted.")
+            issues.append(
+                f"{label}.status must be open, ruled, confirmed or contradicted."
+            )
         else:
             for field, required in (
                 ("ruling", status != "open"),
@@ -458,13 +497,19 @@ def _validate_module_interpretations(
             ):
                 if not required:
                     if field in entry:
-                        issues.append(f"{label}.{field} must be absent when status is `{status}`.")
+                        issues.append(
+                            f"{label}.{field} must be absent when status is `{status}`."
+                        )
                 elif field not in entry:
-                    issues.append(f"{label}.{field} must be a mapping when status is `{status}`.")
+                    issues.append(
+                        f"{label}.{field} must be a mapping when status is `{status}`."
+                    )
                 else:
                     _validate_interpretation_record(
-                        entry[field], label=f"{label}.{field}",
-                        confirmation=field == "confirmation", issues=issues,
+                        entry[field],
+                        label=f"{label}.{field}",
+                        confirmation=field == "confirmation",
+                        issues=issues,
                     )
             if status == "contradicted":
                 issues.append(
@@ -478,9 +523,13 @@ def _validate_module_interpretations(
                 if not _interpretation_string(name, label=affect_label, issues=issues):
                     continue
                 if name in deferred_names:
-                    issues.append(f"{affect_label} must not name deferred output `{name}`.")
+                    issues.append(
+                        f"{affect_label} must not name deferred output `{name}`."
+                    )
                 elif name not in rule_names:
-                    issues.append(f"{affect_label} must name a rule defined in this module.")
+                    issues.append(
+                        f"{affect_label} must name a rule defined in this module."
+                    )
     return issues
 
 

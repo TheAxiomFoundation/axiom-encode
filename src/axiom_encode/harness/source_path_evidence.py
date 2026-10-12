@@ -281,6 +281,14 @@ def certify_worksheet_paths(
             **payload,
             "rules": [rules[name] for name in sorted(selected_names)],
         }
+        # Interpretations refer to the full module, not this temporary proof view.
+        # The shared validation gate checks them against the original declarations.
+        if isinstance(proof_payload.get("module"), Mapping):
+            proof_payload["module"] = {
+                key: value
+                for key, value in proof_payload["module"].items()
+                if key != "interpretations"
+            }
         intro = re.search(
             r"(?m)^Use this form to calculate the foreign non-business income tax credit\s+for (?P<year>20[0-9]{2}) that you can deduct from the income tax",
             source_text,

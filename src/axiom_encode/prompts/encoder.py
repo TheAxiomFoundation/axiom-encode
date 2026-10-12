@@ -264,17 +264,19 @@ Hard requirements:
 """
 
 INTERPRETATIONS_PROTOCOL = """Interpretations:
-- When adopting a reading because the source conflicts with itself, departs
-  from literal wording, or has a question put to the publisher, add one
+- When source provisions conflict, your reading departs from literal wording,
+  or any question has been put to the publisher, add one
   `module.interpretations[]` entry per reading with `status: open`.
 - Include a unique kebab-case `id`, plain-word `question`, non-empty `texts`
   (`corpus_citation_path` and verbatim `excerpt`), adopted `reading`, non-empty
   `alternatives` (`reading`, optional `effect`), `basis`, and non-empty `affects`
   naming local `rules[].name`; never name deferred outputs.
 - Never invent `ruling` or `confirmation`. A repair may copy a recorded human
-  ruling or publisher reply only when supplied in mandatory review findings.
-  Attribute it to an organisation, never a person; use real YYYY-MM-DD dates
-  and public https records. Keep private identifiers and local paths out.
+  ruling supplied in mandatory review findings and set `status: ruled`; a
+  supplied publisher reply and recorded ruling permit `confirmed` or
+  `contradicted`. Attribute them to organisations, never people; use quoted real
+  YYYY-MM-DD dates and public https records. Keep private identifiers and local
+  paths out.
 - Interpretation texts document the reading; they do not count as proof atoms
   or source coverage. A publisher-contradicted reading must be repaired: move
   the old reading into `alternatives` and set the new reading's status."""

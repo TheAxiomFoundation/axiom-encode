@@ -616,6 +616,14 @@ def certify_worksheet_operations(
             ):
                 errors.append("unowned annual date proof: " + name)
     subset = {**payload, "rules": [rules[n] for n in dependencies]}
+    # Interpretations refer to the full module, not this temporary proof view.
+    # The shared validation gate checks them against the original declarations.
+    if isinstance(subset.get("module"), Mapping):
+        subset["module"] = {
+            key: value
+            for key, value in subset["module"].items()
+            if key != "interpretations"
+        }
     errors.extend(
         validate_rulespec_proofs(
             yaml.safe_dump(subset),

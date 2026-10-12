@@ -42,8 +42,10 @@ affected executable rules still need their own proof atoms and tests.
 
 New entries use `status: open`. A repair may carry recorded human rulings and
 publisher replies supplied through mandatory review findings into `ruling` and
-`confirmation`, attributed only to organisations. `status: contradicted` blocks
-validation until the module is repaired, the old reading is moved into
+`confirmation`, attributed only to organisations. A supplied ruling permits
+`status: ruled`; `confirmed` and `contradicted` require both blocks. The model
+must never invent either block. `status: contradicted` blocks validation until
+the module is repaired, the old reading is moved into
 `alternatives`, and the new reading's status is set. The block never changes
 lowering, compilation, or execution. See the
 [module metadata contract](../README.md#source-pinning-and-staleness) for its
