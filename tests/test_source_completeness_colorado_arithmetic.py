@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 import pytest
+import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.validator_pipeline import (
+    extract_named_scalar_occurrences,
+    extract_typed_numeric_inventory_occurrences_from_text,
+    numeric_value_is_grounded,
+)
 
 CITATION = "us-co/statute/39/39-22-2003"
 REFUND_COMPARISON = """(6) Except as otherwise provided in this subsection (6), if the refund allowed
@@ -21,6 +28,19 @@ FACTS_AND_ELECTION = (
     "A cash refund is allowed if the claimant is a resident and the claimant "
     "elects to receive cash."
 )
+BLENDING_REQUIREMENTS = """(d.5) No person shall blend exempt dyed diesel fuel with biodiesel fuel after
+withdrawal at a terminal rack unless such person is a licensed blender in
+accordance with subsection (1)(d) of this section who has a valid federal blending
+permit."""
+ELECTIVE_REFUND = """(b) (I) Subject to the requirements specified in subparagraphs (II) and (III) of
+this paragraph (b), for income tax years commencing on or after January 1, 2000, if
+the amount of the tax credit allowed in or carried forward to any tax year pursuant
+to this section exceeds the amount of income tax due on the income of the taxpayer
+for the year, the taxpayer may elect to have the amount of the credit not used as an
+offset against income taxes in said income tax year refunded to the taxpayer."""
+IDENTIFICATION_DUE_DILIGENCE = """(b) If the resident individual does not provide the taxpayer identification
+number but is able to show that he or she exercised due diligence in attempting to
+provide the required information, the individual may claim the credit."""
 
 
 def _rule(name: str, formula: str, excerpt: str) -> dict:
@@ -225,6 +245,229 @@ def test_ambiguous_income_fact_still_fails_closed():
     )
 
 
+@pytest.mark.parametrize(
+    "source", [BLENDING_REQUIREMENTS, " ".join(BLENDING_REQUIREMENTS.split())]
+)
+def test_restrictive_person_relative_keeps_licensing_and_permit_requirements(source):
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert gates[0][0] == gates[1][0] == frozenset({"person"})
+    assert {"licensed", "blender"} <= gates[0][1]
+    assert {"valid", "federal", "blending", "permit"} <= gates[1][1]
+    names = ("person_is_licensed_blender", "person_has_valid_federal_blending_permit")
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
+    )
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(names), gates, terminal_evidence=evidence
+    )
+    formula = "person_is_licensed_blender and person_has_valid_federal_blending_permit"
+    for omitted in names:
+        assert not sc._terminal_names_corroborate_source_gates(
+            frozenset(names) - {omitted}, gates, terminal_evidence=evidence
+        )
+        environment = {**dict.fromkeys(names, True), omitted: False}
+        assert not _execute(formula, environment)
+        assert _execute(next(name for name in names if name != omitted), environment)
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    role=st.sampled_from(["licensed blender", "student", "resident"]),
+    relative=st.sampled_from(
+        ["has a valid permit", "is blind", "elects to receive cash"]
+    ),
+    breaks=st.sets(st.integers(min_value=1, max_value=35), max_size=20),
+)
+def test_restrictive_human_relative_fact_requirements_are_independent_of_word_wraps(
+    role, relative, breaks
+):
+    source = f"A permission applies if the person is a {role} who {relative}."
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(source.split(), start=1)
+    ).strip()
+    gates = sc._source_conjunctive_fact_gates(wrapped)
+    assert gates == sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert gates[0][0] == gates[1][0] == frozenset({"person"})
+    assert set(role.split()) <= gates[0][1]
+    assert set(relative.split()) - {"a", "has", "is", "to", "elects"} <= gates[1][1]
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "the person is a licensed blender or student who is blind",
+        "the person is not a licensed blender who has a valid permit",
+        "the person is clearly not a licensed blender who has a valid permit",
+        "the person is a resident who is blind or the spouse is disabled",
+        "the person is a resident who is blind, or the spouse is disabled",
+        "the person receives a payment that is income",
+        "the person is a resident in a household that has a parent who is blind",
+        "the person is a licensed guardian of a child who is blind",
+        "the person is a representative of a taxpayer who files a return",
+        "the person is a licensed guardian of a minor who is blind",
+        "the person is a licensed guardian of a severely chronically medically disabled child who is blind",
+        "the person is a guardian except the taxpayer who files a return",
+        "the person is a resident, who is blind",
+    ],
+)
+def test_human_relative_boundaries_do_not_promote_alternatives_or_other_scopes(
+    condition,
+):
+    assert (
+        sc._source_conjunctive_fact_gates(f"A permission applies if {condition}.") == ()
+    )
+
+
+def test_elective_refund_companion_execution_rejects_an_omitted_cash_election():
+    citation = "us-co/statute/39/39-22-522/5/b/i"
+    cases = [
+        {
+            "name": f"cash_election_{elects}_tax_{tax}",
+            "period": "2026",
+            "input": {
+                "credit_amount": 150,
+                "tax_liability": tax,
+                "taxpayer_elects_refund": elects,
+            },
+            "output": {"cash_refund_amount": max(150 - tax, 0) if elects else 0},
+        }
+        for tax in (100, 150)
+        for elects in (False, True)
+    ]
+
+    def analyze(formula):
+        rule = _rule("cash_refund_amount", formula, ELECTIVE_REFUND)
+        rule["source"] = citation
+        rule["metadata"]["proof"]["atoms"][0]["source"]["corpus_citation_path"] = (
+            citation
+        )
+        payload = {
+            "format": "rulespec/v1",
+            "module": {"source_verification": {"corpus_citation_path": citation}},
+            "inputs": [
+                {
+                    "name": name,
+                    "dtype": dtype,
+                    "description": name.replace("_", " "),
+                }
+                for name, dtype in (
+                    ("credit_amount", "Money"),
+                    ("tax_liability", "Money"),
+                    ("taxpayer_elects_refund", "Boolean"),
+                )
+            ],
+            "rules": [rule],
+        }
+        return sc.analyze_complete_source_unit(
+            yaml.safe_dump(payload),
+            ELECTIVE_REFUND,
+            corpus_citation_path=citation,
+            test_cases=cases,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text,
+                profile="en-US",
+            ),
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    formula = "if taxpayer_elects_refund: max(credit_amount - tax_liability, 0) else: 0"
+    omitted_formula = "max(credit_amount - tax_liability, 0)"
+    # The source grants a right to elect after the arithmetic comparison. It
+    # does not make exercising that right an unconditional eligibility fact.
+    assert sc._source_conjunctive_fact_gates(ELECTIVE_REFUND) == ()
+    assert analyze(formula).issues == ()
+    assert any(
+        issue.startswith("[complete-source-unit:tests]")
+        for issue in analyze(omitted_formula).issues
+    )
+    for case in cases:
+        environment = case["input"]
+        assert _execute(formula, environment) == case["output"]["cash_refund_amount"]
+        assert _execute("credit_amount > tax_liability", environment) == (
+            environment["tax_liability"] == 100
+        )
+    non_electing_case = cases[0]
+    assert _execute(omitted_formula, non_electing_case["input"]) == 50
+    assert non_electing_case["output"]["cash_refund_amount"] == 0
+
+
+@pytest.mark.parametrize(
+    "source",
+    [IDENTIFICATION_DUE_DILIGENCE, " ".join(IDENTIFICATION_DUE_DILIGENCE.split())],
+)
+def test_finite_but_preserves_both_identification_exception_requirements(source):
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert {"provide", "identification", "number"} <= gates[0][1]
+    assert {"able", "show", "exercised", "due", "diligence"} <= gates[1][1]
+    names = (
+        "individual_provides_taxpayer_identification_number",
+        "individual_is_able_to_show_exercised_due_diligence",
+    )
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
+    )
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(names), gates, terminal_evidence=evidence
+    )
+    for omitted in names:
+        assert not sc._terminal_names_corroborate_source_gates(
+            frozenset(names) - {omitted}, gates, terminal_evidence=evidence
+        )
+    formula = f"if not {names[0]} and {names[1]}: credit_amount else: 0"
+    for provides, diligence, expected in (
+        (False, True, 50),
+        (True, True, 0),
+        (False, False, 0),
+        (True, False, 0),
+    ):
+        environment = {
+            names[0]: provides,
+            names[1]: diligence,
+            "credit_amount": 50,
+        }
+        assert _execute(formula, environment) == expected
+    assert (
+        _execute(
+            f"if {names[1]}: credit_amount else: 0",
+            {names[0]: True, names[1]: True, "credit_amount": 50},
+        )
+        == 50
+    )
+    assert (
+        _execute(
+            f"if not {names[0]}: credit_amount else: 0",
+            {names[0]: False, names[1]: False, "credit_amount": 50},
+        )
+        == 50
+    )
+
+
+@settings(max_examples=30, deadline=None)
+@given(breaks=st.sets(st.integers(min_value=1, max_value=45), max_size=25))
+def test_finite_but_identification_requirements_are_independent_of_word_wraps(breaks):
+    flat = " ".join(IDENTIFICATION_DUE_DILIGENCE.split())
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(flat.split(), start=1)
+    ).strip()
+    gates = sc._source_conjunctive_fact_gates(wrapped)
+    assert len(gates) == 2
+    assert gates == sc._source_conjunctive_fact_gates(flat)
+
+
 @pytest.mark.parametrize("separator", [" ", "\n"])
 @pytest.mark.parametrize("oxford_comma", [False, True])
 def test_comma_separated_fact_clauses_cannot_omit_residency(separator, oxford_comma):
@@ -327,6 +570,128 @@ def test_unbulleted_fact_list_keeps_each_explicit_condition(chapeau):
     }
     assert _execute(formula, environment) == 0
     assert _execute("if taxpayer_is_resident: refund_amount else: 0", environment) == 50
+
+
+CONJUNCTIVE_CHAPEAU_VARIANTS = (
+    "the following conditions are met",
+    "each of these conditions holds",
+    "these conditions hold",
+    "both requirements are met",
+    "the taxpayer meets both requirements",
+    "the following apply",
+    "all of the following requirements must be satisfied",
+    "the following conditions shall be satisfied",
+    "all of these requirements must all be true",
+    "these requirements must be present",
+    "both criteria shall each be fulfilled",
+)
+
+
+@pytest.mark.parametrize("chapeau", CONJUNCTIVE_CHAPEAU_VARIANTS)
+def test_conjunctive_chapeau_variants_preserve_each_fact_and_election(chapeau):
+    source = (
+        f"A credit applies if {chapeau}:\n"
+        "The taxpayer is a resident\n"
+        "The spouse is blind\n"
+        "The claimant elects to receive cash."
+    )
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert gates == (
+        (frozenset({"taxpayer"}), frozenset({"resident"})),
+        (frozenset({"spouse"}), frozenset({"blind"})),
+        (frozenset({"claimant"}), frozenset({"elect", "receive", "cash"})),
+    )
+    names = (
+        "taxpayer_is_resident",
+        "spouse_is_blind",
+        "claimant_elects_to_receive_cash",
+    )
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
+    )
+    formula = "if taxpayer_is_resident and spouse_is_blind and claimant_elects_to_receive_cash: refund_amount else: 0"
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(names), gates, terminal_evidence=evidence
+    )
+    for omitted in names:
+        retained = frozenset(names) - {omitted}
+        assert not sc._terminal_names_corroborate_source_gates(
+            retained, gates, terminal_evidence=evidence
+        )
+        environment = {
+            **dict.fromkeys(names, True),
+            omitted: False,
+            "refund_amount": 50,
+        }
+        assert _execute(formula, environment) == 0
+        omitted_formula = formula.replace(omitted + " and ", "").replace(
+            " and " + omitted, ""
+        )
+        assert _execute(omitted_formula, environment) == 50
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    chapeau=st.sampled_from(CONJUNCTIVE_CHAPEAU_VARIANTS),
+    breaks=st.sets(st.integers(min_value=1, max_value=40), max_size=20),
+)
+def test_conjunctive_chapeau_variant_word_wraps_keep_distinct_requirements(
+    chapeau, breaks
+):
+    source = (
+        f"A credit applies if {chapeau}: The taxpayer is a resident "
+        "The spouse has no income The claimant elects to receive cash."
+    )
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(source.split(), start=1)
+    ).strip()
+    gates = sc._source_conjunctive_fact_gates(wrapped)
+    assert gates == sc._source_conjunctive_fact_gates(source)
+    assert gates == (
+        (frozenset({"taxpayer"}), frozenset({"resident"})),
+        (frozenset({"spouse"}), frozenset({"no_income"})),
+        (frozenset({"claimant"}), frozenset({"elect", "receive", "cash"})),
+    )
+
+
+def test_unproven_chapeau_retains_its_conservative_requirement_gate():
+    source = (
+        "A credit applies if both requirements are met: "
+        "The taxpayer is a resident and blind."
+    )
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert any("requirement" in predicates for _, predicates in gates)
+    assert any("resident" in predicates for _, predicates in gates)
+    assert any("blind" in predicates for _, predicates in gates)
+
+
+@pytest.mark.parametrize(
+    "first_fact", ["must be present", "may be present", "has a spouse"]
+)
+def test_unrecognized_list_member_does_not_drop_the_other_fact_gate(first_fact):
+    source = (
+        "A credit applies if the following conditions are met:\n"
+        f"The taxpayer {first_fact}\nThe spouse is blind."
+    )
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert any("condition" in predicates for _, predicates in gates)
+    assert (frozenset({"spouse"}), frozenset({"blind"})) in gates
+    names = frozenset({"following_conditions_are_met", "taxpayer_is_present"})
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
+    )
+    assert not sc._terminal_names_corroborate_source_gates(
+        names, gates, terminal_evidence=evidence
+    )
 
 
 @pytest.mark.parametrize(
@@ -664,9 +1029,12 @@ def test_preposed_result_preserves_human_pronoun_fact_lists(pronoun):
 
 
 @pytest.mark.parametrize("separator", [" ", "\n"])
-def test_unbulleted_fact_list_preserves_an_alternative_inside_its_member(separator):
+@pytest.mark.parametrize("chapeau", CONJUNCTIVE_CHAPEAU_VARIANTS)
+def test_unbulleted_fact_list_preserves_an_alternative_inside_its_member(
+    separator, chapeau
+):
     source = (
-        "A credit applies if the following conditions are met:"
+        f"A credit applies if {chapeau}:"
         + separator
         + "The taxpayer is a resident or the spouse is blind."
         + separator

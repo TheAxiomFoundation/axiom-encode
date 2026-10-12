@@ -132,6 +132,115 @@ def test_wrapped_decimal_self_reference_for_credit_retains_its_owner(label):
     assert f"({label}) for each lease" in branches[2].text
 
 
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "section 39-1-104\n(10.2) and that is used to determine actual value",
+        "section 39-1-104\n(10.2) and which is used to determine actual value",
+        "section 20\n(8)(c) of said article X in the intervening year",
+    ],
+)
+def test_wrapped_named_provision_reference_keeps_the_complete_control_clause(reference):
+    clause = (
+        "(b) An equalization factor shall apply as prescribed in " + reference + "."
+    )
+    source = "(1) Definitions.\n(2) (a) Earlier rule.\n" + clause + "\n(3) Next rule."
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("1",),
+        ("2",),
+        ("2", "a"),
+        ("2", "b"),
+        ("3",),
+    ]
+    assert (
+        next(branch for branch in branches if branch.path == ("2", "b")).text == clause
+    )
+
+
+def test_wrapped_decimal_self_reference_but_keeps_the_complete_control_clause():
+    clause = (
+        "(b) The tax liability withheld pursuant to paragraph (a) of this subsection\n"
+        "(4.5) but was not remitted by the first purchaser shall be deemed satisfied."
+    )
+    source = "(1) Definitions.\n(4.5) (a) Earlier rule.\n" + clause + "\n(5) Next rule."
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("1",),
+        ("4.5",),
+        ("4.5", "a"),
+        ("4.5", "b"),
+        ("5",),
+    ]
+    assert (
+        next(branch for branch in branches if branch.path == ("4.5", "b")).text
+        == clause
+    )
+
+
+@pytest.mark.parametrize(
+    "body", ["but was not remitted", "But the department must report"]
+)
+def test_but_continuation_does_not_hide_a_different_decimal_root(body):
+    source = (
+        "(1) For purposes of this subsection\n"
+        f"(2.5) {body} to the treasurer.\n(3) Next rule."
+    )
+    assert [branch.path for branch in _branches(source)] == [("1",), ("2.5",), ("3",)]
+
+
+@pytest.mark.parametrize("boundary", [".\n", "\n\n", "\r\n\r\n"])
+@pytest.mark.parametrize(
+    "reference", ["section 39-1-104", "section 20", "this subsection"]
+)
+def test_new_reference_tails_do_not_cross_completed_sentences_or_paragraphs(
+    boundary, reference
+):
+    source = (
+        "(1) Review "
+        + reference
+        + boundary
+        + "(2.5) And that is used to determine the credit.\n(3) Next rule."
+    )
+    assert [branch.path for branch in _branches(source)] == [("1",), ("2.5",), ("3",)]
+
+
+@settings(max_examples=36, deadline=None)
+@given(
+    tokens=st.sampled_from(
+        [
+            ["section", "39-1-104", "(10.2)", "and", "that", "is", "used"],
+            ["section", "39-1-104", "(10.2)", "and", "which", "is", "used"],
+            ["section", "20", "(8)", "(c)", "of", "said", "article", "X"],
+            ["this", "subsection", "(4.5)", "but", "was", "not", "remitted"],
+        ]
+    ),
+    breaks=st.sets(st.integers(min_value=0, max_value=7), max_size=7),
+    separator=st.sampled_from([" ", "\n", "\n  ", "\r\n"]),
+)
+def test_wrapped_relative_citation_continuations_keep_the_entire_source_clause(
+    tokens, breaks, separator
+):
+    reference = "".join(
+        (separator if index in breaks else " ") + token
+        for index, token in enumerate(tokens)
+    )
+    clause = "(b) The amount shall be determined pursuant to" + reference + "."
+    source = "(1) Definitions.\n(4.5) (a) Earlier rule.\n" + clause + "\n(5) Next rule."
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("1",),
+        ("4.5",),
+        ("4.5", "a"),
+        ("4.5", "b"),
+        ("5",),
+    ]
+    assert (
+        next(branch for branch in branches if branch.path == ("4.5", "b")).text
+        == clause
+    )
+
+
 @pytest.mark.parametrize("body", ["For each lease", "for each lease", "For purposes"])
 def test_for_continuation_does_not_hide_a_new_decimal_subsection(body):
     source = (
@@ -157,6 +266,141 @@ def test_decimal_subsections_have_separate_roots_and_children():
         ("9.5",),
         ("10",),
     ]
+
+
+@pytest.mark.parametrize("child_separator", [" ", "\n"])
+def test_decimal_root_after_numbered_child_keeps_its_lower_alpha_child(child_separator):
+    source = (
+        "(1) (a) First:\n(I) First:\n(A) First:\n"
+        "(1) The claimant must file a return.\n"
+        "(1.5)"
+        + (" Adjusted gross income means:" if child_separator == "\n" else "")
+        + child_separator
+        + "(a) A new decimal subsection.\n"
+        "(2) A new root subsection."
+    )
+    assert [branch.path for branch in _branches(source)] == [
+        ("1",),
+        ("1", "a"),
+        ("1", "a", "i"),
+        ("1", "a", "i", "a"),
+        ("1", "a", "i", "a", "1"),
+        ("1.5",),
+        ("1.5", "a"),
+        ("2",),
+    ]
+
+
+def test_decimal_self_reference_after_numbered_child_does_not_repeat_root():
+    source = (
+        "(1) Definitions.\n(2.5) (a) First:\n(I) First:\n(A) First:\n"
+        "(1) The claimant must file a return.\n"
+        "(b) There is a credit under this subsection\n"
+        "(2.5) for each lease.\n(3) The next subsection."
+    )
+    assert [branch.path for branch in _branches(source)] == [
+        ("1",),
+        ("2.5",),
+        ("2.5", "a"),
+        ("2.5", "a", "i"),
+        ("2.5", "a", "i", "a"),
+        ("2.5", "a", "i", "a", "1"),
+        ("2.5", "b"),
+        ("3",),
+    ]
+
+
+@settings(max_examples=32, deadline=None)
+@given(
+    root=st.integers(min_value=1, max_value=98),
+    decimal=st.integers(min_value=1, max_value=9),
+    depth=st.integers(min_value=0, max_value=6),
+    child_separator=st.sampled_from([" ", "\n"]),
+    separator=st.sampled_from([" ", "\n", "\n  ", "\r\n"]),
+)
+def test_decimal_root_and_self_reference_keep_nested_numbered_content(
+    root, decimal, depth, child_separator, separator
+):
+    label = f"{root}.{decimal}"
+    children = ["i", "A", "1", "i", "A", "1"][:depth]
+    nested = "".join(
+        f"({child}) The claimant must file a return.\n" for child in children
+    )
+    source = (
+        f"({root}) (a) First:\n"
+        + nested
+        + f"({label})"
+        + (" The decimal credit:" if child_separator == "\n" else "")
+        + child_separator
+        + "(a) The decimal credit:\n"
+        + nested
+        + "(b) There is a credit under this subsection"
+        + separator
+        + f"({label}) for each lease.\n({root + 1}) The next subsection."
+    )
+    expected = [
+        (str(root),),
+        (str(root), "a"),
+        *(
+            (str(root), "a", *(child.lower() for child in children[:index]))
+            for index in range(1, depth + 1)
+        ),
+        (label,),
+        (label, "a"),
+        *(
+            (label, "a", *(child.lower() for child in children[:index]))
+            for index in range(1, depth + 1)
+        ),
+        (label, "b"),
+        (str(root + 1),),
+    ]
+    assert [branch.path for branch in _branches(source)] == expected
+
+
+@pytest.mark.parametrize("outer", ["", "A. Outer section.\n"])
+def test_explicitly_attached_decimal_numbered_child_stays_nested(outer):
+    source = (
+        outer + "(1) Definitions.\n(2.5) (a) First:\n(I) First:\n(A) First:\n"
+        "(1) The claimant must file a return.\n"
+        "(2.5)(a)(I)(A)(1.5) The claimant must submit an annual report.\n"
+        "(3) The next subsection." + ("\nB. Another outer section." if outer else "")
+    )
+    branches = _branches(source)
+    expected = (*(("a",) if outer else ()), "2.5", "a", "i", "a", "1.5")
+    assert any(branch.path == expected for branch in branches)
+    assert not any(
+        branch.path == (("a", "1.5") if outer else ("1.5",)) for branch in branches
+    )
+
+
+@pytest.mark.parametrize("child", ["i", "v", "x", "c"])
+@pytest.mark.parametrize("separator", [" ", "\n"])
+def test_roman_compatible_child_does_not_hoist_a_decimal_numbered_item(
+    child, separator
+):
+    source = (
+        "(1) Definitions.\n(2.5) (a) First:\n(I) First:\n(A) First:\n"
+        "(1) The claimant must file a return.\n"
+        "(1.5)" + separator + f"({child}) The claimant must submit an annual report.\n"
+        "(3) The next subsection."
+    )
+    branches = _branches(source)
+    assert any(branch.path == ("2.5", "a", "i", "a", "1.5") for branch in branches)
+    assert not any(branch.path == ("1.5",) for branch in branches)
+    assert any("must submit an annual report" in branch.text for branch in branches)
+
+
+@pytest.mark.parametrize("child", ["a", "b"])
+def test_returning_lower_alpha_sibling_does_not_hoist_a_decimal_numbered_item(child):
+    source = (
+        "(1) Definitions.\n(2.5) (a) First:\n(I) First:\n(A) First:\n"
+        "(1) The claimant must file a return.\n"
+        "(1.5) The claimant must submit an annual report.\n"
+        f"({child}) An existing paragraph.\n(3) The next subsection."
+    )
+    branches = _branches(source)
+    assert any(branch.path == ("2.5", "a", "i", "a", "1.5") for branch in branches)
+    assert not any(branch.path == ("1.5",) for branch in branches)
 
 
 @settings(max_examples=24, deadline=None)
