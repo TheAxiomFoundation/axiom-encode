@@ -137,6 +137,11 @@ class BoardRunnerStats:
     generalist_review_scores: list[float] = field(default_factory=list)
     policyengine_case_count: int = 0
     policyengine_pass_count: int = 0
+    admission_case_count: int = 0
+    admitted_count: int = 0
+    admission_refusal_count: int = 0
+    admission_prerequisite_count: int = 0
+    admission_scorer_error_count: int = 0
     durations_ms: list[int] = field(default_factory=list)
     costs_usd: list[float] = field(default_factory=list)
 
@@ -210,6 +215,8 @@ class EvalBoard:
     incomplete_sources: list[str] = field(default_factory=list)
     mixed_toolchain_sources: list[str] = field(default_factory=list)
     execution_identity_sha256s: dict[str, str] = field(default_factory=dict)
+    admission_scored: bool = False
+    admission_identities: dict[int, dict] = field(default_factory=dict)
 
     def ordered_runners(self) -> list[BoardRunnerStats]:
         """Runners by gate-pass rate, then passes, then speed, then name.
@@ -1231,7 +1238,7 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
             "Suite results execution identity has a missing or malformed "
             f"timeout retry policy: {source}"
         )
-    if set(identity) != {
+    allowed_fields = {
         "schema",
         "case_timeout_seconds",
         "runner_timeouts",
@@ -1240,7 +1247,31 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
         "axiom_rules_engine",
         "policyengine_runtime",
         "rulespec_roots",
-    }:
+    }
+    if "admission_score" in identity:
+        allowed_fields.add("admission_score")
+        options = identity["admission_score"]
+        compose = options.get("axiom_compose") if isinstance(options, dict) else None
+        if (
+            not isinstance(options, dict)
+            or set(options) != {"enabled", "axiom_compose"}
+            or options.get("enabled") is not True
+            or (
+                compose is not None
+                and (
+                    not isinstance(compose, dict)
+                    or set(compose) != {"path", "binary_sha256"}
+                    or not isinstance(compose.get("path"), str)
+                    or not compose["path"]
+                    or (
+                        compose.get("binary_sha256") is not None
+                        and not _is_sha256_hex(compose["binary_sha256"])
+                    )
+                )
+            )
+        ):
+            raise EvalBoardError(f"Malformed admission scoring options in {source}")
+    if set(identity) != allowed_fields:
         raise EvalBoardError(
             f"Suite results execution identity has unexpected v3 fields: {source}"
         )
@@ -1865,6 +1896,171 @@ def _cell_for_result(result: dict) -> BoardCell:
     )
 
 
+@dataclass(frozen=True)
+class _AdmissionIdentity:
+    value: dict
+    missing_context_allowed: bool
+
+
+_ADMISSION_CONTEXT_RAW_DIGEST = "context_manifest_sha256"
+_ADMISSION_CONTEXT_CANONICAL_DIGEST = "context_manifest_canonical_sha256"
+_ADMISSION_NO_WORKSPACE_CATEGORIES = (["generation-error"], ["generation-timeout"])
+
+
+def _merge_admission_context(first: object, second: object) -> object | None:
+    """Compare frozen context by its canonical identity.
+
+    The raw manifest digest names one packaging, absolute origin paths
+    included, so the same context packaged from two checkouts differs there
+    alone. When both sides carry the canonical digest the raw one is evidence:
+    it stays on each row, and in the merged identity only while every row
+    agrees on it.
+    """
+
+    if first == second:
+        return first
+    if not (
+        isinstance(first, dict)
+        and isinstance(second, dict)
+        and _ADMISSION_CONTEXT_CANONICAL_DIGEST in first
+        and _ADMISSION_CONTEXT_CANONICAL_DIGEST in second
+    ):
+        return None
+    comparable = {
+        key: value
+        for key, value in first.items()
+        if key != _ADMISSION_CONTEXT_RAW_DIGEST
+    }
+    if comparable != {
+        key: value
+        for key, value in second.items()
+        if key != _ADMISSION_CONTEXT_RAW_DIGEST
+    }:
+        return None
+    return comparable
+
+
+def _merge_admission_identities(
+    first: _AdmissionIdentity, second: _AdmissionIdentity
+) -> _AdmissionIdentity | None:
+    """Compare runtime inputs and retain every available frozen context binding."""
+
+    context_fields = ("source", "context")
+    merged = {
+        key: value for key, value in first.value.items() if key not in context_fields
+    }
+    other = {
+        key: value for key, value in second.value.items() if key not in context_fields
+    }
+    if merged != other:
+        return None
+    for key in context_fields:
+        first_present = key in first.value
+        second_present = key in second.value
+        if first_present and second_present:
+            if key == "context":
+                context = _merge_admission_context(first.value[key], second.value[key])
+                if context is None:
+                    return None
+                merged[key] = context
+                continue
+            if first.value[key] != second.value[key]:
+                return None
+            merged[key] = first.value[key]
+        elif first_present:
+            if not second.missing_context_allowed:
+                return None
+            merged[key] = first.value[key]
+        elif second_present:
+            if not first.missing_context_allowed:
+                return None
+            merged[key] = second.value[key]
+    return _AdmissionIdentity(
+        merged, first.missing_context_allowed and second.missing_context_allowed
+    )
+
+
+def _payload_admission_scoring(
+    payload: dict, source: str
+) -> tuple[bool, dict[int, _AdmissionIdentity]]:
+    """Require one scoring mode and one production identity per case."""
+
+    results = payload.get("results")
+    if not isinstance(results, list):
+        raise EvalBoardError(f"Suite results carry no result rows: {source}")
+    options = payload["evidence"]["execution_identity"].get("admission_score")
+    if options is not None and (
+        not isinstance(options, dict) or options.get("enabled") is not True
+    ):
+        raise EvalBoardError(f"Malformed admission scoring options in {source}")
+    scored = isinstance(options, dict) and options.get("enabled") is True
+    identities: dict[int, _AdmissionIdentity] = {}
+    for position, result in enumerate(results, start=1):
+        if not isinstance(result, dict):
+            raise EvalBoardError(f"Malformed result row in {source}")
+        present = "admission_score" in result
+        if present != scored:
+            raise EvalBoardError(
+                "Suite results are not comparable: admission scoring presence "
+                f"in row #{position} of {source} does not match its execution identity"
+            )
+        if not present:
+            continue
+        score = result["admission_score"]
+        context = f"Result row #{position} in {source} admission score"
+        if not isinstance(score, dict):
+            raise EvalBoardError(f"{context} must be an object")
+        _require_bool(score.get("admitted"), context=f"{context} admitted")
+        prerequisite = _require_bool(
+            score.get("prerequisite_failure"),
+            context=f"{context} prerequisite_failure",
+        )
+        if prerequisite and score["admitted"]:
+            raise EvalBoardError(f"{context} cannot admit a prerequisite failure")
+        expected_kinds = (
+            ("prerequisite",)
+            if prerequisite
+            else (None,)
+            if score["admitted"]
+            else ("candidate", "scorer-error")
+        )
+        if score.get("failure_kind") not in expected_kinds:
+            raise EvalBoardError(f"{context} has inconsistent failure classification")
+        identity = score.get("identity")
+        if not isinstance(identity, dict) or not identity:
+            raise EvalBoardError(f"{context} carries no admission identity")
+        eval_case = result.get("eval_case")
+        case_index = eval_case.get("index") if isinstance(eval_case, dict) else None
+        if type(case_index) is not int:
+            raise EvalBoardError(f"{context} carries no case index")
+        # A prerequisite failure may be the missing binding itself, and a
+        # runner failure that recorded no workspace has no context to bind.
+        # Every other row was scored against a source and a frozen context.
+        bindings_optional = prerequisite or (
+            score.get("failure_kind") == "candidate"
+            and score.get("refusal_categories") in _ADMISSION_NO_WORKSPACE_CATEGORIES
+            and not result.get("output_file")
+            and not result.get("context_manifest_file")
+        )
+        if not bindings_optional:
+            for binding in ("source", "context"):
+                if not isinstance(identity.get(binding), dict) or not identity[binding]:
+                    raise EvalBoardError(
+                        f"{context} carries an admission identity without its "
+                        f"frozen {binding} binding"
+                    )
+        current = _AdmissionIdentity(identity, bindings_optional)
+        if case_index in identities:
+            current = _merge_admission_identities(identities[case_index], current)
+            if current is None:
+                raise EvalBoardError(
+                    "Suite results are not comparable: admission identity differs "
+                    f"between runners for case #{case_index} in {source}"
+                )
+        identities[case_index] = current
+    return scored, identities
+
+
 def fold_eval_board(
     inputs: list[Path],
     *,
@@ -1879,6 +2075,8 @@ def fold_eval_board(
     reference_suite: str | None = None
     reference_corpus: dict | None = None
     reference_execution: object = None
+    reference_admission_scored: bool | None = None
+    admission_identities: dict[int, _AdmissionIdentity] = {}
     reference_source = ""
     runner_sources: dict[str, str] = {}
     runner_identities: dict[str, dict] = {}
@@ -1903,6 +2101,27 @@ def fold_eval_board(
         )
         normalized_execution = normalized_execution_identity(execution_identity)
         execution_identity_sha256s[source] = execution_digest
+        admission_scored, payload_admission_identities = _payload_admission_scoring(
+            payload, source
+        )
+        if reference_admission_scored is None:
+            reference_admission_scored = admission_scored
+        elif admission_scored != reference_admission_scored:
+            raise EvalBoardError(
+                "Suite results are not comparable: admission scoring presence "
+                f"in {source} does not match {reference_source}"
+            )
+        for case_index, identity in payload_admission_identities.items():
+            if case_index in admission_identities:
+                identity = _merge_admission_identities(
+                    admission_identities[case_index], identity
+                )
+                if identity is None:
+                    raise EvalBoardError(
+                        "Suite results are not comparable: admission identity for "
+                        f"case #{case_index} in {source} does not match {reference_source}"
+                    )
+            admission_identities[case_index] = identity
 
         if reference_cases is None:
             reference_cases = case_identities
@@ -2111,6 +2330,17 @@ def fold_eval_board(
                 stats.gate_pass_count += 1
             if cell.state == "timeout":
                 stats.timeout_count += 1
+            admission_score = result.get("admission_score")
+            if isinstance(admission_score, dict):
+                stats.admission_case_count += 1
+                if admission_score["prerequisite_failure"]:
+                    stats.admission_prerequisite_count += 1
+                elif admission_score["failure_kind"] == "scorer-error":
+                    stats.admission_scorer_error_count += 1
+                elif admission_score["admitted"]:
+                    stats.admitted_count += 1
+                else:
+                    stats.admission_refusal_count += 1
             metrics = _result_metrics(result)
             if metrics is None:
                 continue
@@ -2149,6 +2379,11 @@ def fold_eval_board(
         incomplete_sources=incomplete_sources,
         mixed_toolchain_sources=mixed_toolchain_sources,
         execution_identity_sha256s=execution_identity_sha256s,
+        admission_scored=bool(reference_admission_scored),
+        admission_identities={
+            case_index: identity.value
+            for case_index, identity in admission_identities.items()
+        },
     )
 
 
@@ -2183,6 +2418,8 @@ def eval_board_to_json(board: EvalBoard) -> dict:
         "incomplete_sources": board.incomplete_sources,
         "mixed_toolchain_sources": board.mixed_toolchain_sources,
         "execution_identity_sha256s": board.execution_identity_sha256s,
+        "admission_scored": board.admission_scored,
+        "admission_identities": board.admission_identities,
         "cases": [
             {
                 "index": case.index,
@@ -2204,6 +2441,11 @@ def eval_board_to_json(board: EvalBoard) -> dict:
                 "timeout_count": stats.timeout_count,
                 "gate_pass_count": stats.gate_pass_count,
                 "gate_pass_rate": stats.gate_pass_rate,
+                "admission_case_count": stats.admission_case_count,
+                "admitted_count": stats.admitted_count,
+                "admission_refusal_count": stats.admission_refusal_count,
+                "admission_prerequisite_count": stats.admission_prerequisite_count,
+                "admission_scorer_error_count": stats.admission_scorer_error_count,
                 "success_count": stats.success_count,
                 "compile_pass_rate": stats.compile_pass_rate,
                 "ci_pass_rate": stats.ci_pass_rate,
@@ -2286,13 +2528,19 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
         "numerics, per case. Compile/CI/grounded rates cover produced "
         "artifacts only; reviewer and oracle columns are advisory."
     )
+    if board.admission_scored:
+        lines.append(
+            "Admission reports production validation over scored cases. "
+            "Prerequisites and scorer errors have their own counts and are "
+            "excluded from refusals."
+        )
     lines.append("")
     header = (
-        "| runner | model | gate pass | timeouts | artifacts | compile | ci | grounded | "
+        "| runner | model | gate pass | admission | prerequisites | scorer errors | timeouts | artifacts | compile | ci | grounded | "
         "src coverage | review | review score | oracle | median s | mean $ |"
     )
     lines.append(header)
-    lines.append("|" + "---|" * 14)
+    lines.append("|" + "---|" * 17)
     for stats in ordered:
         oracle = (
             f"{stats.policyengine_pass_count}/{stats.policyengine_case_count}"
@@ -2300,7 +2548,7 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
             else "—"
         )
         lines.append(
-            "| {runner} | {model} | {gate} | {timeouts} | {artifacts} | "
+            "| {runner} | {model} | {gate} | {admission} | {prerequisites} | {scorer_errors} | {timeouts} | {artifacts} | "
             "{compile} | {ci} | {grounded} | "
             "{coverage} | {review} | {review_score} | {oracle} | {median} | "
             "{cost} |".format(
@@ -2308,6 +2556,21 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
                 model=stats.model,
                 gate=f"{stats.gate_pass_count}/{stats.cases_run} "
                 f"({_format_percent(stats.gate_pass_rate)})",
+                admission=(
+                    f"{stats.admitted_count}/{stats.admission_case_count}"
+                    if board.admission_scored
+                    else "-"
+                ),
+                prerequisites=(
+                    str(stats.admission_prerequisite_count)
+                    if board.admission_scored
+                    else "-"
+                ),
+                scorer_errors=(
+                    str(stats.admission_scorer_error_count)
+                    if board.admission_scored
+                    else "-"
+                ),
                 timeouts=stats.timeout_count,
                 artifacts=stats.artifact_case_count,
                 compile=_format_percent(stats.compile_pass_rate),
@@ -2369,7 +2632,14 @@ def render_eval_board_text(board: EvalBoard) -> str:
             f"{stats.runner:<{name_width}}  "
             f"gate {stats.gate_pass_count}/{stats.cases_run} "
             f"({_format_percent(stats.gate_pass_rate)})  "
-            f"T timeout {stats.timeout_count}  "
+            + (
+                f"admission {stats.admitted_count}/{stats.admission_case_count}  "
+                f"prerequisites {stats.admission_prerequisite_count}  "
+                f"scorer errors {stats.admission_scorer_error_count}  "
+                if board.admission_scored
+                else "admission -  prerequisites -  scorer errors -  "
+            )
+            + f"T timeout {stats.timeout_count}  "
             f"artifacts {stats.artifact_case_count}  "
             f"compile {_format_percent(stats.compile_pass_rate)}  "
             f"ci {_format_percent(stats.ci_pass_rate)}  "
