@@ -2,6 +2,10 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Recognize source-equivalent nested worksheet guards and directly owned
+  part-year income sums. Keep typed dependencies, selected proof ownership,
+  source arithmetic and executed companion witnesses mandatory.
+
 - Recognize four explicit Alberta form-line input spellings in T2036 worksheet
   path evidence. Source coordinates, types, proof ownership and runtime witnesses
   remain required; ambiguous declarations and imported aliases fail closed.
