@@ -260,6 +260,23 @@ and page-2 descendants. The corpus resolver composes a bodyless parent's active
 descendants under the singular requested citation, so the protected replacement
 should target that parent rather than one page or a removed plural field.
 
+The later protected 7 USC 2012(j) repair run
+[`38264620667`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38264620667)
+applied and signed its primary in the ephemeral runner but published no RuleSpec
+PR: its required 7 CFR 273.10 dependent failed all bounded attempts. The
+rejected 273.10 candidate itself has no `source_verification.values`; it imports
+the still-legacy FY 2026 `deductions.yaml` and `maximum-allotments.yaml`.
+The engine wraps an imported parse error with the top-level 273.10 filename.
+One direct-import path is 2012(j) → FY 2026 deductions → 273.10 → 273.11(c),
+with maximum allotments also feeding 273.10 and 2017(a). The deductions
+replacement cannot compile against the old 2012(j) relation because its tuple
+slots lack entity kinds. This is a coupled protected-migration problem, not a
+reason to retry 273.10 alone or manually strip signed legacy fields. The
+existing targeted workflow has at most two dependent generations; its atomic
+source-bundle mode does not stage this full multi-source dependent DAG. Thus,
+the whole chain needs a reviewed, source-bound staged transaction or equivalent
+protected migration with final program validation and fresh signatures.
+
 The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
 passed its attempt-budget check and provisioned the protected signing
 supervisor, but failed source and compile
