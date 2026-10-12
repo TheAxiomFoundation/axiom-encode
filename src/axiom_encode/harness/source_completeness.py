@@ -26732,7 +26732,8 @@ def _unwitnessed_exception_branches(
         from axiom_encode.harness.worksheet_exception_evidence import existing_witnesses
 
         augmented_witnesses = {
-            branch: witnesses | existing_witnesses(
+            branch: witnesses
+            | existing_witnesses(
                 certified_replacement,
                 branch,
                 toggled_exception_selectors,
