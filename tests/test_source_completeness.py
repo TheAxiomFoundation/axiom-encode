@@ -45203,6 +45203,72 @@ def test_precomputed_income_table_captions_are_not_computation():
     )
 
 
+def test_exact_fns_fy2026_one_line_table_caption_is_not_a_computation():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    assert source_states_explicit_computation(source)
+    assert not source_states_explicit_computation(
+        source, corpus_citation_path=citation_path
+    )
+    assert not completeness_module._source_states_nonrounding_computation(
+        source, corpus_citation_path=citation_path
+    )
+    result = _analyze(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=citation_path,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(result, "formula-output"), result.issues
+    # The computation-only view must never erase the 165% caption or the
+    # published dollar cells from independent source-recall obligations.
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(
+        authoritative_numeric_recall_text(source, corpus_citation_path=citation_path)
+    )
+    assert {165, 2152, 2474, 8567, 871} <= {item.value for item in recalled}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("$8,567", ""),
+        lambda source: source + " The limit is computed as 165% of poverty.",
+    ],
+)
+def test_fns_fy2026_one_line_table_caption_fails_closed_when_changed(mutation):
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert source_states_explicit_computation(
+        mutation(source), corpus_citation_path=citation_path
+    )
+    assert source_states_explicit_computation(
+        source, corpus_citation_path="us/guidance/example/income-table"
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
