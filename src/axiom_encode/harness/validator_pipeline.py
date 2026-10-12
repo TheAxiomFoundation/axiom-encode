@@ -12972,9 +12972,7 @@ def _clean_source_text_for_numeric_extraction_tracked(
             # as an amount, although strict locale parsing rejects it there.
             content = content.sub(
                 _COLLAPSED_SIZE_TABLE_ROW_PATTERN,
-                lambda match: (
-                    match.group("label") + ":" + match.group("separator")[1:]
-                ),
+                lambda match: match.group("label") + ":" + match.group("separator")[1:],
             )
             line = content.text
             structural_stripped = line.strip().strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
