@@ -1,0 +1,1 @@
+Mask complete English subdivision locators, including coordinated Virginia references, and the bounded poverty-guideline geography `48 contiguous states` in shared numeric recall and formula-witness accounting. Preserve operative amounts, percentages, counts, thresholds, and years without requiring synthetic locator parameters or operands.

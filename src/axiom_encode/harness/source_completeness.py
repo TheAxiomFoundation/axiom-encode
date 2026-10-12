@@ -2212,6 +2212,51 @@ _RECALL_UNIT_WORD = (
 _RECALL_UNIT_FOLLOWS = (
     rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
 )
+# Virginia cites numeric subdivisions with optional letter components (`B 3`,
+# `2 b`) and coordinated siblings. Match complete labels only; a continuation
+# carrying a quantity unit is operative (`subdivision 2 and 20 percent`).
+_ENGLISH_SUBDIVISION_REFERENCE_CONNECTIVE = (
+    r"(?:of|in|under|above|below|hereof|herein|and|or|through|to|"
+    r"for[ \t]+the[ \t]+same[ \t]+taxable[ \t]+year|"
+    r"shall|may|must|would|will|is|are|that|which|as|"
+    r"appl(?:y|ies)|provides?|authorizes?|governs?|requires?)\b(?!-)"
+)
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR = (
+    r"(?:[A-Za-z][ \t]*)?\d+[A-Za-z]?(?![\w.]|,\d)"
+    r"(?:[ \t]+[A-Za-z]\b)?"
+    # A range is a locator only when its endpoint has a reference boundary too.
+    r"(?![ \t]*(?:[-–—]|(?:to|through)[ \t]+)[ \t]*"
+    r"\d+(?:[.,]\d+)*[A-Za-z]?(?:[ \t]+[A-Za-z]\b)?[ \t]+"
+    rf"(?!{_ENGLISH_SUBDIVISION_REFERENCE_CONNECTIVE})[A-Za-z])"
+    r"(?![ \t]*(?:(?:[-–—]|(?:to|through)[ \t]+)[ \t]*"
+    r"\d+(?:[.,]\d+)*[ \t]*)?"
+    rf"(?:%|-?(?:(?!{_ENGLISH_SUBDIVISION_REFERENCE_CONNECTIVE}\b)"
+    r"[A-Za-z]+[ \t-]+)*"
+    rf"(?:{_RECALL_UNIT_WORD}|"
+    r"(?:children|dependents|taxpayers|returns|states|households|families|"
+    r"times|per[ \t]+cent|multiplied|divided|acres?|feet|foot|"
+    r"met(?:re|er)s?|miles?|units?|lots?))\b))"
+    # A following noun phrase may describe a real count rather than a locator.
+    # Require a reference boundary or legal connective, not arbitrary prose.
+    r"(?=$|[ \t]*(?:[,.;:()§]|[-–—]|$)|[ \t]+"
+    rf"{_ENGLISH_SUBDIVISION_REFERENCE_CONNECTIVE}\b)"
+)
+_ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION = re.compile(
+    r"\bsubdivisions?[ \t]+"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r"(?:[ \t]*(?:,[ \t]*(?:(?:and|or)[ \t]+)?|"
+    r"(?:and|or|through|to)[ \t]+|[-–—][ \t]*)"
+    + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    + r")*",
+    flags=re.IGNORECASE,
+)
+# `48 contiguous states` identifies the geography of the poverty guidelines,
+# not a benefit parameter. Keep other state counts and currency amounts.
+_CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER = re.compile(
+    r"(?:(?P<currency>[$€£¥₹][ \t]*)|(?<![\w$€£¥₹.,]))"
+    r"48(?=[ \t]+contiguous[ \t]+states\b)",
+    flags=re.IGNORECASE,
+)
 _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     r"\bWAC[ \t]+\d+-\d+-\d+[A-Za-z]?"
     r"(?:[ \t]*(?:,|and|or|through|to)[ \t]*\d+-\d+-\d+[A-Za-z]?)*"
@@ -13749,6 +13794,12 @@ def authoritative_numeric_recall_text(
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION.sub(
+        lambda match: re.sub(r"\d", " ", match.group(0)), source_text
+    )
+    source_text = _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER.sub(
+        lambda match: match.group(0) if match.group("currency") else "  ", source_text
+    )
     source_text = _mask_numeric_spans(
         source_text, _corroborated_form_output_label_spans(source_text)
     )
