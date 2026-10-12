@@ -18,8 +18,6 @@ import itertools
 import math
 import re
 import textwrap
-import unicodedata
-from bisect import bisect_left
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
@@ -4884,8 +4882,14 @@ def analyze_complete_source_unit(
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
-    source_text = authoritative_source_text.strip()
-    if not source_text:
+    # Whole-line manual headings must be checked against the resolver's bytes;
+    # trimming a prefix or suffix here would manufacture an exact heading.
+    source_text = (
+        authoritative_source_text
+        if _CANONICAL_US_MANUAL_PATH.match(corpus_citation_path)
+        else authoritative_source_text.strip()
+    )
+    if not source_text.strip():
         issue = (
             "[complete-source-unit:authoritative-source] "
             "The authoritative corpus body is required; `module.summary` is "
@@ -13139,21 +13143,11 @@ def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
     )
 
 
-# Florida's ESS Program Policy Manual numbers passages `NNNN.NNNN` (and
-# `NNNN.NNNN.NN` below that). Its PDF extraction flattens a page into a few
-# long lines, so a passage heading lands mid-line, between the previous
-# passage's last sentence and the next passage's first: `... the asset limit
-# of $4,500. 2010.0202 Noncategorically Eligible Assistance Groups (FS) If the
-# standard filing unit ...`. The prose cites passages the same way (`Refer to
-# passage 2610.0103`, `passages 2610.0104.02 through 2610.0104.04`) and its
-# lettered appendices by letter and number (`Appendix A-1`). All are locators.
-# A heading opens a line or follows sentence-final punctuation, with a
-# title-cased, non-operative title ending in a parenthesized program code.
-# Amount/rate/date context invalidates a locator, including list continuations.
-# ASCII passage labels do not authenticate Unicode numeric look-alikes.
-_US_MANUAL_PASSAGE_NUMBER = r"[0-9]{4}\.[0-9]{4}(?:\.[0-9]{2})?"
-# Explicit noun phrases authenticate the relevant Florida eligibility headings;
-# arbitrary title casing cannot distinguish an unknown verb from a heading.
+# Only a complete eligibility heading on its own line can authenticate a
+# Florida manual passage number. Inline headings, references and appendices
+# remain numeric evidence. Neighboring ambiguous headers also keep the number.
+_CANONICAL_US_MANUAL_PATH = re.compile(r"us(?:-[a-z]{2,32})*/manual/")
+_US_MANUAL_PASSAGE_NUMBER = r"[0-9]{4}\.[0-9]{4}"
 _US_MANUAL_PASSAGE_HEADING_TITLES = frozenset(
     {
         "Eligible Assistance Groups",
@@ -13162,315 +13156,64 @@ _US_MANUAL_PASSAGE_HEADING_TITLES = frozenset(
     }
 )
 _US_MANUAL_PASSAGE_PROGRAM_CODES = frozenset({"FS", "TCA", "MA", "SFP", "RAP"})
-# A locator stays on one line, but its value-context veto must see units
-# wrapped onto the next line. A separate following currency amount is kept.
-# Dotted currency abbreviations and parenthetical tails cannot authenticate
-# a value as a locator; retain the demand when the following context is unclear.
-_US_MANUAL_LOCATOR_VALUE_FOLLOWS = (
-    rf"(?:\s*[\[(]|\s*(?:%|-?(?:[A-Za-z]+[.\s-]+){{0,2}}{_RECALL_UNIT_WORD}\b)|"
-    r"[ \t]*[$€£¥₹]|\s*[$€£¥₹](?!\s*\d)|"
-    r"\s*[%+*/=<>^±∓×·•∗∙÷−–—-]|"
-    r"\s+(?:[A-Za-z]+[.\s-]+){0,3}"
-    r"(?i:dates?|rates?|amounts?|percentages?|euros?|pounds?|francs?|"
-    r"yen|yuan|renminbi|pesos?|rupees?|rubles?|roubles?|won|payments?|allowances?|"
-    r"maximum|minimum|usd|eur|gbp|cad|aud|chf|plus|minus|times|multiplied|divided)\b|"
-    r"\s+(?i:as|of|per|each|is|equals?)\b)"
+_US_MANUAL_PASSAGE_HEADING = re.compile(
+    rf"(?P<label>{_US_MANUAL_PASSAGE_NUMBER})[ \t]+"
+    r"(?P<title>[A-Z][A-Za-z]*(?:[ \t]+[A-Za-z]+){1,4})[ \t]+"
+    r"\((?P<program>[A-Z]{2,5})\)"
 )
-# A unit veto alone cannot recognize every operative suffix. Require a complete
-# locator boundary or a known reference/body transition as well. Unknown prose,
-# including a unit wrapped onto the next line, keeps its demand.
-_US_MANUAL_LOCATOR_END = r"[ \t]*(?:[.!?;](?=\s|\Z)|\Z|\)[ \t]*(?:[.!?;](?=\s|\Z)|\Z))"
-_US_MANUAL_REFERENCE_AMOUNT = r"[$€£¥₹][ \t]*[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?"
-_US_MANUAL_APPENDIX_FOLLOWS = (
-    rf"(?:{_US_MANUAL_LOCATOR_END}|"
-    r"[ \t]+(?:for[ \t]+the[ \t]+[0-9]{1,3}%[ \t]+Need[ \t]+Standard[ \t]+Table|"
-    rf"lists[ \t]+the[ \t]+{_US_MANUAL_REFERENCE_AMOUNT}[ \t]+asset[ \t]+limit|"
-    rf"shows[ \t]+[0-9]+[ \t]+rates)(?={_US_MANUAL_LOCATOR_END}))"
+# Authenticate only complete neutral prose, rather than trying to enumerate
+# every currency, unit or abbreviation. Unknown neighboring text keeps the
+# demand, including short, uppercase, dotted, split and annotated headers.
+_US_MANUAL_NEUTRAL_HEADING_NEIGHBOR = re.compile(
+    r"(?:The|This) (?:following )?(?:policy|paragraph|prose|text) "
+    r"(?:explains (?:eligibility|who qualifies)|describes (?:eligibility|assistance)|"
+    r"applies here)[.!?]|(?:The|This) line supplies ordinary context[.!?]"
 )
-_US_MANUAL_PASSAGE_REFERENCE_FOLLOWS = (
-    rf"(?:{_US_MANUAL_LOCATOR_END}|"
-    r"[ \t]+and[ \t]+Appendix[ \t]+[A-Z]-[0-9]{1,3}\b(?![.,]?\d)"
-    rf"(?={_US_MANUAL_APPENDIX_FOLLOWS})|"
-    rf"[ \t]+now(?={_US_MANUAL_LOCATOR_END})|"
-    r"[ \t]+for[ \t]+(?:assistance[ \t]+groups[ \t]+not[ \t]+tested[ \t]+against"
-    r"[ \t]+the[ \t]+gross[ \t]+income[ \t]+limit|"
-    r"policy[ \t]+on[ \t]+(?:mandatory[ \t]+SFU[ \t]+members|"
-    r"the[ \t]+earned[ \t]+income[ \t]+disregard)|"
-    r"more[ \t]+information|the[ \t]+rules|"
-    rf"income[ \t]+of[ \t]+{_US_MANUAL_REFERENCE_AMOUNT})"
-    rf"(?={_US_MANUAL_LOCATOR_END}))"
-)
-_US_MANUAL_HEADING_FOLLOWS = (
-    rf"(?:{_US_MANUAL_LOCATOR_END}|[ \t]+If[ \t]+(?:the|it)\b|"
-    r"\r?\n[ \t]*[$€£¥₹][ \t]*[0-9])"
-)
-_US_MANUAL_PASSAGE_REFERENCE_NUMBER = (
-    rf"{_US_MANUAL_PASSAGE_NUMBER}(?![\w.,]?\d)(?!\w)"
-    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})"
-)
-_US_MANUAL_INLINE_PASSAGE_HEADING = re.compile(
-    rf"(?:^[ \t]*|(?<=[.!?])[ \t]+)(?P<label>{_US_MANUAL_PASSAGE_NUMBER})"
-    r"(?![\w.,]?\d)[ \t]+(?P<title>[A-Z][A-Za-z'’]*"
-    r"(?:[ \t]+[A-Za-z'’]+){0,11})[ \t]+"
-    r"\((?P<program>[A-Z]{2,5}(?:[ \t]*[,/][ \t]*[A-Z]{2,5})*)\)"
-    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})(?={_US_MANUAL_HEADING_FOLLOWS})",
-    re.MULTILINE,
-)
-_US_MANUAL_PASSAGE_REFERENCE = re.compile(
-    rf"\bpassages?[ \t]+{_US_MANUAL_PASSAGE_REFERENCE_NUMBER}"
-    rf"(?:[ \t]*(?:,[ \t]*|(?:and|or|through|to)[ \t]+)"
-    rf"{_US_MANUAL_PASSAGE_REFERENCE_NUMBER})*"
-    rf"(?={_US_MANUAL_PASSAGE_REFERENCE_FOLLOWS})",
-    re.IGNORECASE,
-)
-_US_MANUAL_LETTERED_APPENDIX = re.compile(
-    r"\bAppendix[ \t]+[A-Z]-(?P<label>[0-9]{1,3})\b(?![.,]?\d)"
-    rf"(?!{_US_MANUAL_LOCATOR_VALUE_FOLLOWS})"
-    rf"(?={_US_MANUAL_APPENDIX_FOLLOWS})"
-)
-# Context protection is deliberately broader than locator recognition. ASCII
-# letter boundaries retain currency/unit words with superscripts, digits or
-# punctuation attached; Unicode word boundaries would miss e.g. `USD¹`.
-# Currency glyphs are recognized by their Unicode category below, so annotating
-# a glyph cannot change whether it carries value context.
-_US_MANUAL_VALUE_CONTEXT = re.compile(
-    rf"%|(?<![A-Za-z])(?:{_RECALL_UNIT_WORD}|"
-    r"fares?|costs?|prices?|charges?|fees?|payments?|amounts?|rates?|"
-    r"allowances?|percentages?|quantit(?:y|ies)|units?|children|child|weights?|counts?|numbers?|"
-    r"kilograms?|kg|grams?|meters?|metres?|miles?|tickets?|basis\s+points?|bps|"
-    r"pennies|credits?|bushels?|"
-    r"euros?|pounds?|francs?|yen|yuan|renminbi|pesos?|rupees?|rubles?|roubles?|won|"
-    r"usd|eur|gbp|cad|aud|chf|frw|rwf|ghs|ghp|ngn|ugx|zmw|etb|kes|tzs|xaf|xof|zar|"
-    r"ils|nis|jpy|kr|kroner|øre|"
-    r"שקלים|שקל|ש[\"״]ח|דולרים|דולר|יורו|אירו|ליש[\"״]ט|לירות|לירה|אגורות|אגורה"
-    r")(?![A-Za-z])",
-    re.IGNORECASE,
-)
-_US_MANUAL_REFERENCE_SECTION = re.compile(
-    r"(?:policy[ \t]+)?(?:references|citations)[ \t]*:", re.IGNORECASE
-)
-_US_MANUAL_REFERENCE_INTENT = re.compile(
-    r"\s*(?:See|Refer\s+to)\s+(?:passages?\s+|Appendix\s+[A-Z]-)",
-    re.IGNORECASE,
-)
-_US_MANUAL_PASSAGE_REFERENCE_CUE = re.compile(
-    r"\b(?:See|Refer\s+to|(?:presented|described|listed)\s+in)\s*\Z",
-    re.IGNORECASE,
-)
-# This complete eligibility sentence proves its monetary/rate operands belong
-# to the preceding policy, rather than to the following authenticated heading.
-# A tail match could discard an unrelated fare/column prefix, so use fullmatch.
-_US_MANUAL_COMPLETED_ELIGIBILITY_LIMIT = re.compile(
-    r"\s*(?:If\s+the\s+SFU\s+does\s+not\s+meet\s+the\s+"
-    r"(?:[0-9]{1,3}%\s+of\s+the\s+federal\s+poverty\s+income|gross\s+income)"
-    r"\s+limit,\s*)?the\s+SFU\s+must\s+meet\s+the\s+net\s+income\s+limit\s+of\s+"
-    r"[0-9]{1,3}%\s+of\s+the\s+federal\s+poverty\s+level\s+for\s+the\s+AG\s+size"
-    rf"\s+and\s+the\s+asset\s+limit\s+of\s+{_US_MANUAL_REFERENCE_AMOUNT}[.!?]\s*",
-    re.IGNORECASE,
-)
-# The complete policy paragraph can prove a new eligibility heading even when
-# earlier paragraphs discuss household quantities. Authenticate every clause;
-# a monetary heading or an arbitrary row cannot supply this policy boundary.
-_US_MANUAL_COMPLETED_ELIGIBILITY_PARAGRAPH = re.compile(
-    r"\s*Broad-based\s+categorically\s+eligible\s+SFUs\s+must\s+meet\s+the\s+"
-    r"[0-9]{1,3}%\s+gross\s+income\s+limits\.\s+"
-    r"If\s+the\s+SFU\s+contains\s+a\s+member\s+who\s+is\s+age\s+[0-9]{1,3}\s+"
-    r"or\s+over\s+or\s+meets\s+the\s+definition\s+of\s+food\s+stamp\s+disabled,\s+"
-    r"the\s+SFU\s+must\s+meet\s+the\s+gross\s+income\s+limit\s+of\s+"
-    r"[0-9]{1,3}%\s+of\s+the\s+federal\s+poverty\s+level\s+for\s+the\s+AG\s+size\."
-    + _US_MANUAL_COMPLETED_ELIGIBILITY_LIMIT.pattern,
-    re.IGNORECASE,
-)
-_US_MANUAL_POLICY_PROSE_START = re.compile(
-    r"(?:Chapter: [0-9]{4} Coverage Groups Program: FS [0-9]+ "
-    r"[0-9]{4}\.[0-9]{4} Food Stamps If financial and technical requirements|"
-    r"The assistance group cannot be considered categorically eligible for months)",
-)
+
+
+def _us_manual_heading_neighbor_is_ambiguous(line: str) -> bool:
+    """Retain the number unless its neighbor proves neutral prose."""
+
+    return _US_MANUAL_NEUTRAL_HEADING_NEIGHBOR.fullmatch(line) is None
 
 
 def _us_manual_passage_locator_spans(
     text: str, *, corpus_citation_path: str
 ) -> tuple[tuple[int, int], ...]:
-    """Spans of inline passage numbers and lettered appendix numbers."""
+    """Mask only whole-line eligibility heading numbers with neutral neighbors."""
 
-    # corpus_resolver defines the second component as the document class;
-    # a later `manual` component in guidance/statute paths is just hierarchy.
-    if not re.match(r"us(?:-[a-z]{2,32})*/manual/", corpus_citation_path):
+    if not _CANONICAL_US_MANUAL_PATH.match(corpus_citation_path):
         return ()
-    heading_ends = {
-        match.span("label"): match.end()
-        for match in _US_MANUAL_INLINE_PASSAGE_HEADING.finditer(text)
-        if " ".join(match.group("title").split()) in _US_MANUAL_PASSAGE_HEADING_TITLES
-        and all(
-            program in _US_MANUAL_PASSAGE_PROGRAM_CODES
-            for program in re.split(r"[ \t]*[,/][ \t]*", match.group("program"))
-        )
-    }
-    proof_ends = dict(heading_ends)
-    proof_ends.update(
-        (match.span("label"), match.end())
-        for match in _US_MANUAL_LETTERED_APPENDIX.finditer(text)
-    )
-    reference_groups = []
-    for reference in _US_MANUAL_PASSAGE_REFERENCE.finditer(text):
-        # A bare `first-class passage NNNN.NNNN` is not positive evidence of
-        # citation intent, even if its currency/quantity vocabulary is unknown.
-        if not _US_MANUAL_PASSAGE_REFERENCE_CUE.search(
-            text[max(0, reference.start() - 100) : reference.start()]
+    # Keep original offsets and skip only empty lines when selecting neighbors.
+    lines = [line for line in re.finditer(r"[^\n]+", text) if line[0].strip()]
+    spans = []
+    for index, line in enumerate(lines):
+        match = _US_MANUAL_PASSAGE_HEADING.fullmatch(line[0].removesuffix("\r"))
+        if (
+            match is None
+            or " ".join(match.group("title").split())
+            not in _US_MANUAL_PASSAGE_HEADING_TITLES
+            or match.group("program") not in _US_MANUAL_PASSAGE_PROGRAM_CODES
+            or any(
+                _us_manual_heading_neighbor_is_ambiguous(lines[neighbor][0].strip())
+                for neighbor in (index - 1, index + 1)
+                if 0 <= neighbor < len(lines)
+            )
         ):
             continue
-        group = set()
-        for number in re.finditer(_US_MANUAL_PASSAGE_NUMBER, reference.group(0)):
-            span = (
-                reference.start() + number.start(),
-                reference.start() + number.end(),
-            )
-            proof_ends[span] = reference.end()
-            group.add(span)
-        reference_groups.append(group)
-    if not proof_ends:
-        return ()
-    context_offsets = sorted(
-        {match.start() for match in _US_MANUAL_VALUE_CONTEXT.finditer(text)}
-        | {
-            index
-            for index, character in enumerate(text)
-            if unicodedata.category(character) == "Sc"
-        }
+        start, end = match.span("label")
+        spans.append((line.start() + start, line.start() + end))
+    return tuple(spans)
+
+
+def _is_us_manual_eligibility_heading_label(label: re.Match[str]) -> bool:
+    """Keep the generic heading cleaner from bypassing eligibility vetoes."""
+
+    return bool(
+        re.fullmatch(_US_MANUAL_PASSAGE_NUMBER, label[0].strip())
+        and " ".join(re.sub(r"\([^)]*\)", "", label.group("title")).split())
+        in _US_MANUAL_PASSAGE_HEADING_TITLES
     )
-
-    def has_context(start: int, end: int) -> bool:
-        index = bisect_left(context_offsets, start)
-        return index < len(context_offsets) and context_offsets[index] < end
-
-    # There is no reliable distinction between an extracted monetary heading
-    # and prose on a previous line. Preserve any such line's context across
-    # wraps, blank lines and intervening rows, regardless of its annotation.
-    lines = iter(re.finditer(r"[^\n]+\n?", text))
-    line = next(lines, None)
-    value_heading = False
-    ambiguous_heading = False
-    prefix_start = 0
-    reference_section = False
-    authenticated = set()
-    for start, end in sorted(proof_ends):
-        while line is not None and line.end() <= start:
-            if _US_MANUAL_REFERENCE_SECTION.fullmatch(line[0].strip()):
-                reference_section = True
-                prefix_start = max(prefix_start, line.end())
-            elif (
-                has_context(line.start(), line.end())
-                or ":" in line[0]
-                or "|" in line[0]
-                or (
-                    not re.search(r"[.!?]", line[0])
-                    and not re.fullmatch(r"Page\s+[0-9]+", line[0].strip())
-                )
-            ):
-                value_heading = True
-                reference_section = False
-                # Only authenticated policy prose can participate in the
-                # complete-paragraph exception. Every other previous header,
-                # row or annotated unit remains ambiguous and blocks it.
-                policy_start = _US_MANUAL_POLICY_PROSE_START.match(line[0])
-                policy_body = (
-                    line[0][policy_start.end() :]
-                    if policy_start is not None
-                    else line[0]
-                )
-                if (
-                    policy_start is None
-                    or ":" in policy_body
-                    or "|" in policy_body
-                    or any(
-                        unicodedata.category(character) == "Sc" for character in line[0]
-                    )
-                    or any(
-                        context[0].casefold()
-                        not in {
-                            "member",
-                            "members",
-                            "amount",
-                            "amounts",
-                            "month",
-                            "months",
-                        }
-                        and not (
-                            context[0].casefold() == "unit"
-                            and re.search(
-                                r"\bstandard filing\s+\Z", line[0][: context.start()]
-                            )
-                        )
-                        for context in _US_MANUAL_VALUE_CONTEXT.finditer(line[0])
-                    )
-                ):
-                    ambiguous_heading = True
-            line = next(lines, None)
-        explicit_reference = (
-            reference_section
-            and _US_MANUAL_REFERENCE_INTENT.fullmatch(text[prefix_start:start])
-        )
-        line_start = line.start() if line is not None else start
-        complete_policy_paragraph = (
-            (start, end) in heading_ends
-            and not ambiguous_heading
-            and start - line_start <= 900
-            and _US_MANUAL_COMPLETED_ELIGIBILITY_PARAGRAPH.fullmatch(
-                text[line_start:start]
-            )
-        )
-        if value_heading and not explicit_reference and not complete_policy_paragraph:
-            continue
-        # Periods do not clear context: they can be abbreviations, initialisms,
-        # footnotes or flattened table rows. The motivating eligibility heading
-        # has a stronger proof: a separately completed asset-limit amount ends
-        # immediately before its authenticated title. No other prefix can borrow
-        # that exception, and table/column context still vetoes it.
-        context_start = prefix_start
-        if (start, end) in heading_ends:
-            line_prefix = text[line_start:start]
-            if (":" in line_prefix or "|" in line_prefix) and has_context(
-                line_start, start
-            ):
-                continue
-            if (
-                start - prefix_start <= 900
-                and _US_MANUAL_COMPLETED_ELIGIBILITY_LIMIT.fullmatch(
-                    text[prefix_start:start]
-                )
-            ):
-                context_start = start
-            if complete_policy_paragraph:
-                context_start = start
-        if has_context(context_start, start):
-            continue
-        # A period next to the candidate is not a complete locator boundary
-        # when lowercase prose or an annotated currency/quantity tail follows.
-        # Recognized reference/body transitions separately prove other values
-        # belong to the continuation rather than to this locator.
-        proof_end = proof_ends[(start, end)]
-        boundary = re.match(_US_MANUAL_LOCATOR_END, text[proof_end:])
-        if boundary is not None:
-            tail_start = proof_end + boundary.end()
-            while tail_start < len(text) and text[tail_start].isspace():
-                tail_start += 1
-            # Future wrapped rows/captions may denominate this number too.
-            # Punctuation and line wrapping cannot prove that context ended.
-            if has_context(tail_start, len(text)):
-                continue
-            if tail_start < len(text) and not re.match(
-                r"(?:See|Refer\s+to)\s+(?:passages?|Appendix)\s+",
-                text[tail_start:],
-                flags=re.IGNORECASE,
-            ):
-                continue
-        authenticated.add((start, end))
-    # A list/range is one locator proof. If any member remains ambiguous, retain
-    # the entire group's demands rather than mask a valid-looking prefix.
-    for group in reference_groups:
-        if not group <= authenticated:
-            authenticated.difference_update(group)
-    return tuple(sorted(authenticated))
 
 
 def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
@@ -13901,6 +13644,10 @@ def authoritative_numeric_recall_text(
                 lambda match: (
                     ""
                     if _is_title_case_manual_heading(match.group("title"))
+                    and not (
+                        _CANONICAL_US_MANUAL_PATH.match(corpus_citation_path)
+                        and _is_us_manual_eligibility_heading_label(match)
+                    )
                     and not _is_manual_amount_row(match)
                     else match.group(0)
                 ),
@@ -17824,8 +17571,8 @@ def _source_formula_branches(
         sorted(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
-            # A passage heading flattened into a computation clause is a
-            # locator, not an operand the formula must contain.
+            # A validated whole-line eligibility heading is a locator,
+            # not an operand the formula must contain.
             | set(
                 _us_manual_passage_locator_spans(
                     source_text, corpus_citation_path=corpus_citation_path

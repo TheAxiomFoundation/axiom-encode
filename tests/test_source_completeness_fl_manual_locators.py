@@ -1,4 +1,4 @@
-"""Florida ESS manual pages: passage and appendix locators, folded 100% rates.
+"""Florida ESS eligibility heading safeguards and folded 100% rates.
 
 The Florida ESS Program Policy Manual examples below reproduce passage
 locator and folded-rate demands in the complete-source-unit gate. The
@@ -6,11 +6,11 @@ sentences are verbatim from the pinned corpus rows
 `us-fl/manual/dcf/ess-program-policy-manual/2000-coverage-groups/page-5` and
 `.../2600-calculation-of-benefits/page-8`:
 
-* numeric recall demanded the passage numbers 2010.0202 (an inline heading) and
+* numeric recall retains the passage numbers 2010.0202 (an inline heading) and
   2610.0103 (`Refer to passage 2610.0103`) and the `1` of `Appendix A-1`;
 * formula clause 11 of page 5 runs across the inline heading `2010.0202
   Noncategorically Eligible Assistance Groups (FS)`, so the heading number
-  became an operand the executed formula had to contain;
+  remains an operand the executed formula has to contain;
 * simplification folds a 100% rate out of `rate * base`, so the source's
   `100% of` could not be grounded by the rate that executes it.
 """
@@ -69,21 +69,21 @@ def _recall_values(source: str, citation: str) -> set[float]:
 @pytest.mark.parametrize(
     ("source", "citation", "expected"),
     (
-        (CLAUSE_ACROSS_HEADING, PAGE_5, {2.0, 1.0, 4500.0}),
+        (CLAUSE_ACROSS_HEADING, PAGE_5, {2.0, 1.0, 4500.0, 2010.0202}),
         (
             "The assistance group is responsible for providing information "
             "regarding the individual's inability to purchase and prepare meals "
             "since this is the key determining factor. Refer to Appendix A-1 for "
             "the 165% Need Standard Table.",
             PAGE_8,
-            {1.65},
+            {1.0, 1.65},
         ),
         (
             "Refer to passage 2610.0103 for assistance groups not tested against "
             "the gross income limit. The gross income limits can be found in the "
             "on-line reference table or in Appendix A-1.",
             PAGE_8,
-            set(),
+            {1.0, 2610.0103},
         ),
         (
             "Income tests for determining food stamp eligibility are presented in "
@@ -93,7 +93,7 @@ def _recall_values(source: str, citation: str) -> set[float]:
         ),
     ),
 )
-def test_florida_passage_and_appendix_locators_are_not_values(
+def test_florida_inline_and_reference_locator_inventory_is_retained(
     source, citation, expected
 ):
     assert _recall_values(source, citation) == expected
@@ -114,10 +114,14 @@ def test_florida_passage_and_appendix_locators_are_not_values(
         ),
         ("Refer to passage 2610.0103 now.", "us/statute/7/2014", {2610.0103}),
         # Values beside a locator keep their value.
-        ("Appendix A-1 lists the $4,500 asset limit.", PAGE_8, {4500.0}),
-        ("Refer to passage 2610.0103 for income of $2,221.", PAGE_8, {2221.0}),
+        ("Appendix A-1 lists the $4,500 asset limit.", PAGE_8, {1.0, 4500.0}),
+        (
+            "Refer to passage 2610.0103 for income of $2,221.",
+            PAGE_8,
+            {2610.0103, 2221.0},
+        ),
         ("See passage 12 of the act.", PAGE_8, {12.0}),
-        ("Appendix A-12 shows 3 rates.", PAGE_8, {3.0}),
+        ("Appendix A-12 shows 3 rates.", PAGE_8, {12.0, 3.0}),
     ),
 )
 def test_values_beside_florida_locator_shapes_are_kept(source, citation, expected):
@@ -173,6 +177,38 @@ def _assert_empty_encoding_demands(source: str, value: float) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "value"),
+    (
+        ("U.S.D.\nAppendix A-100.", 100.0),
+        (
+            "SEK.\nOther row 50.\nEconomy free.\n"
+            "1234.5678 Eligible Assistance Groups (FS).",
+            1234.5678,
+        ),
+        (
+            "U.\nS.\nD.\nOther row 50.\nEconomy free.\n"
+            "1234.5678 Eligible Assistance Groups (FS).",
+            1234.5678,
+        ),
+        (
+            "1234.5678 Eligible Assistance Groups (FS) If the SFU qualifies, "
+            "pay this amount in CAD.",
+            1234.5678,
+        ),
+        (
+            "1234.5678 Eligible Assistance Groups (FS) If it applies, "
+            "the fare is denominated in USD.",
+            1234.5678,
+        ),
+    ),
+)
+def test_reviewed_dotted_currency_headers_and_continuations_keep_public_demands(
+    source, value
+):
+    _assert_empty_encoding_demands(source, value)
+
+
+@pytest.mark.parametrize(
     "source",
     (
         "The fare for adults (e.g. first-class passage 1234.5678).",
@@ -206,7 +242,7 @@ def test_reviewed_abbreviations_and_footnoted_headers_keep_wrapped_suffix_demand
     _assert_empty_encoding_demands(source, value)
 
 
-def test_real_page_five_paragraph_keeps_public_operands_and_masks_passage_heading():
+def test_real_page_five_paragraph_keeps_inline_heading_and_public_operands():
     source = (
         "Broad-based categorically eligible SFUs must meet the 200% gross income "
         "limits. If the SFU contains a member who is age 60 or over or meets the "
@@ -214,10 +250,10 @@ def test_real_page_five_paragraph_keeps_public_operands_and_masks_passage_headin
         "limit of 200% of the federal poverty level for the AG size. "
         + CLAUSE_ACROSS_HEADING
     )
-    assert _recall_values(source, PAGE_5) == {2.0, 60.0, 1.0, 4500.0}
+    assert _recall_values(source, PAGE_5) == {2.0, 60.0, 1.0, 4500.0, 2010.0202}
     result = _empty_encoding_analysis(source)
-    assert result.source_numeric_occurrence_count == 4
-    assert result.missing_source_numeric_occurrence_count == 4
+    assert result.source_numeric_occurrence_count == 5
+    assert result.missing_source_numeric_occurrence_count == 5
     assert {
         issue
         for issue in result.issues
@@ -226,7 +262,7 @@ def test_real_page_five_paragraph_keeps_public_operands_and_masks_passage_headin
         "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
         f"value {value:g} has no named scalar representation. "
         "`module.summary` is not consulted."
-        for value in (2.0, 60.0, 1.0, 4500.0)
+        for value in (2.0, 60.0, 1.0, 4500.0, 2010.0202)
     }
 
 
@@ -583,9 +619,9 @@ def test_preceding_currency_and_cost_context_keeps_the_fare(source):
 
 @pytest.mark.parametrize("row", ("", "Other fare 50.\n", "Economy 50 (adult)\n"))
 @pytest.mark.parametrize("heading", ("Policy references", "References", "Citations"))
-def test_a_new_heading_ends_the_monetary_table_context(row, heading):
+def test_reference_heading_keeps_unmasked_passage_and_table_values(row, heading):
     source = f"Transport costs (USD):\n{row}{heading}:\nSee passage 2610.0103."
-    assert _recall_values(source, PAGE_5) == ({50} if row else set())
+    assert _recall_values(source, PAGE_5) == ({50, 2610.0103} if row else {2610.0103})
 
 
 @settings(max_examples=100, deadline=None)
@@ -866,9 +902,11 @@ def test_line_wrapped_appendix_currency_value_keeps_its_demand():
     assert 50 in _recall_values("Appendix A-50\nUSD is paid", PAGE_5)
 
 
-def test_authenticated_heading_keeps_a_separate_amount_line():
+def test_separate_amount_line_vetoes_eligibility_heading_mask():
     source = "2010.0202 Eligible Assistance Groups (FS)\n$4500"
-    assert _recall_values(source, PAGE_5) == {4500}
+    assert _recall_values(source, PAGE_5) == {2010.0202, 4500}
+    _assert_empty_encoding_demands(source, 2010.0202)
+    _assert_empty_encoding_demands(source, 4500)
 
 
 @pytest.mark.parametrize("operator", ("×", "÷", "−", "–", "—", "·", "•", "∗", "∙"))
@@ -895,13 +933,13 @@ def test_attached_currency_suffix_cannot_authenticate_a_passage_number():
     }
 
 
-def test_passage_reference_range_masks_both_complete_labels():
+def test_passage_reference_range_is_unmasked():
     source = "See passages 2610.0104.02 through 2610.0104.04."
     spans = sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_8)
-    assert tuple(source[start:end] for start, end in spans) == (
-        "2610.0104.02",
-        "2610.0104.04",
-    )
+    assert spans == ()
+    assert _recall_values(source, PAGE_8) == {
+        occurrence.value for occurrence in INVENTORY(source)
+    }
 
 
 @settings(max_examples=100, deadline=None)
@@ -920,35 +958,226 @@ def test_locator_shapes_never_hide_an_operative_number(major, minor, unit, prefi
 
 
 _PROGRAM = st.sampled_from(("FS", "TCA", "MA", "SFP", "RAP"))
+_ELIGIBILITY_TITLES = st.sampled_from(
+    (
+        "Eligible Assistance Groups",
+        "Categorically Eligible Assistance Groups",
+        "Noncategorically Eligible Assistance Groups",
+    )
+)
 
 
-@settings(max_examples=200, deadline=None)
+_NEUTRAL_SURROUNDINGS = (
+    "This paragraph explains eligibility.",
+    "The policy explains who qualifies.",
+    "The following prose describes assistance.",
+)
+
+
+@settings(max_examples=200, deadline=None, database=None)
 @given(
-    prefix=st.from_regex(r"[a-z ]{0,30}\.", fullmatch=True),
+    preceding=st.sampled_from(_NEUTRAL_SURROUNDINGS),
+    following=st.sampled_from(_NEUTRAL_SURROUNDINGS),
     major=st.integers(1000, 9999),
     minor=st.integers(0, 9999),
-    title=st.sampled_from(
-        (
-            ("Eligible", "Assistance", "Groups"),
-            ("Categorically", "Eligible", "Assistance", "Groups"),
-            ("Noncategorically", "Eligible", "Assistance", "Groups"),
-        )
-    ),
+    title=_ELIGIBILITY_TITLES,
     program=_PROGRAM,
+    newline=st.sampled_from(("\n", "\r\n")),
 )
 def test_heading_spans_cover_exactly_the_passage_number(
-    prefix, major, minor, title, program
+    preceding, following, major, minor, title, program, newline
 ):
     number = f"{major}.{minor:04d}"
-    text = f"{prefix} {number} {' '.join(title)} ({program}) If it applies."
+    text = newline.join(
+        (preceding, f"{number} {title} ({program})", following, "Pay $4500.")
+    )
     spans = sc._us_manual_passage_locator_spans(text, corpus_citation_path=PAGE_5)
     start = text.index(number)
     assert spans == ((start, start + len(number)),)
     masked = sc._mask_numeric_spans(text, spans)
-    # Masking keeps the length and changes nothing outside the label.
+    # Masking keeps the length and changes nothing outside the heading number.
     assert len(masked) == len(text)
     assert masked[:start] == text[:start]
     assert masked[start + len(number) :] == text[start + len(number) :]
+    assert _recall_values(text, PAGE_5) == {4500.0}
+    result = _empty_encoding_analysis(text)
+    assert result.source_numeric_occurrence_count == 1
+    assert result.missing_source_numeric_occurrence_count == 1
+    assert {
+        issue
+        for issue in result.issues
+        if "[complete-source-unit:numeric-recall]" in issue
+    } == {
+        "[complete-source-unit:numeric-recall] Authoritative corpus numeric "
+        "value 4500 has no named scalar representation. "
+        "`module.summary` is not consulted."
+    }
+
+
+_POTENTIAL_VALUE_HEADERS = (
+    "U.S.D.",
+    "SEK.",
+    "U.\nS.\nD.",
+    "USD¹",
+    "USD†",
+    "XQZ‡",
+    "X.Q.Z.",
+    "unknowncode",
+    "abcdefghijkl",
+    "a b c d e f g h i j k l",
+    "UNKNOWN CURRENCY HEADER",
+    "X.Q.Z. U.N.I.T. H.E.A.D.E.R.",
+    "Arbitrary column label",
+    "Unrecognized table heading:",
+    "| Mystery column |",
+    "$¹",
+    "₿†",
+    "These fares are denominated in USD.",
+    "This amount is a payment.",
+    "This rate is expressed as a percentage.",
+    "The unit for this row is kg.",
+    "The allowance is counted per child.",
+    "The quantity is listed in unknownmeasure.",
+    "Other row 50.",
+    "Economy free.",
+    "BPS of income.",
+    "fee.",
+    "cost.",
+    "day.",
+    "rate.",
+    "usd.",
+    "The amt. billed is shown below.",
+    "The qty. supplied is shown below.",
+    "The following entries use sek.",
+    "All figures are stated in quetzales.",
+)
+
+
+@pytest.mark.parametrize("context", _POTENTIAL_VALUE_HEADERS)
+@pytest.mark.parametrize("position", ("before", "after"))
+def test_exact_heading_context_veto_keeps_all_public_demands(context, position):
+    heading = "1234.5678 Eligible Assistance Groups (FS)"
+    lines = (context, heading) if position == "before" else (heading, context)
+    source = "\n\n".join(lines)
+    for value in {occurrence.value for occurrence in INVENTORY(source)}:
+        _assert_empty_encoding_demands(source, value)
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+
+
+@settings(max_examples=60, deadline=None, database=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(1, 9999),
+    title=_ELIGIBILITY_TITLES,
+    program=_PROGRAM,
+    context=st.one_of(
+        st.sampled_from(_OPERATIVE_CONTEXT_TOKENS + _POTENTIAL_VALUE_HEADERS),
+        # Unknown short tokens remain ambiguous regardless of alphabet, case,
+        # punctuation, or spacing between their non-space characters.
+        st.text(
+            alphabet=st.characters(
+                blacklist_categories=("Cs", "Cc", "Cf", "Zs", "Zl", "Zp")
+            ),
+            min_size=1,
+            max_size=12,
+        ).flatmap(lambda token: st.sampled_from((token, " ".join(token)))),
+        st.from_regex(r"[A-Z]{1,12}[¹†‡]?", fullmatch=True),
+        st.from_regex(r"(?:[A-Za-z]\.){1,12}[¹†‡]?", fullmatch=True),
+        st.from_regex(r"(?:[A-Za-z]\.\n){1,12}[A-Za-z]\.", fullmatch=True),
+        st.characters(categories=("Sc",)),
+    ),
+    marker=st.sampled_from(_CONTEXT_FOOTNOTES),
+    separator=st.sampled_from(("\n", "\r\n", "\n\n")),
+)
+def test_generated_exact_heading_contexts_keep_public_numeric_inventory(
+    major, minor, title, program, context, marker, separator
+):
+    number = f"{major}.{minor:04d}"
+    heading = f"{number} {title} ({program})"
+    # Both sides of the heading must independently veto; blank lines and
+    # annotations cannot detach a header from the candidate value.
+    for lines in ((context + marker, heading), (heading, context + marker)):
+        source = separator.join(lines)
+        _assert_empty_encoding_demands(source, float(number))
+        assert (
+            sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5)
+            == ()
+        )
+
+
+@settings(max_examples=60, deadline=None, database=None)
+@given(
+    major=st.integers(1000, 9999),
+    minor=st.integers(1, 9999),
+    prefix=st.sampled_from(("Before. ", "fee. ", "usd. ", " ", "\t")),
+    suffix=st.sampled_from(
+        (
+            ".",
+            " ",
+            "\t",
+            " If the SFU qualifies, pay this amount in CAD.",
+            " If it applies, the fare is denominated in USD.",
+        )
+    ),
+)
+def test_generated_heading_prefixes_and_continuations_keep_public_demands(
+    major, minor, prefix, suffix
+):
+    number = f"{major}.{minor:04d}"
+    heading = f"{number} Eligible Assistance Groups (FS)"
+    for source in (prefix + heading, heading + suffix):
+        assert (
+            sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5)
+            == ()
+        )
+        _assert_empty_encoding_demands(source, float(number))
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Before. 1234.5678 Eligible Assistance Groups (FS)",
+        "1234.5678 Eligible Assistance Groups (FS).",
+        "1234.5678 Eligible Assistance Groups (FS) ",
+        " 1234.5678 Eligible Assistance Groups (FS)",
+        "1234.5678 Eligible Assistance Groups (FS) If it applies.",
+        "1234.5678 Eligible Assistance Groups (FS) If the SFU qualifies.",
+        "1234.5678 Eligible Assistance Groups (FS, TCA)",
+        "1234.5678 Eligible Assistance Groups (FS/TCA)",
+        "1234.5678 Eligible Assistance Groups (USD)",
+        "1234.5678 Other Assistance Groups (FS).",
+    ),
+)
+def test_only_exact_whole_line_eligibility_heading_can_mask_number(source):
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+    _assert_empty_encoding_demands(source, 1234.5678)
+
+
+def test_other_titled_heading_keeps_existing_generic_heading_behavior():
+    source = "1234.5678 Other Assistance Groups (FS)"
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+    # The existing generic title-case heading cleaner already removes this
+    # number on main; the new eligibility-only mask must stay inert here.
+    assert _recall_values(source, PAGE_5) == set()
+
+
+def test_three_segment_heading_keeps_unmasked_public_inventory():
+    source = "2010.0202.01 Eligible Assistance Groups (FS)"
+    assert (
+        sc._us_manual_passage_locator_spans(source, corpus_citation_path=PAGE_5) == ()
+    )
+    expected = {occurrence.value for occurrence in INVENTORY(source)}
+    assert _recall_values(source, PAGE_5) == expected
+    result = _empty_encoding_analysis(source)
+    assert result.source_numeric_occurrence_count == len(expected)
+    for value in expected:
+        _assert_empty_encoding_demands(source, value)
 
 
 @settings(max_examples=200, deadline=None)
@@ -969,13 +1198,15 @@ def test_untitled_four_by_four_numbers_never_mask(major, minor, tail):
     appendix=st.integers(1, 999),
 )
 def test_locator_spans_are_inert_outside_us_manuals(major, minor, appendix):
-    text = (
-        f"{major}.{minor:04d} Eligible Assistance Groups (FS). "
-        f"See passage 2610.0103 and Appendix A-{appendix}."
-    )
-    # Every generated input exercises all three shapes on a manual citation.
+    text = f"{major}.{minor:04d} Eligible Assistance Groups (FS)"
+    # The exact heading shape exercises the sole mask on a manual citation.
     assert (
-        len(sc._us_manual_passage_locator_spans(text, corpus_citation_path=PAGE_5)) == 3
+        len(sc._us_manual_passage_locator_spans(text, corpus_citation_path=PAGE_5)) == 1
+    )
+    references = f"See passage 2610.0103 and Appendix A-{appendix}."
+    assert (
+        sc._us_manual_passage_locator_spans(references, corpus_citation_path=PAGE_5)
+        == ()
     )
     for citation in (
         "us/statute/7/2014",
@@ -1122,14 +1353,14 @@ _FORMULA = (
 )
 
 
-def test_passage_heading_inside_a_formula_clause_is_not_an_operand():
+def test_inline_passage_heading_inside_a_formula_clause_remains_an_operand():
     # The 130% rate is not an identity factor, so only the heading number
     # inside the clause can keep this branch undemonstrated.
     source = CLAUSE_ACROSS_HEADING.replace(
         "If the SFU does not meet the 200% of the federal poverty income limit, ",
         "If the SFU does not meet the gross income limit, ",
     ).replace("100%", "130%")
-    assert _formula_branch_issues(source, "130%", _EXCERPT_130, _FORMULA, 1300) == []
+    assert _formula_branch_issues(source, "130%", _EXCERPT_130, _FORMULA, 1300)
 
 
 def test_without_a_heading_the_same_clause_was_already_demonstrated():
