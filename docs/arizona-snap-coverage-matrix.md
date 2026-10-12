@@ -272,10 +272,14 @@ with maximum allotments also feeding 273.10 and 2017(a). The deductions
 replacement cannot compile against the old 2012(j) relation because its tuple
 slots lack entity kinds. This is a coupled protected-migration problem, not a
 reason to retry 273.10 alone or manually strip signed legacy fields. The
-existing targeted workflow accepts at most two direct dependents per target; its atomic
-source-bundle mode does not stage this full multi-source dependent DAG. Thus,
-the whole chain needs a reviewed, source-bound staged transaction or equivalent
-protected migration with final program validation and fresh signatures.
+existing targeted workflow supports two dependent modules, including bounded
+two-hop proof-import chains, but a 2012(j) primary repair cannot also replace
+both existing FY 2026 deductions and maximum-allotments modules in that run.
+Its source-bundle mode adds new modules rather than replacing these existing
+imports; a source-bundle primary replacement cannot mix with dependent
+migration. Thus, the federal imports and 2012(j) relation need a coordinated,
+source-bound protected migration, followed by final program validation and
+fresh signatures.
 
 The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
 passed its attempt-budget check and provisioned the protected signing
