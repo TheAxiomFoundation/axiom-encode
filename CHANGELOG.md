@@ -2,6 +2,10 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Recognize four explicit Alberta form-line input spellings in T2036 worksheet
+  path evidence. Source coordinates, types, proof ownership and runtime witnesses
+  remain required; ambiguous declarations and imported aliases fail closed.
+
 - Keep US manual and form locators out of complete-source-unit numeric recall:
   `WAC` section citations, `policy NNN-N` cross-references, numbered manual
   section headings, telephone numbers, PO boxes, ZIP+4 codes and
