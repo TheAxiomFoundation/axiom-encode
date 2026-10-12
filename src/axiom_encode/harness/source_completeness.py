@@ -5086,6 +5086,16 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
+    from axiom_encode.harness.worksheet_country_evidence import (
+        certify_worksheet_country,
+    )
+
+    certified_country = certify_worksheet_country(
+        payload,
+        test_cases=test_cases,
+        source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
         source_text=source_text,
@@ -5094,6 +5104,8 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         certified_paths=certified_paths,
         certified_transfers=certified_transfers,
+        certified_country=certified_country,
+        test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
     from axiom_encode.harness.worksheet_operation_evidence import (
@@ -15737,6 +15749,8 @@ def _opaque_same_source_condition_input_issues(
     corpus_citation_path: str,
     certified_transfers: Any = None,
     certified_paths: Any = None,
+    certified_country: Any = None,
+    test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -16143,6 +16157,23 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        certified_country is not None
+                        and not ambiguous
+                        and certified_country.owns_condition(
+                            payload=payload,
+                            test_cases=test_cases,
+                            source_text=source_text,
+                            corpus_citation_path=corpus_citation_path,
+                            owner=rule_name,
+                            version=version_index,
+                            interval_start=start,
+                            interval_end=end,
+                            start=clause.start,
+                            end=clause.end,
+                        )
+                    ):
+                        continue
                     if (
                         certified_paths is not None
                         and not ambiguous

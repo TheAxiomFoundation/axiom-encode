@@ -1,3 +1,7 @@
+## 0.2.2172
+
+- Recognize the source-owned foreign-country count and tax threshold only with exact typed facts, complete proofs, effective dates, and independently corroborated boundary cases. Preserve unrelated income-condition findings.
+
 # Changelog
 
 All notable changes to Axiom Encode will be documented here.
