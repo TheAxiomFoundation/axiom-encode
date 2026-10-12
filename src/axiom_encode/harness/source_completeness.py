@@ -146,6 +146,19 @@ class CompleteSourceUnitAnalysis:
 
 
 @dataclass(frozen=True)
+class _SourceImperativeArithmeticOperation:
+    """A source instruction with raw operands, not resolved RuleSpec values."""
+
+    kind: str
+    start: int
+    end: int
+    first_operand: tuple[int, int]
+    second_operand: tuple[int, int]
+    left_operand: tuple[int, int]
+    right_operand: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class _NumericInterval:
     """One source-stated range retaining exact endpoint evidence."""
 
@@ -4527,6 +4540,78 @@ def _without_precomputed_income_table_percentage_captions(source_text: str) -> s
     return "".join(masked)
 
 
+def _imperative_arithmetic_operand_is_numeric(operand: str) -> bool:
+    """Admit quantities and exact row references, never identifier numbers."""
+
+    if re.search(
+        r"\b(?:if|unless|except|when|where|provided|only|and|or|but|then)\b"
+        r"|[,;][ \t]*[A-Za-z]",
+        operand,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if re.fullmatch(
+        r"(?:the[ \t]+amount[ \t]+(?:on|from)[ \t]+)?"
+        r"(?:line|row)[ \t]+[1-9]\d{0,3}",
+        operand.strip(),
+        flags=re.IGNORECASE,
+    ):
+        return True
+    # A trailing "number" can name an identifier, even after a monetary word
+    # ("tax number", "benefit number"). Counts must state what is counted.
+    if re.search(r"\bnumbers?[ \t]*$", operand, flags=re.IGNORECASE):
+        return False
+    if re.search(
+        r"\b(?:telephone|phone|fax|social[ \t]+insurance|account|identification|"
+        r"registration|reference|form|document|application|contact|section|page)"
+        r"[ \t]+numbers?\b",
+        operand,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return _formula_operand_is_numeric(operand)
+
+
+@functools.lru_cache(maxsize=4096)
+def _source_imperative_arithmetic_operations(
+    source_text: str,
+) -> tuple[_SourceImperativeArithmeticOperation, ...]:
+    """Recognize four complete binary imperatives without truncating context."""
+
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    operations: list[_SourceImperativeArithmeticOperation] = []
+    pattern = (
+        r"(?:^|(?<=[.;!?]))[ \t\r\n]*"
+        r"(?P<verb>Add|Subtract|Multiply|Divide)[ \t]+"
+        r"(?P<first>(?:\.(?=\d)|[^.;!?\n]){1,160}?)[ \t]+"
+        r"(?P<connector>to|from|by)[ \t]+"
+        r"(?P<second>(?:\.(?=\d)|[^.;!?\n]){1,160}?)[ \t]*"
+        r"(?=\.(?!\d)|[;!?\n]|$)"
+    )
+    connectors = {"add": "to", "subtract": "from", "multiply": "by", "divide": "by"}
+    for match in re.finditer(pattern, source_text, flags=re.IGNORECASE):
+        kind = match.group("verb").lower()
+        if match.group("connector").lower() != connectors[kind]:
+            continue
+        if any(start <= match.start("verb") < end for start, end in quoted):
+            continue
+        if not all(
+            _imperative_arithmetic_operand_is_numeric(match.group(group))
+            for group in ("first", "second")
+        ):
+            continue
+        first, second = match.span("first"), match.span("second")
+        left, right = (second, first) if kind == "subtract" else (first, second)
+        operations.append(
+            _SourceImperativeArithmeticOperation(
+                kind, match.start("verb"), second[1], first, second, left, right
+            )
+        )
+    return tuple(operations)
+
+
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
@@ -4548,6 +4633,7 @@ def source_states_explicit_computation(source_text: str) -> bool:
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
+        or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
         or _ENGLISH_WORDED_PERCENTAGE_OF.search(computation_text)
@@ -4571,6 +4657,7 @@ def _source_states_nonrounding_computation(source_text: str) -> bool:
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
+        or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
         or _ENGLISH_WORDED_PERCENTAGE_OF.search(computation_text)
@@ -20464,8 +20551,9 @@ def _formula_operation_kinds(text: str) -> set[str]:
     # Manual typography is neither division nor multiplication here either.
     # The sentinel, unlike a space, cannot turn the dash of a date range
     # (`10/2025–09/2026`) into a spaced subtraction.
+    imperative_operations = _source_imperative_arithmetic_operations(text)
     text = _without_manual_typography_operators(text)
-    operations: set[str] = set()
+    operations: set[str] = {operation.kind for operation in imperative_operations}
     lowered_text = text.lower()
     arithmetic_text = lowered_text
     operation_patterns = {
