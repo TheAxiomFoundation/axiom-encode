@@ -200,6 +200,14 @@ FNS approval or binding determination, and it does not explain the contrary
 FNS first-quarter status entry. Keep October–February geography unencoded
 until the discrepancy is reconciled against approval-level authority.
 
+[FNS's approved Arizona FY 2026 SNAP E&T state plan](https://fns-prod.azureedge.us/sites/default/files/resource-files/az-snapet-stateplanFY26.pdf)
+records approval on December 22, 2025 and projects 55,559 ABAWDs in waived
+areas. That is an anticipated participation count in an E&T plan, not an
+ABAWD geographic-waiver approval: it names no covered areas or operative
+dates. It therefore cannot establish an October 2025–February 2026 waiver or
+resolve the conflict between FNS's first-quarter status and DES's February
+account that its FY 2026 request was still pending.
+
 [FNS's February 26, 2026 time-limit-waiver status memo](https://www.usda.gov/sites/default/files/guidance-documents/fna.obbb-time-limit-waivers-reinstatement.pdf)
 states that waivers terminated under its October 3, 2025 guidance remain in
 effect through their original expiration dates following a court order. Its
