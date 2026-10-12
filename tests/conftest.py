@@ -25,6 +25,7 @@ from axiom_encode import signing_broker as _signing_broker
 from tests.real_engine import (  # noqa: F401 - the real_engine fixture and its hooks
     pytest_collection_modifyitems,
     pytest_configure,
+    pytest_make_collect_report,
     pytest_report_header,
     pytest_runtest_makereport,
     real_engine,

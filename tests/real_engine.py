@@ -295,13 +295,33 @@ def pytest_collection_modifyitems(
             item.add_marker(MARKER)
 
 
+def _reason(longrepr) -> str:
+    return longrepr[2] if isinstance(longrepr, tuple) else str(longrepr)
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_make_collect_report(collector: pytest.Collector):
+    # A module skipped at collection for a missing engine never yields an
+    # item, so no marker can select it; that is always a failure.
+    report = yield
+    if report.skipped:
+        reason = _reason(report.longrepr)
+        if ENGINE_ABSENT_REASON.search(reason):
+            report.outcome = "failed"
+            report.longrepr = (
+                f"{collector.nodeid} skipped at collection for a missing engine, "
+                "so CI's real-engine job never runs it; request the real_engine "
+                f"fixture (tests/real_engine.py): {reason}"
+            )
+    return report
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
     report = yield
     if not report.skipped or hasattr(report, "wasxfail"):
         return report
-    longrepr = report.longrepr
-    reason = longrepr[2] if isinstance(longrepr, tuple) else str(longrepr)
+    reason = _reason(report.longrepr)
     problem = skip_problem(
         reason,
         marked=item.get_closest_marker(MARKER) is not None,

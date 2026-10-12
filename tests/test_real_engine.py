@@ -464,20 +464,29 @@ def test_plain():
 """
 
 
-def _run_sample(tmp_path: Path, env: dict[str, str], *args: str):
+def _run_sample(
+    tmp_path: Path,
+    env: dict[str, str],
+    *args: str,
+    tests: dict[str, str] | None = None,
+):
     project = tmp_path / "project"
     if not project.exists():
         project.mkdir()
+        for name, text in (tests or {}).items():
+            (project / name).write_text(text)
         (project / "conftest.py").write_text(
             "from tests.real_engine import (  # noqa: F401\n"
             "    pytest_collection_modifyitems,\n"
             "    pytest_configure,\n"
+            "    pytest_make_collect_report,\n"
             "    pytest_report_header,\n"
             "    pytest_runtest_makereport,\n"
             "    real_engine,\n"
             ")\n"
         )
-        (project / "test_sample.py").write_text(SAMPLE_TESTS)
+        if tests is None:
+            (project / "test_sample.py").write_text(SAMPLE_TESTS)
     report = tmp_path / f"report-{len(list(tmp_path.glob('report-*')))}.xml"
     base = {
         key: value
@@ -574,3 +583,32 @@ def test_hooks_let_the_main_job_deselect_every_engine_test(tmp_path):
         "test_expected_failure",
         "test_plain",
     }, completed.stdout
+
+
+def test_hooks_fail_a_module_skipped_for_a_missing_engine(tmp_path):
+    completed, outcomes = _run_sample(
+        tmp_path,
+        {real_engine.ROOT_ENV: str(tmp_path / "missing")},
+        tests={
+            "test_module_skip.py": (
+                "import pytest\n"
+                "pytest.skip('local axiom-rules-engine binary is not built',"
+                " allow_module_level=True)\n"
+                "def test_never_collected():\n"
+                "    pass\n"
+            ),
+            "test_other_module_skip.py": (
+                "import pytest\n"
+                "pytest.skip('Node.js is not installed', allow_module_level=True)\n"
+            ),
+        },
+    )
+
+    assert completed.returncode != 0
+    assert "skipped at collection for a missing engine" in completed.stdout
+    assert "test_module_skip.py" in completed.stdout
+    assert (
+        "test_other_module_skip.py"
+        not in completed.stdout.split("short test summary")[-1]
+    )
+    assert "test_never_collected" not in outcomes
