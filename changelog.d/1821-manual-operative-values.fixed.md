@@ -1,1 +1,1 @@
-Require corroborated US manual heading and revision metadata before excluding numbers from numeric recall, preserving operative table values and body month/year dates.
+Strengthen US manual numeric recall for qualified fee and payment table captions and operative revision-date references in raw and composed source text, while retaining authenticated locator exclusions.

@@ -45,26 +45,30 @@ RECALL_VALUE = re.compile(
 )
 
 
-def _recalled_values(source: str, citation: str) -> set[float]:
+def _recalled_values(
+    source: str, citation: str, *, profile: str = "en-US"
+) -> set[float]:
     cleaned = sc.authoritative_numeric_recall_text(
         source, corpus_citation_path=citation
     )
     return {
         occurrence.value
         for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
-            cleaned, profile="en-US"
+            cleaned, profile=profile
         )
     }
 
 
-def _missing_values(source: str, citation: str) -> set[float]:
+def _missing_values(
+    source: str, citation: str, *, profile: str = "en-US"
+) -> set[float]:
     result = sc.analyze_complete_source_unit(
         EMPTY_RULES,
         source,
         corpus_citation_path=citation,
         test_cases=[],
         extract_numeric_occurrences=functools.partial(
-            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
         ),
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
@@ -273,6 +277,124 @@ def test_composed_header_authentication_cannot_ignore_later_body_prose(source):
     assert {7, 2026} <= _missing_values(source, OREGON_ROOT)
     assert "(07/2026)" in sc._without_us_manual_locators(
         source, corpus_citation_path=OREGON_ROOT
+    )
+
+
+@pytest.mark.parametrize("citation", (OREGON_ROOT, OREGON_PAGE), ids=("root", "page"))
+@pytest.mark.parametrize("composed", (False, True), ids=("raw", "composed"))
+@pytest.mark.parametrize("profile", ("en-US", "legacy"))
+def test_section_heading_cannot_hide_revision_date_used_by_same_page_prose(
+    citation, composed, profile
+):
+    source = (
+        "93 (07/2026) Chapter 2:Eligibility\n"
+        "Section 1: Application\n1.1.1 Application Process\n"
+        "The month shown above determines eligibility."
+    )
+    if composed:
+        source = "Page 93\n\n" + source
+    recalled = _recalled_values(source, citation, profile=profile)
+    demanded = _missing_values(source, citation, profile=profile)
+    assert {7, 2026} <= recalled
+    assert {7, 2026} <= demanded
+    assert sc._manual_revision_stamp_spans(source, corpus_citation_path=citation) == ()
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert "(07/2026)" in masked
+    assert len(masked) == len(source)
+    assert (
+        sc._without_us_manual_locators(masked, corpus_citation_path=citation) == masked
+    )
+
+
+@pytest.mark.parametrize("citation", (OREGON_ROOT, OREGON_PAGE), ids=("root", "page"))
+@pytest.mark.parametrize("composed", (False, True), ids=("raw", "composed"))
+@pytest.mark.parametrize("profile", ("en-US", "legacy"))
+def test_independent_facts_before_reference_cannot_hide_a_revision_date(
+    citation, composed, profile
+):
+    source = (
+        "93 (07/2026) Chapter 2:Eligibility\n"
+        "Section 1: Application\n1.1.1 Application Process\n"
+        "Households receive $444 and must apply within 30 days.\n"
+        "Applications filed in (11/2027) are eligible.\n"
+        "The month shown above determines eligibility."
+    )
+    if composed:
+        source = "Page 93\n\n" + source
+    recalled = _recalled_values(source, citation, profile=profile)
+    demanded = _missing_values(source, citation, profile=profile)
+    assert {7, 2026, 444, 30, 11, 2027} <= recalled
+    assert {7, 2026, 444, 30, 11, 2027} <= demanded
+    assert "(07/2026)" in sc._without_us_manual_locators(
+        source, corpus_citation_path=citation
+    )
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    month=st.integers(min_value=1, max_value=12),
+    year=st.integers(min_value=1900, max_value=2099),
+    composed=st.booleans(),
+    citation=st.sampled_from((OREGON_ROOT, OREGON_PAGE)),
+    profile=st.sampled_from(("en-US", "legacy")),
+    independent_facts=st.booleans(),
+    newline=st.sampled_from(("\n", "\r\n")),
+    reference=st.sampled_from(
+        (
+            "The month shown above determines eligibility.",
+            "The month and year above establish the application period.",
+            "Use the date above to determine the first month of assistance.",
+        )
+    ),
+)
+@example(
+    month=7,
+    year=2026,
+    composed=False,
+    citation=OREGON_ROOT,
+    profile="en-US",
+    independent_facts=False,
+    newline="\n",
+    reference="The month shown above determines eligibility.",
+)
+@example(
+    month=11,
+    year=2027,
+    composed=False,
+    citation=OREGON_PAGE,
+    profile="legacy",
+    independent_facts=True,
+    newline="\n",
+    reference="The month shown above determines eligibility.",
+)
+def test_generated_section_heading_cannot_authenticate_a_date_used_by_body_prose(
+    month, year, composed, citation, profile, independent_facts, newline, reference
+):
+    """A heading cannot authenticate the later body use of a revision date."""
+    stamp = f"({month:02d}/{year})"
+    source = (
+        f"93 {stamp} Chapter 2:Eligibility\n"
+        "Section 1: Application\n1.1.1 Application Process\n"
+    )
+    if independent_facts:
+        source += (
+            "Households receive $444 and must apply within 30 days.\n"
+            "Applications filed in (11/2027) are eligible.\n"
+        )
+    source += reference
+    if composed:
+        source = "Page 93\n\n" + source
+    source = source.replace("\n", newline)
+    recalled = _recalled_values(source, citation, profile=profile)
+    demanded = _missing_values(source, citation, profile=profile)
+    assert {month, year} <= recalled
+    assert {month, year} <= demanded
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    stamp_start = source.index(stamp)
+    assert masked[stamp_start : stamp_start + len(stamp)] == stamp
+    assert len(masked) == len(source)
+    assert (
+        sc._without_us_manual_locators(masked, corpus_citation_path=citation) == masked
     )
 
 

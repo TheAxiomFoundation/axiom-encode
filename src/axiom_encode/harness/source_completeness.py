@@ -13218,11 +13218,26 @@ def _manual_quantity_line_starts(text: str) -> frozenset[int]:
             quantity_topic = False
             offset += len(line)
             continue
+        # May in a date or after a calendar preposition is a month, not a verb.
+        # Keep ordinary "fees may ..." prose from starting a table context.
+        verb_line = re.sub(
+            r"\bMay(?=(?:[ \t]+|[,/][ \t]*)"
+            r"(?:(?:\d{1,2},?[ \t]+)?(?:19|20)\d{2}\b|\((?:19|20)\d{2}\)))",
+            "",
+            line,
+            flags=re.IGNORECASE,
+        )
+        verb_line = re.sub(
+            r"\b((?:for|in|during|from|through|until|before|after|to|of)[ \t]+)May\b",
+            r"\1",
+            verb_line,
+            flags=re.IGNORECASE,
+        )
         body_verb = re.search(
             r"\b(?:is|are|was|were|has|have|had|must|may|will|shall|can|"
             r"performed|filed|provided|required|explained|accepted|counted|considered|"
             r"includes?|excludes?|contains?|receives?|applies|calculate|determine)\b",
-            line,
+            verb_line,
             re.IGNORECASE,
         )
         column_label = re.sub(r"\([^)]*\)", "", line).strip()
@@ -13285,7 +13300,8 @@ def _manual_quantity_line_starts(text: str) -> frozenset[int]:
                         len(caption_line.split()) <= 18
                         and re.search(
                             r"\b(?:units?|costs?|rates?|quantit(?:y|ies)|"
-                            r"currenc(?:y|ies)|coefficients?|factors?|formulas?)\b",
+                            r"currenc(?:y|ies)|coefficients?|factors?|formulas?|"
+                            r"fees?|charges?|amounts?|payments?|standards?|dollars?|cents?)\b",
                             caption_line,
                             re.IGNORECASE,
                         )
@@ -13583,8 +13599,55 @@ def _manual_heading_spans(
     return tuple(sorted(set(spans)))
 
 
+def _manual_section_remainder_is_independent(
+    text: str, *, heading_spans: Iterable[tuple[int, int]]
+) -> bool:
+    """Require a complete suffix of harmless headings and independent facts.
+
+    These procedure titles cannot refer to a revision date. Body sentences
+    must supply their own quantities or absolute dates; unknown prose keeps
+    the header date, even after an otherwise self-contained declaration.
+    """
+
+    authenticated = frozenset(heading_spans)
+    body = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        heading = _NUMBERED_MANUAL_HEADING_LABEL.match(content)
+        caption = re.fullmatch(
+            r"[ \t]*Section[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
+            r"[ \t]*Applications?[ \t]*",
+            content,
+        )
+        safe_heading = bool(
+            heading
+            and heading["title"] in ("Application Process", "Retroactive Applications")
+            and (
+                offset + heading.end() - len(heading[0].strip()),
+                offset + heading.end(),
+            )
+            in authenticated
+        )
+        if content.strip() and not (not body and (caption or safe_heading)):
+            body.append(line)
+        offset += len(line)
+    return bool(
+        re.fullmatch(
+            r"\s*(?:(?:"
+            r"The (?:payment|amount|limit) is \$\d+(?:\.\d+)?"
+            r"(?: and \$\d+(?:\.\d+)?)*\."
+            r"|Households receive \$\d+(?:\.\d+)? and must apply within \d+ days\."
+            r"|Applications filed in \((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)"
+            r" are eligible\."
+            r")\s*)*",
+            "".join(body),
+        )
+    )
+
+
 def _manual_revision_stamp_spans(
-    text: str, *, corpus_citation_path: str, _allow_section_boundary: bool = True
+    text: str, *, corpus_citation_path: str, _allow_section_boundary: bool = False
 ) -> tuple[tuple[int, int], ...]:
     """Remove page/form metadata only, never an in-sentence month/year.
 
@@ -13703,22 +13766,32 @@ def _manual_revision_stamp_spans(
                     remainder,
                 )
             )
-            # A complete section caption followed immediately by an
-            # independently authenticated heading establishes a header end.
-            # A Section prefix alone can still be part of a body sentence.
+            # A heading alone cannot make later prose independent of the
+            # date. Reviewed compositions authenticate the complete source;
+            # otherwise consume the entire remainder with the closed grammar.
             section = re.match(
                 r"[ \t]*Section[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
                 r"[ \t]*Applications?[ \t]*\r?\n",
                 remainder,
             )
+            heading_spans = (
+                _manual_heading_spans(
+                    remainder, corpus_citation_path=corpus_citation_path
+                )
+                if section
+                else ()
+            )
             section_heading = bool(
-                _allow_section_boundary
-                and section
+                section
                 and any(
                     start >= section.end()
                     and not remainder[section.end() : start].strip()
-                    for start, _end in _manual_heading_spans(
-                        remainder, corpus_citation_path=corpus_citation_path
+                    for start, _end in heading_spans
+                )
+                and (
+                    _allow_section_boundary
+                    or _manual_section_remainder_is_independent(
+                        remainder, heading_spans=heading_spans
                     )
                 )
             )

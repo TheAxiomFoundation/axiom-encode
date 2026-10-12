@@ -32,29 +32,34 @@ CORPUS_LOCATOR_CONTROLS = json.loads(
 )
 
 
-def _values(text: str) -> set[float]:
+def _values(text: str, profile: str = "en-US") -> set[float]:
     return {
         occurrence.value
         for occurrence in extract_typed_numeric_inventory_occurrences_from_text(
-            text, profile="en-US"
+            text, profile=profile
         )
     }
 
 
-def _recalled(source: str, citation: str = OREGON_PAGE) -> set[float]:
+def _recalled(
+    source: str, citation: str = OREGON_PAGE, profile: str = "en-US"
+) -> set[float]:
     return _values(
-        sc.authoritative_numeric_recall_text(source, corpus_citation_path=citation)
+        sc.authoritative_numeric_recall_text(source, corpus_citation_path=citation),
+        profile,
     )
 
 
-def _missing(source: str, citation: str = OREGON_PAGE) -> set[float]:
+def _missing(
+    source: str, citation: str = OREGON_PAGE, profile: str = "en-US"
+) -> set[float]:
     result = sc.analyze_complete_source_unit(
         EMPTY_RULES,
         source,
         corpus_citation_path=citation,
         test_cases=[],
         extract_numeric_occurrences=functools.partial(
-            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+            extract_typed_numeric_inventory_occurrences_from_text, profile=profile
         ),
         extract_named_scalars=extract_named_scalar_occurrences,
         numeric_value_is_grounded=numeric_value_is_grounded,
@@ -242,6 +247,56 @@ def test_singleton_quantity_context_overrides_matching_section_root(source, expe
     assert label in masked
 
 
+@pytest.mark.parametrize("profile", ("en-US", "legacy"))
+@pytest.mark.parametrize("section", (101, 214))
+@pytest.mark.parametrize(
+    ("caption", "qualifier_values"),
+    (
+        ("Fees in dollars (2026)", {2026}),
+        ("Fees in dollars per 2 members", {2}),
+        ("Payment amounts (2026)", {2026}),
+        ("Payment standards (2026)", {2026}),
+        ("Fees in dollars for May (2026)", {2026}),
+        ("Payment amounts for May (2026)", {2026}),
+        ("Payment standards in May (2026)", {2026}),
+    ),
+)
+def test_review_numeric_qualifiers_cannot_hide_procedure_named_fees(
+    section, caption, qualifier_values, profile
+):
+    """Years/member counts retain quantity priority over known and generic titles."""
+
+    rows = f"{section}.03 Application Process\n{section}.04 Retroactive Applications"
+    source = f"Section {section}: Applications\n{caption}\nCategory\n{rows}"
+    citation = "us-sc/manual/scdhhs/mppm/page-1"
+    fees = {float(f"{section}.03"), float(f"{section}.04")}
+    expected = fees | qualifier_values
+    recalled = _recalled(source, citation, profile)
+    demanded = _missing(source, citation, profile)
+    assert recalled == expected
+    assert demanded == expected
+
+    undated = re.sub(r" \(2026\)| per 2 members", "", source)
+    assert _recalled(undated, citation, profile) == fees
+    assert _missing(undated, citation, profile) == fees
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert rows in masked
+    assert len(masked) == len(source)
+    assert (
+        sc._without_us_manual_locators(masked, corpus_citation_path=citation) == masked
+    )
+
+
+def test_modal_may_prose_does_not_turn_reviewed_headings_into_quantities():
+    source = (
+        "Section 101: Applications\nFees may be waived for a category.\n"
+        "101.03 Application Process\n101.04 Retroactive Applications"
+    )
+    citation = "us-sc/manual/scdhhs/mppm/page-1"
+    assert _recalled(source, citation) == set()
+    assert _missing(source, citation) == set()
+
+
 @settings(max_examples=40, deadline=None)
 @given(
     section=st.integers(min_value=1, max_value=899),
@@ -331,7 +386,7 @@ def test_quantity_and_formula_captions_override_even_reviewed_heading_titles(cap
     )
 
 
-@settings(max_examples=40, deadline=None)
+@settings(max_examples=100, deadline=None)
 @given(
     section=st.sampled_from((100, 101, 214)),
     year=st.integers(min_value=1900, max_value=2099),
@@ -341,15 +396,46 @@ def test_quantity_and_formula_captions_override_even_reviewed_heading_titles(cap
             "Unit cost ({year})",
             "Unit cost per {members} members",
             "Coefficient ({year})",
+            "Fees in dollars ({year})",
+            "Fees in dollars per {members} members",
+            "Payment amounts ({year})",
+            "Payment standards ({year})",
+            "Dollar amounts per {members} members",
+            "Charges ({year})",
+            "Benefit standards per {members} members",
+            "Payments ({year})",
+            "Fees in dollars for May ({year})",
+            "Payment amounts for May ({year})",
+            "Payment standards in May ({year})",
+            "Fees in dollars for May, {year}",
+            "Payment amounts for May/{year}",
+            "Payment standards in May 5, {year}",
+            "Cents per {members} members",
         )
     ),
+    profile=st.sampled_from(("en-US", "legacy")),
 )
-@example(section=100, year=2026, members=2, caption="Unit cost ({year})")
-@example(section=100, year=2026, members=2, caption="Unit cost per {members} members")
+@example(
+    section=100, year=2026, members=2, caption="Unit cost ({year})", profile="en-US"
+)
+@example(
+    section=100,
+    year=2026,
+    members=2,
+    caption="Unit cost per {members} members",
+    profile="en-US",
+)
+@example(
+    section=214,
+    year=2026,
+    members=2,
+    caption="Fees in dollars ({year})",
+    profile="legacy",
+)
 def test_generated_numeric_qualifiers_preserve_quantity_caption_priority(
-    section, year, members, caption
+    section, year, members, caption, profile
 ):
-    """A numeric caption qualifier cannot turn costs into procedure headings."""
+    """Numeric qualifiers cannot turn strong quantity captions into headings."""
 
     caption = caption.format(year=year, members=members)
     source = (
@@ -358,8 +444,13 @@ def test_generated_numeric_qualifiers_preserve_quantity_caption_priority(
     )
     citation = "us-sc/manual/scdhhs/mppm/page-1"
     expected = {float(f"{section}.03"), float(f"{section}.04")}
-    assert expected <= _recalled(source, citation)
-    assert expected <= _missing(source, citation)
+    assert expected <= _recalled(source, citation, profile)
+    assert expected <= _missing(source, citation, profile)
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert len(masked) == len(source)
+    assert (
+        sc._without_us_manual_locators(masked, corpus_citation_path=citation) == masked
+    )
 
 
 @pytest.mark.parametrize(
