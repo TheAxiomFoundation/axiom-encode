@@ -1664,6 +1664,7 @@ REVIEWED_MANUAL_LOCATOR_SPANS = {
     },
     "us-md/manual/dhs/snap/109-other-special-households": {
         "7643710aeea812261f58db8c243fe09384d9336c1422598391680d923f6a6ade": (
+            (391, 397),
             (729, 735),
         ),
         "b6ed7a64a5ca646c8114f123f9b14c9e0e199a2f4bb87b8b2b8a595e44a121d6": (

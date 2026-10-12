@@ -229,6 +229,103 @@ def test_metadata_prefix_cannot_hide_a_body_date_or_its_diagnostics(source, cita
     assert {10, 2025} <= _missing_values(source, citation)
 
 
+@pytest.mark.parametrize(
+    "later_pages",
+    (
+        "",
+        "\n\nPage 94\n\nThe month shown above determines eligibility.",
+        "\n\nPage 94\n\nApplications are reviewed.\n\n"
+        "Page 95\n\nThe month shown above determines eligibility.",
+    ),
+    ids=("single-page-positive-control", "next-page-reference", "later-page-reference"),
+)
+def test_composed_amount_sentence_cannot_hide_a_revision_month_used_later(later_pages):
+    source = (
+        "Page 93\n\n93 (07/2026) Chapter 2: Eligibility\n"
+        f"The payment is $93 and $2026.{later_pages}"
+    )
+    expected = {7, 93, 2026} if later_pages else {93, 2026}
+    assert _recalled_values(source, OREGON_ROOT) == expected
+    assert _missing_values(source, OREGON_ROOT) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Page 93\n\n93 (07/2026) Chapter 2:Eligibility\n"
+        "Section 1: Application\n1.1.1 Application Process\n\n"
+        "Page 94\n\nThe month shown above determines eligibility.",
+        f"Page 93\n\n{OREGON_CAPTION}\n(07/2026)\n\n"
+        f"Page 94\n\n{OREGON_COVER_PREFIX} (08/2026)\n\n"
+        "Page 95\n\nThe month shown above determines eligibility.",
+        "Page 93\n\n93 (07/2026) Chapter 2:Eligibility\n"
+        "Section 1: Application\n1.1.1 Application Process\n"
+        "The month shown above determines eligibility.",
+    ),
+    ids=(
+        "authenticated-section-heading",
+        "metadata-only-successor-before-body",
+        "same-page-section-heading-reference",
+    ),
+)
+def test_composed_header_authentication_cannot_ignore_later_body_prose(source):
+    assert {7, 2026} <= _recalled_values(source, OREGON_ROOT)
+    assert {7, 2026} <= _missing_values(source, OREGON_ROOT)
+    assert "(07/2026)" in sc._without_us_manual_locators(
+        source, corpus_citation_path=OREGON_ROOT
+    )
+
+
+def test_earlier_composed_page_cannot_make_a_later_revision_stamp_operative():
+    source = (
+        "Page 92\n\nThe month shown below determines eligibility.\n\n"
+        "Page 93\n\n93 (07/2026) Chapter 2: Eligibility\n"
+        "The payment is $93 and $2026."
+    )
+    assert _recalled_values(source, OREGON_ROOT) == {7, 93, 2026}
+    assert _missing_values(source, OREGON_ROOT) == {7, 93, 2026}
+
+
+@settings(max_examples=50, deadline=None)
+@given(
+    month=st.integers(min_value=1, max_value=12),
+    year=st.integers(min_value=1900, max_value=2099),
+    intermediate_page=st.booleans(),
+    preceding_reference=st.booleans(),
+    newline=st.sampled_from(("\n", "\r\n")),
+)
+@example(
+    month=7, year=2026, intermediate_page=False, preceding_reference=False, newline="\n"
+)
+@example(
+    month=7, year=2026, intermediate_page=False, preceding_reference=True, newline="\n"
+)
+def test_generated_composed_amount_header_authenticates_against_all_later_pages(
+    month, year, intermediate_page, preceding_reference, newline
+):
+    """A body reference anywhere in the composed source keeps the month demand."""
+    stamp = f"({month:02d}/{year})"
+    source = (
+        f"Page 93\n\n93 {stamp} Chapter 2: Eligibility\n"
+        f"The payment is $93 and ${year}.\n\n"
+    )
+    if preceding_reference:
+        source = "Page 92\n\nThe month shown below determines eligibility.\n\n" + source
+    else:
+        if intermediate_page:
+            source += "Page 94\n\nApplications are reviewed.\n\n"
+        source += (
+            f"Page {95 if intermediate_page else 94}\n\n"
+            "The month shown above determines eligibility."
+        )
+    source = source.replace("\n", newline)
+    assert {month, 93, year} <= _recalled_values(source, OREGON_ROOT)
+    assert {month, 93, year} <= _missing_values(source, OREGON_ROOT)
+    assert stamp in sc._without_us_manual_locators(
+        source, corpus_citation_path=OREGON_ROOT
+    )
+
+
 @pytest.fixture
 def real_composed_oregon_cover(tmp_path: Path):
     """Resolve the actual bodyless root and cover rows from the pinned book."""

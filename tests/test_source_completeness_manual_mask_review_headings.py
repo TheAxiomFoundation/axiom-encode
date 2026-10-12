@@ -162,6 +162,247 @@ def test_quantity_caption_on_section_anchor_keeps_matching_decimal_amount():
     assert 214.5 in _missing(source)
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "Section 214: Assistance\nUnit cost in USD\n214.50 Family Assistance",
+            214.5,
+        ),
+        (
+            "Section 1: Assistance\nX = Y * coefficient\n1.198 Family Assistance",
+            1.198,
+        ),
+        ("Section 214: Assistance\nUnits\n214.50 Family Assistance", 214.5),
+        ("Section 214: Assistance\nUSD\n214.50 Family Assistance", 214.5),
+        (
+            "Section 214: Assistance\nCurrency (USD)\n214.50 Family Assistance",
+            214.5,
+        ),
+        ("Section 214: Assistance\nQuantity\n214.50 Family Assistance", 214.5),
+        (
+            "Section 214: Assistance\nCost per member\n214.50 Family Assistance",
+            214.5,
+        ),
+        (
+            "Section 214: Assistance\nHourly rate\n214.50 Family Assistance",
+            214.5,
+        ),
+        ("Section 1: Assistance\nCoefficient\n1.198 Family Assistance", 1.198),
+        ("Section 1: Assistance\nFormula\n1.198 Family Assistance", 1.198),
+        (
+            "Section 1: Assistance\nAdjustment factor\n1.198 Family Assistance",
+            1.198,
+        ),
+        (
+            "Section 1: Assistance\nCoefficient = cost / quantity\n1.198 Family Assistance",
+            1.198,
+        ),
+        (
+            "Section 214: Assistance\nCost (USD)\nCategory\n214.50 Family Assistance",
+            214.5,
+        ),
+        (
+            "Section 101: Assistance\nUnit cost in USD\n101.03 Application Process",
+            101.03,
+        ),
+        ("Section 214: Assistance\n214.50 USD Family Assistance", 214.5),
+        ("Section 214: Assistance\n214.50 Family Assistance USD", 214.5),
+        ("Section 214: Assistance\n214.50 Family Assistance", 214.5),
+        ("Section 1: Assistance\n1.198 Family Assistance", 1.198),
+    ),
+    ids=(
+        "reviewed-singleton-cost",
+        "reviewed-singleton-coefficient-formula",
+        "units-column",
+        "currency-column",
+        "currency-caption",
+        "quantity-column",
+        "cost-column",
+        "rate-column",
+        "coefficient-column",
+        "formula-column",
+        "factor-column",
+        "coefficient-equation",
+        "cost-caption-and-category-column",
+        "procedural-title-in-cost-table",
+        "currency-before-row-title",
+        "currency-after-row-title",
+        "uncaptioned-singleton-cost",
+        "uncaptioned-singleton-coefficient",
+    ),
+)
+def test_singleton_quantity_context_overrides_matching_section_root(source, expected):
+    """A section-root collision cannot authenticate an operative quantity."""
+
+    assert expected in _recalled(source)
+    assert expected in _missing(source)
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=OREGON_PAGE)
+    label = source.rsplit("\n", 1)[1].split()[0]
+    assert label in masked
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    section=st.integers(min_value=1, max_value=899),
+    fraction=st.integers(min_value=1, max_value=999),
+    caption=st.sampled_from(
+        (
+            "Unit cost in USD",
+            "Units",
+            "Quantity",
+            "USD",
+            "Coefficient",
+            "Formula",
+            "Adjustment factor",
+            "X = Y * coefficient",
+        )
+    ),
+    title=st.sampled_from(("Family Assistance", "Application Process")),
+    separator=st.sampled_from(("\n", "\n\n")),
+)
+@example(
+    section=214,
+    fraction=500,
+    caption="Unit cost in USD",
+    title="Family Assistance",
+    separator="\n",
+)
+@example(
+    section=1,
+    fraction=198,
+    caption="X = Y * coefficient",
+    title="Family Assistance",
+    separator="\n",
+)
+def test_generated_singleton_quantity_context_keeps_operative_value(
+    section, fraction, caption, title, separator
+):
+    label = f"{section}.{fraction:03d}"
+    source = (
+        f"Section {section}: Assistance{separator}{caption}{separator}{label} {title}"
+    )
+    expected = float(label)
+    assert expected in _recalled(source)
+    assert expected in _missing(source)
+
+
+@pytest.mark.parametrize(
+    "caption",
+    (
+        "Unit cost in USD",
+        "Units",
+        "Quantity",
+        "Currency (USD)",
+        "Coefficient",
+        "Formula",
+        "Adjustment factor",
+        "X = Y * coefficient",
+        "X = Y * 1.198",
+        "X × Y",
+        "The unit cost is in USD",
+        "The coefficient is X * Y",
+        "The cost is $5",
+        "The rate is 5%",
+        "Unit cost (2026)",
+        "Unit cost per 2 members",
+        "Coefficient (2026)",
+        "The coefficient is 2",
+        "The cost is 5",
+        "The factor is 2",
+    ),
+)
+def test_quantity_and_formula_captions_override_even_reviewed_heading_titles(caption):
+    """Known heading titles become quantities under an operative column caption."""
+
+    source = (
+        f"Section 101: Applications\n{caption}\nCategory\n"
+        "101.03 Application Process\n101.04 Retroactive Applications"
+    )
+    citation = "us-sc/manual/scdhhs/mppm/page-1"
+    assert {101.03, 101.04} <= _recalled(source, citation)
+    assert {101.03, 101.04} <= _missing(source, citation)
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert "101.03 Application Process" in masked
+    assert "101.04 Retroactive Applications" in masked
+    assert len(masked) == len(source)
+    assert (
+        sc._without_us_manual_locators(masked, corpus_citation_path=citation) == masked
+    )
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    section=st.sampled_from((100, 101, 214)),
+    year=st.integers(min_value=1900, max_value=2099),
+    members=st.integers(min_value=1, max_value=20),
+    caption=st.sampled_from(
+        (
+            "Unit cost ({year})",
+            "Unit cost per {members} members",
+            "Coefficient ({year})",
+        )
+    ),
+)
+@example(section=100, year=2026, members=2, caption="Unit cost ({year})")
+@example(section=100, year=2026, members=2, caption="Unit cost per {members} members")
+def test_generated_numeric_qualifiers_preserve_quantity_caption_priority(
+    section, year, members, caption
+):
+    """A numeric caption qualifier cannot turn costs into procedure headings."""
+
+    caption = caption.format(year=year, members=members)
+    source = (
+        f"Section {section}: Applications\n{caption}\nCategory\n"
+        f"{section}.03 Application Process\n{section}.04 Retroactive Applications"
+    )
+    citation = "us-sc/manual/scdhhs/mppm/page-1"
+    expected = {float(f"{section}.03"), float(f"{section}.04")}
+    assert expected <= _recalled(source, citation)
+    assert expected <= _missing(source, citation)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        ("Section 214: Applications\n214.03 Application Process", {214.03}),
+        (
+            "Section 214: Applications\n214.03 Application Process\n"
+            "Section 214: Applications\n214.03 Application Process",
+            {214.03},
+        ),
+        (
+            "Section 214: Applications\n214.03 Application Process\n"
+            "Section 214: Applications\n214.003 Application Process",
+            {214.03, 214.003},
+        ),
+        (
+            "Section 214: Applications\n214.50 Application Process\n"
+            "214.75 Retroactive Applications",
+            {214.5, 214.75},
+        ),
+        (
+            "Section 214: Applications\nUnit cost in USD\n"
+            "214.03 Application Process\n214.04 Retroactive Applications",
+            {214.03, 214.04},
+        ),
+    ),
+    ids=(
+        "singleton",
+        "repeated-label",
+        "zero-padded-repeated-label",
+        "wrong-numbering-scheme",
+        "quantity-caption",
+    ),
+)
+def test_procedure_title_scheme_requires_distinct_siblings_outside_quantity_context(
+    source, expected
+):
+    citation = "us-sc/manual/scdhhs/mppm/page-1"
+    assert expected <= _recalled(source, citation)
+    assert expected <= _missing(source, citation)
+
+
 @settings(max_examples=40, deadline=None)
 @given(
     section=st.integers(min_value=100, max_value=899),

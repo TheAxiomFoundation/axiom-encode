@@ -2228,6 +2228,8 @@ _US_MANUAL_PAGE_NUMBER = re.compile(
 _US_MANUAL_REVISION_STAMP = re.compile(r"\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)")
 _MANUAL_QUANTITY_CAPTION = re.compile(
     r"\b(?:amounts?|rates?|counts?|ages?|percent(?:ages?)?|increments?|"
+    r"units?|costs?|quantit(?:y|ies)|currenc(?:y|ies)|USD|EUR|GBP|CAD|AUD|"
+    r"coefficients?|factors?|formulas?|"
     r"dollars?|cents?|bands?|brackets?|earnings?|fees?|charges?|"
     r"days?|weeks?|months?|years?|hours?|household[ \t]+size|"
     r"(?:benefit|payment)[ \t]+levels?|standards?|limits?|ceilings?|thresholds?|maximums?|minimums?|"
@@ -2241,6 +2243,7 @@ _MANUAL_TABLE_COLUMN = re.compile(
 )
 _MANUAL_QUANTITY_TITLE = re.compile(
     r"\b(?:monthly|weekly|daily|annual)[ \t]+(?:allowance|rate|amount|payment)\b"
+    r"|\b(?:USD|EUR|GBP|CAD|AUD)\b"
     r"|\b(?:eligible[ \t]+children|young[ \t]+adults|payroll[ \t]+contribution|"
     r"child[ \t]+benefit|employer[ \t]+payment|filing[ \t]+charge)\b",
     re.IGNORECASE,
@@ -13259,6 +13262,37 @@ def _manual_quantity_line_starts(text: str) -> frozenset[int]:
             explicit_table
             or _MANUAL_TABLE_COLUMN.fullmatch(line)
             or (
+                len(caption_line) <= 180
+                and (
+                    not body_verb
+                    or re.match(
+                        r"[ \t]*(?:The[ \t]+)?(?:unit[ \t]+)?"
+                        r"(?:costs?|rates?|coefficients?|factors?|formulas?|"
+                        r"quantit(?:y|ies)|currenc(?:y|ies)|units?)[ \t]+(?:is|are)\b",
+                        caption_line,
+                        re.IGNORECASE,
+                    )
+                )
+                and (
+                    re.search(
+                        r"[=×÷*$€£¥%]|\b(?:USD|EUR|GBP|CAD|AUD)\b",
+                        caption_line,
+                        re.IGNORECASE,
+                    )
+                    # Dates and per-member counts can appear in explicit
+                    # quantity captions without changing their role.
+                    or (
+                        len(caption_line.split()) <= 18
+                        and re.search(
+                            r"\b(?:units?|costs?|rates?|quantit(?:y|ies)|"
+                            r"currenc(?:y|ies)|coefficients?|factors?|formulas?)\b",
+                            caption_line,
+                            re.IGNORECASE,
+                        )
+                    )
+                )
+            )
+            or (
                 (
                     line.strip() in {"$", "%"}
                     or _MANUAL_QUANTITY_CAPTION.search(caption_line)
@@ -13309,7 +13343,7 @@ def _manual_quantity_line_starts(text: str) -> frozenset[int]:
 def _manual_ambiguous_numeric_line_starts(
     text: str, *, reviewed_headings: Iterable[tuple[str, str]] = ()
 ) -> frozenset[int]:
-    """Keep uncaptioned decimal/range runs unless independently identified.
+    """Keep uncaptioned decimal/range rows unless independently identified.
 
     A matching section root or contents slug cannot tell an amount column
     from a heading sequence. Whole-dollar rows may lead the same table.
@@ -13339,13 +13373,13 @@ def _manual_ambiguous_numeric_line_starts(
                 row and (row[1], row[2].strip()) in reviewed
             )
         else:
-            if len(rows) >= 2 and amount_rows and not all_reviewed:
+            if rows and amount_rows and not all_reviewed:
                 starts.update(rows)
             rows.clear()
             amount_rows = 0
             all_reviewed = True
         offset += len(line)
-    if len(rows) >= 2 and amount_rows and not all_reviewed:
+    if rows and amount_rows and not all_reviewed:
         starts.update(rows)
     return frozenset(starts)
 
@@ -13355,8 +13389,10 @@ def _manual_heading_spans(
 ) -> tuple[tuple[int, int], ...]:
     """Authenticate candidates against independent document/section numbering.
 
-    Numeric candidates never corroborate themselves, siblings, parents or
-    descendants. Read section anchors before other locator masks erase them.
+    Numeric rows alone never corroborate themselves, siblings, parents or
+    descendants. A known procedure-title scheme with distinct sibling labels
+    supplies stronger evidence than a section root alone. Read section anchors
+    before other locator masks erase them.
     """
 
     # Generic page cleanup used to expose headings before this mask ran. Use
@@ -13423,8 +13459,35 @@ def _manual_heading_spans(
         if re.search(rf"(?m)^{re.escape(caption)}[ \t]*$", text) is not None
         for heading in headings
     }
+    # A documented procedure-title scheme can use another section number,
+    # but a lone title still might be an amount. Require distinct siblings
+    # in that scheme; quantity/currency/formula context always takes priority.
+    procedure_suffixes = {
+        (_manual_number_parts(number)[1:], title)
+        for number, title in contents_headings
+        if len(_manual_number_parts(number)) == 2
+    }
+    procedure_siblings: dict[tuple[int, ...], set[tuple[int, ...]]] = {}
+    procedure_candidates = []
+    for candidate in candidates:
+        number = candidate[0].strip()
+        parts = _manual_number_parts(number)
+        if (
+            len(parts) == 2
+            and (parts[1:], candidate["title"]) in procedure_suffixes
+            and candidate.start() not in quantity_lines
+            and not _MANUAL_QUANTITY_TITLE.search(candidate["title"])
+        ):
+            procedure_siblings.setdefault(parts[:-1], set()).add(parts)
+            procedure_candidates.append((parts[:-1], number, candidate["title"]))
+    sibling_headings = {
+        (number, title)
+        for root, number, title in procedure_candidates
+        if len(procedure_siblings[root]) >= 2
+    }
     ambiguous_lines = _manual_ambiguous_numeric_line_starts(
-        heading_text, reviewed_headings=(*contents_headings, *caption_headings)
+        heading_text,
+        reviewed_headings=(*contents_headings, *caption_headings, *sibling_headings),
     )
     for namespace, pages_by_hash in REVIEWED_MANUAL_LOCATOR_SPANS.items():
         if corpus_citation_path == namespace or corpus_citation_path.startswith(
@@ -13521,7 +13584,7 @@ def _manual_heading_spans(
 
 
 def _manual_revision_stamp_spans(
-    text: str, *, corpus_citation_path: str
+    text: str, *, corpus_citation_path: str, _allow_section_boundary: bool = True
 ) -> tuple[tuple[int, int], ...]:
     """Remove page/form metadata only, never an in-sentence month/year.
 
@@ -13553,7 +13616,9 @@ def _manual_revision_stamp_spans(
         ]
         chunk_spans = [
             _manual_revision_stamp_spans(
-                text[offset:chunk_end], corpus_citation_path=corpus_citation_path
+                text[offset:chunk_end],
+                corpus_citation_path=corpus_citation_path,
+                _allow_section_boundary=reviewed_composition,
             )
             for offset, chunk_end in chunks
         ]
@@ -13565,7 +13630,8 @@ def _manual_revision_stamp_spans(
             normalized = " ".join(prefix.split())
             metadata_only.append(
                 bool(
-                    len(page_spans) == 1
+                    not chunk.strip()
+                    or len(page_spans) == 1
                     and page_spans[0][1] == len(chunk.rstrip())
                     and (
                         " ".join(caption.split()) in OREGON_OPEN_REVISION_CAPTIONS
@@ -13584,17 +13650,15 @@ def _manual_revision_stamp_spans(
                     )
                 )
             )
+        # References on earlier or later pages can make a locally authentic
+        # stamp operative. Only metadata elsewhere in the composed source is
+        # independently harmless; compute that full context in linear work.
+        body_chunks = sum(not metadata for metadata in metadata_only)
         return tuple(
             (offset + start, offset + end)
             for index, (offset, chunk_end) in enumerate(chunks)
             for start, end in chunk_spans[index]
-            # A sentence can cross a page label and another page's header.
-            # A terminal date needs reviewed whole-document context, a
-            # metadata-only successor, or EOF.
-            if text[offset + end : chunk_end].strip()
-            or index == len(chunks) - 1
-            or reviewed_composition
-            or metadata_only[index + 1]
+            if reviewed_composition or body_chunks == int(not metadata_only[index])
         )
 
     spans = []
@@ -13648,7 +13712,8 @@ def _manual_revision_stamp_spans(
                 remainder,
             )
             section_heading = bool(
-                section
+                _allow_section_boundary
+                and section
                 and any(
                     start >= section.end()
                     and not remainder[section.end() : start].strip()
