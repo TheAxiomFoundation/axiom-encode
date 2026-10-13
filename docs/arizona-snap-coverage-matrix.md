@@ -341,10 +341,16 @@ and locked `us/guidance/2026-09-13-snap-fns-guidance` scope, under
 `us/guidance/usda/fns/snap-fy2026-cola-memo` with seven page descendants.
 The `us-rulespec-2026-09-14-wave4-r2-union` release selector includes that
 scope, but the current RuleSpec toolchain pins the older
-`us-rulespec-2026-08-08-obbb-alien-snap` release, which does not. Verify the
-later release object's availability and the protected workflow's release-pin
-transition before using the already signed full-memorandum citation for
-replacement generation. That alternate source route does not repair the
+`us-rulespec-2026-08-08-obbb-alien-snap` release, which does not. The
+[later release's successful publication run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/34909195701)
+records content SHA-256
+`528f596ac8c9e4b0f99d43489425a1e901b9b0ac84cece411560acd9a62fe30f`,
+but its required public-mirror URL returned HTTP 404 on 2026-10-13; the
+protected workflow fetches release objects from that public bucket. An
+authorized, verifier-gated mirror of the already signed release and a reviewed
+RuleSpec release-pin transition are therefore prerequisites to using this
+full-memorandum citation for protected replacement generation. This alternate
+source route does not repair the
 incorrect PDF provenance recorded in the older page-table scopes, and its
 flattened table text still needs exact proof and numeric-recall validation.
 
