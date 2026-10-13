@@ -151,7 +151,11 @@ Python. The scripts cover:
   local files never reach the encoder, which walks a dependency root and
   refuses any symlink in it. The encoder and corpus entries, and the
   changed-file classifier, are links to the verified local checkouts; those
-  subcommands receive the resolved checkout paths. `ci` also points the
+  subcommands receive the resolved checkout paths. Every entry is in the root
+  before the composer is built (the engine's as a link to its checkout until
+  the built view replaces it), as CI relocates every checkout before "Build
+  protected axiom-compose runtime", so a composer lock that names a sibling
+  by path resolves it. `ci` also points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
   as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
@@ -175,8 +179,22 @@ Python. The scripts cover:
   user and system configuration directories point at an empty directory, as
   a fresh runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values
   are removed. uv still reads `/etc/uv/uv.toml` when no system configuration
-  is found there, so that file fails resolution (a `composer-uv-config`
-  mismatch under `--allow-encoder-mismatch`). Finally the encoder pin's own
+  is found there, and from a directory with no uv configuration of its own it
+  reads a `uv.toml` or `[tool.uv]` table above it. So that file, or
+  either of those in any directory above `ci`'s temporary checkout or
+  dependency root, fails resolution (a `composer-uv-config` mismatch under
+  `--allow-encoder-mismatch`). The cache follows "Install uv for composer
+  runtime": setup-uv exports `UV_CACHE_DIR=$RUNNER_TEMP/setup-uv-cache`,
+  which outranks a `cache-dir` in any configuration file, and `ci` sets the
+  variable to that directory in its own temporary `RUNNER_TEMP` (under
+  `--offline`, to uv's default cache directory, which then has to hold the
+  requirements). The exception is a `cache-dir` in the rules checkout's own
+  `uv.toml` or `pyproject.toml`: setup-uv then leaves the variable unset and
+  CI's uv writes its cache wherever the pull request says. `ci` asks uv for
+  the directory it would use (`uv cache dir`, which creates nothing), reads
+  the two files as setup-uv does, and fails resolution if either names one,
+  since locally that write would leave its temporary directories. Finally the
+  encoder pin's own
   `scripts/provision_axiom_compose_runtime.py`, read blob by blob from the
   pinned commit (not the worktree, and without local Git attributes or
   filters), and run with a minimal sudo-like environment into a
@@ -325,7 +343,8 @@ Every dependency checkout must be at its pin:
 - With a composer pin, the `--compose-path` checkout (default: the
   `axiom-compose` sibling of `--repo`) must be at `axiom_compose_ref`, and `uv`
   must be the version the workflow installs (`0.11.7` for `92ccb0f2`) with no
-  `/etc/uv/uv.toml`; `ci` builds the composer runtime as CI does.
+  `/etc/uv/uv.toml` and no uv configuration above the temporary directory;
+  `ci` builds the composer runtime as CI does.
 
 rulespec-us has close to two thousand active waivers, and the waiver audit
 fingerprints every one of them on every pull request. CI spreads that work over
@@ -392,11 +411,17 @@ the environment.
   and target directory, the temporary engine view, the repository-test venv,
   and, from `92ccb0f2`, the dependency root, the empty staging directory in the
   temporary checkout and the composer runtime. Cargo and uv may populate their
-  normal local caches, and `uv python install 3.14` may add uv's managed
+  normal local caches (the composer build's uv cache is a temporary directory
+  unless `--offline`, and never a directory a committed file names), and
+  `uv python install 3.14` may add uv's managed
   Python 3.14, as on the runner. Outside these temporary
   directories and caches it writes only the pinned public
   release object at the workflow-defined corpus release path, which the corpus
-  checkout's cleanliness check exempts. Like CI's "Link axiom-rules-engine as
+  checkout's cleanliness check exempts. CI writes that object into a fresh
+  corpus checkout; `ci` writes into the local one, so a `releases` directory,
+  release directory or object path that is a symlink (tracked by the corpus
+  pin or not) fails resolution before anything is fetched, created or
+  written. Like CI's "Link axiom-rules-engine as
   sibling checkout" step, it links the engine, corpus and rulespec-us
   dependency checkouts next to the temporary checkout. It creates nothing under
   `_axiom/` inside it. Before `92ccb0f2`, CI's checkouts there are real
@@ -520,8 +545,8 @@ named:
   repository test that passes such an entry to a symlink-refusing tool would
   fail locally and not in CI.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
-  `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` does not export them to
-  repository pytest.
+  `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` sets `UV_CACHE_DIR` for
+  the composer build only and does not export either to repository pytest.
 
 ## Troubleshooting
 
@@ -538,6 +563,18 @@ named:
   `uv export --locked` fails when the composer's `uv.lock` is out of date at
   its pin, as it would in CI. Under `--offline`, uv's cache must already hold
   the composer's dependencies and a managed Python 3.14.
+- **"Cannot reproduce CI with a committed uv cache directory".** The rules
+  checkout's `uv.toml` or `pyproject.toml` sets `cache-dir`. CI's uv writes
+  its cache there on a disposable runner; `ci` will not write to a directory
+  a pull request names. The message carries the directory.
+- **`composer-uv-config` mismatch.** uv would read host configuration a
+  runner does not have: `/etc/uv/uv.toml`, or a `uv.toml` or `[tool.uv]`
+  table above the temporary directory (the message names the file). For the
+  second, point `TMPDIR` outside the uv project.
+- **"Corpus release cache path ... is a symlink".** The corpus checkout's
+  `releases` directory, the release's directory or the object path is a
+  symlink, so the release object would be written outside the checkout.
+  Replace it with a real directory, or use a corpus checkout without it.
 - **"Build axiom-rules-engine failed".** The engine checkout did not build at
   its pin; the message carries cargo's output. Under `--offline`, the crates
   must already be in cargo's cache.

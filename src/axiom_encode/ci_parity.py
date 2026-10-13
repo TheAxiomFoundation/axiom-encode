@@ -3482,6 +3482,30 @@ def _fetch_https(url: str, headers: Mapping[str, str]) -> bytes:
     return data
 
 
+def _release_cache_path(corpus_path: Path, release: str, content_sha256: str) -> Path:
+    """Where ci caches the release object, kept inside the corpus checkout.
+
+    CI writes the object into a fresh, disposable corpus checkout
+    (92ccb0f2 L1870-1896; 6f11be26 L1352-1377); ci writes into the local
+    checkout it was given. A ``releases`` path that is a symlink, tracked by
+    the corpus pin or not, would move that write (and its staging directory)
+    somewhere else on this machine, so it is refused before anything is
+    created, read or written.
+    """
+
+    for name, value in (("release", release), ("content digest", content_sha256)):
+        if not value or value in {".", ".."} or "/" in value or os.sep in value:
+            raise ValueError(f"Corpus {name} {value!r} is not a single path component")
+    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
+    for path in (corpus_path / "releases", destination.parent, destination):
+        if path.is_symlink():
+            raise ValueError(
+                f"Corpus release cache path {path} is a symlink; ci would write "
+                "the release object outside the corpus checkout"
+            )
+    return destination
+
+
 def acquire_workflow_release_object(
     workflow: PinnedWorkflow,
     toolchain: RuleSpecToolchain,
@@ -3501,7 +3525,7 @@ def acquire_workflow_release_object(
 
     release = toolchain.corpus_release
     content_sha256 = toolchain.corpus_release_content_sha256
-    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
+    destination = _release_cache_path(corpus_path, release, content_sha256)
     registry_url = str(caller.inputs.get("corpus-release-registry-url", ""))
     base_url = str(
         caller.inputs.get("corpus-release-base-url", caller.release_base_url)
@@ -5567,6 +5591,42 @@ def _build_workflow_composer(
     }
     environment["XDG_CONFIG_HOME"] = str(empty_config)
     environment["XDG_CONFIG_DIRS"] = str(empty_config)
+    # The one uv setting a committed file can use to move writes is
+    # cache-dir. "Install uv for composer runtime" (setup-uv v8.1.0, 92ccb0f2
+    # L1630-1634) exports UV_CACHE_DIR=$RUNNER_TEMP/setup-uv-cache to the
+    # step, which outranks a cache-dir in any configuration file, the
+    # composer project's included. The exception is a cache-dir in the rules
+    # checkout's own uv.toml or pyproject.toml: setup-uv then leaves the
+    # variable unset and uv writes wherever the pull request says, on a
+    # disposable runner. Locally that write would leave ci's temporary
+    # directories, so it fails resolution. uv itself reports the directory it
+    # would use; the probes create nothing.
+    default_cache = _uv_cache_directory(empty_config, environment, ("--no-config",))
+    if default_cache is None:
+        raise ValueError(
+            "Build protected axiom-compose runtime failed: uv could not "
+            "report its cache directory"
+        )
+    configured = _uv_cache_directory(workspace, environment)
+    if configured is None or configured == default_cache:
+        # What setup-uv itself reads, should it and uv ever disagree.
+        configured = _setup_uv_cache_dir(workspace)
+    if configured is not None:
+        raise ValueError(
+            "Cannot reproduce CI with a committed uv cache directory: uv "
+            "configuration in (or above) the rules checkout moves its cache "
+            f"to {configured}. CI writes it on a disposable runner; locally "
+            "that write would leave ci's temporary directories"
+        )
+    if offline:
+        # Nothing can be downloaded, so uv's own default cache has to supply
+        # the composer's requirements. Naming it keeps the composer
+        # project's configuration from moving it, as CI's variable does.
+        environment["UV_CACHE_DIR"] = default_cache
+    else:
+        cache = temp / "setup-uv-cache"
+        cache.mkdir()
+        environment["UV_CACHE_DIR"] = str(cache)
     commands = [
         ["uv", "python", "install", COMPOSER_PYTHON, *options],
         [
@@ -5689,6 +5749,51 @@ def _build_workflow_composer(
     return launcher
 
 
+def _uv_cache_directory(
+    cwd: Path, environment: Mapping[str, str], arguments: Sequence[str] = ()
+) -> str | None:
+    """The cache directory uv would use from ``cwd``, or None if uv cannot say.
+
+    ``uv cache dir`` only reports the path; it creates nothing. A committed
+    configuration uv cannot read makes the step's own commands fail the same
+    way, as CI's would, so that case is left to them.
+    """
+
+    result = _run_build_command(
+        ["uv", *arguments, "cache", "dir"], cwd=cwd, environment=environment
+    )
+    if result.returncode:
+        return None
+    lines = result.stdout.strip().splitlines()
+    return lines[-1] if lines else None
+
+
+def _setup_uv_cache_dir(workspace: Path) -> str | None:
+    """The cache-dir setup-uv finds in the workspace, if any.
+
+    setup-uv v8.1.0's getCacheDirFromConfig reads ``cache-dir`` from the
+    working directory's uv.toml, then ``tool.uv.cache-dir`` from its
+    pyproject.toml, and treats a file it cannot parse as the end of the
+    search. When it finds one it does not export UV_CACHE_DIR.
+    """
+
+    for name in ("uv.toml", "pyproject.toml"):
+        path = workspace / name
+        if not path.exists():
+            continue
+        try:
+            table: Any = tomllib.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        if name == "pyproject.toml":
+            for key in ("tool", "uv"):
+                table = table.get(key) if isinstance(table, dict) else None
+        value = table.get("cache-dir") if isinstance(table, dict) else None
+        if value is not None:
+            return str(value)
+    return None
+
+
 def _write_pinned_tree(
     checkout: Path, commit: str, prefix: str, destination: Path
 ) -> None:
@@ -5748,16 +5853,52 @@ _COMPOSER_UV_STEP = "Install uv for composer runtime"
 SYSTEM_UV_CONFIG = Path("/etc/uv/uv.toml")
 
 
-def composer_uv_config_mismatch() -> DependencyMismatch | None:
-    """A host-wide uv configuration CI's runner does not have, if any."""
+def composer_uv_config_mismatch(
+    directories: Sequence[Path] = (),
+) -> DependencyMismatch | None:
+    """A host uv configuration CI's runner does not have, if any.
+
+    ``directories`` are the places the composer build's uv commands read
+    project configuration from: the rules checkout and the dependency root.
+    """
 
     # uv's fallback uses try_exists, which follows links: a dangling link is
     # no configuration, while a directory still counts (uv fails reading it).
-    if not SYSTEM_UV_CONFIG.exists():
+    if SYSTEM_UV_CONFIG.exists():
+        return DependencyMismatch(
+            "composer-uv-config",
+            f"system uv configuration {SYSTEM_UV_CONFIG}",
+            "none",
+        )
+    # From a directory with no uv configuration of its own, uv reads one
+    # above it. ci takes the runner to have none above its
+    # workspace or RUNNER_TEMP, as for user and system configuration; locally
+    # a temporary directory inside a uv project would lend the build that
+    # project's indexes and settings.
+    for directory in directories:
+        for ancestor in directory.resolve().parents:
+            found = _uv_configuration_file(ancestor)
+            if found is not None:
+                return DependencyMismatch(
+                    "composer-uv-config",
+                    f"uv configuration {found} above ci's temporary directory",
+                    "none",
+                )
+    return None
+
+
+def _uv_configuration_file(directory: Path) -> Path | None:
+    """The uv.toml, or pyproject.toml with a [tool.uv] table, in ``directory``."""
+
+    config = directory / "uv.toml"
+    if config.exists():
+        return config
+    project = directory / "pyproject.toml"
+    try:
+        tool = tomllib.loads(project.read_text()).get("tool")
+    except (OSError, ValueError):
         return None
-    return DependencyMismatch(
-        "composer-uv-config", f"system uv configuration {SYSTEM_UV_CONFIG}", "none"
-    )
+    return project if isinstance(tool, dict) and "uv" in tool else None
 
 
 def composer_uv_mismatch(workflow: PinnedWorkflow) -> DependencyMismatch | None:
@@ -6003,6 +6144,20 @@ def _link_workflow_checkouts(
                 )
         else:
             link.symlink_to(path, target_is_directory=True)
+
+
+def _link_dependency_entries(
+    layout: DependencyLayout, checkouts: Mapping[str, Path]
+) -> None:
+    """Link verified checkouts into the dependency root, outside the checkout."""
+
+    for name, path in checkouts.items():
+        entry = layout.entry(_CHECKOUT_NAMES[name])
+        if entry.exists() or entry.is_symlink():
+            if entry.resolve() != path.resolve():
+                raise ValueError(f"CI dependency entry already exists: {entry}")
+            continue
+        entry.symlink_to(path, target_is_directory=True)
 
 
 def _dependency_commit(
@@ -6473,10 +6628,25 @@ def _run_ci_in_checkout(
                         "TheAxiomFoundation/rulespec-us",
                     ),
                 }
+                # CI relocates every dependency checkout into the root before
+                # it builds the composer (L1463-1567 before L2009-2037), so a
+                # composer whose lock names a sibling by path finds it. The
+                # engine entry is the checkout until the built view replaces
+                # it; the encoder and corpus entries stay links to the
+                # verified checkouts ci uses in place.
+                _link_dependency_entries(
+                    layout,
+                    {name: paths[name] for name in ("encode", "engine", "corpus")},
+                )
             if compose_path is not None:
                 for uv_mismatch in filter(
                     None,
-                    (composer_uv_mismatch(workflow), composer_uv_config_mismatch()),
+                    (
+                        composer_uv_mismatch(workflow),
+                        composer_uv_config_mismatch(
+                            [repo, *([layout.root] if layout is not None else [])]
+                        ),
+                    ),
                 ):
                     if not getattr(args, "allow_encoder_mismatch", False):
                         raise ValueError(
@@ -6556,6 +6726,9 @@ def _run_ci_in_checkout(
                 # repository tests read; the bound view moves there, receipt
                 # and all, rather than being linked.
                 engine_entry = layout.entry(_CHECKOUT_NAMES["engine"])
+                if engine_entry.is_symlink():
+                    # The pre-build link to the engine checkout (see above).
+                    engine_entry.unlink()
                 shutil.move(paths["engine"], engine_entry)
                 paths = {**paths, "engine": engine_entry}
             _link_workflow_checkouts(repo, paths, layout)

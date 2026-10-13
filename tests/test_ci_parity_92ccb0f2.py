@@ -1138,7 +1138,28 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
     )
 
     assert launcher == temp / "axiom-compose-verification" / "axiom-compose"
-    uv_calls = [command for command, _ in calls if command[0] == "uv"]
+    probes = [
+        (command, environment)
+        for command, environment in calls
+        if command[0] == "uv" and command[-2:] == ["cache", "dir"]
+    ]
+    # uv is asked for its cache directory with no configuration and in the
+    # rules checkout, before any command that would write.
+    assert [command for command, _ in probes] == [
+        ["uv", "--no-config", "cache", "dir"],
+        ["uv", "cache", "dir"],
+    ]
+    assert [cwd for command, cwd in cwds[:2]] == [
+        temp / "axiom-compose-empty-config",
+        workspace,
+    ]
+    assert all("UV_CACHE_DIR" not in environment for _, environment in probes)
+    assert calls[: len(probes)] == probes
+    uv_calls = [
+        command
+        for command, _ in calls
+        if command[0] == "uv" and command[-2:] != ["cache", "dir"]
+    ]
     workflow_uv = _build_step_commands()
     # Same subcommands, in the same order, with the same literal options.
     assert [command[:3] for command in uv_calls[:4]] == [
@@ -1153,13 +1174,25 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
     empty = temp / "axiom-compose-empty-config"
     for command, environment in calls:
         if command[0] == "uv":
-            assert not any(name.startswith("UV_") for name in environment)
+            # setup-uv's fresh cache is the only uv variable; the developer's
+            # UV_INDEX_URL and the like never reach the build.
+            assert {name for name in environment if name.startswith("UV_")} <= {
+                "UV_CACHE_DIR"
+            }
+            if command[-2:] != ["cache", "dir"]:
+                # $RUNNER_TEMP/setup-uv-cache, as setup-uv exports it.
+                assert environment["UV_CACHE_DIR"] == str(temp / "setup-uv-cache")
             # A fresh runner has no user or system uv configuration.
             assert environment["XDG_CONFIG_HOME"] == str(empty)
             assert environment["XDG_CONFIG_DIRS"] == str(empty)
     assert list(empty.iterdir()) == []
     # The step runs in the workspace, where uv discovers project config.
-    for command, cwd in cwds[:4]:
+    build_cwds = [
+        (command, cwd)
+        for command, cwd in cwds
+        if command[0] == "uv" and command[-2:] != ["cache", "dir"]
+    ]
+    for command, cwd in build_cwds[:4]:
         assert cwd == workspace, command
     provision = next(
         (command, environment)
@@ -1197,7 +1230,7 @@ def test_composer_build_fails_closed_when_the_encoder_pin_cannot_provision(
         ci_parity,
         "_run_build_command",
         lambda command, *, cwd, environment: subprocess.CompletedProcess(
-            command, 0, "", None
+            command, 0, "/default\n", None
         ),
     )
 
@@ -1332,6 +1365,10 @@ def test_composer_runtime_builds_with_the_real_provision_script(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
+# The dependency-root entries each harness's composer build saw, by events id.
+harness_entries: dict[int, Any] = {}
+
+
 def _harness(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1348,9 +1385,17 @@ def _harness(
             inputs={**harness.caller.inputs, "axiom-compose-ref": compose},
         )
     events: list[tuple[Any, ...]] = []
+    entries: dict[str, str] = {}
+    harness_entries[id(events)] = entries
     # The local uv is checked against the workflow's pin in its own tests.
     monkeypatch.setattr(ci_parity, "composer_uv_mismatch", lambda workflow: None)
-    monkeypatch.setattr(ci_parity, "composer_uv_config_mismatch", lambda: None)
+    searched: list[Path] = []
+    harness_entries[id(entries)] = searched
+
+    def no_host_configuration(directories=()):
+        searched.extend(directories)
+
+    monkeypatch.setattr(ci_parity, "composer_uv_config_mismatch", no_host_configuration)
     monkeypatch.setattr(
         ci_parity,
         "validate_composer_pin",
@@ -1360,6 +1405,13 @@ def _harness(
     def build(checkout, ref, encode, pin, temp, *, workspace, offline, notes=None):
         events.append(("build_composer", checkout, ref, encode, pin, offline))
         assert workspace == harness.repo
+        # What the dependency root holds when the composer builds.
+        entries.update(
+            {
+                entry.name: "link" if entry.is_symlink() else "directory"
+                for entry in checkout.parent.iterdir()
+            }
+        )
         return temp / "axiom-compose-verification" / "axiom-compose"
 
     monkeypatch.setattr(ci_parity, "_build_workflow_composer", build)
@@ -1402,6 +1454,18 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     assert checkout == run.layout.root / "axiom-compose"
     assert run.paths["compose"] == run.layout.root / "axiom-compose"
     assert run.paths["rulespec_us"] == run.layout.root / "rulespec-us"
+    # CI relocates every dependency before it builds the composer, so a
+    # composer lock that names a sibling by path resolves it (Sol review).
+    entries = harness_entries[id(events)]
+    assert entries == {
+        "axiom-compose": "directory",
+        "rulespec-us": "directory",
+        "axiom-encode": "link",
+        "axiom-corpus": "link",
+        "axiom-rules-engine": "link",
+    }
+    # Host uv configuration is looked for above both places uv reads from.
+    assert harness_entries[id(entries)] == [harness.repo, run.layout.root]
     assert run.runner_temp == run.layout.root.parent
     # The bound engine view is the dependency-root entry itself, not a link.
     assert run.paths["engine"] == run.layout.root / "axiom-rules-engine"
@@ -1804,7 +1868,7 @@ def test_run_ci_refuses_a_system_uv_configuration(
     monkeypatch.setattr(
         ci_parity,
         "composer_uv_config_mismatch",
-        lambda: ci_parity.DependencyMismatch(
+        lambda directories=(): ci_parity.DependencyMismatch(
             "composer-uv-config", "system uv configuration /etc/uv/uv.toml", "none"
         ),
     )
@@ -1915,3 +1979,525 @@ def test_isolated_layout_leaves_no_symlink_in_the_active_checkout(
     assert (repo / run.layout.stage).is_dir()
     assert not (repo / "_axiom").exists()
     assert (run.layout.root / "axiom-encode-oracle-coverage").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# Final-review fixes (GPT-6.1 Sol)
+# ---------------------------------------------------------------------------
+
+
+def test_composer_build_refuses_a_committed_uv_cache_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    calls: list[list[str]] = []
+
+    def fake(command, *, cwd, environment):
+        calls.append(list(command))
+        assert command[-2:] == ["cache", "dir"], f"ran before the refusal: {command}"
+        steered = Path(cwd) == workspace
+        return subprocess.CompletedProcess(
+            command, 0, "/Users/dev/Documents\n" if steered else "/default\n", None
+        )
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", fake)
+
+    with pytest.raises(ValueError, match="committed uv cache directory") as error:
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=False,
+        )
+
+    assert "/Users/dev/Documents" in str(error.value)
+    # Only the two read-only probes ran.
+    assert calls == [["uv", "--no-config", "cache", "dir"], ["uv", "cache", "dir"]]
+
+
+def test_composer_build_needs_uv_to_report_its_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ci_parity,
+        "_run_build_command",
+        lambda command, *, cwd, environment: subprocess.CompletedProcess(
+            command, 2, "error: no\n", None
+        ),
+    )
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+
+    with pytest.raises(ValueError, match="could not report its cache directory"):
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=False,
+        )
+
+
+def _real_uv_until_the_first_write(monkeypatch: pytest.MonkeyPatch, compose: Path):
+    """Real uv for the read-only probes; the build stops at its first command.
+
+    Returns the cache directory real uv would use for the composer project
+    under the environment that first command was given.
+    """
+
+    real_run = ci_parity._run_build_command
+    seen: dict[str, str] = {}
+
+    def run(command, *, cwd, environment):
+        if command[-2:] == ["cache", "dir"]:
+            return real_run(command, cwd=cwd, environment=environment)
+        project = real_run(
+            ["uv", "--project", str(compose), "cache", "dir"],
+            cwd=cwd,
+            environment=environment,
+        )
+        seen["project"] = project.stdout.strip()
+        seen["variable"] = environment["UV_CACHE_DIR"]
+        return subprocess.CompletedProcess(command, 1, "stopped by the test\n", None)
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", run)
+    return seen
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+@pytest.mark.parametrize("offline", [False, True])
+def test_real_uv_ignores_the_composer_projects_cache_dir_as_in_ci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool
+) -> None:
+    # setup-uv's UV_CACHE_DIR outranks the composer project's cache-dir in CI.
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    compose = tmp_path / "compose"
+    compose.mkdir()
+    steered = tmp_path / "outside" / "steered-cache"
+    (compose / "pyproject.toml").write_text(
+        '[project]\nname = "axiom-compose"\nversion = "0"\n'
+        f'[tool.uv]\ncache-dir = "{steered}"\n'
+    )
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "developer-cache"))
+    seen = _real_uv_until_the_first_write(monkeypatch, compose)
+    temp = tmp_path / "temp"
+
+    with pytest.raises(ValueError, match="stopped by the test"):
+        ci_parity._build_workflow_composer(
+            compose,
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            temp,
+            workspace=workspace,
+            offline=offline,
+        )
+
+    assert seen["project"] == seen["variable"]
+    if offline:
+        # uv's own default, not the developer's variable or the project's.
+        assert seen["variable"] not in {
+            str(steered),
+            str(tmp_path / "developer-cache"),
+        }
+        assert not Path(seen["variable"]).is_relative_to(tmp_path)
+    else:
+        assert seen["variable"] == str(temp / "setup-uv-cache")
+    assert not steered.parent.exists()
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+@pytest.mark.parametrize("config", ["uv.toml", "pyproject.toml"])
+def test_real_uv_reports_a_committed_cache_dir_without_creating_it(
+    tmp_path: Path, config: str
+) -> None:
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    steered = tmp_path / "outside" / "steered-cache"
+    line = f'cache-dir = "{steered}"\n'
+    (workspace / config).write_text(
+        line if config == "uv.toml" else "[tool.uv]\n" + line
+    )
+    compose = tmp_path / "compose"
+    compose.mkdir()
+
+    with pytest.raises(ValueError, match="committed uv cache directory"):
+        ci_parity._build_workflow_composer(
+            compose,
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=False,
+        )
+
+    assert not steered.exists()
+    assert not steered.parent.exists()
+    assert not (tmp_path / "temp" / "axiom-compose-build").exists()
+
+
+def test_offline_composer_build_names_uvs_default_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[list[str], dict[str, str]]] = []
+
+    def fake(command, *, cwd, environment):
+        seen.append((list(command), dict(environment)))
+        if command[-2:] == ["cache", "dir"]:
+            return subprocess.CompletedProcess(command, 0, "/default\n", None)
+        return subprocess.CompletedProcess(command, 1, "stop here\n", None)
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", fake)
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+
+    with pytest.raises(ValueError, match="stop here"):
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=True,
+        )
+
+    command, environment = seen[-1]
+    assert command[:3] == ["uv", "python", "install"] and "--offline" in command
+    # uv's default cache, named so no project configuration can move it.
+    assert environment["UV_CACHE_DIR"] == "/default"
+    assert not (tmp_path / "temp" / "setup-uv-cache").exists()
+
+
+def _release_arguments(tmp_path: Path, corpus: Path):
+    from tests import test_ci_parity_runtime as runtime
+
+    payload, digest = runtime._release_payload()
+    return (
+        (
+            PinnedWorkflow(PIN_92CCB0F2),
+            runtime._release_toolchain(tmp_path, digest),
+            corpus,
+            runtime._registry_caller(
+                tmp_path, PIN_92CCB0F2, "https://registry.example"
+            ),
+        ),
+        payload,
+        digest,
+    )
+
+
+@pytest.mark.parametrize("link", ["releases", "release"])
+@pytest.mark.parametrize("offline", [False, True])
+def test_release_cache_never_follows_a_symlink_out_of_the_corpus_checkout(
+    tmp_path: Path, link: str, offline: bool
+) -> None:
+    from tests import test_ci_parity_runtime as runtime
+
+    corpus = tmp_path / "axiom-corpus"
+    corpus.mkdir()
+    outside = tmp_path / "Documents"
+    outside.mkdir()
+    if link == "releases":
+        (corpus / "releases").symlink_to(outside)
+    else:
+        (corpus / "releases").mkdir()
+        (corpus / "releases" / runtime.RELEASE).symlink_to(outside)
+    arguments, _payload, _digest = _release_arguments(tmp_path, corpus)
+
+    with pytest.raises(ValueError, match="is a symlink; ci would write"):
+        ci_parity.acquire_workflow_release_object(
+            *arguments, offline=offline, fetcher=runtime._never_fetch
+        )
+
+    # Nothing was fetched, created or staged through the link.
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("release", ["../escape", "a/b", "..", ""])
+def test_release_cache_path_is_a_single_component(tmp_path: Path, release: str) -> None:
+    with pytest.raises(ValueError, match="not a single path component"):
+        ci_parity._release_cache_path(tmp_path, release, "d" * 64)
+
+
+def test_release_cache_path_in_a_plain_checkout(tmp_path: Path) -> None:
+    assert ci_parity._release_cache_path(tmp_path, "us-2026", "d" * 64) == (
+        tmp_path / "releases" / "us-2026" / f"{'d' * 64}.json"
+    )
+
+
+def test_dependency_entries_are_linked_once_and_never_replaced(tmp_path: Path) -> None:
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+    paths = _dependency_paths(tmp_path)
+    checkouts = {name: paths[name] for name in ("encode", "engine", "corpus")}
+
+    ci_parity._link_dependency_entries(layout, checkouts)
+    ci_parity._link_dependency_entries(layout, checkouts)
+
+    for name, checkout in (
+        ("axiom-encode", "encode"),
+        ("axiom-rules-engine", "engine"),
+        ("axiom-corpus", "corpus"),
+    ):
+        assert (layout.root / name).is_symlink()
+        assert (layout.root / name).resolve() == paths[checkout].resolve()
+    with pytest.raises(ValueError, match="already exists"):
+        ci_parity._link_dependency_entries(layout, {"encode": paths["corpus"]})
+    assert list(repo.iterdir()) == [repo / layout.stage]
+
+
+@pytest.mark.parametrize(
+    ("file", "content", "found"),
+    [
+        ("uv.toml", "", True),
+        ("pyproject.toml", "[tool.uv]\nindex-url = 'https://example.test'\n", True),
+        ("pyproject.toml", "[project]\nname = 'plain'\nversion = '0'\n", False),
+        ("pyproject.toml", "not toml [", False),
+    ],
+)
+def test_host_uv_configuration_above_the_temporary_directory_is_a_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    file: str,
+    content: str,
+    found: bool,
+) -> None:
+    monkeypatch.setattr(ci_parity, "SYSTEM_UV_CONFIG", tmp_path / "etc" / "uv.toml")
+    if ci_parity.composer_uv_config_mismatch([tmp_path]) is not None:
+        pytest.skip("pytest's temporary directory is inside a uv project")
+    project = tmp_path / "developer-project"
+    workspace = project / "tmp" / "run" / "rulespec-us"
+    root = project / "tmp" / "run" / "runner-temp" / "axiom-dependencies.x"
+    workspace.mkdir(parents=True)
+    root.mkdir(parents=True)
+    # The committed configuration CI reads too is not the host's.
+    (workspace / "uv.toml").write_text("")
+    assert ci_parity.composer_uv_config_mismatch([workspace, root]) is None
+
+    (project / file).write_text(content)
+
+    for directories in ([workspace], [root], [workspace, root]):
+        mismatch = ci_parity.composer_uv_config_mismatch(directories)
+        if found:
+            assert mismatch == ci_parity.DependencyMismatch(
+                "composer-uv-config",
+                f"uv configuration {(project / file).resolve()} above ci's "
+                "temporary directory",
+                "none",
+            )
+        else:
+            assert mismatch is None
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+@pytest.mark.parametrize(
+    ("file", "content"),
+    [
+        ("uv.toml", 'cache-dir = "{steered}"\n'),
+        ("pyproject.toml", '[tool.uv]\ncache-dir = "{steered}"\n'),
+    ],
+)
+def test_real_uv_reads_configuration_above_a_plain_directory(
+    tmp_path: Path, file: str, content: str
+) -> None:
+    """The behavior composer_uv_config_mismatch guards against, on real uv."""
+
+    project = tmp_path / "developer-project"
+    workspace = project / "tmp" / "rulespec-us"
+    workspace.mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text(
+        '[project]\nname = "rules"\nversion = "0"\n'
+    )
+    steered = tmp_path / "steered"
+    (project / file).write_text(content.format(steered=steered))
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    environment = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "XDG_CONFIG_HOME": str(empty),
+        "XDG_CONFIG_DIRS": str(empty),
+    }
+
+    assert ci_parity._uv_cache_directory(workspace, environment) == str(steered)
+    assert ci_parity.composer_uv_config_mismatch([workspace]) is not None
+    assert not steered.exists()
+
+
+def _sibling_path_composer(root: Path) -> Path:
+    """A composer whose lock names the encoder by a dev-only sibling path."""
+
+    compose = root / "axiom-compose"
+    compose.mkdir()
+    (compose / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "axiom-compose"\n'
+        'version = "0.0.0"\n'
+        'requires-python = ">=3.12"\n'
+        "dependencies = []\n\n"
+        "[dependency-groups]\n"
+        'dev = ["axiom-encode"]\n\n'
+        "[tool.uv.sources]\n"
+        'axiom-encode = { path = "../axiom-encode" }\n'
+    )
+    return compose
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_export_finds_a_dev_only_sibling_path_in_the_dependency_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CI relocates the encoder before the composer build; so does ci.
+
+    ``uv export --locked --no-dev`` validates the lock's dev-only path
+    source before it drops it, so the build needs the sibling entry.
+    """
+
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+    encode = tmp_path / "local" / "axiom-encode"
+    encode.mkdir(parents=True)
+    (encode / "pyproject.toml").write_text(
+        '[project]\nname = "axiom-encode"\nversion = "0.0.0"\n'
+        'requires-python = ">=3.12"\n'
+    )
+    compose = _sibling_path_composer(layout.root)
+    real_run = ci_parity._run_build_command
+    exports: list[subprocess.CompletedProcess] = []
+
+    def run(command, *, cwd, environment):
+        if command[-2:] == ["cache", "dir"]:
+            return real_run(command, cwd=cwd, environment=environment)
+        if command[:2] == ["uv", "export"]:
+            exports.append(real_run(command, cwd=cwd, environment=environment))
+            return exports[-1]
+        # No Python download or venv; the build stops after the export.
+        stop = command[:2] == ["uv", "pip"]
+        return subprocess.CompletedProcess(
+            command, int(stop), "stopped by the test\n" if stop else "", None
+        )
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", run)
+
+    def build(name: str) -> None:
+        ci_parity._build_workflow_composer(
+            compose,
+            COMPOSE_REF,
+            tmp_path / "encode-pin",
+            "0" * 40,
+            tmp_path / name,
+            workspace=repo,
+            offline=False,
+        )
+
+    ci_parity._link_dependency_entries(layout, {"encode": encode})
+    empty = tmp_path / "empty-config"
+    empty.mkdir()
+    locked = real_run(
+        ["uv", "lock", "--project", str(compose)],
+        cwd=repo,
+        environment={
+            **{name: os.environ[name] for name in ("PATH", "HOME")},
+            "UV_CACHE_DIR": str(tmp_path / "lock-cache"),
+            "XDG_CONFIG_HOME": str(empty),
+            "XDG_CONFIG_DIRS": str(empty),
+        },
+    )
+    assert locked.returncode == 0, locked.stdout
+    assert 'directory = "../axiom-encode"' in (compose / "uv.lock").read_text()
+
+    # The layout 1ab70cfc built the composer in: no encoder entry yet.
+    (layout.root / "axiom-encode").unlink()
+    with pytest.raises(ValueError, match="(?s)uv export .*axiom-encode"):
+        build("without-entry")
+    assert exports[-1].returncode != 0
+
+    ci_parity._link_dependency_entries(layout, {"encode": encode})
+    with pytest.raises(ValueError, match="(?s)uv pip install .*stopped by the test"):
+        build("with-entry")
+    assert exports[-1].returncode == 0
+    assert list(repo.iterdir()) == [repo / layout.stage]
+
+
+@pytest.mark.parametrize(
+    ("files", "expected"),
+    [
+        ({}, None),
+        ({"uv.toml": 'cache-dir = "/a"\n'}, "/a"),
+        ({"pyproject.toml": '[tool.uv]\ncache-dir = "/b"\n'}, "/b"),
+        # uv.toml is read first; one without the key does not end the search.
+        (
+            {
+                "uv.toml": "native-tls = true\n",
+                "pyproject.toml": '[tool.uv]\ncache-dir = "/b"\n',
+            },
+            "/b",
+        ),
+        (
+            {
+                "uv.toml": 'cache-dir = "/a"\n',
+                "pyproject.toml": '[tool.uv]\ncache-dir = "/b"\n',
+            },
+            "/a",
+        ),
+        # A file setup-uv cannot parse ends its search with a warning.
+        (
+            {
+                "uv.toml": "not toml [",
+                "pyproject.toml": '[tool.uv]\ncache-dir = "/b"\n',
+            },
+            None,
+        ),
+        ({"pyproject.toml": '[tool]\nuv = "text"\n'}, None),
+        ({"pyproject.toml": '[project]\nname = "rules"\n'}, None),
+    ],
+)
+def test_setup_uv_cache_dir_follows_setup_uvs_search(
+    tmp_path: Path, files: dict[str, str], expected: str | None
+) -> None:
+    for name, content in files.items():
+        (tmp_path / name).write_text(content)
+
+    assert ci_parity._setup_uv_cache_dir(tmp_path) == expected
+
+
+def test_composer_build_refuses_a_cache_dir_only_setup_uv_would_honor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # uv reports its default, yet setup-uv would leave UV_CACHE_DIR unset.
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    (workspace / "uv.toml").write_text("native-tls = true\n")
+    (workspace / "pyproject.toml").write_text('[tool.uv]\ncache-dir = "/b"\n')
+
+    def fake(command, *, cwd, environment):
+        assert command[-2:] == ["cache", "dir"], f"ran before the refusal: {command}"
+        return subprocess.CompletedProcess(command, 0, "/default\n", None)
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", fake)
+
+    with pytest.raises(ValueError, match="committed uv cache directory.* /b"):
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=True,
+        )
