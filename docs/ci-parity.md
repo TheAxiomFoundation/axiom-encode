@@ -162,8 +162,11 @@ Python. The scripts cover:
   "Build protected axiom-compose runtime": `uv python install 3.14`, a
   `uv venv` on the GIL build of 3.14, `uv export --locked --no-dev
   --no-emit-project` of the composer's lock, `uv pip install --target` of
-  those requirements, all with `--no-config` and without ambient `UV_*`,
-  `PIP_*` or `PYTHON*` values, and finally the encoder pin's own
+  those requirements. Like the step, they run in the rules checkout and read
+  the committed project configuration there and in the composer project;
+  user and system uv configuration point at an empty directory, as a fresh
+  runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values are
+  removed. Finally the encoder pin's own
   `scripts/provision_axiom_compose_runtime.py`, taken from the pinned commit
   (not the worktree) and run with a minimal sudo-like environment into a
   private directory, which is then made group- and other-unwritable and smoke
@@ -172,7 +175,9 @@ Python. The scripts cover:
   workflow's `composer_args`, plus `--rulespec-dependency-root` (the canonical
   rulespec-us entry) when the repository is not rulespec-us, as its
   `dependency_args` condition reads. An empty composer ref skips all of this,
-  as the steps' `if:` does. A failure anywhere is a resolution failure.
+  as the steps' `if:` does. With a recorded composer ref mismatch
+  (`--allow-ref-mismatch`), the checkout's own `HEAD` is built, as for the
+  engine. A failure anywhere is a resolution failure.
 - **Repository pytest.** It runs last, on the first shard, in a temporary venv
   of the caller's `python-version`, requested as `<version>+gil` (uv 0.9.8 or
   later) and then checked to be release CPython with the GIL, the build

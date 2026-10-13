@@ -5522,6 +5522,7 @@ def _build_workflow_composer(
     encode_pin: str,
     temp: Path,
     *,
+    workspace: Path,
     offline: bool,
     notes: list[str] | None = None,
 ) -> Path:
@@ -5544,14 +5545,23 @@ def _build_workflow_composer(
     destination = temp / "axiom-compose-verification"
     scripts = temp / "axiom-compose-provision"
     interpreter = build / "bin" / "python"
-    # CI's uv sees no user or repository configuration (setup-uv on a fresh
-    # runner), so none may steer the local build either.
-    options = ["--no-config", *(["--offline"] if offline else [])]
+    # CI's uv runs in the workspace and reads the committed project
+    # configuration there and in the composer project, but a fresh runner
+    # has no user or system uv configuration. Point both at an empty
+    # directory instead of passing --no-config, which would also drop the
+    # committed project configuration CI reads.
+    empty_config = temp / "axiom-compose-empty-config"
+    empty_config.mkdir()
+    options = ["--offline"] if offline else []
     environment = {
         name: value
         for name, value in _git_environment().items()
-        if not name.startswith(("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA"))
+        if not name.startswith(
+            ("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA", "XDG_CONFIG_")
+        )
     }
+    environment["XDG_CONFIG_HOME"] = str(empty_config)
+    environment["XDG_CONFIG_DIRS"] = str(empty_config)
     commands = [
         ["uv", "python", "install", COMPOSER_PYTHON, *options],
         [
@@ -5594,7 +5604,7 @@ def _build_workflow_composer(
         ],
     ]
     for command in commands:
-        result = _run_build_command(command, cwd=temp, environment=environment)
+        result = _run_build_command(command, cwd=workspace, environment=environment)
         if result.returncode:
             raise ValueError(
                 "Build protected axiom-compose runtime failed: "
@@ -6322,16 +6332,23 @@ def _run_ci_in_checkout(
             if compose_path is not None:
                 # "Checkout axiom-compose" is a fresh full clone at the pin
                 # whose origin is the GitHub repository (92ccb0f2 L1594-1628).
+                # With a recorded ref mismatch the checkout's own HEAD is
+                # built instead, as the engine build does.
+                compose_commit = (
+                    resolve_commit(compose_path, "HEAD")
+                    if any(item.name == "compose" for item in mismatches)
+                    else caller.refs["compose"]
+                )
                 compose_checkout = run_resources.enter_context(
                     committed_checkout(
                         compose_path,
-                        caller.refs["compose"],
+                        compose_commit,
                         repository=COMPOSE_REPOSITORY,
                     )
                 )
                 composer = _build_workflow_composer(
                     compose_checkout,
-                    caller.refs["compose"],
+                    compose_commit,
                     paths["encode"],
                     caller.refs["encode"],
                     Path(
@@ -6339,6 +6356,7 @@ def _run_ci_in_checkout(
                             tempfile.TemporaryDirectory(prefix="axiom-ci-composer-")
                         )
                     ).resolve(),
+                    workspace=repo,
                     offline=args.offline,
                     notes=notes,
                 )
