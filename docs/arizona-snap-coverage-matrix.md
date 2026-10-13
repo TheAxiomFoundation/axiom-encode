@@ -278,9 +278,14 @@ The later protected 7 USC 2012(j) repair run
 [`38264620667`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38264620667)
 applied and signed its primary in the ephemeral runner but published no RuleSpec
 PR: its required 7 CFR 273.10 dependent failed all bounded attempts. The
-rejected 273.10 candidate itself has no `source_verification.values`; it imports
-the still-legacy FY 2026 `deductions.yaml` and `maximum-allotments.yaml`.
-The engine wraps an imported parse error with the top-level 273.10 filename.
+first rejected 273.10 candidate used `imports: null`; later attempts reported
+`module.source_verification.values` on the generated 273.10 target. The
+existing FY 2026 `deductions.yaml` and `maximum-allotments.yaml` imports also
+independently contain that retired field, and the engine can wrap an imported
+parse error with the top-level target filename. The encoder's overlay-only
+diagnostic repair is proposed in
+[draft axiom-encode PR #1880](https://github.com/TheAxiomFoundation/axiom-encode/pull/1880);
+it does not repair those existing signed imports.
 One direct-import path is 2012(j) → FY 2026 deductions → 273.10 → 273.11(c),
 with maximum allotments also feeding 273.10 and 2017(a). The deductions
 replacement cannot compile against the old 2012(j) relation because its tuple
@@ -339,19 +344,21 @@ that the current protected RuleSpec run can use.
 The same PDF bytes are also authenticated in the corpus repository's signed
 and locked `us/guidance/2026-09-13-snap-fns-guidance` scope, under
 `us/guidance/usda/fns/snap-fy2026-cola-memo` with seven page descendants.
-The signed, publicly mirrored
-`us-rulespec-2026-10-07-w6-bundle-gaps-union` release includes this separate
-scope. Its exact public release object (content SHA-256
-`b3e35ce8d718ff3289a0601a2b9cc79c5a6e6f3eee40fe2dcc0d8b08ad56582a`)
-was verified against the corpus release key, and the scope's ingest manifest
-and locked PDF were verified independently. The [mirror run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/38047871927)
-succeeded. [Draft RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
-proposes the release and provenance pins; it is not merged and must pass
-independent review and green exact-head validation before protected generation
-uses this citation. Its first validation attempt exposed an HTTP 500 from the
-optional registry endpoint for the 30 MB release object; the revised PR uses
-the reusable validator's signed public-object path, with validation pending.
-This alternate source route does not repair the
+The signed
+`us-rulespec-2026-10-13-snap-fy2026-memo-source-corrected` release contains
+this separate scope and 272 scopes total, preserving the August baseline
+except for two audited California successor scopes. Its
+[publication run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/38443760033)
+signed and registered the release object with content SHA-256
+`c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121`;
+serving activation is separate. The scope's signed ingest manifest and locked
+PDF were verified independently. [Draft RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
+now pins this corrected release and corpus provenance commit. Its independent
+review and 75 focused local tests passed, but exact-head repository CI is
+still running; do not merge or use the new pin as established until CI passes.
+The earlier W6 union release was broader and failed exact-head validation due
+waiver fingerprint drift outside SNAP, so it is not the selected pin. The
+corrected source route does not repair the
 incorrect PDF provenance recorded in the older page-table scopes, and its
 flattened table text still needs exact proof and numeric-recall validation.
 
