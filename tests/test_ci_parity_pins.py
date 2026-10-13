@@ -1625,3 +1625,30 @@ def test_add_leaves_no_temporary_files(github: dict[str, Any]) -> None:
         for path in github["destination"].iterdir()
         if path.name.startswith(".")
     ]
+
+
+@pytest.mark.parametrize(
+    "loader", [yaml.SafeLoader, getattr(yaml, "CSafeLoader", None)]
+)
+def test_portable_yaml_check_is_the_same_under_either_pyyaml_parser(
+    monkeypatch: pytest.MonkeyPatch, loader: Any
+) -> None:
+    # libyaml marks a plain scalar's style "" and the Python parser None.
+    if loader is None:
+        pytest.skip("PyYAML was built without libyaml")
+    monkeypatch.setattr(ci_parity_pins, "_YAML_LOADER", loader)
+    text = packaged_bytes(PIN_92CCB0F2).decode()
+
+    payload = ci_parity_pins.load_workflow(text.encode())
+    assert [unit.digest for unit in glue_units(payload)] == [
+        unit.digest for unit in glue_units(packaged_payload(PIN_92CCB0F2))
+    ]
+    for addition, message in (
+        ("          ci-pin-property: on\n", "read differently"),
+        ("          ci-pin-property: 1e3\n", "read differently"),
+        ("          anchored: &a value\n", "anchor or alias"),
+        ("          tagged: !!str 12\n", "explicit YAML tag"),
+    ):
+        edited = text.replace("fetch-depth: 0\n", f"fetch-depth: 0\n{addition}", 1)
+        with pytest.raises(GlueError, match=message):
+            ci_parity_pins.load_workflow(edited.encode())
