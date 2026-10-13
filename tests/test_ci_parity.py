@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from axiom_encode import ci_parity
 from axiom_encode.ci_parity import (
     CI_GATE_REGISTRY,
     SUPPORTED_WORKFLOW_PINS,
@@ -449,6 +450,55 @@ def test_release_object_fetch_uses_workflow_url_scheme(tmp_path: Path) -> None:
     assert path.read_bytes() == payload
 
 
+def test_release_object_fetch_rejects_objects_over_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    toolchain = _toolchain(tmp_path, "1" * 64)
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        acquire_release_object(
+            toolchain,
+            tmp_path,
+            "https://objects.example",
+            offline=False,
+            fetcher=lambda url: b"x" * 17,
+        )
+    assert not (tmp_path / "releases").exists()
+
+
+def test_default_release_object_fetch_reads_at_most_cap_plus_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    requested: list[int] = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            requested.append(size)
+            return b"x" * 100 if size < 0 else b"x" * min(size, 100)
+
+    monkeypatch.setattr(
+        ci_parity.urllib.request, "urlopen", lambda url, timeout: Response()
+    )
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        acquire_release_object(
+            _toolchain(tmp_path, "1" * 64),
+            tmp_path,
+            "https://objects.example",
+            offline=False,
+        )
+    assert requested == [17]
+    assert not (tmp_path / "releases").exists()
+
+
 def test_offline_requires_present_release_object(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="--offline requires"):
         acquire_release_object(
@@ -457,6 +507,66 @@ def test_offline_requires_present_release_object(tmp_path: Path) -> None:
             "https://objects.example",
             offline=True,
         )
+
+
+@pytest.mark.parametrize("offline", [True, False])
+def test_offline_binds_the_corpus_release_without_remote_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool
+) -> None:
+    """--offline keeps corpus materialization to the cache and git objects."""
+
+    from contextlib import nullcontext
+
+    from axiom_encode import ci_parity, corpus_materialize
+
+    repo = tmp_path / "rulespec-dk"
+    repo.mkdir()
+    pin = next(iter(SUPPORTED_WORKFLOW_PINS))
+    caller = CallerConfig(
+        tmp_path / "caller.yml",
+        pin,
+        {name: "a" * 40 for name in ("encode", "engine", "corpus", "rulespec_us")},
+        "dk",
+        True,
+        False,
+    )
+    remote_disabled: list[bool] = []
+    stubs = {
+        "find_caller_workflow": lambda _repo: caller,
+        "verify_toolchain_base_binding": lambda *_a: None,
+        "load_rulespec_toolchain": lambda _repo: None,
+        "verify_rulespec_validation_waiver_set": lambda _repo: None,
+        "resolve_dependency_paths": lambda *_a: {
+            name: tmp_path for name in ("encode", "engine", "corpus", "rulespec_us")
+        },
+        "verify_dependency_checkout": lambda *_a, **_k: None,
+        "encoder_version_at_pin": lambda *_a: "0",
+        "verify_ambient_encoder": lambda *_a, **_k: None,
+        "acquire_release_object": lambda *_a, **_k: tmp_path / "release.json",
+        "authenticate_release_provenance": lambda *_a: "b" * 40,
+        "resolve_roots": lambda *_a: ("dk",),
+        "local_corpus_release_verification": lambda _key: nullcontext(),
+        "load_rulespec_local_corpus_release": lambda *_a: remote_disabled.append(
+            corpus_materialize._REMOTE_FETCH_DISABLED.get()
+        ),
+        "execute_gates": lambda *_a: [],
+    }
+    for name, stub in stubs.items():
+        monkeypatch.setattr(ci_parity, name, stub)
+    args = Namespace(
+        repo=repo,
+        json=True,
+        base_ref="origin/main",
+        roots=None,
+        offline=offline,
+        corpus_release_public_key="unused",
+        allow_ref_mismatch=False,
+        allow_encoder_mismatch=False,
+    )
+
+    assert run_ci(args) == 0
+    assert remote_disabled == [offline]
+    assert corpus_materialize._REMOTE_FETCH_DISABLED.get() is False
 
 
 def test_ci_parser_contract_has_no_environment_public_key() -> None:

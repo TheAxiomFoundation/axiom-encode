@@ -136,6 +136,7 @@ from axiom_encode.cli import (
     _relative_generated_output_path,
     _remove_cross_module_dependent_test_outputs,
     _remove_invalid_dependent_test_inputs,
+    _remove_invalid_test_input_refs,
     _remove_unknown_dependent_test_outputs,
     _repair_anaphoric_scope_identifiers,
     _repair_bare_indexed_parameter_references,
@@ -1281,14 +1282,13 @@ def test_arizona_snap_ecps_projects_boundary_inputs():
         "snap_total_monthly_unearned_income": 200.0,
     }
     assert project_jurisdiction_household_inputs(config, values, 0) == {
-        "na_net_income": 750.0,
         "na_budgetary_unit_is_eligible": True,
         "budgetary_unit_participant_count": 2,
+        "az_utility_allowance_participant_count": 2,
         "thrifty_food_plan_amount_for_budgetary_unit_size": 536.0,
         "minimum_na_allotment": 24.0,
         "initial_month_proration_applies": False,
         "prorated_initial_month_na_benefit": 0,
-        "snap_excess_shelter_deduction_for_net_income": 150.0,
     }
 
 
@@ -3292,6 +3292,49 @@ class TestRunnerOverrides:
 
 
 class TestMain:
+    def test_encode_help_describes_explicit_gpt61_model_selection(self, capsys):
+        with (
+            patch("sys.argv", ["axiom_encode", "encode", "--help"]),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            main()
+
+        assert exc_info.value.code == 0
+        help_text = " ".join(capsys.readouterr().out.split())
+        assert "gpt-6.1-sol" in help_text
+        assert "--model/--escalation-model" in help_text
+        assert "ChatGPT-account Codex rejected" not in help_text
+        assert "2026-09-24" not in help_text
+
+    def test_encode_accepts_explicit_gpt61_models(self):
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "encode",
+                    "26 USC 1",
+                    "--corpus-path",
+                    "/tmp/axiom-corpus",
+                    "--axiom-rules-engine-path",
+                    "/tmp/axiom-rules-engine",
+                    "--policy-repo-path",
+                    "/tmp/rulespec-us",
+                    "--model",
+                    "gpt-6.1-sol",
+                    "--escalation-model",
+                    "gpt-6.1-sol",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_encode") as mock_cmd,
+        ):
+            main()
+
+        args = mock_cmd.call_args.args[0]
+        assert args.backend == "codex"
+        assert args.model == "gpt-6.1-sol"
+        assert args.escalation_model == "gpt-6.1-sol"
+
     def test_no_command_shows_help_and_exits(self):
         """main() with no command should print help and exit 1."""
         with patch("sys.argv", ["axiom_encode"]):
@@ -7559,6 +7602,22 @@ rules:
         assert not _rulespec_scalar_matches(
             {"kind": "decimal", "value": Decimal("19.99")},
             20,
+        )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.50000000000002"},
+            197.5,
+        )
+        assert _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "100.49999999999998"},
+            100.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "decimal", "value": "197.51"},
+            197.5,
+        )
+        assert not _rulespec_scalar_matches(
+            {"kind": "integer", "value": "9007199254740993"},
+            9007199254740992,
         )
 
     def _execute_period_fixture(self, tmp_path, monkeypatch, *, period_kind):
@@ -13806,6 +13865,7 @@ class TestCmdEncode:
         # escalation tests opt in explicitly so their gate sequences stay clear.
         args.escalation_enabled = overrides.get("escalation_enabled", False)
         args.backend = overrides.get("backend", "codex")
+        args.codex_reasoning_effort = overrides.get("codex_reasoning_effort", "low")
         args.corpus_path = corpus_path
         args.corpus_release = corpus_release
         args.axiom_rules_path = overrides.get("axiom_rules_path", axiom_rules_path)
@@ -14532,13 +14592,17 @@ class TestCmdEncode:
             == expected
         )
 
-    def test_encode_escalates_after_n_validator_failures(self, tmp_path):
+    @pytest.mark.parametrize("reasoning_effort", ["low", "high"])
+    def test_encode_escalates_after_n_validator_failures(
+        self, tmp_path, reasoning_effort
+    ):
         args = self._make_args(
             tmp_path,
             model=None,
             apply=True,
             sync=False,
             escalation_enabled=True,
+            codex_reasoning_effort=reasoning_effort,
         )
 
         exit_code, generated, validated, mock_run, mock_validate, mock_apply = (
@@ -14562,6 +14626,9 @@ class TestCmdEncode:
         ]
         assert validated == generated
         assert mock_run.call_count == 4
+        assert [
+            call.kwargs["codex_reasoning_effort"] for call in mock_run.call_args_list
+        ] == [reasoning_effort] * 4
         assert [
             call.kwargs["validation_retry_feedback"] for call in mock_run.call_args_list
         ] == [
@@ -14611,6 +14678,206 @@ class TestCmdEncode:
             "initial_model": DEFAULT_OPENAI_MODEL,
             "escalation_model": DEFAULT_OPENAI_ESCALATION_MODEL,
         }
+
+    def test_encode_records_each_try_wall_time_and_phases(self, tmp_path, capsys):
+        """Every try carries its wall time and a contiguous phase timeline; the
+        loop's setup and finalization close the gap to the whole run."""
+        from datetime import datetime, timezone
+
+        from axiom_encode.encode_timing import EncodeLoopTimer
+
+        class TickingClock:
+            now = 50.0
+
+            def __call__(self) -> float:
+                self.now += 1.0
+                return self.now
+
+        clock = TickingClock()
+
+        def timer_factory():
+            return EncodeLoopTimer(
+                monotonic=clock,
+                origin=(clock.now, datetime(2026, 10, 7, 16, tzinfo=timezone.utc)),
+            )
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+        with patch("axiom_encode.cli.EncodeLoopTimer", side_effect=timer_factory):
+            exit_code, *_rest = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (False, ["terra-2"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert [iteration.attempt for iteration in run.iterations] == [1, 2, 3]
+        for earlier, later in zip(run.iterations, run.iterations[1:]):
+            # A try ends the instant the next one starts.
+            assert earlier.finished_at == later.started_at
+        for iteration in run.iterations:
+            # duration_ms keeps meaning "the model call" for existing readers.
+            assert iteration.duration_ms == 123
+            assert iteration.started_at.endswith("Z")
+            phases = iteration.phases
+            assert phases[0]["started_at"] == iteration.started_at
+            assert phases[-1]["finished_at"] == iteration.finished_at
+            for earlier, later in zip(phases, phases[1:]):
+                assert earlier["finished_at"] == later["started_at"]
+            assert sum(phase["duration_ms"] for phase in phases) == (
+                iteration.wall_duration_ms
+            )
+            names = [phase["name"] for phase in phases]
+            assert names[:4] == [
+                "other",
+                "prepare",
+                "apply_repair",
+                "overlay_validation",
+            ]
+            assert names[-1] == "retry_handoff"
+        assert "apply_write" not in [
+            phase["name"] for phase in run.iterations[0].phases
+        ]
+        assert "apply_write" in [phase["name"] for phase in run.iterations[-1].phases]
+
+        loop = run.outcome["encode_loop_timing"]
+        assert loop["schema"] == "axiom-encode/encode-loop-timing/v1"
+        assert loop["try_count"] == 3
+        assert loop["tries_ms"] == sum(
+            iteration.wall_duration_ms for iteration in run.iterations
+        )
+        assert loop["setup_ms"] > 0 and loop["finalize_ms"] > 0
+        assert (
+            loop["setup_ms"]
+            + loop["tries_ms"]
+            + loop["between_tries_ms"]
+            + loop["finalize_ms"]
+        ) == loop["wall_duration_ms"]
+
+        out = capsys.readouterr().out
+        assert "  try=1 start at=2026-10-07T16:" in out
+        assert re.search(
+            r"^  try=2 phase=overlay_validation at=\S+Z prev=apply_repair:\d+ms$",
+            out,
+            flags=re.MULTILINE,
+        )
+        assert re.search(r"^  try=3 end at=\S+Z wall_ms=\d+", out, re.MULTILINE)
+
+    def test_encode_sync_payload_carries_try_timing(self, tmp_path):
+        """The run handed to the Supabase sync already holds the timing."""
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            pytest.raises(SystemExit),
+        ):
+            cmd_encode(args)
+
+        synced_run = mock_sync.call_args.args[0]
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at and iteration.finished_at
+        assert isinstance(iteration.wall_duration_ms, int)
+        assert sum(phase["duration_ms"] for phase in iteration.phases) == (
+            iteration.wall_duration_ms
+        )
+        loop = synced_run.outcome["encode_loop_timing"]
+        assert loop["try_count"] == 1
+        assert loop["tries_ms"] == iteration.wall_duration_ms
+
+    def test_encode_survives_a_failed_timing_write(self, tmp_path, capsys):
+        """Telemetry never fails an encode: when the local timing write fails,
+        the run still records and syncs its outcome, and no copy carries the
+        per-try timing the local row lacks."""
+        import sqlite3
+
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            patch.object(
+                EncodingDB,
+                "update_run_iterations",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(SystemExit) as failed_write,
+        ):
+            cmd_encode(args)
+
+        assert "  encode_timing=failed:OperationalError" in capsys.readouterr().out
+        synced_run = mock_sync.call_args.args[0]
+        assert synced_run.outcome["status"]
+        assert "encode_loop_timing" not in synced_run.outcome
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at is None and iteration.phases is None
+        stored = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert stored.outcome["status"] == synced_run.outcome["status"]
+        assert stored.iterations[0].phases is None
+
+        # The same encode without the failure exits the same way.
+        (tmp_path / "baseline").mkdir()
+        baseline_args = self._make_args(tmp_path / "baseline", backend="codex")
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ),
+            pytest.raises(SystemExit) as baseline,
+        ):
+            cmd_encode(baseline_args)
+        assert failed_write.value.code == baseline.value.code
+
+    def test_encode_try_error_passes_through_and_clears_the_timer(self, tmp_path):
+        """An error inside a try reaches the caller unchanged, and the loop
+        timer is no longer active afterwards."""
+        from axiom_encode.encode_timing import active_encode_loop_timer
+
+        args = self._make_args(tmp_path, backend="codex")
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                side_effect=RuntimeError("model backend exploded"),
+            ),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            pytest.raises(RuntimeError, match="model backend exploded"),
+        ):
+            cmd_encode(args)
+
+        assert active_encode_loop_timer() is None
 
     def test_encode_retries_from_best_candidate_when_later_attempt_regresses(
         self, tmp_path
@@ -31755,6 +32022,69 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_invalid_input_cleanup_preserves_only_relation_row_fact(self, tmp_path):
+        test_file = tmp_path / "j.test.yaml"
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        derived_ref = (
+            "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition"
+        )
+        stale_ref = "us:statutes/7/2012/j#input.stale_unrelated_fact"
+        test_file.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "name": "household_with_member",
+                        "input": {
+                            relation_ref: [{derived_ref: True}],
+                            stale_ref: False,
+                        },
+                        "output": {},
+                    }
+                ],
+                sort_keys=False,
+            )
+        )
+        issues = [
+            f"input `{ref}` does not resolve to an input slot"
+            for ref in (derived_ref, stale_ref)
+        ]
+
+        assert _remove_invalid_test_input_refs(test_file=test_file, issues=issues) == [
+            stale_ref
+        ]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [{derived_ref: True}]
+        assert stale_ref not in case["input"]
+
+    def test_invalid_input_cleanup_removes_ref_when_relation_row_retains_fact(
+        self, tmp_path
+    ):
+        test_file = tmp_path / "j.test.yaml"
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        stale_ref = "us:statutes/7/2012/j#input.stale_member_fact"
+        valid_ref = "us:statutes/7/2012/j#input.member_age"
+        test_file.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "name": "household_with_member",
+                        "input": {
+                            relation_ref: [{stale_ref: True, valid_ref: 60}],
+                        },
+                        "output": {},
+                    }
+                ],
+                sort_keys=False,
+            )
+        )
+
+        assert _remove_invalid_test_input_refs(
+            test_file=test_file,
+            issues=[f"input `{stale_ref}` does not resolve to an input slot"],
+        ) == [stale_ref]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [{valid_ref: 60}]
+
     def test_encode_apply_preserves_valid_external_legacy_input_during_canonical_repair(
         self, capsys, tmp_path
     ):
@@ -33117,6 +33447,9 @@ rules:
         applied_file = args.policy_repo_path / "statutes/26/151.yaml"
 
         with (
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures", return_value=[]
+            ),
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
             patch(
                 "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
@@ -33214,6 +33547,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("statutes/26/3241/b.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us:statutes/26/3241/b#average_account_benefits_ratio_bracket` "
@@ -33273,6 +33607,7 @@ rules:
             test_file=test_file,
             repo_path=repo_path,
             relative_output=Path("regulations/1240-01/04/27/block-1.yaml"),
+            test_failure_checker=lambda path: [],
             issues=[
                 "Derived rule missing companion output coverage: "
                 "`us-tn:regulations/1240-01/04/27/block-1#snap_standard_utility_allowance_state_value` "
@@ -41906,6 +42241,51 @@ class TestEncodeReplacementTarget:
         assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
         assert resolved.context_paths == (target,)
 
+    def test_accepts_existing_child_module_from_its_exact_parent_source(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        args.replace_rulespec_path = Path("us-nc/statutes/105/105-153.7/a.yaml")
+        target = content_root / "statutes" / "105" / "105-153.7" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-nc/statute/105/105-153.7\n"
+            "rules: []\n"
+        )
+        source_unit.requested = "us-nc/statute/105/105-153.7"
+        source_unit.citation_path = source_unit.requested
+        replacement_source = SimpleNamespace(
+            requested=source_unit.requested,
+            citation_path=source_unit.citation_path,
+            body=source_unit.body,
+            resolved_source=source_unit.resolved_source,
+        )
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
+        assert resolved.context_paths == (target,)
+
     def test_rejects_non_direct_source_refinement(self, tmp_path):
         (
             args,
@@ -45960,6 +46340,198 @@ rules:
             == 0
         )
 
+    def test_missing_input_copies_explicit_facts_to_single_empty_relation_member(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - name: member_age
+    entity: Person
+  - name: receives_disability_payment
+    entity: Person
+  - name: household_size
+    entity: Household
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: elderly_member
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#input.receives_disability_payment: false
+    us:statutes/7/2012/j#input.household_size: 1
+    us:statutes/7/2012/j#relation.member_of_household:
+      - {}
+  output: {}
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `elderly_member` execution failed: missing input "
+                        "`member_age` for entity "
+                        "`case-1-us:statutes/7/2012/j#relation.member_of_household-1` "
+                        "over 2026-01-01..2026-01-31"
+                    )
+                )
+            }
+        )
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+            {
+                "us:statutes/7/2012/j#input.member_age": 60,
+                "us:statutes/7/2012/j#input.receives_disability_payment": False,
+            }
+        ]
+        assert case["input"]["us:statutes/7/2012/j#input.household_size"] == 1
+
+    def test_missing_input_does_not_guess_for_multiple_empty_relation_members(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - {name: member_age, entity: Person}
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: two_members
+  input:
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#relation.member_of_household:
+      - {}
+      - {}
+  output: {}
+"""
+        )
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `two_members` execution failed: missing input "
+                        "`member_age` for entity "
+                        "`case-1-us:statutes/7/2012/j#relation.member_of_household-1` "
+                        "over 2026-01-01..2026-01-31"
+                    )
+                )
+            }
+        )
+
+        assert not _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation,
+        )
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"]["us:statutes/7/2012/j#relation.member_of_household"] == [
+            {},
+            {},
+        ]
+
+    def test_missing_input_keeps_anchored_relation_rows_case_local(self, tmp_path):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        rules_file = policy_repo / "statutes/7/2012/j.yaml"
+        test_file = rules_file.with_name("j.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+inputs:
+  - {name: member_age, entity: Person}
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments:
+        - {name: household, entity: Household}
+        - {name: member, entity: Person}
+"""
+        )
+        test_file.write_text(
+            """- name: elderly_member
+  input: &shared_input
+    us:statutes/7/2012/j#input.member_age: 60
+    us:statutes/7/2012/j#relation.member_of_household: &shared_rows
+      - {}
+  output: {}
+- name: younger_member
+  input:
+    <<: *shared_input
+    us:statutes/7/2012/j#input.member_age: 20
+    us:statutes/7/2012/j#relation.member_of_household: *shared_rows
+  output: {}
+"""
+        )
+
+        def validation_for(case_name, case_number):
+            return SimpleNamespace(
+                results={
+                    "ci": SimpleNamespace(
+                        error=(
+                            f"Test case `{case_name}` execution failed: missing input "
+                            "`member_age` for entity "
+                            f"`case-{case_number}-us:statutes/7/2012/j#relation.member_of_household-1` "
+                            "over 2026-01-01..2026-01-31"
+                        )
+                    )
+                }
+            )
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation_for("elderly_member", 1),
+        )
+        cases = yaml.safe_load(test_file.read_text())
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        age_ref = "us:statutes/7/2012/j#input.member_age"
+        assert cases[0]["input"][relation_ref] == [{age_ref: 60}]
+        assert cases[1]["input"][relation_ref] == [{}]
+
+        assert _complete_missing_imported_test_inputs(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo,
+            validation=validation_for("younger_member", 2),
+        )
+        cases = yaml.safe_load(test_file.read_text())
+        assert cases[0]["input"][relation_ref] == [{age_ref: 60}]
+        assert cases[1]["input"][relation_ref] == [{age_ref: 20}]
+
     def test_repair_snap_2014c_income_standard_test_inputs(self, tmp_path):
         test_file = tmp_path / "c.test.yaml"
         test_file.write_text(
@@ -46161,6 +46733,146 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
+    def test_repair_scalar_relation_rows_prefers_new_generated_child_input(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: old_companion_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / "statutes" / "7" / "2012" / "j.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      predicate: member_of_household
+      arity: 2
+      arguments: [Household, Person]
+  - name: snap_household_has_elderly_or_disabled_member
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2008-10-01'
+        formula: count_where(member_of_household, member_meets_elderly_or_disabled_definition) > 0
+inputs:
+  - name: member_meets_elderly_or_disabled_definition
+    entity: Person
+    dtype: Boolean
+    period: Month
+"""
+        )
+        test_file = rules_file.with_name("j.test.yaml")
+        test_file.write_text(
+            f"""- name: new_household_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_household_case", relation_ref, 1)],
+                generated_anchor="us:statutes/7/2012/j",
+            )
+
+        assert repaired == [f"new_household_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {
+                "us:statutes/7/2012/j#input.member_meets_elderly_or_disabled_definition": True
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("generated_relative", "generated_anchor"),
+        [
+            ("statutes/7/2012/k.yaml", "us:statutes/7/2012/k"),
+            ("us-ny/statutes/7/2012/j.yaml", "us-ny:statutes/7/2012/j"),
+        ],
+    )
+    def test_repair_scalar_relation_rows_keeps_imported_companion_shape(
+        self, tmp_path, generated_relative, generated_anchor
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        policy_repo.mkdir(parents=True)
+        relation_ref = "us:statutes/7/2012/j#relation.member_of_household"
+        companion_test = policy_repo / "statutes" / "7" / "2012" / "j.test.yaml"
+        companion_test.parent.mkdir(parents=True)
+        companion_test.with_name("j.yaml").write_text(
+            "format: rulespec/v1\nrules: []\n"
+        )
+        companion_test.write_text(
+            f"""- name: imported_relation_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled: true
+  output: {{}}
+"""
+        )
+        rules_file = tmp_path / "generated" / generated_relative
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+  - name: another_rule
+    kind: derived
+    versions:
+      - formula: count_where(member_of_household, wrong_child_fact) > 0
+"""
+        )
+        test_file = rules_file.with_name(f"{rules_file.stem}.test.yaml")
+        test_file.write_text(
+            f"""- name: new_case
+  period: 2026-01
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((policy_repo.parent,)):
+            repaired = _repair_scalar_relation_rows(
+                rules_file=rules_file,
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[("new_case", relation_ref, 1)],
+                generated_anchor=generated_anchor,
+            )
+
+        assert repaired == [f"new_case:{relation_ref}[1]"]
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [
+            {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
+        ]
+
     def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us" / "us-az"
         policy_repo.mkdir(parents=True)
@@ -46256,6 +46968,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="uk:statutes/ukpga/2007/3/23",
             parsed_issues=[
                 (
                     "charged_income_less_reliefs_and_allowances",
@@ -46611,6 +47324,7 @@ rules:
             rules_file=rules_file,
             test_file=test_file,
             policy_repo_path=policy_repo,
+            generated_anchor="us-co:regulations/10-ccr-2506-1/4.208.1",
             parsed_issues=[
                 (
                     "mixed_age_household_does_not_qualify",
@@ -47698,6 +48412,104 @@ rules:
             "target: statutes/42/new.yaml"
         ]
         assert supplemental == {}
+
+    @pytest.mark.parametrize(
+        "variant",
+        ["missing_case", "missing_output", "complete", "binding", "overlay_only"],
+    )
+    def test_failed_overlay_also_reports_exact_case_contract(self, tmp_path, variant):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us-la"
+        target = policy_repo / "statutes/47/294.yaml"
+        generated = output_root / "codex-test-model/statutes/47/294.yaml"
+        target.parent.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+        target.write_text(content)
+        generated.write_text(content)
+        output = "us-la:statutes/47/294#amount"
+        period = {"period_kind": "tax_year", "start": "2025-01-01", "end": "2025-12-31"}
+        required = _RequiredTestCaseContract(
+            name="required", period=period, input={}, required_output={output: 0}
+        )
+        contract = _DeferredOutputReviewContract(
+            citation="us-la/statute/47:294",
+            rulespec_path="us-la/statutes/47/294.yaml",
+            required_deferred_outputs=(),
+            required_test_cases=(required,),
+        )
+        cases = (
+            []
+            if variant == "missing_case"
+            else [
+                dict(
+                    name="required",
+                    period=period,
+                    input={},
+                    output={} if variant == "missing_output" else {output: 0},
+                )
+            ]
+        )
+        companion = generated.with_suffix(".test.yaml")
+        companion.write_text(yaml.safe_dump(cases))
+        original = companion.read_bytes()
+        result = SimpleNamespace(
+            output_file=str(generated),
+            runner="codex-test-model",
+            backend="codex",
+            citation="wrong/citation" if variant == "binding" else contract.citation,
+        )
+
+        class FakePipeline:
+            def __init__(self, **_kwargs):
+                pass
+
+            def validate(self, _path, *, skip_reviewers):
+                if variant == "overlay_only":
+                    _path.with_suffix(".test.yaml").write_text("[]\n")
+                return SimpleNamespace(
+                    all_passed=False,
+                    results={
+                        "ci": SimpleNamespace(
+                            validator_name="ci",
+                            issues=["Independent source failure"],
+                            error="Independent source failure",
+                            passed=False,
+                        )
+                    },
+                )
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._record_successful_apply_validation") as snapshot,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                deferred_output_review_contract=contract,
+            )
+        assert not ok and supplemental == {}
+        assert issues[0] == "statutes/47/294.yaml: ci: Independent source failure"
+        assert companion.read_bytes() == original
+        snapshot.assert_not_called()
+        if variant == "complete":
+            assert issues == ["statutes/47/294.yaml: ci: Independent source failure"]
+        elif variant == "binding":
+            assert any("generated citation does not match" in issue for issue in issues)
+        elif variant in {"missing_case", "overlay_only"}:
+            assert any(
+                "required-test-case-contract" in issue and "required" in issue
+                for issue in issues
+            )
+        else:
+            assert any(
+                "missing or changes required output" in issue for issue in issues
+            )
 
     def test_apply_overlay_checks_review_contract_before_success_snapshot(
         self, tmp_path
@@ -49457,6 +50269,115 @@ rules:
                 (Path("us/regulations/7-cfr/273/10.yaml"),),
                 overlay_content_root=content_root,
                 dependents=[dependent],
+            )
+
+    def test_scheduled_two_hop_proof_chain_is_authenticated(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        sibling = content_root / "policies/usda/snap/state-plan-composition.yaml"
+        for module in (target, first, second, sibling):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        first_sha = hashlib.sha256(first.read_bytes()).hexdigest()
+        second.write_text(
+            f"""format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/10
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:{first_sha}
+"""
+        )
+        sibling.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        resolved = _resolve_scheduled_proof_hash_dependents(
+            (
+                Path("us/regulations/7-cfr/273/10.yaml"),
+                Path("us/regulations/7-cfr/273/11/c.yaml"),
+            ),
+            overlay_content_root=content_root,
+            dependents=[first, second],
+        )
+
+        assert resolved == {first, second}
+        assert f"hash: sha256:{first_sha}" in second.read_text()
+        # The first dependent has now been regenerated; only its proof-pinned
+        # second dependent may be deferred, not an ordinary sibling importer.
+        first.write_text(first.read_text() + "# signed re-encode\n")
+        first_closure_skip = _resolve_scheduled_proof_hash_dependents(
+            (Path("us/regulations/7-cfr/273/11/c.yaml"),),
+            overlay_content_root=content_root,
+            dependents=[second, sibling],
+        )
+        assert first_closure_skip == {second}
+        assert [
+            path for path in (second, sibling) if path not in first_closure_skip
+        ] == [sibling]
+
+    def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        for module in (target, first, second):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        second.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        with pytest.raises(ValueError, match="lacks a proof import pinned"):
+            _resolve_scheduled_proof_hash_dependents(
+                (
+                    Path("us/regulations/7-cfr/273/10.yaml"),
+                    Path("us/regulations/7-cfr/273/11/c.yaml"),
+                ),
+                overlay_content_root=content_root,
+                dependents=[first, second],
             )
 
     def test_missing_input_parser_accepts_relation_warning_before_error(self):

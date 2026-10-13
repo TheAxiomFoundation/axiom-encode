@@ -14,7 +14,9 @@ import uuid
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
+
+from axiom_encode.encode_timing import iteration_timing_payload
 
 # Per-run token/cost ledger columns, shared with the Supabase sync so the
 # local schema, the payload, and the fallback ladder cannot drift apart.
@@ -196,6 +198,13 @@ class Iteration:
     ``model`` and the token counters record what this attempt actually spent, so a
     run whose attempts escalated across models (Terra, then Sol) can be re-priced
     from its own record. ``None`` means the attempt did not report usage.
+
+    ``duration_ms`` is the model call only. The encode loop also records the
+    try's wall time: ``started_at``/``finished_at`` (UTC ISO-8601),
+    ``wall_duration_ms`` and ``phases``, an ordered, contiguous list of
+    ``{name, started_at, finished_at, duration_ms[, breakdown_ms]}`` whose
+    durations sum to ``wall_duration_ms`` (see :mod:`axiom_encode.encode_timing`).
+    ``None`` means the try was not timed (other commands, older runs).
     """
 
     attempt: int
@@ -209,6 +218,10 @@ class Iteration:
     cache_creation_tokens: Optional[int] = None
     reasoning_output_tokens: Optional[int] = None
     estimated_cost_usd: Optional[float] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    wall_duration_ms: Optional[int] = None
+    phases: Optional[list[dict[str, Any]]] = None
 
 
 ITERATION_USAGE_FIELDS = (
@@ -220,6 +233,30 @@ ITERATION_USAGE_FIELDS = (
     "reasoning_output_tokens",
     "estimated_cost_usd",
 )
+
+
+def iteration_payload(iteration: Iteration) -> dict[str, Any]:
+    """Serialize one iteration the way ``encoding_runs.iterations`` stores it."""
+    return {
+        "attempt": iteration.attempt,
+        "duration_ms": iteration.duration_ms,
+        "success": iteration.success,
+        "errors": [
+            {
+                "error_type": e.error_type,
+                "message": e.message,
+                "variable": e.variable,
+                "fix_applied": e.fix_applied,
+            }
+            for e in iteration.errors
+        ],
+        **{
+            name: getattr(iteration, name)
+            for name in ITERATION_USAGE_FIELDS
+            if getattr(iteration, name) is not None
+        },
+        **iteration_timing_payload(iteration),
+    }
 
 
 @dataclass
@@ -564,30 +601,7 @@ class EncodingDB:
             }
         )
 
-        iterations_json = json.dumps(
-            [
-                {
-                    "attempt": it.attempt,
-                    "duration_ms": it.duration_ms,
-                    "success": it.success,
-                    "errors": [
-                        {
-                            "error_type": e.error_type,
-                            "message": e.message,
-                            "variable": e.variable,
-                            "fix_applied": e.fix_applied,
-                        }
-                        for e in it.errors
-                    ],
-                    **{
-                        name: getattr(it, name)
-                        for name in ITERATION_USAGE_FIELDS
-                        if getattr(it, name) is not None
-                    },
-                }
-                for it in run.iterations
-            ]
-        )
+        iterations_json = json.dumps([iteration_payload(it) for it in run.iterations])
 
         # Serialize review_results (new checklist-based format)
         review_results_json = None
@@ -660,6 +674,19 @@ class EncodingDB:
         conn.close()
 
         return run.id
+
+    def update_run_iterations(self, run_id: str, iterations: list[Iteration]) -> None:
+        """Rewrite a logged run's iterations (e.g. with per-try timing)."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "UPDATE encoding_runs SET iterations_json = ? WHERE id = ?",
+            (json.dumps([iteration_payload(it) for it in iterations]), run_id),
+        )
+
+        conn.commit()
+        conn.close()
 
     def update_run_outcome(self, run_id: str, outcome: dict) -> None:
         """Update final encode/apply outcome metadata for a run."""
@@ -879,6 +906,7 @@ class EncodingDB:
                         cache_creation_tokens=it_data.get("cache_creation_tokens"),
                         reasoning_output_tokens=it_data.get("reasoning_output_tokens"),
                         estimated_cost_usd=it_data.get("estimated_cost_usd"),
+                        **iteration_timing_payload(it_data),
                     )
                 )
 

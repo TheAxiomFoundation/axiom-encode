@@ -352,13 +352,14 @@ unset CODEX_HOME
   --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
   --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
   -- /opt/axiom-verification/axiom-encode encode ... --backend codex \
-     --model gpt-5.6-terra --escalation-model gpt-5.6-sol
+     --model gpt-6.1-sol --escalation-model gpt-6.1-sol
 ```
 
-The explicit models are needed because the encoder defaults (`gpt-6-luna`,
-escalating to `gpt-6-sol`) were not served to ChatGPT-account Codex on
-2026-09-24: both returned HTTP 400 "not supported when using Codex with a
-ChatGPT account". Drop the two flags once that auth path serves the GPT-6 models.
+The explicit flags select GPT-6.1 Sol for both generation and escalation;
+omit them to use the encoder defaults (`gpt-6-luna`, escalating to `gpt-6-sol`).
+The provisioner pins Codex CLI 0.159.0 and verifies both the archive digest and
+the extracted executable digest. Model availability depends on the signed-in
+account and CLI; availability hints are emitted only for actual account rejections.
 
 The supervisor creates an euid-owned per-run `0700` home in the operating
 system's temporary directory, copies auth into it, sets `CODEX_HOME` only to

@@ -33,6 +33,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MODEL_TOOL,
     _sign_applied_encoding_manifest,
 )
+from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.harness.dependency_stubs import validate_explicit_context_file
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
@@ -2169,9 +2170,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["source_bundle_json"] == {
         "description": (
-            "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
-            "transaction"
+            "Atomic source input: legacy citation array/refresh object, v2-v5 contract, "
+            "or v6 {transaction: exact v2-v5, repair_mode: full_artifact|tests_only} "
+            "for an authenticated failed ordinary single-target repair"
         ),
         "required": False,
         "default": "[]",
@@ -2343,6 +2344,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
+        "R2_ACCESS_KEY_ID": "${{ secrets.R2_ACCESS_KEY_ID }}",
+        "R2_SECRET_ACCESS_KEY": "${{ secrets.R2_SECRET_ACCESS_KEY }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
@@ -2353,7 +2356,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/releases/${release_name}/${release_sha}.json" in release_command
     assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
-    assert "--max-filesize 16777216" in release_command
+    assert f"--max-filesize {MAX_RELEASE_OBJECT_BYTES}" in release_command
     assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" not in release_command
     assert "SUPABASE" not in release_command
     assert "jq -ce" in release_command
@@ -2363,6 +2366,45 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "--corpus-root axiom-corpus" in release_command
     assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
+    assert "if [ -d axiom-corpus/.axiom/corpus-locks ]; then" in release_command
+    assert 'select(.artifact_class == "provisions")' in release_command
+    provision_filter = release_command.split("provision_paths_json=", 1)[1].split(
+        "'", 2
+    )[1]
+    assert "\\" not in provision_filter
+    if jq_binary := shutil.which("jq"):
+        sample_release = {
+            "content": {
+                "artifacts": [
+                    {
+                        "artifact_class": "provisions",
+                        "path": "data/corpus/provisions/a",
+                    },
+                    {"artifact_class": "documents", "path": "data/corpus/documents/b"},
+                ]
+            }
+        }
+        selected = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert selected.returncode == 0, selected.stderr
+        assert json.loads(selected.stdout) == ["data/corpus/provisions/a"]
+        sample_release["content"]["artifacts"] = []
+        missing = subprocess.run(
+            [jq_binary, "-ce", provision_filter],
+            input=json.dumps(sample_release),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert missing.returncode != 0
+    assert "axiom-corpus-ingest corpus fetch --repo axiom-corpus" in release_command
+    assert '--no-cache --verify "${fetch_args[@]}"' in release_command
+    assert "test -d axiom-corpus/data/corpus/provisions" in release_command
 
     repair_step = next(
         step
@@ -2389,8 +2431,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "merge-base --is-ancestor" in repair_command
     assert '"$repair_encoder_commit" "$GITHUB_SHA"' in repair_command
     assert "repair replay is limited to one non-legacy target" in repair_command
-    assert "repair_tests_only=false" in repair_command
-    assert "repair_tests_only=true" in repair_command
+    assert 'resolve-atomic-repair-mode "${ATOMIC_SOURCE_JSON:-[]}"' in repair_command
+    assert "repair_tests_only=\"$(jq -r '.tests_only'" in repair_command
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
@@ -2491,8 +2533,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert 'cascade_args+=("${dependent_citations[@]}")' in cascade_step["run"]
     assert "--allow-proof-import-subset" in cascade_step["run"]
-    assert 'cascade_mode="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert (
+        "all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain"
+        in cascade_step["run"]
+    )
+    assert 'cascade_result="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert "cascade_args+=(--json)" in cascade_step["run"]
     assert "DEPENDENT_CASCADE_MODE=%s" in cascade_step["run"]
+    assert "DEPENDENT_RULESPEC_PATHS_JSON=%s" in cascade_step["run"]
 
     signed_import_step = next(
         step for step in steps if step.get("name") == "Verify existing signed imports"
@@ -2619,7 +2667,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         command
     )
     assert "--legacy-dependent-rulespec-path" in command
-    assert 'citation-rulespec-path "$DEPENDENT_CITATION"' in command
+    assert "dependent_rulespec_path=\"$(jq -er '.[0]'" in command
     assert '[ "$target_only" = "true" ]' in command
     assert (
         "queue-authorized re-encodes cannot override the RuleSpec target path"
@@ -2627,11 +2675,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert '--output "$RUNNER_TEMP/generated/$output_lane"' in command
     assert '"$SECOND_DEPENDENT_CITATION"' in command
-    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 "" "" false' in command
+    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 \\' in command
+    assert '"$second_replacement_path" "" false' in command
+    assert '"$second_dependent_rulespec_path" != "$canonical_second_path"' in command
     assert '"$CITATION" "$REVIEW_FINDING" "$primary_target_only" target \\\n' in command
     assert 'local scheduled_dependent_paths_json="${11:-[]}"' in command
     assert "--scheduled-dependent-rulespec-path" in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
@@ -2717,6 +2769,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "REPAIR_CANDIDATE_RULESPEC_SHA256",
         "REPAIR_CANDIDATE_TESTS_SHA256",
         "REPAIR_RUN_ID",
+        "REPAIR_EXECUTION_JSON",
         "PROVISION_SIGNING_SUPERVISOR_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_CONCLUSION",
         "PUBLISH_LANE_PULL_REQUEST_OUTCOME",
@@ -3202,9 +3255,20 @@ def test_repair_preflight_splits_atomic_source(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\nus-ri/statutes/44-30-2.6.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        f"tests_only={expected_tests_only}\n"
+    mode = "tests_only" if expected_tests_only == "true" else "full_artifact"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == expected_tests_only
+    assert outputs["mode"] == mode
+    assert json.loads(outputs["execution"]) == {
+        "mode": mode,
+        "requested_mode": "legacy_inference",
+        "tests_only": expected_tests_only == "true",
+    }
 
 
 def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
@@ -3381,9 +3445,19 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "dependent\nus/statutes/42/1437c-1.yaml\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 @pytest.mark.parametrize("second_without_first", [False, True])
@@ -3438,9 +3512,19 @@ def test_repair_preflight_accepts_new_source_target(
         return
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\n\n"
-    assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
-        "tests_only=false\n"
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "github-output")
+        .read_text(encoding="utf-8")
+        .splitlines()
     )
+    assert outputs["tests_only"] == "false"
+    assert outputs["mode"] == "full_artifact"
+    assert json.loads(outputs["execution"]) == {
+        "mode": "full_artifact",
+        "requested_mode": "legacy_inference",
+        "tests_only": False,
+    }
 
 
 def test_repair_preflight_rejects_tests_only_new_source(tmp_path: Path) -> None:
@@ -3565,6 +3649,9 @@ def test_fresh_v2_required_test_cases_do_not_require_a_repair_run(
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
+            "RULESPEC_REF": subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
             "SECOND_DEPENDENT_CITATION": "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },
@@ -3633,6 +3720,8 @@ def test_repair_required_test_cases_do_not_enable_canonical_refresh(
             "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
             "QUEUE_ID": "",
             "REPAIR_RUN_ID": "100",
+            "REPAIR_MODE": "tests_only",
+            "REPAIR_TESTS_ONLY": "true",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": primary_path,
             "RULESPEC_CHECKOUT": str(checkout),
@@ -3665,8 +3754,12 @@ def test_repair_witness_routing_is_rechecked_in_protected_steps() -> None:
     assert verify["env"]["REPAIR_TESTS_ONLY"] == (
         "${{ steps.repair_candidate.outputs.tests_only }}"
     )
-    assert 'if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
-    assert 'if [ "$REPAIR_TESTS_ONLY" = "true" ]; then' in encode["run"]
+    assert 'if [ -n "${REPAIR_RUN_ID:-}" ] ||' in verify["run"]
+    assert '[ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then' in verify["run"]
+    assert (
+        'if [ -n "${REPAIR_RUN_ID:-}" ] || [ "$REPAIR_TESTS_ONLY" = "true" ]; then'
+        in encode["run"]
+    )
     for step in (validate, verify, encode):
         assert '"$canonical_refresh_primary_required_test_cases_json"' in step["run"]
 
@@ -4978,6 +5071,10 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (1, "proof-import-subset", "target-existing"),
         (2, "", ""),
         (2, "", "target-existing"),
+        (2, "all-direct", "target-existing"),
+        (2, "all-direct-proof-chain", "target-existing"),
+        (2, "proof-import-subset-chain", "target-existing"),
+        (2, "proof-import-chain", "target-existing"),
     ],
 )
 def test_targeted_signed_reencode_orders_target_and_dependents(
@@ -5084,6 +5181,9 @@ if sys.argv[-1] == os.environ["CITATION"]:
             {
                 "DEPENDENT_CITATION": "us/regulation/42/435/559",
                 "DEPENDENT_REVIEW_FINDING": "Preserve the dependent source.",
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    ["us/regulations/42-cfr/435/559.yaml"]
+                ),
             }
         )
     if repair_lane == "dependent":
@@ -5130,6 +5230,20 @@ if sys.argv[-1] == os.environ["CITATION"]:
                 "SECOND_DEPENDENT_REVIEW_FINDING": (
                     "Preserve the second dependent source."
                 ),
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    [
+                        "us/regulations/42-cfr/435/559.yaml",
+                        "us/regulations/42-cfr/435/561/c.yaml"
+                        if cascade_mode
+                        in {
+                            "all-direct",
+                            "all-direct-proof-chain",
+                            "proof-import-subset-chain",
+                            "proof-import-chain",
+                        }
+                        else "us/regulations/42-cfr/435/561.yaml",
+                    ]
+                ),
             }
         )
 
@@ -5175,16 +5289,44 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[0][encode_args[0].index(option) + 1] == expected_value
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
-        dependent_count > 0 and cascade_mode != "proof-import-subset"
+        dependent_count > 0
+        and cascade_mode
+        not in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode == "proof-import-subset"
+        cascade_mode
+        in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
-    if cascade_mode == "proof-import-subset":
+    if cascade_mode in {
+        "proof-import-subset",
+        "proof-import-subset-chain",
+        "proof-import-chain",
+    }:
         assert encode_args[0][encode_args[0].index(scheduled_option) + 1] == (
             "us/regulations/42-cfr/435/559.yaml"
         )
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert encode_args[0].count(scheduled_option) == 2
+            second = encode_args[0].index(
+                scheduled_option, encode_args[0].index(scheduled_option) + 1
+            )
+            assert encode_args[0][second + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
     assert (
         Path(encode_args[0][encode_args[0].index("--review-findings") + 1])
         .read_text(encoding="utf-8")
@@ -5205,7 +5347,24 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[1].count("--repair-candidate-path") == 1
             assert encode_args[1].count("--repair-candidate-rulespec-sha256") == 1
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
-        assert ("--apply-target-only" in encode_args[1]) is (dependent_count == 2)
+        assert "--apply-target-only" not in encode_args[1]
+        assert (scheduled_option in encode_args[1]) is (
+            cascade_mode
+            in {
+                "proof-import-chain",
+                "all-direct-proof-chain",
+                "proof-import-subset-chain",
+            }
+        )
+        if cascade_mode in {
+            "proof-import-chain",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+        }:
+            assert encode_args[1].count(scheduled_option) == 1
+            assert encode_args[1][encode_args[1].index(scheduled_option) + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
         assert (
             Path(encode_args[1][encode_args[1].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5216,6 +5375,18 @@ if sys.argv[-1] == os.environ["CITATION"]:
         assert encode_args[2][-1] == "us/regulation/42/435/561"
         assert "--apply-target-only" not in encode_args[2]
         assert "--repair-candidate-root" not in encode_args[2]
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert (
+                encode_args[2][encode_args[2].index("--replace-rulespec-path") + 1]
+                == "us/regulations/42-cfr/435/561/c.yaml"
+            )
+        else:
+            assert "--replace-rulespec-path" not in encode_args[2]
         assert (
             Path(encode_args[2][encode_args[2].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5704,6 +5875,9 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "CITATION": "us-nc/statute/105/105-153.7",
         "DEPENDENT_CITATION": dependent_citation,
         "DEPENDENT_REVIEW_FINDING": dependent_finding,
+        "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+            ["us-nc/statutes/105/105-153.5.yaml"] if with_dependent else []
+        ),
         "GITHUB_WORKSPACE": str(tmp_path),
         "REPLACE_LEGACY_RULESPEC_PATH": (
             "us-nc/policies/income_tax/PILOT_LIABILITY_PIPELINE.yaml"
@@ -6467,8 +6641,9 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
 
 
 @pytest.mark.parametrize("repair_lane", ["target", "source-only"])
+@pytest.mark.parametrize("selected_mode", ["full_artifact", "tests_only", ""])
 def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation(
-    tmp_path: Path, repair_lane: str
+    tmp_path: Path, repair_lane: str, selected_mode: str
 ) -> None:
     script = _targeted_metadata_script()
     heads: dict[str, str] = {}
@@ -6542,15 +6717,33 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
             "REPAIR_CANDIDATE_TESTS_SHA256": (
                 "" if repair_lane == "source-only" else "e" * 64
             ),
-            "REPAIR_RUN_ID": "1234",
+            "REPAIR_RUN_ID": "1234" if selected_mode else "",
+            "REPAIR_MODE": selected_mode,
+            "REPAIR_TESTS_ONLY": ("true" if selected_mode == "tests_only" else "false")
+            if selected_mode
+            else "",
+            "PYTHONPATH": str(ROOT / "src"),
             "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
             "RULESPEC_REF": heads["rulespec-us"],
             "RUNNER_TEMP": str(runner_temp),
         },
     )
 
+    if selected_mode == "tests_only":
+        assert completed.returncode != 0
+        assert "repair execution mode differs" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if not selected_mode:
+        assert payload["repair_execution"] is None
+        assert payload["repair_candidate"] is None
+        return
+    assert payload["repair_execution"] == {
+        "requested_mode": "legacy_inference",
+        "mode": "full_artifact",
+        "tests_only": False,
+    }
     expected = {
         "lane": repair_lane,
         "run_id": "1234",

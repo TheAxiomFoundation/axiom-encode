@@ -1,0 +1,205 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/42/457/622
+    source_sha256: 2020af7aebb79c6b952cbfda9809b1067975a2bcf992bb2690acd60de6eb652e
+  summary: '“The enhanced FMAP is the lower of the following: (1) 70 percent of the
+    regular FMAP determined under section 1905(b) of the Act, plus 30 percentage points;
+    or (2) 85 percent.” Paragraphs (c) and (d) govern availability and expenditure
+    categories; paragraph (e) governs administrative expenditures.'
+  deferred_outputs:
+  - output: us:regulations/42-cfr/457/622/a#state_allotment_payments
+    reason: 42 CFR 457.622(a) describes payments from fiscal-year allotments determined
+      under § 457.608. The allotment determination and payable expenditure amounts
+      are not supplied in the available context.
+  - output: us:regulations/42-cfr/457/622/b#enhanced_fmap
+    reason: 42 CFR 457.622(b) requires the lower of the paragraph (b)(1) computation
+      and the paragraph (b)(2) ceiling. The regular FMAP determined under section
+      1905(b) of the Act is not supplied as an executable numeric output.
+    source_values:
+    - us:regulations/42-cfr/457/622#enhanced_fmap_regular_rate_multiplier
+    - us:regulations/42-cfr/457/622#enhanced_fmap_additional_percentage_points
+    - us:regulations/42-cfr/457/622#enhanced_fmap_ceiling
+  - output: us:regulations/42-cfr/457/622/b/1#regular_fmap_adjusted_rate
+    reason: 42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP plus 30 percentage
+      points, but the numeric regular FMAP determined under section 1905(b) of the
+      Act is not supplied as an executable output.
+  - output: us:regulations/42-cfr/457/622/c#enhanced_fmap_available_for_claimed_expenditures
+    reason: 42 CFR 457.622(c) requires the paragraph (c)(1)–(5) conditions, including
+      the allotment availability and 10 percent-limit determinations cited there;
+      their governing computations are not supplied in the available context.
+  - output: us:regulations/42-cfr/457/622/c/1#approved_title_xxi_plan_condition
+    reason: 42 CFR 457.622(c)(1) requires an approved title XXI State child health
+      plan; the approval determination is not supplied in the available context.
+  - output: us:regulations/42-cfr/457/622/c/2#allowable_plan_expenditure_condition
+    reason: 42 CFR 457.622(c)(2) requires expenditure allowability under the approved
+      plan; the plan-specific allowability determination is not supplied in the available
+      context.
+  - output: us:regulations/42-cfr/457/622/c/3#allotment_available_condition
+    reason: 42 CFR 457.622(c)(3) requires available, unexpended fiscal-year allotments
+      after reductions under § 457.616; those allotment and reduction amounts are
+      not supplied in the available context.
+  - output: us:regulations/42-cfr/457/622/c/4#claimed_expenditures_within_limit
+    reason: 42 CFR 457.622(c)(4) requires expenditures claimed against the State's
+      10 percent limit to remain within that fiscal-year limit; the applicable allotment
+      base and claimed expenditure amounts are not supplied.
+    source_values:
+    - us:regulations/42-cfr/457/622#claimed_expenditure_limit_rate
+  - output: us:regulations/42-cfr/457/622/c/5#unborn_child_election_medicaid_standards_condition
+    reason: 42 CFR 457.622(c)(5) requires comparing elected States' Medicaid child-eligibility
+      standards and methodologies, including pregnant-woman-based service eligibility,
+      with policies in effect on June 1, 1997; those historical and current standards
+      are not supplied.
+  - output: us:regulations/42-cfr/457/622/d#enhanced_fmap_expenditure_categories
+    reason: 42 CFR 457.622(d) covers the listed expenditure categories, subject where
+      specified to the 10 percent limit under § 457.618(a)(2); the cited limit computation
+      is not supplied.
+  - output: us:regulations/42-cfr/457/622/d/1#targeted_child_health_coverage_expenditure
+    reason: 42 CFR 457.622(d)(1) requires coverage meeting section 2103 of the Act;
+      the referenced coverage-requirements determination is not supplied.
+  - output: us:regulations/42-cfr/457/622/d/2#limited_expenditure_categories
+    reason: 42 CFR 457.622(d)(2) subjects its listed expenditures to the 10 percent
+      limit under § 457.618(a)(2); that limit computation is not supplied.
+    source_values:
+    - us:regulations/42-cfr/457/622#listed_expenditure_limit_rate
+  - output: us:regulations/42-cfr/457/622/d/2/i#other_targeted_child_health_assistance
+    reason: 42 CFR 457.622(d)(2)(i) is subject to the 10 percent limit under § 457.618(a)(2),
+      whose computation is not supplied.
+  - output: us:regulations/42-cfr/457/622/d/2/ii#health_services_initiative_expenditure
+    reason: 42 CFR 457.622(d)(2)(ii) is subject to the 10 percent limit under § 457.618(a)(2),
+      whose computation is not supplied.
+  - output: us:regulations/42-cfr/457/622/d/2/iii#outreach_expenditure
+    reason: 42 CFR 457.622(d)(2)(iii) is subject to the 10 percent limit under § 457.618(a)(2),
+      whose computation is not supplied.
+  - output: us:regulations/42-cfr/457/622/d/2/iv#reasonable_plan_administration_cost
+    reason: 42 CFR 457.622(d)(2)(iv) is subject to the 10 percent limit under § 457.618(a)(2),
+      whose computation is not supplied.
+  - output: us:regulations/42-cfr/457/622/e#administrative_expenditure_ffp
+    reason: 42 CFR 457.622(e) distinguishes allowable CHIP administration, Medicaid
+      administrative exceptions, duplicate claims, outreach, and coordination. The
+      expenditure-level claims and cited category determinations needed to compute
+      FFP are not supplied.
+  - output: us:regulations/42-cfr/457/622/e/1#chip_administration_cost_allowability
+    reason: 42 CFR 457.622(e)(1) distinguishes costs supporting operation of the approved
+      CHIP plan from costs of operating other programs; the activity and cost allocations
+      are not supplied.
+  - output: us:regulations/42-cfr/457/622/e/2#medicaid_administration_enhanced_ffp_exception
+    reason: 42 CFR 457.622(e)(2) depends on Medicaid administrative expenditures attributable
+      to assistance for children described in sections 1905(u)(2) and (3), or the
+      presumptive eligibility period described in section 1920A, and on whether those
+      costs were claimed under Medicaid; the corresponding expenditure and claims
+      determinations are not supplied.
+  - output: us:regulations/42-cfr/457/622/e/3#duplicate_administrative_expenditure_exclusion
+    reason: 42 CFR 457.622(e)(3) excludes administrative activities for items or services
+      within another claimed expenditure; the item-level claim overlap is not supplied.
+  - output: us:regulations/42-cfr/457/622/e/4#family_outreach_administrative_ffp
+    reason: 42 CFR 457.622(e)(4) concerns expenditures for outreach activities defined
+      in sections 2102(c)(1) and 2105(a)(2)(C) of the Act; the cited activity classifications
+      and attributable expenditures are not supplied.
+  - output: us:regulations/42-cfr/457/622/e/5#program_coordination_administrative_ffp
+    reason: 42 CFR 457.622(e)(5) requires distinguishing CHIP coordination activities
+      specified in section 2102(c)(2) from administration of other programs and activities
+      common among programs; the activity-level classifications and costs are not
+      supplied.
+  - output: us:regulations/42-cfr/457/622#enhanced_fmap
+    reason: Computing the stated lower-of formula requires the regular FMAP determined
+      under section 1905(b) of the Act; no RuleSpec export for that numeric rate is
+      supplied in the available context.
+    source_values:
+    - us:regulations/42-cfr/457/622#enhanced_fmap_regular_rate_multiplier
+    - us:regulations/42-cfr/457/622#enhanced_fmap_additional_percentage_points
+    - us:regulations/42-cfr/457/622#enhanced_fmap_ceiling
+  - output: us:regulations/42-cfr/457/622#enhanced_fmap_availability_under_paragraph_c
+    reason: Paragraph (c) conditions availability on State-plan approval, expenditure
+      allowability, allotment availability, the 10 percent limit, and, for the specified
+      unborn-child eligibility election, compliance with Medicaid eligibility standards
+      in effect on June 1, 1997. This mixed program-eligibility and allotment determination
+      is not represented by an available canonical dependency in the supplied context.
+  - output: us:regulations/42-cfr/457/622#enhanced_fmap_expenditure_categories_under_paragraph_d
+    reason: Paragraph (d) makes enhanced FMAP available for listed CHIP expenditure
+      categories and subjects specified categories to the 10 percent limit under section
+      457.618(a)(2); no RuleSpec export for that cited limit is supplied in the available
+      context.
+  - output: us:regulations/42-cfr/457/622/e#deferred_e
+    reason: Generated module encodes the supported rules from this source, but this
+      source subparagraph depends on policy surfaces or entities that are not available
+      in the current RuleSpec context. It is deferred instead of being modeled as
+      a caller-supplied input or an unsupported local entity.
+rules:
+- name: enhanced_fmap_regular_rate_multiplier
+  kind: parameter
+  dtype: Rate
+  source: 42 CFR 457.622(b)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/457/622
+          excerpt: 70 percent of the regular FMAP
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.70'
+- name: enhanced_fmap_additional_percentage_points
+  kind: parameter
+  dtype: Rate
+  source: 42 CFR 457.622(b)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/457/622
+          excerpt: plus 30 percentage points
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.30'
+- name: enhanced_fmap_ceiling
+  kind: parameter
+  dtype: Rate
+  source: 42 CFR 457.622(b)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/457/622
+          excerpt: 85 percent
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.85'
+- name: claimed_expenditure_limit_rate
+  kind: parameter
+  dtype: Rate
+  source: 42 CFR 457.622(c)(4)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/457/622
+          excerpt: 10 percent limit for the fiscal year
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.10'
+- name: listed_expenditure_limit_rate
+  kind: parameter
+  dtype: Rate
+  source: 42 CFR 457.622(d)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/457/622
+          excerpt: Subject to the 10 percent limit provisions under § 457.618(a)(2)
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.10'

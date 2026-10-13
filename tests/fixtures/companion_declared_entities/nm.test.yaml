@@ -1,0 +1,6 @@
+- name: dependent_claimant_is_admitted
+  period: 2026-01
+  input:
+    us-nm:statutes/7-2-39#input.claimable_as_dependent_on_another_return: true
+  output:
+    us-nm:statutes/7-2-39#nm_certain_dependents_person_admission: holds

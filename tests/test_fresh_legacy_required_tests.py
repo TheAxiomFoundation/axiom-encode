@@ -123,7 +123,8 @@ def test_fresh_legacy_required_tests_route_all_stages(stage, conflict, version):
         assert json.loads(signing_cases) == [CASE]
 
 
-def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
+@pytest.mark.parametrize("legacy", [True, False])
+def test_fresh_replacement_encode_receives_exact_required_contract(tmp_path, legacy):
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -151,13 +152,16 @@ def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
     env = {
         **os.environ,
         **{key: "" for key in step["env"]},
+        "workflow_python": os.sys.executable,
+        "backfill_helper": str(ROOT / "scripts/prepare_signed_backfill.py"),
+        "PYTHONPATH": str(ROOT / "src"),
         "RUNNER_TEMP": str(tmp_path),
         "GITHUB_WORKSPACE": str(tmp_path),
         "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
         "CITATION": "us/guidance/example",
         "REVIEW_FINDING": "",
         "REPLACE_RULESPEC_PATH": "us/policies/example.yaml",
-        "REPLACE_LEGACY_RULESPEC_PATH": "us/policies/example.yaml",
+        "REPLACE_LEGACY_RULESPEC_PATH": "us/policies/example.yaml" if legacy else "",
         "required_imports_enabled": "false",
         "target_require_complete_source_unit": "true",
         "primary_required_test_cases_json": json.dumps(cases),
@@ -170,7 +174,7 @@ def test_fresh_legacy_encode_receives_exact_required_contract(tmp_path):
     assert result.returncode == 0, result.stderr
     args = result.stdout.rstrip("\0").split("\0")
     assert "--require-complete-source-unit" in args
-    assert "--replace-legacy-rulespec-path" in args
+    assert ("--replace-legacy-rulespec-path" in args) == legacy
     assert json.loads(args[args.index("--review-contract-json") + 1]) == {
         "schema": "axiom-encode/review-contract/v2",
         "citation": env["CITATION"],

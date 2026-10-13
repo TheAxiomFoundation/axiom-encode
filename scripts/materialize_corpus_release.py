@@ -13,10 +13,16 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-MAX_REGISTRY_RESPONSE_BYTES = 16 * 1024 * 1024
+# Kept equal to axiom_encode.corpus_resolver.MAX_RELEASE_OBJECT_BYTES by
+# tests/test_materialize_corpus_release.py.
+MAX_REGISTRY_RESPONSE_BYTES = 64 * 1024 * 1024
 _RELEASE_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+_OVERSIZED_RESPONSE = (
+    f"registry response exceeds the {MAX_REGISTRY_RESPONSE_BYTES // (1024 * 1024)} "
+    "MiB limit"
+)
 
 
 class ReleaseAcquisitionError(ValueError):
@@ -59,7 +65,7 @@ def _read_bounded_regular_file(path: Path) -> bytes:
         if not stat.S_ISREG(metadata.st_mode):
             raise ReleaseAcquisitionError("registry response is not a regular file")
         if metadata.st_size > MAX_REGISTRY_RESPONSE_BYTES:
-            raise ReleaseAcquisitionError("registry response exceeds the 16 MiB limit")
+            raise ReleaseAcquisitionError(_OVERSIZED_RESPONSE)
         chunks: list[bytes] = []
         remaining = MAX_REGISTRY_RESPONSE_BYTES + 1
         while remaining:
@@ -70,7 +76,7 @@ def _read_bounded_regular_file(path: Path) -> bytes:
             remaining -= len(chunk)
         payload = b"".join(chunks)
         if len(payload) > MAX_REGISTRY_RESPONSE_BYTES:
-            raise ReleaseAcquisitionError("registry response exceeds the 16 MiB limit")
+            raise ReleaseAcquisitionError(_OVERSIZED_RESPONSE)
         return payload
     finally:
         os.close(descriptor)

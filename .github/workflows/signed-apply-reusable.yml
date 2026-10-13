@@ -416,7 +416,8 @@ jobs:
           sha="${{ steps.pins.outputs.release_sha }}"
           dest="_axiom/axiom-corpus/releases/$name"
           mkdir -p "$dest"
-          curl -fsS "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/$name/$sha.json" \
+          curl -fsS --max-filesize 67108864 \
+            "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/$name/$sha.json" \
             -o "$dest/$sha.json"
           python3 - "$dest/$sha.json" "$sha" <<'PY'
           import hashlib, json, sys

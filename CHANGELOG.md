@@ -1,6 +1,79 @@
+## 0.2.2179
+
+- Match worksheet formula proofs to independently recognized chart headings without treating a printed chart identifier as a formula operand. Preserve exact source coordinates, unique excerpt ownership and numeric proof boundaries.
+
+## 0.2.2177
+
+- Bind formula proof excerpts to their unique authoritative source locations. Keep repeated worksheet instructions attached to their own context, preserve proof boundaries and raw coordinates, and reject ambiguous overlapping excerpts.
+
+## 0.2.2176
+
+- Integrate declared-entity companion inputs with source-bound worksheet evidence and binary arithmetic instructions. Keep package provenance and all current-version assertions aligned with the combined runtime.
+
+## 0.2.2175
+
+- Require formula coverage for explicit binary add, subtract, multiply and divide instructions with quantitative operands or source row references. Preserve operand order and raw source context; do not treat identifier numbers, quoted instructions or unsupported conditions as positive arithmetic instructions.
+
+## 0.2.2174
+
+- Record the finalized worksheet-evidence implementation after formatting so generated artifact provenance includes every encoder-affecting commit. No calculation or validation behavior changes.
+
+## 0.2.2173
+
+- Bind worksheet replacement operations, existing equality witnesses and the complete worksheet operation block to current source proofs, selected versions and independently executed companion cases. Preserve distinct-witness allocation and annual coverage accounting; reject stale private rounding context.
+
+## 0.2.2172
+
+- Recognize the source-owned foreign-country count and tax threshold only with exact typed facts, complete proofs, effective dates, and independently corroborated boundary cases. Preserve unrelated income-condition findings.
+
 # Changelog
 
 All notable changes to Axiom Encode will be documented here.
+
+- Recognize source-equivalent nested worksheet guards and directly owned
+  part-year income sums. Keep typed dependencies, selected proof ownership,
+  source arithmetic and executed companion witnesses mandatory.
+
+- Recognize four explicit Alberta form-line input spellings in T2036 worksheet
+  path evidence. Source coordinates, types, proof ownership and runtime witnesses
+  remain required; ambiguous declarations and imported aliases fail closed.
+
+- Keep US manual and form locators out of complete-source-unit numeric recall:
+  `WAC` section citations, `policy NNN-N` cross-references, numbered manual
+  section headings, telephone numbers, PO boxes, ZIP+4 codes and
+  letter-prefixed form numbers are no longer demanded as named scalars.
+  Paginated manuals also drop the page number and `(MM/YYYY)` revision
+  stamp of their page headers (`93 (07/2026) Chapter 2:...`), which the
+  Oregon Programs Eligibility Notebook prints on every page. Values stay in
+  recall when a unit follows them (`policy 10-day notice`) or when a
+  cents-shaped row such as `44.50 Countable Earned Income` sits beside a
+  `$` amount line of a budget table.
+
+- Stop agency-manual typography from creating complete-source-unit
+  formula-output obligations. The arithmetic recognizer read a month/year
+  date (`93 (07/2026)`, the header of every Oregon Programs Eligibility
+  Notebook page), a `•` list bullet between words, a web address and a
+  footnote asterisk as operators, so every Oregon page in the SNAP dispatch
+  pilot asked for a computation no encoding could provide. Those spans are
+  now masked before matching; a `•` next to a number, a parenthesis or a
+  one-letter variable stays multiplication (the § 32a EStG tariff), as does
+  an asterisk next to a number or one-letter variable. The same typography
+  no longer adds a division or a multiplication to the source operations or
+  the source topology that the formula-output check compares with the
+  encoded formula. Across corpus 8f7d60aa this removes 9,105 of 277,800
+  computation clauses and adds none; about 90 removed clauses state a real
+  formula only in words or `$` amounts, which the recognizer did not cover
+  before either.
+
+- Accept a federal regulation's `<title>-cfr` module root
+  (`us:regulations/42-cfr/457/800/...`) as a complete-source-unit deferral
+  anchor alongside the corpus-shaped `us:regulations/42/457/800/...` root. The
+  source sub-paragraph coverage gate and the apply-time scope filter already
+  counted that root, while completeness coverage silently dropped it, so one
+  deferral could satisfy at most one of the two gates and the model saw only
+  "neither encoded nor precisely deferred". Imprecise regulation deferrals now
+  get `[complete-source-unit:deferral]` feedback naming the literal canonical
+  branch citation (`us/regulation/42/457/622(a)`), as statute deferrals do.
 
 - Raise the LLM judge output budget from 2,048 to 16,000 tokens and report a
   reply cut off by the budget as a `max_tokens` judge error naming the budget,
