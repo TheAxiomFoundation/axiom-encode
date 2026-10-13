@@ -155,7 +155,14 @@ Python. The scripts cover:
   before the composer is built (the engine's as a link to its checkout until
   the built view replaces it), as CI relocates every checkout before "Build
   protected axiom-compose runtime", so a composer lock that names a sibling
-  by path resolves it. `ci` also points the
+  by path resolves it. In CI every entry is a disposable checkout, and uv
+  may build a path dependency's metadata in its source tree (setuptools
+  writes `.egg-info` there). So each sibling the composer's `uv.lock`, its
+  `[tool.uv.sources]` paths or its workspace members reach is swapped for a
+  fresh clone at its pin while the composer builds, then removed and linked
+  again; the developer's checkouts are never a build directory. A local
+  source that resolves outside the dependency root, where no runner has a
+  checkout, fails resolution. `ci` also points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
   as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
@@ -188,12 +195,14 @@ Python. The scripts cover:
   which outranks a `cache-dir` in any configuration file, and `ci` sets the
   variable to that directory in its own temporary `RUNNER_TEMP` (under
   `--offline`, to uv's default cache directory, which then has to hold the
-  requirements). The exception is a `cache-dir` in the rules checkout's own
-  `uv.toml` or `pyproject.toml`: setup-uv then leaves the variable unset and
-  CI's uv writes its cache wherever the pull request says. `ci` asks uv for
-  the directory it would use (`uv cache dir`, which creates nothing), reads
-  the two files as setup-uv does, and fails resolution if either names one,
-  since locally that write would leave its temporary directories. Finally the
+  requirements). The exception is a `cache-dir` that setup-uv itself finds
+  in the rules checkout's own `uv.toml` or `pyproject.toml`: it then leaves
+  the variable unset and CI's uv writes its cache wherever the pull request
+  says. `ci` reads those two files as setup-uv does and fails resolution if
+  they name one, since locally that write would leave its temporary
+  directories. Other committed cache settings apply as in CI: under
+  `no-cache`, uv uses a temporary cache. uv's temporary files, that cache
+  included, go to a directory in `ci`'s `RUNNER_TEMP`. Finally the
   encoder pin's own
   `scripts/provision_axiom_compose_runtime.py`, read blob by blob from the
   pinned commit (not the worktree, and without local Git attributes or
@@ -544,6 +553,11 @@ named:
   the checkouts themselves; ci hands subcommands the resolved paths. A
   repository test that passes such an entry to a symlink-refusing tool would
   fail locally and not in CI.
+- **Composer build products in sibling entries.** When the composer builds a
+  sibling dependency from its path, CI's build products (such as a
+  setuptools `.egg-info`) stay in that disposable checkout for later steps;
+  `ci` builds in a fresh clone and removes it afterwards, so later steps see
+  the link to the developer's checkout instead.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` sets `UV_CACHE_DIR` for
   the composer build only and does not export either to repository pytest.
@@ -564,13 +578,19 @@ named:
   its pin, as it would in CI. Under `--offline`, uv's cache must already hold
   the composer's dependencies and a managed Python 3.14.
 - **"Cannot reproduce CI with a committed uv cache directory".** The rules
-  checkout's `uv.toml` or `pyproject.toml` sets `cache-dir`. CI's uv writes
+  checkout's `uv.toml` or `pyproject.toml` sets `cache-dir`, as setup-uv
+  reads them. CI's uv writes
   its cache there on a disposable runner; `ci` will not write to a directory
   a pull request names. The message carries the directory.
 - **`composer-uv-config` mismatch.** uv would read host configuration a
   runner does not have: `/etc/uv/uv.toml`, or a `uv.toml` or `[tool.uv]`
   table above the temporary directory (the message names the file). For the
   second, point `TMPDIR` outside the uv project.
+- **"composer path source ... outside the dependency root".** The
+  composer's lock or `pyproject.toml` names a local path outside
+  `$AXIOM_DEPENDENCY_ROOT` (or leaves its checkout through a symlink). No
+  runner has a checkout there, so `ci` will not build from one on this
+  machine.
 - **"Corpus release cache path ... is a symlink".** The corpus checkout's
   `releases` directory, the release's directory or the object path is a
   symlink, so the release object would be written outside the checkout.
