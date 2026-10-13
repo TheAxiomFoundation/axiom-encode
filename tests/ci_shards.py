@@ -6,16 +6,18 @@ keeps only the tests this module assigns to shard ``k``. Unset, nothing here
 runs and pytest behaves as it always has.
 
 The unit of assignment is the test function (a parametrized function's cases
-stay together), because four files take most of the suite's time and must be
-split below the file. ``assign`` is a pure function of the collected functions,
-how many cases each has, and ``ci_shard_seconds.json``; every shard collects the
-same suite, so every shard computes the same assignment and each function runs
-in exactly one of them.
+stay together), because a few functions take most of the suite's time and
+their files must be split. ``assign`` is a pure function of the collected
+functions, how many cases each has, and ``ci_shard_seconds.json``; every shard
+collects the same suite, so every shard computes the same assignment and each
+function runs in exactly one of them.
 
-That argument needs every shard to see the same collection. Each shard
-therefore reports what it collected and what it kept (``report``), and the
-``test (3.13)`` job in ``ci.yml`` runs ``check_reports``: it fails unless all
-shards reported, they agree on the collection digest, and the kept counts add
+That argument needs every shard to see the same collection and the same
+table, and each shard to run what it kept. So a shard publishes a report only
+after pytest exits 0 having run every test it kept. The report carries a
+digest of the collection and of the assignment computed from it. The
+``test (3.13)`` job in ``ci.yml`` runs ``check_reports``: it fails unless every
+shard published a report, the digests and totals agree, and the kept counts add
 up to the collected ones.
 
 ``ci_shard_seconds.json`` holds seconds per test file, and per test function
@@ -24,6 +26,8 @@ drops a test. To refresh it, save the "Run tests" logs of a green run's shards
 and run::
 
     python -m tests.ci_shards seconds shard-1.log shard-2.log ... > tests/ci_shard_seconds.json
+
+No shard can be shorter than the slowest single test function.
 """
 
 from __future__ import annotations
@@ -147,9 +151,16 @@ def assign(
     return assignment
 
 
-def digest(unit_cases: Mapping[str, int]) -> str:
-    """Identifies a collection: the units and how many cases each has."""
-    lines = "".join(f"{unit}\t{cases}\n" for unit, cases in sorted(unit_cases.items()))
+def digest(unit_cases: Mapping[str, int], assignment: Mapping[str, int]) -> str:
+    """Identifies a collection and its split: each unit, its cases and its shard.
+
+    Two shards with equal digests collected the same functions with the same
+    case counts and assigned them the same way, so they hold the same table.
+    """
+    lines = "".join(
+        json.dumps([unit, cases, assignment[unit]]) + "\n"
+        for unit, cases in sorted(unit_cases.items())
+    )
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
@@ -189,7 +200,7 @@ def select(
         kept_units=kept_units,
         cases=len(units),
         kept_cases=sum(keep),
-        collection=digest(unit_cases),
+        collection=digest(unit_cases, assignment),
     )
 
 
