@@ -77,6 +77,7 @@ def _format_coverage_index(
             )
             bindings = sc._principal_formula_clause_rules(
                 formulas,
+                source_text=source_text,
                 principal_rules=principals,
                 principal_rule_paths=paths,
                 named_rules={r["name"]: r for r in payload["rules"]},

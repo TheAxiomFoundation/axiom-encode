@@ -1,0 +1,1 @@
+Admit production-signed manifests from first-parent encoder main descendants of the consumer pin, using complete Git history and failing closed when ancestry cannot be proved. Preserve exact-pin, signature, internal identity, final-byte and nested historical manifest checks.
