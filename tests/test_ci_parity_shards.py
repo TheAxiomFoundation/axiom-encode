@@ -70,7 +70,7 @@ def test_resolution_failure_preserves_the_completed_shards_job(
     assert ci_parity.run_ci(harness.args()) == 1
     report = json.loads(capsys.readouterr().out)
     expected = ["unsupported_paths"]
-    if pin == PIN_6F11BE26:
+    if ci_parity.SUPPORTED_WORKFLOW_PINS[pin].gate_parameters.unmanifested_precheck:
         expected.append("unmanifested_rulespec")
     expected.append("compute_shards")
     assert [gate["gate"] for gate in report["gates"]] == expected
@@ -147,7 +147,7 @@ def test_shards_checks_execute_once_before_the_validate_job(
     assert keys.count("unsupported_paths") == 1
     assert keys.count("compute_shards") == 1
     assert len(harness.calls["_gate_unsupported_paths"]) == 1
-    if pin == PIN_6F11BE26:
+    if ci_parity.SUPPORTED_WORKFLOW_PINS[pin].gate_parameters.unmanifested_precheck:
         assert keys.count("unmanifested_rulespec") == 1
         assert len(harness.calls["_gate_unmanifested_rulespec"]) == 1
 
@@ -713,7 +713,12 @@ def _path_waiver_record() -> dict[str, str]:
 
 
 @pytest.mark.parametrize(
-    "pin", [workflow_gates.PIN_0EFFA6A5, workflow_gates.PIN_6F11BE26]
+    "pin",
+    [
+        workflow_gates.PIN_0EFFA6A5,
+        workflow_gates.PIN_6F11BE26,
+        workflow_gates.PIN_92CCB0F2,
+    ],
 )
 @pytest.mark.parametrize("path", ["us/statutes/A.yaml", "us/statutes/Sub/a.yaml"])
 def test_waiver_audit_rejects_case_aliases_before_supervised_audit(
