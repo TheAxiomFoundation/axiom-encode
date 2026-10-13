@@ -469,17 +469,23 @@ is created exclusively with owner-only permissions, so an existing file or
 symlink is never overwritten. An interrupted write can leave a partial new file.
 Generation, validation, and signed `--apply` retain their existing behavior.
 
-Run the cross-repository tests with a built, real core executable:
+The cross-repository tests in `tests/test_core_export_integration.py` run a
+real core executable. Encoder CI's `real-core` job compiles
+TheAxiomFoundation/axiom-core at the commit pinned in `.github/workflows/ci.yml`
+(`AXIOM_CORE_REF`) and runs them with `AXIOM_REQUIRE_REAL_CORE=1`, under which a
+missing or unpinned core fails them. Core's own CI runs the same tests against a
+pinned encoder revision. To run them locally with a core built by
+`cargo build --locked --bin axiom-core`:
 
 ```bash
 AXIOM_CORE_BIN=/absolute/path/to/axiom-core/target/debug/axiom-core \
   uv run pytest --no-cov -q tests/test_core_export_integration.py
 ```
 
-Without `AXIOM_CORE_BIN`, these tests skip explicitly; a configured but unusable
-binary fails. Public encoder CI runs the exporter tests. Core CI runs the
-cross-repository tests against a pinned encoder revision and a freshly built
-core executable.
+Without `AXIOM_CORE_BIN`, these tests skip; a configured but unusable binary
+fails them. Also set `AXIOM_CORE_REF=<commit>` to check that the binary sits at
+the cargo build path of a checkout that is clean at that commit, and reports
+that checkout's `Cargo.lock` digest.
 
 ## Eval suites and readiness gates
 

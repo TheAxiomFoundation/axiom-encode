@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -27,21 +26,9 @@ MODULES = {
 
 
 @pytest.fixture(scope="session")
-def entity_engine() -> tuple[Path, Path]:
-    """Resolve an existing engine without building or crawling checkouts."""
-    locator = shutil.which("axiom-locate")
-    if locator is None:
-        pytest.skip("axiom-locate is unavailable")
-    located = subprocess.run(
-        [locator, "engine"], capture_output=True, text=True, check=False, timeout=30
-    )
-    if located.returncode != 0:
-        pytest.skip("a built axiom-rules-engine is unavailable")
-    binary = Path(located.stdout.strip().splitlines()[0])
-    engine_root = binary.parent
-    if engine_root.name in {"release", "debug"} and engine_root.parent.name == "target":
-        engine_root = engine_root.parent.parent
-    return binary, engine_root
+def entity_engine(real_engine) -> tuple[Path, Path]:
+    """The real engine's binary and checkout (tests/real_engine.py)."""
+    return real_engine.binary, real_engine.root
 
 
 def _fixture_module(tmp_path: Path, family: str) -> tuple[Path, Path]:
