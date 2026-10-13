@@ -319,6 +319,7 @@ _EFFECT_CALLS = frozenset(
 # other module's referenced members are, so a program that starts calling
 # os.path.expandvars, shutil.which or sys.platform changes its interface.
 # datetime is here because the clock is an input ci already fixes (UTC).
+# yaml is not: yaml.load with a full Loader constructs arbitrary objects.
 _PURE_MODULES = frozenset(
     {
         "abc",
@@ -348,7 +349,6 @@ _PURE_MODULES = frozenset(
         "tomllib",
         "typing",
         "unicodedata",
-        "yaml",
     }
 )
 # Attributes that reach the host through an object (a Path, a stat result):
@@ -563,15 +563,21 @@ class _InterfaceVisitor:
         self.names.add(".".join(resolved))
 
     def _dotted(self, node: ast.AST) -> tuple[str, bool]:
-        """(resolved dotted name, whether its base is an imported module)."""
+        """(resolved dotted name, whether its base is an imported module).
+
+        A base that is not an import (a local variable, a call, a literal) is
+        an object, written ``<object>``.
+        """
 
         parts: list[str] = []
         while isinstance(node, ast.Attribute):
             parts.append(node.attr)
             node = node.value
-        if isinstance(node, ast.Name):
-            base = self.aliases.get(node.id, node.id)
+        if isinstance(node, ast.Name) and node.id in self.aliases:
+            base = self.aliases[node.id]
             return ".".join([base, *reversed(parts)]), node.id in self.modules
+        if isinstance(node, ast.Name) and not parts:
+            return node.id, False  # a builtin or local name used bare
         return ".".join(["<object>", *reversed(parts)]), False
 
     def _call(self, node: ast.AST) -> ast.Call | None:
@@ -642,13 +648,20 @@ class _InterfaceVisitor:
             self.effects.add(leaf)
         elif call is not None and dotted.startswith("<object>."):
             # Path.replace(target) and Path.copy(target) share a name with
-            # str.replace(old, new) and dict.copy(); the argument count tells
-            # them apart.
-            # (datetime.replace takes keywords only.)
-            if (leaf == "replace" and len(call.args) == 1 and not call.keywords) or (
-                leaf == "copy" and call.args
+            # str.replace(old, new), dict.copy() and datetime.replace(**fields);
+            # the arguments tell them apart: one target, positional or `target=`.
+            keywords = {keyword.arg for keyword in call.keywords}
+            if leaf == "replace" and (
+                (len(call.args) == 1 and not keywords)
+                or (not call.args and keywords == {"target"})
             ):
-                self.effects.add(f"{leaf}({len(call.args)})")
+                self.effects.add("replace(target)")
+            elif leaf == "copy" and (call.args or "target" in keywords):
+                self.effects.add("copy(target)")
+            elif leaf == "group" and not call.args and not keywords:
+                # Path.group() names the file's owning group; a regex match's
+                # group() is m.group(0), which no packaged program writes.
+                self.names.add("<object>.group()")
         if leaf in {"open", "fdopen"}:
             self._open(dotted, on_module, call, node)
 
@@ -786,21 +799,53 @@ def workflow_call(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     return call if isinstance(call, Mapping) else {}
 
 
+_INPUT_PROPERTIES = frozenset({"description", "type", "required", "default"})
+_INPUT_TYPES = frozenset({"string", "boolean", "number"})
+
+
 def declared_inputs(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """Every ``workflow_call`` input, in declaration order, without descriptions."""
+    """Every ``workflow_call`` input, in declaration order, without descriptions.
+
+    Each declaration must be one GitHub accepts (actions/languageservices
+    workflow-v1.0.json, workflow-call-input-definition): only ``description``
+    (a string), ``type`` (``string``, ``boolean`` or ``number``), ``required``
+    (a boolean) and ``default`` (a string, boolean or number). A declaration
+    GitHub would reject is refused rather than normalized into one it accepts.
+    """
 
     raw = workflow_call(payload).get("inputs") or {}
     if not isinstance(raw, Mapping):
         raise GlueError("workflow_call inputs is not a mapping")
     inputs: dict[str, dict[str, Any]] = {}
     for name, declaration in raw.items():
-        if not isinstance(name, str) or not isinstance(declaration, Mapping):
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(declaration, Mapping)
+        ):
             raise GlueError(f"workflow_call input {name!r} is malformed")
-        inputs[name] = {
-            "type": declaration.get("type"),
-            "required": bool(declaration.get("required", False)),
-            "default": declaration.get("default"),
-        }
+        unknown = set(declaration) - _INPUT_PROPERTIES
+        if unknown:
+            raise GlueError(
+                f"workflow_call input {name} has properties GitHub does not "
+                f"accept: {', '.join(sorted(map(str, unknown)))}"
+            )
+        kind = declaration.get("type")
+        if kind not in _INPUT_TYPES:
+            raise GlueError(f"workflow_call input {name} has type {kind!r}")
+        required = declaration.get("required", False)
+        if not isinstance(required, bool):
+            raise GlueError(f"workflow_call input {name} required is not a boolean")
+        if not isinstance(declaration.get("description", ""), str):
+            raise GlueError(f"workflow_call input {name} description is not a string")
+        default = declaration.get("default")
+        if "default" in declaration and not isinstance(
+            default, str | bool | int | float
+        ):
+            raise GlueError(
+                f"workflow_call input {name} default is not a string, boolean or number"
+            )
+        inputs[name] = {"type": kind, "required": required, "default": default}
     return inputs
 
 
@@ -1851,7 +1896,8 @@ def check_portable_yaml(text: str) -> None:
       top-level ``true:`` is not ``on:``);
     - no mapping defines a key twice, compared without case as GitHub's parser
       does (it reports the second as already defined; PyYAML keeps the last);
-    - no anchor, alias or explicit tag (``!``, ``!!str``...).
+    - no anchor, alias or explicit tag (``!``, ``!!str``...), and no
+      ``%YAML`` or ``%TAG`` directive (GitHub's reader honours ``%YAML 1.1``).
     """
 
     try:
@@ -1860,6 +1906,11 @@ def check_portable_yaml(text: str) -> None:
     except yaml.YAMLError as exc:
         raise GlueError(f"the workflow is not valid YAML: {exc}") from exc
     for event in events:
+        if isinstance(event, yaml.DocumentStartEvent) and (
+            event.version is not None or event.tags
+        ):
+            # %YAML 1.1 changes what GitHub's reader makes of `on`, `yes`...
+            raise GlueError("the workflow uses a %YAML or %TAG directive")
         if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
             raise GlueError("the workflow uses a YAML anchor or alias")
         if (

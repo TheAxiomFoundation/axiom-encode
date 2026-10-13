@@ -573,6 +573,11 @@ _INTERFACE_LINES = st.sampled_from(
         'from pathlib import Path; Path("ci-pin-a").replace("ci-pin-b")',
         'from pathlib import Path; Path("ci-pin-a").stat().st_uid',
         'from pathlib import Path; Path("ci-pin-a").owner()',
+        'from pathlib import Path; Path(".").group()',
+        'from pathlib import Path; ci_pin_p = Path("ci-pin-a"); ci_pin_p.replace("ci-pin-b")',
+        'from pathlib import Path; Path("ci-pin-a").replace(target="ci-pin-b")',
+        'from pathlib import Path; Path("ci-pin-a").copy(target="ci-pin-b")',
+        'import yaml; yaml.unsafe_load("ci-pin: 1")',
     ]
 )
 
@@ -628,6 +633,7 @@ def test_exit_status_program_edits_keep_the_digest_iff_the_interface_holds(
         ('from os import getenv as g; g("GITHUB_BASE_REF")', False),
         ('import os; os.path.expandvars("$GITHUB_BASE_REF")', False),
         ("import sys; sys.platform", False),
+        ('from pathlib import Path; assert Path(".").group() == "staff"', False),
         ("import socket", False),
         ('open("ci-pin-property", "w")', False),
     ],
@@ -842,6 +848,26 @@ ALIASED_ACCESS = [
         "<object>.resolve",
     ),
     ("x = entry.owner()\n", "names", "<object>.owner"),
+    ("from pathlib import Path\nx = Path('.').group()\n", "names", "<object>.group()"),
+    # Local receivers and keyword targets write files too.
+    (
+        "from pathlib import Path\np = Path('a')\np.replace('b')\n",
+        "effects",
+        "replace(target)",
+    ),
+    (
+        "from pathlib import Path\nPath('a').replace(target='b')\n",
+        "effects",
+        "replace(target)",
+    ),
+    (
+        "from pathlib import Path\nPath('a').copy(target='b')\n",
+        "effects",
+        "copy(target)",
+    ),
+    # yaml is not pure: a full Loader constructs arbitrary objects.
+    ("import yaml\nx = yaml.load(text, Loader=yaml.Loader)\n", "names", "yaml.Loader"),
+    ("import yaml\nx = yaml.unsafe_load(text)\n", "names", "yaml.unsafe_load"),
     (
         "import os\nx = getattr(os, 'environ')['NEW']\n",
         "opaque",
@@ -909,6 +935,9 @@ def test_ordinary_code_is_not_opaque() -> None:
         "data = json.loads('{}')\n"
         "import datetime\n"
         "when = datetime.datetime(2026, 1, 1).replace(tzinfo=datetime.timezone.utc)\n"
+        "match = re.match('(a)', 'a')\n"
+        "first = match.group(1)\n"
+        "name = match.group('x')\n"
     )
 
     assert (interface.opaque, interface.effects, interface.executables) == ((), (), ())
@@ -918,6 +947,7 @@ def test_ordinary_code_is_not_opaque() -> None:
 def test_members_are_named_for_every_module_that_is_not_pure() -> None:
     # A pure module's members cannot reach the environment, so only its import
     # counts; any other module's members are named, known or not.
+    assert "yaml" not in ci_parity_pins._PURE_MODULES
     interface = program_interface(
         "import datetime, os, some_third_party\n"
         "from decimal import Decimal\n"
@@ -1786,3 +1816,79 @@ def test_portable_yaml_check_is_the_same_under_either_pyyaml_parser(
         edited = text.replace("fetch-depth: 0\n", f"fetch-depth: 0\n{addition}", 1)
         with pytest.raises(GlueError, match=message):
             ci_parity_pins.load_workflow(edited.encode())
+
+
+def test_an_unsafe_yaml_loader_in_an_exit_status_program_needs_review() -> None:
+    # The pre-check parses repository YAML; a full loader would run its tags.
+    payload = _payload(PIN_92CCB0F2)
+    step = _step(payload, *PRECHECK)
+    assert "yaml.safe_load(" in step["run"]
+    step["run"] = step["run"].replace("yaml.safe_load(", "yaml.unsafe_load(")
+
+    admission = _admit(payload)
+    assert _kinds(admission) == {"unreviewed"}
+    assert [problem.unit.label for problem in admission.problems] == [
+        "shards / Reject unmanifested RuleSpec content"
+    ]
+
+
+@pytest.mark.parametrize(
+    "header",
+    ["%YAML 1.1\n---\n", "%YAML 1.2\n---\n", "%TAG !e! tag:example.com,2026:\n---\n"],
+)
+def test_yaml_directives_are_refused(header: str) -> None:
+    # GitHub's reader honours %YAML 1.1, where a plain `on` is a boolean.
+    text = header + packaged_bytes(PIN_92CCB0F2).decode()
+    assert yaml.safe_load(text) == yaml.safe_load(packaged_bytes(PIN_92CCB0F2))
+
+    with pytest.raises(GlueError, match="directive"):
+        ci_parity_pins.load_workflow(text.encode())
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda d: d.__setitem__("required", "false"), "required is not a boolean"),
+        (lambda d: d.__setitem__("required", "true"), "required is not a boolean"),
+        (
+            lambda d: d.__setitem__("options", ["a"]),
+            "properties GitHub does not accept: options",
+        ),
+        (
+            lambda d: d.__setitem__("defualt", "x"),
+            "properties GitHub does not accept: defualt",
+        ),
+        (lambda d: d.__setitem__("type", "choice"), "has type 'choice'"),
+        (lambda d: d.pop("type"), "has type None"),
+        (lambda d: d.__setitem__("default", None), "default is not a string"),
+        (lambda d: d.__setitem__("default", ["a"]), "default is not a string"),
+        (lambda d: d.__setitem__("description", 3), "description is not a string"),
+    ],
+)
+def test_input_declarations_github_rejects_are_refused(edit: Any, message: str) -> None:
+    payload = _payload(PIN_92CCB0F2)
+    edit(payload[True]["workflow_call"]["inputs"]["python-version"])
+
+    admission = _admit(payload)
+    assert _kinds(admission) == {"malformed"}
+    assert message in admission.problems[0].message
+
+
+def test_input_declarations_keep_their_values() -> None:
+    inputs = declared_inputs(packaged_payload(PIN_92CCB0F2))
+
+    assert inputs["axiom-encode-ref"] == {
+        "type": "string",
+        "required": True,
+        "default": None,
+    }
+    assert inputs["run-pytest"] == {
+        "type": "boolean",
+        "required": False,
+        "default": True,
+    }
+    assert inputs["validation-workers"] == {
+        "type": "number",
+        "required": False,
+        "default": 1,
+    }
