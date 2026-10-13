@@ -1,3 +1,7 @@
+## 0.2.2181
+
+- Preserve source-bound numeric cells in flattened SNAP tables and recognize the exact FY2026 FNS table caption as published values, without treating its percent label as a computation.
+
 ## 0.2.2180
 
 - Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
