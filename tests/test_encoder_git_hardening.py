@@ -1,9 +1,11 @@
-"""Producer history uses the provisioned repository's unmodified commit graph."""
+"""Producer admission ignores commit-graphs and rejects redirected main refs."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -40,6 +42,9 @@ _NEUTRAL_GIT_ENVIRONMENT = {
     "GIT_CONFIG_GLOBAL": "/dev/null",
     "GIT_CONFIG_SYSTEM": "/dev/null",
     "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "core.commitGraph",
+    "GIT_CONFIG_VALUE_0": "false",
     "GIT_TERMINAL_PROMPT": "0",
 }
 _HOSTILE_GIT_ENVIRONMENT = {
@@ -73,6 +78,188 @@ def _grafts(checkout: Path, content: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
     return path
+
+
+def _forked_graph(
+    root: Path, main_steps: int = 1, feature_steps: int = 1
+) -> tuple[_Graph, int, int]:
+    history = _Graph(root)
+    base = history.add(main=True)
+    pin = history.add(base, main=True)
+    main = pin
+    for _ in range(main_steps):
+        main = history.add(main, main=True)
+    feature = pin
+    for _ in range(feature_steps):
+        feature = history.add(feature)
+    _write_git_ref(history.root, "refs/heads/feature", history.commits[feature])
+    return history, main, feature
+
+
+def _forge_commit_graph_parent(
+    history: _Graph, main: int, feature: int, storage: str
+) -> None:
+    """Replace an accelerator's first parent without modifying any Git object."""
+
+    _git(
+        history.root,
+        "-c",
+        "core.commitGraph=true",
+        "-c",
+        "commitGraph.generationVersion=1",
+        "commit-graph",
+        "write",
+        "--reachable",
+    )
+    path = history.root / ".git/objects/info/commit-graph"
+    data = bytearray(path.read_bytes())
+    assert data[:6] == b"CGPH\x01\x01"
+    chunks = {
+        bytes(data[offset : offset + 4]): struct.unpack_from(">Q", data, offset + 4)[0]
+        for offset in range(8, 8 + 12 * (data[6] + 1), 12)
+    }
+    count = struct.unpack_from(">I", data, chunks[b"OIDF"] + 255 * 4)[0]
+    positions = {
+        bytes(data[offset : offset + 20]).hex(): index
+        for index in range(count)
+        for offset in [chunks[b"OIDL"] + index * 20]
+    }
+    main_record = chunks[b"CDAT"] + positions[history.commits[main]] * 36
+    feature_record = chunks[b"CDAT"] + positions[history.commits[feature]] * 36
+    assert (
+        struct.unpack_from(">I", data, main_record + 20)[0]
+        == positions[history.commits[history.parents[main][0]]]
+    )
+    main_generation = struct.unpack_from(">I", data, main_record + 28)[0]
+    feature_generation = struct.unpack_from(">I", data, feature_record + 28)[0]
+    struct.pack_into(">I", data, main_record + 20, positions[history.commits[feature]])
+    struct.pack_into(
+        ">I",
+        data,
+        main_record + 28,
+        (((feature_generation >> 2) + 1) << 2) | (main_generation & 3),
+    )
+    data[-20:] = hashlib.sha1(data[:-20]).digest()
+    path.chmod(0o644)
+    path.write_bytes(data)
+    if storage == "alternate":
+        alternate = history.root.parent / f"{history.root.name}-alternate-objects"
+        shutil.move(history.root / ".git/objects", alternate)
+        local_info = history.root / ".git/objects/info"
+        local_info.mkdir(parents=True)
+        (local_info / "alternates").write_text(str(alternate) + "\n")
+    # Both controls prove that the accelerator really changes Git traversal,
+    # while the canonical main ref and the underlying object graph stay intact.
+    assert (
+        _git(history.root, "show-ref", "--verify", "--hash", "refs/heads/main")
+        == (history.commits[main])
+    )
+    canonical = _git(
+        history.root,
+        "-c",
+        "core.commitGraph=false",
+        "rev-list",
+        "--first-parent",
+        "refs/heads/main",
+    ).splitlines()
+    assert canonical == [history.commits[index] for index in reversed(history.main)]
+    forged = _git(
+        history.root,
+        "-c",
+        "core.commitGraph=true",
+        "rev-list",
+        "--first-parent",
+        "refs/heads/main",
+    ).splitlines()
+    assert history.commits[feature] in forged
+    assert history.commits[feature] not in canonical
+
+
+@pytest.mark.parametrize("storage", ["local", "alternate"])
+def test_forged_commit_graph_cannot_add_feature_to_first_parent_main(tmp_path, storage):
+    history, main, feature = _forked_graph(tmp_path / "forged-history")
+    assert _issue(history, main) is None
+    assert _issue(history, feature)
+    _forge_commit_graph_parent(history, main, feature, storage)
+    assert _issue(history, feature)
+    assert _issue(history, main) is None
+
+
+def _symlink_main_to_feature(history: _Graph, feature: int) -> None:
+    main_ref = Path(
+        _git(
+            history.root,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "refs/heads/main",
+        )
+    )
+    main_ref.unlink()
+    main_ref.symlink_to("feature")
+    assert main_ref.is_symlink()
+    with pytest.raises(subprocess.CalledProcessError) as rejected:
+        _git(history.root, "symbolic-ref", "--quiet", "refs/heads/main")
+    assert rejected.value.returncode == 1
+    assert (
+        _git(history.root, "show-ref", "--verify", "--hash", "refs/heads/main")
+        == (history.commits[feature])
+    )
+
+
+def _use_git_layout(graph: _Graph, layout: str) -> Path:
+    if layout == "directory":
+        return graph.root / ".git"
+    common = graph.root.parent / "encoder-common.git"
+    shutil.move(graph.root / ".git", common)
+    git_dir = common
+    if layout == "linked-worktree":
+        git_dir = common / "worktrees/encoder"
+        git_dir.mkdir(parents=True)
+        (git_dir / "commondir").write_text("../..\n")
+        (git_dir / "gitdir").write_text(str(graph.root / ".git") + "\n")
+        (git_dir / "HEAD").write_text(graph.commits[1] + "\n")
+    (graph.root / ".git").write_text(f"gitdir: {git_dir}\n")
+    return common
+
+
+@pytest.mark.parametrize("layout", ["directory", "git-file", "linked-worktree"])
+def test_filesystem_symlink_main_cannot_authorize_a_feature(graph, layout):
+    _use_git_layout(graph, layout)
+    assert _issue(graph, 4) is None
+    assert _issue(graph, 5)
+    _symlink_main_to_feature(graph, 5)
+    assert _issue(graph, 5)
+
+
+@settings(
+    max_examples=10,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    main_steps=st.integers(min_value=1, max_value=3),
+    feature_steps=st.integers(min_value=1, max_value=3),
+    metadata=st.sampled_from(["local", "alternate", "symlink"]),
+)
+@example(main_steps=1, feature_steps=1, metadata="local")
+@example(main_steps=1, feature_steps=1, metadata="alternate")
+@example(main_steps=1, feature_steps=1, metadata="symlink")
+def test_generated_forks_cannot_admit_features_through_git_metadata(
+    tmp_path, main_steps, feature_steps, metadata
+):
+    counter = len(list(tmp_path.iterdir()))
+    history, main, feature = _forked_graph(
+        tmp_path / f"rewritten-graph-{counter}", main_steps, feature_steps
+    )
+    assert history.is_ancestor(1, feature)
+    assert feature not in history.main
+    if metadata == "symlink":
+        _symlink_main_to_feature(history, feature)
+    else:
+        _forge_commit_graph_parent(history, main, feature, metadata)
+        assert _issue(history, main) is None
+    assert _issue(history, feature)
 
 
 @pytest.mark.parametrize("producer", [0, 5], ids=["older-main", "never-main"])
@@ -139,16 +326,7 @@ def test_even_empty_repository_grafts_rejects_legitimate_main(graph):
 
 @pytest.mark.parametrize("layout", ["git-file", "linked-worktree"])
 def test_graft_refusal_checks_the_common_git_directory(graph, layout):
-    common = graph.root.parent / "encoder-common.git"
-    shutil.move(graph.root / ".git", common)
-    git_dir = common
-    if layout == "linked-worktree":
-        git_dir = common / "worktrees/encoder"
-        git_dir.mkdir(parents=True)
-        (git_dir / "commondir").write_text("../..\n")
-        (git_dir / "gitdir").write_text(str(graph.root / ".git") + "\n")
-        (git_dir / "HEAD").write_text(graph.commits[1] + "\n")
-    (graph.root / ".git").write_text(f"gitdir: {git_dir}\n")
+    common = _use_git_layout(graph, layout)
     assert _issue(graph, 4) is None
     (common / "info").mkdir()
     (common / "info/grafts").write_text("")
@@ -265,11 +443,14 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
     else:
         result = cli._axiom_encode_versions_at_ref(checkout, "HEAD")
     assert calls
-    for _command, environment in calls:
+    for command, environment in calls:
         assert environment is not None
         assert {
             key: value for key, value in environment.items() if key.startswith("GIT_")
         } == (_NEUTRAL_GIT_ENVIRONMENT)
+        if "--no-replace-objects" in command:
+            config = command.index("-c")
+            assert command[config + 1] == "core.commitGraph=false"
     if operation == "history":
         assert result is None
     elif operation in {"resolver", "current", "live-current"}:
@@ -316,7 +497,15 @@ def test_fetch_head_requires_one_explicit_official_main_branch(
 
 
 @pytest.mark.parametrize(
-    "kind", ["fifo", "directory", "oversize", "symlink", "invalid-encoding"]
+    "kind",
+    [
+        "fifo",
+        "directory",
+        "oversize",
+        "symlink",
+        "symlink-valid-record",
+        "invalid-encoding",
+    ],
 )
 def test_unusable_fetch_head_fails_closed_without_reading_unbounded_metadata(
     graph, kind
@@ -328,6 +517,10 @@ def test_unusable_fetch_head_fails_closed_without_reading_unbounded_metadata(
         fetch_head.mkdir()
     elif kind == "symlink":
         fetch_head.symlink_to(graph.root / ".git/HEAD")
+    elif kind == "symlink-valid-record":
+        record = graph.root / ".git/fetched-main-record"
+        record.write_text(_fetch_record(graph.commits[4]))
+        fetch_head.symlink_to(record)
     else:
         fetch_head.write_bytes(b"x" * 4097 if kind == "oversize" else b"\xff")
     assert _issue(graph, 4)

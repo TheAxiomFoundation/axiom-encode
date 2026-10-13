@@ -40,14 +40,15 @@ checkout, a missing main ref, missing history needed for the proof, a timeout or
 a Git error rejects a different producer with an ancestry diagnostic. Callers
 must stop on failed history fetches. Git commands used to verify the checkout
 and prove ancestry discard ambient `GIT_*` overrides, disable graft files,
-replacement objects and lazy object fetches. Git-backed checkout resolution and
-ancestry proofs refuse repositories containing `info/grafts` or `refs/replace/*`.
-Symbolic selected local main refs and unusable fetched-main records reject
-ancestry admission. Feature commits and merged second-parent commits remain
-inadmissible even when the pin is their ancestor. Producers older than the pin
-remain inadmissible even with the same version. Historical manifests nested in
-retirement or migration receipts retain their existing exact identity and
-signature verification.
+commit-graph use, replacement objects and lazy object fetches. This also disables
+commit-graphs supplied by alternate object stores. Git-backed checkout resolution
+and ancestry proofs refuse repositories containing `info/grafts` or `refs/replace/*`.
+Git-symbolic or filesystem-symlinked selected local main refs and unusable
+fetched-main records reject ancestry admission. Feature commits and merged
+second-parent commits remain inadmissible even when the pin is their ancestor.
+Producers older than the pin remain inadmissible even with the same version.
+Historical manifests nested in retirement or migration receipts retain their
+existing exact identity and signature verification.
 
 ## Scope and pin protection
 

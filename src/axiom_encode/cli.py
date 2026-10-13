@@ -27544,6 +27544,8 @@ def _guard_encoder_git_run(
         [
             shutil.which("git") or "git",
             "--no-replace-objects",
+            "-c",
+            "core.commitGraph=false",
             "-C",
             str(checkout),
             *args,
@@ -27618,11 +27620,9 @@ def _encoder_git_history_admission_issue(
 
         # FETCH_HEAD is a Git-written fetch record, not a ref that can redirect
         # to another branch. Callers authenticate its source and freshness.
-        fetch_head = Path(
-            require_success(
-                "rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"
-            )
-        )
+        # Keep Git paths lexical: absolute path formatting resolves filesystem
+        # symlinks before the no-follow checks can inspect them.
+        fetch_head = checkout / require_success("rev-parse", "--git-path", "FETCH_HEAD")
         if fetch_head.is_symlink():
             return "encoder fetched main record must not be symbolic"
         try:
@@ -27653,6 +27653,9 @@ def _encoder_git_history_admission_issue(
             main_ref, main_commit = "FETCH_HEAD", record[1]
         else:
             main_ref = "refs/heads/main"
+            main_path = checkout / require_success("rev-parse", "--git-path", main_ref)
+            if main_path.is_symlink():
+                return "encoder canonical main ref must not be a filesystem symlink"
             symbolic = run("symbolic-ref", "--quiet", main_ref)
             if symbolic.returncode == 0:
                 return "encoder canonical main ref must not be symbolic"
