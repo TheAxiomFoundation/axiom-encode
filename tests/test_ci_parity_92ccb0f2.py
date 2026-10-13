@@ -1772,9 +1772,16 @@ def test_a_system_uv_configuration_is_a_composer_mismatch(
     assert mismatch == ci_parity.DependencyMismatch(
         "composer-uv-config", f"system uv configuration {config}", "none"
     )
-    # A dangling link is still configuration uv would try to read.
+    # uv checks the fallback with try_exists, which follows links, so a
+    # dangling link is no configuration, as on a fresh runner.
     config.unlink()
     config.symlink_to(tmp_path / "missing.toml")
+    assert ci_parity.composer_uv_config_mismatch() is None
+    # A link to a real file is read like the file.
+    real = tmp_path / "real.toml"
+    real.write_text("")
+    config.unlink()
+    config.symlink_to(real)
     assert ci_parity.composer_uv_config_mismatch() is not None
 
 

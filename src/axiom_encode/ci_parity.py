@@ -5751,7 +5751,9 @@ SYSTEM_UV_CONFIG = Path("/etc/uv/uv.toml")
 def composer_uv_config_mismatch() -> DependencyMismatch | None:
     """A host-wide uv configuration CI's runner does not have, if any."""
 
-    if not (SYSTEM_UV_CONFIG.exists() or SYSTEM_UV_CONFIG.is_symlink()):
+    # uv's fallback uses try_exists, which follows links: a dangling link is
+    # no configuration, while a directory still counts (uv fails reading it).
+    if not SYSTEM_UV_CONFIG.exists():
         return None
     return DependencyMismatch(
         "composer-uv-config", f"system uv configuration {SYSTEM_UV_CONFIG}", "none"
