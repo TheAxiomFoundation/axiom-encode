@@ -1102,10 +1102,12 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
     )
     pin = gates._git(encode, "rev-parse", "HEAD")
     calls: list[tuple[list[str], dict[str, str]]] = []
+    cwds: list[tuple[list[str], Path]] = []
     real_run = ci_parity._run_build_command
 
     def fake(command, *, cwd, environment):
         calls.append((list(command), dict(environment)))
+        cwds.append((list(command), cwd))
         if command[0] == "uv":
             if command[1] == "venv":
                 # The build venv: its python is this test's interpreter.
@@ -1120,8 +1122,19 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
     compose.mkdir()
     temp = tmp_path / "temp"
 
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "developer-config"))
+
     launcher = ci_parity._build_workflow_composer(
-        compose, COMPOSE_REF, encode, pin, temp, offline=False, notes=[]
+        compose,
+        COMPOSE_REF,
+        encode,
+        pin,
+        temp,
+        workspace=workspace,
+        offline=False,
+        notes=[],
     )
 
     assert launcher == temp / "axiom-compose-verification" / "axiom-compose"
@@ -1135,10 +1148,19 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
     for local, workflow in zip(uv_calls, workflow_uv, strict=False):
         literal = {token for token in workflow if token.startswith("--")}
         assert literal <= set(local), (local, workflow)
-        assert "--no-config" in local
+        # CI's uv reads committed project configuration, so it is not off.
+        assert "--no-config" not in local
+    empty = temp / "axiom-compose-empty-config"
     for command, environment in calls:
         if command[0] == "uv":
             assert not any(name.startswith("UV_") for name in environment)
+            # A fresh runner has no user or system uv configuration.
+            assert environment["XDG_CONFIG_HOME"] == str(empty)
+            assert environment["XDG_CONFIG_DIRS"] == str(empty)
+    assert list(empty.iterdir()) == []
+    # The step runs in the workspace, where uv discovers project config.
+    for command, cwd in cwds[:4]:
+        assert cwd == workspace, command
     provision = next(
         (command, environment)
         for command, environment in calls
@@ -1186,6 +1208,7 @@ def test_composer_build_fails_closed_when_the_encoder_pin_cannot_provision(
             encode,
             pin,
             tmp_path / "temp",
+            workspace=tmp_path,
             offline=False,
         )
 
@@ -1208,6 +1231,7 @@ def test_composer_build_reports_a_failing_uv_step(
             tmp_path / "encode",
             "0" * 40,
             tmp_path / "temp",
+            workspace=tmp_path,
             offline=False,
         )
 
@@ -1280,7 +1304,14 @@ def test_composer_runtime_builds_with_the_real_provision_script(tmp_path: Path) 
 
     try:
         launcher = ci_parity._build_workflow_composer(
-            clone, ref, encode, pin, tmp_path / "temp", offline=False, notes=notes
+            clone,
+            ref,
+            encode,
+            pin,
+            tmp_path / "temp",
+            workspace=clone.parent,
+            offline=False,
+            notes=notes,
         )
     except ValueError as exc:
         if "uv python install" in str(exc) or "uv venv" in str(exc):
@@ -1323,8 +1354,9 @@ def _harness(
         lambda workflow, repo, ref: events.append(("validate_composer_pin", ref)),
     )
 
-    def build(checkout, ref, encode, pin, temp, *, offline, notes=None):
+    def build(checkout, ref, encode, pin, temp, *, workspace, offline, notes=None):
         events.append(("build_composer", checkout, ref, encode, pin, offline))
+        assert workspace == harness.repo
         return temp / "axiom-compose-verification" / "axiom-compose"
 
     monkeypatch.setattr(ci_parity, "_build_workflow_composer", build)
@@ -1497,3 +1529,23 @@ def test_dependency_root_argument_is_symlink_free_in_the_isolated_layout(
     for part in root.parts[1:]:
         cursor /= part
         assert not cursor.is_symlink() or str(cursor) in {"/var", "/tmp"}
+
+
+def test_a_mismatched_composer_checkout_builds_its_own_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    harness, events, compose = _harness(tmp_path, monkeypatch)
+    harness.mismatches["compose"] = ci_parity.DependencyMismatch(
+        "compose", "e" * 40, COMPOSE_REF
+    )
+
+    code = run_ci(harness.args("--compose-path", str(compose), "--allow-ref-mismatch"))
+    report = json.loads(capsys.readouterr().out)
+
+    # The harness resolves refs to themselves, so HEAD stays "HEAD".
+    assert code == 3, report
+    assert events[1][2] == "HEAD"
+    assert report["verdict"] == "PASS-WITH-MISMATCHED-DEPS"
+    assert [item["name"] for item in report["dependency_mismatches"]] == ["compose"]
