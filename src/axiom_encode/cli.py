@@ -1656,9 +1656,11 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     from .ci_parity import register_ci_parser
+    from .ci_parity_pins import register_ci_pin_parser
     from .new_jurisdiction import register_new_jurisdiction_parser
 
     register_ci_parser(subparsers)
+    register_ci_pin_parser(subparsers)
     register_new_jurisdiction_parser(subparsers)
 
     # validate command
@@ -3691,6 +3693,11 @@ def main():
         from .ci_parity import run_ci
 
         sys.exit(run_ci(args))
+
+    if args.command == "ci-pin":
+        from .ci_parity_pins import run_ci_pin
+
+        sys.exit(run_ci_pin(args))
 
     if args.command == "new-jurisdiction":
         from .new_jurisdiction import run_new_jurisdiction

@@ -1,0 +1,30 @@
+{
+  "0effa6a5b05e7fac53902df7d523e909bd7fc48a": {
+    "blob": "0224ea4f9cdb944cb4c389e21d6a2f99c17dc820",
+    "file": "validate-rulespec-0effa6a5.yml"
+  },
+  "34bcfab235c585c47292c95f51be1a4f4f91d29e": {
+    "blob": "28bbe173a9f289b567cd75afa95aaea4c15fb836",
+    "file": "validate-rulespec-34bcfab2.yml"
+  },
+  "615c1df9b9ace7deea84da65efd137f46f8bad2b": {
+    "blob": "a4df9e7948a438a91112621ddaa46f5e4ad7d76c",
+    "file": "validate-rulespec-615c1df9.yml"
+  },
+  "6f11be2655f79dd0a3b582db46525f58332ca120": {
+    "blob": "cd5c32cc269818a74e53909e044c4bd12f21b46d",
+    "file": "validate-rulespec-6f11be26.yml"
+  },
+  "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": {
+    "blob": "5ab6f02dcd5e9561c0acffeea59e93a55b125b54",
+    "file": "validate-rulespec-92ccb0f2.yml"
+  },
+  "df2dfb5310c6bc8d71abdb69281a7c71afc9663e": {
+    "blob": "5346220ab2013d9f4eda60594c09f177e8672491",
+    "file": "validate-rulespec-df2dfb53.yml"
+  },
+  "ff774c29a58448592c3ac92c9195d4995f5f4b57": {
+    "blob": "b46487cd9afda5e801530e229ce2ac23e5ace07a",
+    "file": "validate-rulespec-ff774c29.yml"
+  }
+}

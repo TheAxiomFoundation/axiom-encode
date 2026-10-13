@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fnmatch
+import functools
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -48,6 +49,20 @@ from typing import Any
 import yaml
 
 from axiom_encode import __version__
+from axiom_encode.ci_parity_pins import (
+    EXECUTED_PROGRAMS,
+    LEGACY_PINS,
+    declared_inputs,
+    executed_program,
+    job_shape,
+    packaged_admission,
+    packaged_bytes,
+    packaged_manifest,
+    packaged_payload,
+    step_spans,
+)
+from axiom_encode.ci_parity_pins import git_blob_id as _git_blob_id
+from axiom_encode.ci_parity_pins import heredoc_bodies as _heredoc_bodies
 from axiom_encode.corpus_materialize import remote_fetch_disabled
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
@@ -144,55 +159,6 @@ class WorkflowInput:
     default: str | bool | int | None = None
 
 
-# workflow_call inputs, exactly as each pinned workflow declares them; the
-# parity tests compare these tables with the packaged workflows.
-LEGACY_WORKFLOW_INPUTS: dict[str, WorkflowInput] = {
-    "python-version": WorkflowInput("string", default="3.14"),
-    "axiom-encode-ref": WorkflowInput("string", required=True),
-    "axiom-rules-engine-ref": WorkflowInput("string", required=True),
-    "axiom-corpus-ref": WorkflowInput("string", required=True),
-    "rulespec-us-ref": WorkflowInput("string", required=True),
-    "corpus-release-base-url": WorkflowInput(
-        "string", default=DEFAULT_RELEASE_BASE_URL
-    ),
-    "validate-roots": WorkflowInput("string", default="statutes regulations policies"),
-    "run-pytest": WorkflowInput("boolean", default=True),
-    "run-generated-guard": WorkflowInput("boolean", default=True),
-    "guard-programs-root": WorkflowInput("boolean", default=False),
-    "run-money-atom-check": WorkflowInput("boolean", default=True),
-}
-WORKFLOW_INPUTS_0EFFA6A5: dict[str, WorkflowInput] = {
-    "python-version": WorkflowInput("string", default="3.14"),
-    "axiom-encode-ref": WorkflowInput("string", required=True),
-    "axiom-rules-engine-ref": WorkflowInput("string", required=True),
-    "axiom-corpus-ref": WorkflowInput("string", required=True),
-    "rulespec-us-ref": WorkflowInput("string", required=True),
-    "corpus-release-base-url": WorkflowInput(
-        "string", default=DEFAULT_RELEASE_BASE_URL
-    ),
-    "corpus-release-registry-url": WorkflowInput("string", default=""),
-    "corpus-release-registry-anon-key": WorkflowInput("string", default=""),
-    "validate-roots": WorkflowInput("string", default="statutes regulations policies"),
-    "validation-workers": WorkflowInput("number", default=1),
-    "run-pytest": WorkflowInput("boolean", default=True),
-    "run-generated-guard": WorkflowInput("boolean", default=True),
-    "migration-authorization-path": WorkflowInput("string", default=""),
-    "retired-schema-bootstrap-sha256": WorkflowInput("string", default=""),
-    "allow-retired-schema-prefreeze": WorkflowInput("boolean", default=False),
-    "validation-waiver-bootstrap-sha256": WorkflowInput("string", default=""),
-    "guard-programs-root": WorkflowInput("boolean", default=False),
-    "run-money-atom-check": WorkflowInput("boolean", default=True),
-}
-WORKFLOW_INPUTS_92CCB0F2: dict[str, WorkflowInput] = {
-    "python-version": WorkflowInput("string", default="3.14"),
-    "axiom-encode-ref": WorkflowInput("string", required=True),
-    "axiom-compose-ref": WorkflowInput("string", default=""),
-    **{
-        name: declaration
-        for name, declaration in WORKFLOW_INPUTS_0EFFA6A5.items()
-        if name not in {"python-version", "axiom-encode-ref"}
-    },
-}
 _INPUT_TYPE_DEFAULTS: dict[str, str | bool | int] = {
     "string": "",
     "boolean": False,
@@ -233,6 +199,7 @@ class SupportedWorkflowPin:
     workflow_blob: str
     inputs: Mapping[str, WorkflowInput]
     gates: tuple[str, ...]
+    registry: tuple[GateSpec, ...] = ()
 
 
 LEGACY_GATE_ORDER: tuple[str, ...] = (
@@ -249,90 +216,6 @@ LEGACY_GATE_ORDER: tuple[str, ...] = (
     "oracle_coverage",
     "changed_oracle_coverage",
 )
-WORKFLOW_GATE_ORDER_0EFFA6A5: tuple[str, ...] = (
-    "unsupported_paths",
-    "migration_authorization",
-    "retired_schema_freeze",
-    "obsolete_files",
-    "repository_layout",
-    "validation_waivers",
-    "guard_generated",
-    "select_targets",
-    "validate",
-    "companion_tests",
-    "proof_validate",
-    "money_atoms",
-    "oracle_coverage",
-    "changed_oracle_coverage",
-    "repository_tests",
-)
-WORKFLOW_GATE_ORDER_6F11BE26: tuple[str, ...] = (
-    "unsupported_paths",
-    "unmanifested_rulespec",
-    *WORKFLOW_GATE_ORDER_0EFFA6A5[1:],
-)
-WORKFLOW_GATE_ORDER_92CCB0F2 = WORKFLOW_GATE_ORDER_6F11BE26
-
-SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
-    "615c1df9b9ace7deea84da65efd137f46f8bad2b": SupportedWorkflowPin(
-        fixture="validate-rulespec-615c1df9.yml",
-        gate_parameters=WorkflowGateParameters(
-            exclude_programs_from_money_atom_check=True
-        ),
-        workflow_blob="a4df9e7948a438a91112621ddaa46f5e4ad7d76c",
-        inputs=LEGACY_WORKFLOW_INPUTS,
-        gates=LEGACY_GATE_ORDER,
-    ),
-    "34bcfab235c585c47292c95f51be1a4f4f91d29e": SupportedWorkflowPin(
-        fixture="validate-rulespec-34bcfab2.yml",
-        gate_parameters=WorkflowGateParameters(
-            exclude_programs_from_money_atom_check=False
-        ),
-        workflow_blob="28bbe173a9f289b567cd75afa95aaea4c15fb836",
-        inputs=LEGACY_WORKFLOW_INPUTS,
-        gates=LEGACY_GATE_ORDER,
-    ),
-    "0effa6a5b05e7fac53902df7d523e909bd7fc48a": SupportedWorkflowPin(
-        fixture="validate-rulespec-0effa6a5.yml",
-        gate_parameters=WorkflowGateParameters(
-            exclude_programs_from_money_atom_check=True,
-            embedded_scripts=True,
-            retired_corpus_release_key=True,
-        ),
-        workflow_blob="0224ea4f9cdb944cb4c389e21d6a2f99c17dc820",
-        inputs=WORKFLOW_INPUTS_0EFFA6A5,
-        gates=WORKFLOW_GATE_ORDER_0EFFA6A5,
-    ),
-    "6f11be2655f79dd0a3b582db46525f58332ca120": SupportedWorkflowPin(
-        fixture="validate-rulespec-6f11be26.yml",
-        gate_parameters=WorkflowGateParameters(
-            exclude_programs_from_money_atom_check=True,
-            embedded_scripts=True,
-            unmanifested_precheck=True,
-            exact_guard_base_ref=True,
-            retired_corpus_release_key=True,
-        ),
-        workflow_blob="cd5c32cc269818a74e53909e044c4bd12f21b46d",
-        inputs=WORKFLOW_INPUTS_0EFFA6A5,
-        gates=WORKFLOW_GATE_ORDER_6F11BE26,
-    ),
-    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": SupportedWorkflowPin(
-        fixture="validate-rulespec-92ccb0f2.yml",
-        gate_parameters=WorkflowGateParameters(
-            exclude_programs_from_money_atom_check=True,
-            embedded_scripts=True,
-            unmanifested_precheck=True,
-            exact_guard_base_ref=True,
-            retired_corpus_release_key=True,
-            isolated_dependencies=True,
-            composer_runtime=True,
-            program_spec_precheck=True,
-        ),
-        workflow_blob="5ab6f02dcd5e9561c0acffeea59e93a55b125b54",
-        inputs=WORKFLOW_INPUTS_92CCB0F2,
-        gates=WORKFLOW_GATE_ORDER_92CCB0F2,
-    ),
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -627,123 +510,152 @@ _WORKFLOW_GATE_DEFINITIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # companion tests (bash arrays, L2511-2536, L2830-2853, L2943-2958), and the
 # audit reports JSON (#118).
 _COMPOSER_ARGUMENTS = ("{composer-args}", "{dependency-args}")
-_WORKFLOW_GATE_FLAGS_92CCB0F2: dict[str, tuple[str, ...]] = {
-    "validation_waivers": (
-        *_COMPOSER_ARGUMENTS,
-        "--json",
-        *_WORKFLOW_GATE_DEFINITIONS["validation_waivers"][2],
-    ),
-    "validate": (
-        "{files}",
-        "--skip-reviewers",
-        *_COMPOSER_ARGUMENTS,
-        *_WORKFLOW_GATE_DEFINITIONS["validate"][2][2:],
-    ),
-    "companion_tests": (
-        *_COMPOSER_ARGUMENTS,
-        *_WORKFLOW_GATE_DEFINITIONS["companion_tests"][2],
-    ),
+# Literal-flag profiles of gate steps whose reviewed glue passes more than the
+# default flags; reviewed-glue.json names a step variant's profile.
+_WORKFLOW_GATE_FLAG_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "composer": {
+        "validation_waivers": (
+            *_COMPOSER_ARGUMENTS,
+            "--json",
+            *_WORKFLOW_GATE_DEFINITIONS["validation_waivers"][2],
+        ),
+        "validate": (
+            "{files}",
+            "--skip-reviewers",
+            *_COMPOSER_ARGUMENTS,
+            *_WORKFLOW_GATE_DEFINITIONS["validate"][2][2:],
+        ),
+        "companion_tests": (
+            *_COMPOSER_ARGUMENTS,
+            *_WORKFLOW_GATE_DEFINITIONS["companion_tests"][2],
+        ),
+    },
+}
+# The pins before 0effa6a5 run ci's fixed gate sequence (execute_gates); they
+# differ only in whether the money-atom check skips programs/.
+_LEGACY_EXCLUDES_PROGRAMS_FROM_MONEY_ATOMS: dict[str, bool] = {
+    "615c1df9b9ace7deea84da65efd137f46f8bad2b": True,
+    "34bcfab235c585c47292c95f51be1a4f4f91d29e": False,
 }
 
 
-def _workflow_gate_registry(
-    order: Sequence[str],
-    lines: Mapping[str, str],
-    flags: Mapping[str, tuple[str, ...]] | None = None,
-) -> tuple[GateSpec, ...]:
+def workflow_gate_order(payload: Mapping[str, Any]) -> tuple[str, ...]:
+    """The gates a pinned workflow runs, in step order (jobs in file order)."""
+
+    order: list[str] = []
+    for _, names in job_shape(payload):
+        for name in names:
+            for key in WORKFLOW_GATE_STEPS.get(name, ()):
+                if key not in order:
+                    order.append(key)
+    return tuple(order)
+
+
+def workflow_gate_lines(text: str) -> dict[str, str]:
+    """Each gate's workflow line range: its first step's first line to its last
+    step's last line (see ci_parity_pins.step_spans)."""
+
+    covered: dict[str, list[tuple[int, int]]] = {}
+    for (_, name), span in step_spans(text).items():
+        for key in WORKFLOW_GATE_STEPS.get(name, ()):
+            covered.setdefault(key, []).append(span)
+    return {
+        key: f"{min(start for start, _ in spans)}-{max(end for _, end in spans)}"
+        for key, spans in covered.items()
+    }
+
+
+@functools.cache
+def _supported_pin(sha: str) -> SupportedWorkflowPin:
+    """Derive a packaged pin's inputs, gates and parameters from its workflow."""
+
+    packaged = packaged_manifest()[sha]
+    data = packaged_bytes(sha)
+    payload = packaged_payload(sha)
+    inputs = {
+        name: WorkflowInput(
+            declaration["type"], declaration["required"], declaration["default"]
+        )
+        for name, declaration in declared_inputs(payload).items()
+    }
+    if sha in LEGACY_PINS:
+        return SupportedWorkflowPin(
+            fixture=packaged.file,
+            gate_parameters=WorkflowGateParameters(
+                exclude_programs_from_money_atom_check=(
+                    _LEGACY_EXCLUDES_PROGRAMS_FROM_MONEY_ATOMS[sha]
+                )
+            ),
+            workflow_blob=packaged.blob,
+            inputs=inputs,
+            gates=LEGACY_GATE_ORDER,
+            registry=CI_GATE_REGISTRY,
+        )
+    admission = packaged_admission(sha)
+    if not admission.admitted:
+        problems = "; ".join(
+            problem.message.splitlines()[0] for problem in admission.problems
+        )
+        raise ValueError(
+            f"validate-rulespec@{sha[:8]} is packaged but not admitted: {problems}"
+        )
+    order = workflow_gate_order(payload)
+    lines = workflow_gate_lines(data.decode("utf-8"))
+    profiles = {
+        key: admission.gate_flags[name]
+        for name, keys in WORKFLOW_GATE_STEPS.items()
+        if name in admission.gate_flags
+        for key in keys
+    }
     registry = []
     for key in order:
-        name, subcommand, default_flags = _WORKFLOW_GATE_DEFINITIONS[key]
-        registry.append(
-            GateSpec(
-                key,
-                name,
-                subcommand,
-                (flags or {}).get(key, default_flags),
-                lines[key],
-            )
-        )
-    return tuple(registry)
+        name, subcommand, flags = _WORKFLOW_GATE_DEFINITIONS[key]
+        if key in profiles:
+            flags = _WORKFLOW_GATE_FLAG_PROFILES[profiles[key]][key]
+        registry.append(GateSpec(key, name, subcommand, flags, lines[key]))
+    return SupportedWorkflowPin(
+        fixture=packaged.file,
+        gate_parameters=WorkflowGateParameters(
+            exclude_programs_from_money_atom_check=True,
+            embedded_scripts=True,
+            **admission.features,
+        ),
+        workflow_blob=packaged.blob,
+        inputs=inputs,
+        gates=order,
+        registry=tuple(registry),
+    )
 
 
-WORKFLOW_GATE_REGISTRY_0EFFA6A5 = _workflow_gate_registry(
-    WORKFLOW_GATE_ORDER_0EFFA6A5,
-    {
-        "unsupported_paths": "155-200",
-        "migration_authorization": "380-530",
-        "retired_schema_freeze": "783-996",
-        "obsolete_files": "1154-1164",
-        "repository_layout": "1166-1334",
-        "validation_waivers": "1336-1522",
-        "guard_generated": "1524-1548",
-        "select_targets": "1550-1739",
-        "validate": "1741-1856",
-        "companion_tests": "1858-1908",
-        "proof_validate": "1910-1975",
-        "money_atoms": "1977-2044",
-        "oracle_coverage": "2046-2055",
-        "changed_oracle_coverage": "2057-2161",
-        "repository_tests": "2165-2172",
-    },
-)
-WORKFLOW_GATE_REGISTRY_6F11BE26 = _workflow_gate_registry(
-    WORKFLOW_GATE_ORDER_6F11BE26,
-    {
-        "unsupported_paths": "155-200",
-        "unmanifested_rulespec": "202-553",
-        "migration_authorization": "733-883",
-        "retired_schema_freeze": "1136-1349",
-        "obsolete_files": "1507-1517",
-        "repository_layout": "1519-1687",
-        "validation_waivers": "1689-1968",
-        "guard_generated": "1970-2004",
-        "select_targets": "2006-2195",
-        "validate": "2197-2312",
-        "companion_tests": "2314-2364",
-        "proof_validate": "2366-2431",
-        "money_atoms": "2433-2500",
-        "oracle_coverage": "2502-2511",
-        "changed_oracle_coverage": "2513-2620",
-        "repository_tests": "2621-2628",
-    },
-)
-WORKFLOW_GATE_REGISTRY_92CCB0F2 = _workflow_gate_registry(
-    WORKFLOW_GATE_ORDER_92CCB0F2,
-    {
-        "unsupported_paths": "164-209",
-        "unmanifested_rulespec": "219-927",
-        "migration_authorization": "1116-1266",
-        "retired_schema_freeze": "1655-1868",
-        "obsolete_files": "2056-2066",
-        "repository_layout": "2068-2236",
-        "validation_waivers": "2238-2536",
-        "guard_generated": "2538-2572",
-        "select_targets": "2574-2763",
-        "validate": "2765-2894",
-        "companion_tests": "2896-2960",
-        "proof_validate": "2962-3027",
-        "money_atoms": "3029-3096",
-        "oracle_coverage": "3098-3107",
-        "changed_oracle_coverage": "3109-3230",
-        "repository_tests": "3231-3238",
-    },
-    _WORKFLOW_GATE_FLAGS_92CCB0F2,
-)
-_EMBEDDED_GATE_REGISTRIES: dict[str, tuple[GateSpec, ...]] = {
-    "0effa6a5b05e7fac53902df7d523e909bd7fc48a": WORKFLOW_GATE_REGISTRY_0EFFA6A5,
-    "6f11be2655f79dd0a3b582db46525f58332ca120": WORKFLOW_GATE_REGISTRY_6F11BE26,
-    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": WORKFLOW_GATE_REGISTRY_92CCB0F2,
-}
+class _SupportedWorkflowPins(Mapping[str, SupportedWorkflowPin]):
+    """Every packaged pin (ci_parity_workflows/pins.json), derived on first use.
+
+    Membership is the manifest's; reading a pin derives it from its packaged
+    workflow and fails closed if the pin is not admitted.
+    """
+
+    def __getitem__(self, sha: str) -> SupportedWorkflowPin:
+        if sha not in packaged_manifest():
+            raise KeyError(sha)
+        return _supported_pin(sha)
+
+    def __contains__(self, sha: object) -> bool:
+        return sha in packaged_manifest()
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(packaged_manifest())
+
+    def __len__(self) -> int:
+        return len(packaged_manifest())
+
+
+SUPPORTED_WORKFLOW_PINS: Mapping[str, SupportedWorkflowPin] = _SupportedWorkflowPins()
 
 
 def gate_registry_for_pin(workflow_sha: str) -> tuple[GateSpec, ...]:
     """Return the ordered gate registry the pinned workflow runs."""
 
-    if workflow_sha in _EMBEDDED_GATE_REGISTRIES:
-        return _EMBEDDED_GATE_REGISTRIES[workflow_sha]
-    if workflow_sha in SUPPORTED_WORKFLOW_PINS:
-        return CI_GATE_REGISTRY
-    raise KeyError(workflow_sha)
+    return SUPPORTED_WORKFLOW_PINS[workflow_sha].registry
 
 
 WORKFLOW_GATE_STEPS: dict[str, tuple[str, ...]] = {
@@ -2991,7 +2903,6 @@ def execute_gates(
 # ---------------------------------------------------------------------------
 
 RULESPEC_CONTENT_ROOTS = ("statutes", "regulations", "policies", "legislation")
-_HEREDOC_START_RE = re.compile(r"<<'(?P<tag>[A-Za-z_][A-Za-z0-9_]*)'")
 _GITHUB_REMOTE_RE = re.compile(
     r"(?i:github\.com)[:/](?P<slug>[A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$"
 )
@@ -3009,40 +2920,6 @@ _ISOLATED_CLI_BOOTSTRAP = (
     " + ', not ' + request['module_file'])\n"
     "sys.exit(ci_parity._isolated_cli_main(request))\n"
 )
-
-
-def _git_blob_id(data: bytes) -> str:
-    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
-
-
-def _heredoc_bodies(run: str) -> list[str]:
-    """Return every quoted heredoc body in a bash ``run`` script, in order."""
-
-    lines = run.split("\n")
-    bodies: list[str] = []
-    index = 0
-    while index < len(lines):
-        match = _HEREDOC_START_RE.search(lines[index])
-        index += 1
-        if match is None:
-            continue
-        tag = match.group("tag")
-        try:
-            end = lines.index(tag, index)
-        except ValueError as exc:
-            raise ValueError(f"Unterminated heredoc {tag} in workflow step") from exc
-        bodies.append("".join(f"{line}\n" for line in lines[index:end]))
-        index = end + 1
-    return bodies
-
-
-def _single_quoted_python(run: str) -> str:
-    """Return the program of the one ``python3 -c '...'`` in a ``run`` script."""
-
-    marker = "python3 -c '"
-    start = run.index(marker) + len(marker)
-    end = run.index("\n'", start)
-    return run[start : end + 1]
 
 
 class PinnedWorkflow:
@@ -3077,11 +2954,22 @@ class PinnedWorkflow:
             )
         return matches[0]
 
-    def python(self, job: str, name: str, occurrence: int = 0) -> str:
-        return _heredoc_bodies(self.step(job, name)["run"])[occurrence]
+    def _program(self, job: str, name: str, embedding: str) -> str:
+        # Only the programs EXECUTED_PROGRAMS declares are executed unchanged;
+        # ci-pin admission treats every other line of a step as reviewed glue.
+        step = self.step(job, name)
+        program = EXECUTED_PROGRAMS.get((job, name))
+        if program is None or program.embedding != embedding:
+            raise ValueError(
+                f"{job} / {name} has no {embedding} program that ci executes"
+            )
+        return executed_program(step["run"], program)[1]
+
+    def python(self, job: str, name: str) -> str:
+        return self._program(job, name, "heredoc")
 
     def inline_python(self, job: str, name: str) -> str:
-        return _single_quoted_python(self.step(job, name)["run"])
+        return self._program(job, name, "inline")
 
 
 def _run_embedded_python(
@@ -6067,11 +5955,10 @@ def isolated_dependency_layout(
     check that the root is outside the workspace runs unchanged.
     """
 
-    step = workflow.step("validate", "Reserve isolated dependency directories")
     stage = _exclusive_directory(repo, ".axiom-dependency-stage.")
     tools = _exclusive_directory(runner_temp, "axiom-dependencies.")
     code, stdout, stderr = _run_embedded_python(
-        _heredoc_bodies(step["run"])[0],
+        workflow.python("validate", "Reserve isolated dependency directories"),
         cwd=repo,
         environment={"GITHUB_WORKSPACE": str(repo), "tools": str(tools)},
     )

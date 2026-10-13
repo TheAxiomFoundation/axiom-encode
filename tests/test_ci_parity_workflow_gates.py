@@ -28,9 +28,6 @@ from axiom_encode import ci_parity
 from axiom_encode.ci_parity import (
     DEPENDENCY_INPUTS,
     SUPPORTED_WORKFLOW_PINS,
-    WORKFLOW_GATE_ORDER_0EFFA6A5,
-    WORKFLOW_GATE_ORDER_6F11BE26,
-    WORKFLOW_INPUTS_0EFFA6A5,
     CallerConfig,
     CliInvocation,
     GateResult,
@@ -45,12 +42,23 @@ from axiom_encode.ci_parity import (
     resolve_roots,
     simulate_pull_request,
 )
+from tests.ci_parity_hand_tables import (
+    WORKFLOW_GATE_ORDER_0EFFA6A5,
+    WORKFLOW_GATE_ORDER_6F11BE26,
+    WORKFLOW_INPUTS_0EFFA6A5,
+)
 
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
 PIN_92CCB0F2 = "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3"
 EMBEDDED_PINS = pytest.mark.parametrize(
-    "pin", [PIN_0EFFA6A5, PIN_6F11BE26, PIN_92CCB0F2], ids=lambda sha: sha[:8]
+    "pin",
+    [
+        sha
+        for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
+        if pin.gate_parameters.embedded_scripts
+    ],
+    ids=lambda sha: sha[:8],
 )
 RULESPEC_US = "TheAxiomFoundation/rulespec-us"
 RULESPEC_US_REMOTE = f"https://github.com/{RULESPEC_US}.git"

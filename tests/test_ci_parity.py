@@ -40,20 +40,16 @@ from axiom_encode.ci_parity import (
     workflow_gate_coverage,
     workflow_steps,
 )
+from axiom_encode.ci_parity_pins import packaged_admission
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
-from tests.test_ci_parity_92ccb0f2 import (
-    PIN_92CCB0F2,
-    STEP_CONTRACT_SHA256_92CCB0F2,
-)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
-EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26)
 LEGACY_PINS = tuple(
     sha
     for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
@@ -89,145 +85,6 @@ LEGACY_WORKFLOW_GATE_STEP_SHA256_BY_PIN = {
         ),
     }
     for sha in LEGACY_PINS
-}
-# Pins executed from their own scripts pin the contract of every gate and
-# resolution step, in every job, so a reviewed step cannot change silently.
-_EMBEDDED_STEP_SHA256_0EFFA6A5 = {
-    (
-        "shards",
-        "Reject unsupported tracked paths",
-    ): "93843d86eb362d1e2de59c5807d2dc4d1ed31454e36ecd134da163888c3cf1d7",
-    (
-        "shards",
-        "Compute validation shards",
-    ): "38c184853751743abd01c4edefb3d4e8e47e6acbae5b0ee27f7322f58ce5baaa",
-    (
-        "validate",
-        "Authorize exact reviewed migration",
-    ): "084b170a6171d7f12a88ff8b0369a500aa00da43d981b7c98c9f63f8f4365feb",
-    (
-        "validate",
-        "Resolve shard validation roots",
-    ): "3d4d83ce6556d35a14168397d9ef62142ebbe0097b66435194617dc0d7c50246",
-    (
-        "validate",
-        "Resolve RuleSpec toolchain",
-    ): "04274474877e4963c66c8096e287c01f022c70f7434a2ffeb5575b944cad54b1",
-    (
-        "validate",
-        "Validate immutable dependency inputs",
-    ): "b1147f0029933d3653c755743fe212b5d56724b9e998ba58272d4289fc19c7cf",
-    (
-        "validate",
-        "Authenticate dependency commits",
-    ): "06f68d360ce87c102d5692be546a4253bfbe4fdcacb3efd5c206a7b3655e9426",
-    (
-        "validate",
-        "Verify immutable retired-schema freeze",
-    ): "c3982557d4ce436f245b64cae80fd2125283d41372de193954da7f2a07090682",
-    (
-        "validate",
-        "Fetch pinned signed corpus release object",
-    ): "b54f38d1baa7bdc14a3404c70ce5fd28a5960be890413c71b808824c34579653",
-    (
-        "validate",
-        "Authenticate signed corpus provenance commit",
-    ): "9656f2345039be2894ce99026655150cc290aacdd4a09856eb226dfed77376c1",
-    (
-        "validate",
-        "Provision protected verification supervisor",
-    ): "dd5319276783009459a99fdaf34c72bd1d971e030fbbb0e5412fe3b8c120e124",
-    (
-        "validate",
-        "Build axiom-rules-engine",
-    ): "44f80a43ffd40fa8a4281f7380bc6f76d26a2085290d537e7c4d1357b86ff4c3",
-    (
-        "validate",
-        "Reject obsolete generated files",
-    ): "c8a4c06b488a9db0dcfadebf3b52e4ea77ed6c8137f7950f08664c77a3f45584",
-    (
-        "validate",
-        "Reject disallowed repository layout",
-    ): "d0e767ae0760977f83fe515067572e5cb688194b01ed2f883591e56828555797",
-    (
-        "validate",
-        "Enforce validation waiver ratchet",
-    ): "72deb905139b65819f099fd1b83c34295b32d41edbafa190215b00a4a2b1a01c",
-    (
-        "validate",
-        "Reject manual RuleSpec changes",
-    ): "c09cb67218deeda3c268a07728a87d6eae23dc4b1bbae76b4d787a646cc3f85f",
-    (
-        "validate",
-        "Select RuleSpec validation targets",
-    ): "ce1177fcab04ba891b9fbb9b99a3f588b4bf05ef0eb8041d125093451e77f1c5",
-    (
-        "validate",
-        "Validate RuleSpec YAML",
-    ): "b39680e20f44a686474d05b93543265a06ec99ce225a3cb1bbaac6aace845611",
-    (
-        "validate",
-        "Execute RuleSpec companion tests",
-    ): "413a0a4e0813298aeab4c4add235fcbd09d764f14922f869c983844db6ebf9b1",
-    (
-        "validate",
-        "Validate RuleSpec proofs and claims",
-    ): "faabcaf910c244b0b1f84d390a270103d88ae6a6d9dbea0dee5b490b86ed928a",
-    (
-        "validate",
-        "Require money proof atoms",
-    ): "aea32962eb031c449a57cbde6190fcffa8f445963e8949913bbf16b6f846e117",
-    (
-        "validate",
-        "Validate PolicyEngine oracle coverage classification",
-    ): "8efd481643d6b96595081d04ea71b40e8af3d240581f3581b9f4aec866971e00",
-    (
-        "validate",
-        "Checkout changed-file oracle coverage classifier",
-    ): "6e3ad52edd7822839a7e7fc01eb575f503804ef5b84932efe66c7bd73fc5afcf",
-    (
-        "validate",
-        "Install changed-file oracle coverage classifier",
-    ): "6dcc9505ab6000d52cb9ba741ef2bceafaa61f91bd1fe2fdfefb80b1cc93a456",
-    (
-        "validate",
-        "Validate changed PolicyEngine oracle coverage classification",
-    ): "a509396097ec732fe87e93b49e82687120a6a90a05e6a8f003cd5c0b351a3fe3",
-    (
-        "validate",
-        "Run repository tests",
-    ): "12a68768654ddab5af24648d857e1724128ee1cbd21208f738c837c7d3fe7b85",
-    (
-        "validate-complete",
-        "Check validation matrix result",
-    ): "f04c58656f9a15ec96afc4bc9060e09a53a8f80017c6f863ad3984c537ade185",
-}
-EMBEDDED_STEP_SHA256_BY_PIN = {
-    PIN_0EFFA6A5: _EMBEDDED_STEP_SHA256_0EFFA6A5,
-    PIN_6F11BE26: {
-        **_EMBEDDED_STEP_SHA256_0EFFA6A5,
-        (
-            "shards",
-            "Reject unmanifested RuleSpec content",
-        ): "d2b2a9b7d7cd22bc7c9dbaa948b85a8d91231eeb7c27f515ac13cd9b52d90aa7",
-        (
-            "validate",
-            "Enforce validation waiver ratchet",
-        ): "238fe2b702f04c786bd30a4828efc74c1150b25e4b22c10de7ef272d334e56bc",
-        (
-            "validate",
-            "Reject manual RuleSpec changes",
-        ): "360e35f95d3f4bca21754b5b0ce5da7cb631e77bf7d8e833cb8961bc0500033e",
-    },
-}
-
-
-# 92ccb0f2's table covers every step; this test checks its gate and
-# resolution steps like the other embedded pins'.
-EMBEDDED_STEP_SHA256_BY_PIN[PIN_92CCB0F2] = {
-    key: digest
-    for key, digest in STEP_CONTRACT_SHA256_92CCB0F2.items()
-    if key[1] in WORKFLOW_GATE_STEPS or key[1] in WORKFLOW_RESOLUTION_STEPS
 }
 
 
@@ -411,17 +268,13 @@ def test_workflow_gate_step_semantics_match_pinned_contract(supported_workflow) 
     sha, pin, fixture = supported_workflow
     payload = yaml.safe_load(fixture.read_text())
     if pin.gate_parameters.embedded_scripts:
-        actual = {
-            (job, step["name"]): hashlib.sha256(
-                yaml.safe_dump(
-                    workflow_gate_contract(step, payload, job), sort_keys=True
-                ).encode()
-            ).hexdigest()
-            for job, step in workflow_steps(fixture)
-            if step.get("name") in WORKFLOW_GATE_STEPS
-            or step.get("name") in WORKFLOW_RESOLUTION_STEPS
+        # Every step, job and workflow-level glue unit of a pin that executes
+        # its own scripts is a reviewed variant (tests/test_ci_parity_pins.py).
+        admission = packaged_admission(sha)
+        assert admission.problems == []
+        assert {unit.label for unit in admission.units if unit.kind == "step"} == {
+            f"{job} / {step['name']}" for job, step in workflow_steps(fixture)
         }
-        assert actual == EMBEDDED_STEP_SHA256_BY_PIN[sha]
         return
     actual = {}
     for step in payload["jobs"]["validate"]["steps"]:

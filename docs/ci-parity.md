@@ -18,16 +18,176 @@ pins:
 | `0effa6a5b05e7fac53902df7d523e909bd7fc48a` | the workflow's own scripts | used by rulespec-us at `cf03a179` |
 | `6f11be2655f79dd0a3b582db46525f58332ca120` | the workflow's own scripts | adds the unmanifested-RuleSpec pre-check |
 | `92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3` | the workflow's own scripts | used by rulespec-us since `4c9aeadd`; isolated dependency layout, pinned composer, ProgramSpec pre-check |
+| `df2dfb5310c6bc8d71abdb69281a7c71afc9663e` | the workflow's own scripts | used by rulespec-us at `60dd397f`; packaged by `ci-pin add` (92ccb0f2 without the ProgramSpec parser steps, with 6f11be26's pre-check) |
+| `ff774c29a58448592c3ac92c9195d4995f5f4b57` | the workflow's own scripts | used by rulespec-us at `f29e0ff8`; packaged by `ci-pin add` (92ccb0f2's glue; only the pre-check program differs) |
 
-A caller pinned to another workflow revision is rejected until the pinned
-workflow, gate registry, and implementation are updated together. The pinned
-workflows ship byte-exact in `src/axiom_encode/ci_parity_workflows/`, and each
-is checked against its Git blob id before use. Both the full and the
+`axiom-encode ci-pin list` prints the same list with each pin's derived
+features. A caller pinned to another workflow revision is rejected until that
+pin is packaged (see "Adding a validate-rulespec pin" below). The pinned
+workflows ship byte-exact in `src/axiom_encode/ci_parity_workflows/`, listed
+with their Git blob ids in `pins.json`, and each is checked against its blob id
+before use. Both the full and the
 changed-file oracle coverage classifiers execute the pinned encoder with only
 its sources on `PYTHONPATH` and no ambient `GIT_*` or `PYTHON*` overrides, and
 both require the axiom-oracles commit that encoder declares: the parent checks
 the installed distribution's module origin, and the child reports and checks
 `axiom_oracles.__file__`. Those diagnostics stay out of the classifier's JSON.
+
+## Adding a validate-rulespec pin
+
+rulespec-us repins `validate-rulespec.yml` every few days. A new pin needs code
+review only where something `ci` reproduces changed, so packaging is
+content-keyed (`src/axiom_encode/ci_parity_pins.py`):
+
+```bash
+uv run axiom-encode ci-pin add <sha> --github-checkout ~/TheAxiomFoundation/.github
+```
+
+Run it from an axiom-encode checkout; it writes into that checkout's
+`src/axiom_encode/ci_parity_workflows/`. Commit what it writes (the workflow
+file and its `pins.json` entry) with a version bump.
+
+### What `ci-pin add` verifies
+
+- **Source.** The checkout's `origin` is github.com/TheAxiomFoundation/.github,
+  and `<sha>` (full or abbreviated) is an ancestor of `.github` main, which the
+  command fetches from GitHub into `refs/axiom-encode/ci-pin/main`. With
+  `--no-fetch`, it uses the checkout's own `origin/main` instead. It refuses
+  shallow clones, grafts and `url.*.insteadOf` rewrites, and it ignores replace
+  refs.
+- **File.** `.github/workflows/validate-rulespec.yml` at `<sha>` must be a
+  regular file. It is copied byte-exact, and its blob id is recorded and checked
+  on every use.
+- **Admission.** The pin is admitted only when every glue unit is already
+  reviewed (below). Otherwise the command prints each problem, diffs each
+  unreviewed unit against its nearest reviewed variant, exits 1, and writes
+  nothing. `--dry-run` reports without writing.
+
+### Glue, and what is reviewed
+
+`ci` runs the workflow's embedded Python programs unchanged and reproduces the
+rest. A **glue unit** is something `ci` reproduces:
+
+- the workflow's top level (except its input declarations);
+- each job without its steps;
+- each step.
+
+Each unit carries the `workflow_call` inputs it references (type, `required`,
+default; descriptions are not glue). It is identified by the sha256 of its
+canonical JSON.
+
+`EXECUTED_PROGRAMS` lists every program `ci` executes and how `ci` uses it:
+
+- **Exit-status programs.** These are:
+  - the unsupported-paths and unmanifested-content checks;
+  - the layout and composer-pin checks;
+  - the dependency-directory check;
+  - the waiver ratchet;
+  - the changed-file oracle filter.
+
+  `ci` uses only their exit status, so their text is left out of the glue.
+  Each is represented instead by its **interface**:
+  - the environment names it reads;
+  - its imports;
+  - the executables it starts;
+  - the absolute paths it names;
+  - its file and network effects;
+  - any opaque access: an escaping `os.environ`, dynamic imports,
+    `exec`/`eval`, the home directory.
+
+  Rewriting such a program needs no review while its interface holds. ff774c29
+  differs from 92ccb0f2 only that way.
+- **Output programs.** These are:
+  - the shard scope;
+  - migration authorization;
+  - the toolchain resolver;
+  - the retired-schema freeze;
+  - the release-object verifier;
+  - target selection;
+  - the two skip lists.
+
+  `ci` parses their output or re-derives what they compute. Their text stays in
+  the glue, so any change needs review.
+
+Every executed program must be one that `ci` and bash read identically:
+- an inline program contains no `'`;
+- an executed heredoc step has exactly one heredoc, and it is quoted;
+- no program contains `${{ }}`, which GitHub substitutes before bash runs;
+- the program parses.
+
+**Templates.** The reviewed glue is every unit of the template pins
+(`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole
+with the executor code that supports it. `ci_parity_workflows/reviewed-glue.json`
+lists their digests, and the tests regenerate it from the templates, so a
+change to the extraction itself fails the tests before it can widen admission.
+
+A reviewed variant **requires** the value of each feature whose scope contains
+it, when every template that contains it agrees on that value. The features
+are:
+
+| Feature | Scope |
+|---|---|
+| unmanifested pre-check | the pre-check step |
+| ProgramSpec pre-check | the pre-check and its parser steps |
+| exact guard base ref | the guard step |
+| retired corpus release key | supervisor provisioning |
+| isolated dependency layout | the validate job |
+| composer runtime | the validate job |
+
+Scopes are review claims; tests check that each feature's telltale text appears
+nowhere outside its scope.
+
+### Admission
+
+A pin is admitted when:
+1. every glue unit's digest is reviewed;
+2. its jobs and steps are in a template's order, with zero or more whole feature
+   groups removed (the pre-check, its ProgramSpec parser, the isolated layout's
+   steps, the composer's steps);
+3. its variants' feature requirements agree, and each group's feature is on
+   exactly when its steps are present;
+4. every step output, job output (`needs.*`) and `GITHUB_ENV` export a unit
+   reads comes from a producer variant that occurs with it in some template;
+5. it declares every input `ci` reads, with the type `ci` assumes.
+
+The merged features become the pin's gate parameters. Its inputs, gate order,
+gate line ranges and gate flags are derived from the packaged file, so an
+admitted pin needs no code. For example, df2dfb53 is 92ccb0f2 without the
+ProgramSpec parser steps, with 6f11be26's pre-check, so it runs with the
+isolated layout and the composer but without the ProgramSpec shape check.
+
+### When a pin is refused
+
+The report names each unreviewed unit with a diff against its nearest reviewed
+variant, and each order, feature, dependency or input problem. Then:
+
+1. Review each change, and extend `ci`'s executor where it must reproduce new
+   glue. Classify any new step in `WORKFLOW_GATE_STEPS`,
+   `WORKFLOW_RESOLUTION_STEPS` or `WORKFLOW_ENVIRONMENT_STEPS`, and any new
+   executed program in `EXECUTED_PROGRAMS`.
+2. Declare the pin's features in `TEMPLATE_FEATURES`. Add a feature (with its
+   `WorkflowGateParameters` field, scope and any step group) when the executor
+   branches on something new.
+3. Run `uv run axiom-encode ci-pin add <sha> --github-checkout <path>
+   --template`. It packages the pin, adds its new digests to `reviewed-glue.json`
+   and checks that its glue implies the declared features.
+4. If a gate step's literal flags changed, set that variant's `gate_flags` in
+   `reviewed-glue.json` to a profile in `ci_parity._WORKFLOW_GATE_FLAG_PROFILES`.
+5. Run `tests/test_ci_parity*.py`. The embedded-pin batteries run against every
+   packaged pin, including the new one.
+
+### Limits
+
+- Admission trusts the `EXECUTED_PROGRAMS` classification. A program belongs
+  under exit status only if `ci` never parses its output.
+- An exit-status program can change its logic without review; `ci` runs the
+  new text unchanged, in CI's working directory and environment.
+- The producer/consumer check follows `steps.<id>`, `needs.<job>` and
+  `GITHUB_ENV` exports written as `NAME=`. It does not follow files passed
+  through `$RUNNER_TEMP`. Feature requirements, rather than that check, keep
+  variants written for different layouts apart.
+- Pins before `0effa6a5` (`615c1df9`, `34bcfab2`) run `ci`'s fixed gate
+  sequence and are not content-keyed.
 
 ## Pins that run the workflow's own scripts
 

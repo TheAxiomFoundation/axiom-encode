@@ -64,13 +64,16 @@ from axiom_encode.ci_parity import (
     _run_cli_batch,
     _run_cli_isolated,
     _run_embedded_python,
-    _single_quoted_python,
     acquire_release_object,
     acquire_workflow_release_object,
     register_ci_parser,
     run_ci,
     verify_ambient_encoder,
     verify_dependency_checkout,
+)
+from axiom_encode.ci_parity_pins import EXECUTED_PROGRAMS
+from axiom_encode.ci_parity_pins import (
+    single_quoted_python as _single_quoted_python,
 )
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
@@ -83,10 +86,12 @@ FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
 LEGACY_PIN = "615c1df9b9ace7deea84da65efd137f46f8bad2b"
-EMBEDDED_PINS = (
-    PIN_0EFFA6A5,
-    PIN_6F11BE26,
-    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3",
+# Every packaged pin that executes its own scripts: the templates and every
+# pin ci-pin add admitted.
+EMBEDDED_PINS = tuple(
+    sha
+    for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
+    if pin.gate_parameters.embedded_scripts
 )
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
 APPLY_KEY = base64.b64encode(bytes(range(128, 160))).decode("ascii")
@@ -127,7 +132,9 @@ EMBEDDED_SCRIPT_STEPS_0EFFA6A5: tuple[tuple[str, str, str], ...] = (
         "heredoc",
     ),
 )
-EMBEDDED_SCRIPT_STEPS = {
+# The hand list above, per template, as reviewed before EXECUTED_PROGRAMS
+# became the source; every other pin executes the programs its steps have.
+EXPECTED_SCRIPT_STEPS_BY_TEMPLATE = {
     PIN_0EFFA6A5: EMBEDDED_SCRIPT_STEPS_0EFFA6A5,
     PIN_6F11BE26: (
         *EMBEDDED_SCRIPT_STEPS_0EFFA6A5,
@@ -140,6 +147,25 @@ EMBEDDED_SCRIPT_STEPS = {
         ("validate", "Validate composer pin", "heredoc"),
     ),
 }
+
+
+def _executed_script_steps(sha: str) -> tuple[tuple[str, str, str], ...]:
+    payload = yaml.safe_load(
+        (WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[sha].fixture).read_bytes()
+    )
+    present = {
+        (job, step.get("name"))
+        for job, body in payload["jobs"].items()
+        for step in body["steps"]
+    }
+    return tuple(
+        (job, name, program.embedding)
+        for (job, name), program in EXECUTED_PROGRAMS.items()
+        if (job, name) in present
+    )
+
+
+EMBEDDED_SCRIPT_STEPS = {sha: _executed_script_steps(sha) for sha in EMBEDDED_PINS}
 HEREDOC_MARKER_RE = re.compile(r"<<-?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -408,6 +434,8 @@ def test_every_embedded_pin_lists_the_scripts_ci_executes() -> None:
         for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
         if pin.gate_parameters.embedded_scripts
     }
+    for sha, expected in EXPECTED_SCRIPT_STEPS_BY_TEMPLATE.items():
+        assert set(EMBEDDED_SCRIPT_STEPS[sha]) == set(expected)
 
 
 @pytest.mark.parametrize(

@@ -42,9 +42,11 @@ from axiom_encode.ci_parity import (
     _repository_test_environment,
     _run_cli,
     _run_embedded_python,
-    _single_quoted_python,
     _WorkflowYamlLoader,
     ci_verdict,
+)
+from axiom_encode.ci_parity_pins import (
+    single_quoted_python as _single_quoted_python,
 )
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}

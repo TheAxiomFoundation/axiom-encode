@@ -41,9 +41,9 @@ from axiom_encode.ci_parity import (
     program_spec_parser_mismatch,
     run_ci,
     validate_composer_pin,
-    workflow_gate_contract,
     workflow_steps,
 )
+from axiom_encode.ci_parity_pins import load_reviewed_glue
 from tests import test_ci_parity_workflow_gates as gates
 
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
@@ -54,228 +54,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 # The contract of every step of every job, environment steps included, so a
 # path-only change like .github#120's cannot slip past review.
-STEP_CONTRACT_SHA256_92CCB0F2: dict[tuple[str, str], str] = {
-    (
-        "shards",
-        "Checkout rules repository",
-    ): "0892b1a54ae0b94fd847383f2c6d0f6772e826854b2532a18a8fd3e781e5545b",
-    (
-        "shards",
-        "Reject unsupported tracked paths",
-    ): "ab21ce2cbcc867f9c0cfb4b0eddd5b488da5c63b0df7d0cc8ce8ef4646c3b2f9",
-    (
-        "shards",
-        "Set up Python for the RuleSpec pre-check",
-    ): "0bcb859068d25c8310ed9f1936d422defcc05294fd83031fd4cb91f114c21167",
-    (
-        "shards",
-        "Install the ProgramSpec shape-check parser",
-    ): "562cebb844c7c7425b35dfb3a48ab477adab2b8c1d464a53924645a4e56545ff",
-    (
-        "shards",
-        "Reject unmanifested RuleSpec content",
-    ): "b13476d67d49b0061b772800441f2f49801f3a87d9dfcc84bf1ec7cc4ab2eaca",
-    (
-        "shards",
-        "Compute validation shards",
-    ): "fc06d31869a83a5af54cacb79da692cb1552b67d647c2ae9be8b4d98ab4dfcff",
-    (
-        "validate",
-        "Free runner disk space",
-    ): "9255b47b445ace4abbd83215562e752c2c8ab2095f5de312fc74a3fe6f8832fe",
-    (
-        "validate",
-        "Checkout rules repository",
-    ): "7036bc57bb60a420b2e497bc67f474bc1e3e54b188f5d9cc6030f37fff60ceda",
-    (
-        "validate",
-        "Authorize exact reviewed migration",
-    ): "b5fab18e0100f8e6b4010f789167ff7753deb9b8a9fb5e5fd5462efd9d067355",
-    (
-        "validate",
-        "Resolve shard validation roots",
-    ): "b9c80a39aea0ba98885c1190970e34dba88697eaf267dd5e0101f12bcb0374a5",
-    (
-        "validate",
-        "Set up Python",
-    ): "19f2140f49a826bcee34567186bdb6c9e1f7931571f6dfdf4a305e39443a3fa0",
-    (
-        "validate",
-        "Resolve RuleSpec toolchain",
-    ): "7a4dc0d78cdc68896941e5a594c411906f06dec5062e3f790eeefb470d3f4259",
-    (
-        "validate",
-        "Validate immutable dependency inputs",
-    ): "25a5ea32893fc86528c701cf27b73ab12deba8016566d0b9d8ccfd77a611032e",
-    (
-        "validate",
-        "Reserve isolated dependency directories",
-    ): "114d8c9e9a9c79191625efce8c1f612bc51e990631f5bf4ee3a98aaa97bdf7a2",
-    (
-        "validate",
-        "Checkout axiom-encode",
-    ): "4ac350a03eed278c60a7a6668f2f83fbfffebef504b32017244bc464bc200ddf",
-    (
-        "validate",
-        "Relocate dependency axiom-encode",
-    ): "22165f9bd2062716bfe5418ec50c860493c241b20037bb882a16e189a1a6b744",
-    (
-        "validate",
-        "Checkout axiom-rules-engine",
-    ): "634f0b29cb55fdd457b1d2691b0798aadfa052be037ae83b8c50c1b4bcc9a5e8",
-    (
-        "validate",
-        "Relocate dependency axiom-rules-engine",
-    ): "486125a78d90dbfe5df2a941bf445f8e80573d8bf354224618830d9f0ea80ad7",
-    (
-        "validate",
-        "Checkout axiom-corpus",
-    ): "8b7b43871ee43e86099538d6ac3aa07235fe60ed9b2fb55b037fc7df30ecfb02",
-    (
-        "validate",
-        "Relocate dependency axiom-corpus",
-    ): "5acda3b79511b4578171f9cd77ac45ab9efe7146159d83547d861bdc2b41f6ff",
-    (
-        "validate",
-        "Checkout rulespec-us canonical targets",
-    ): "ea40a33fb31bca58ff8033a063cb2f990a623b868cf474f0d646f4686c645cd4",
-    (
-        "validate",
-        "Relocate dependency rulespec-us",
-    ): "612710bcdee509d2e8f99085a95d2c7550da62ea68348f1a723772ac4a2e4ef5",
-    (
-        "validate",
-        "Authenticate dependency commits",
-    ): "18086035206fb0503909de64b8d69416eaa00a911f5025fb0ff2ff10b72bdf61",
-    (
-        "validate",
-        "Validate composer pin",
-    ): "4ba5ac7c7bde4a9f5df521ae51df9d2760626ca42110e1ce529ff17dacac8ce7",
-    (
-        "validate",
-        "Checkout axiom-compose",
-    ): "f325e48048045f3ecb43e4f36c1d949d839ab80017d83b957e93b10001eace21",
-    (
-        "validate",
-        "Relocate dependency axiom-compose",
-    ): "3d72f029262da06b640639ebc8239d3d4f22577485fe927f526d3fa73a12ba4b",
-    (
-        "validate",
-        "Authenticate composer commit",
-    ): "ab03a8149bbb57c5775e1b27192e14204097b46a976d5c5d3eb350c14ee8bb39",
-    (
-        "validate",
-        "Install uv for composer runtime",
-    ): "ccd138a76f1805a3c8d37b5c885f7b7831ab79923ff38f12cbbb3ec6d05ee827",
-    (
-        "validate",
-        "Install Rust toolchain",
-    ): "fe048de8709513b3fdb33086730caed623750f6a0106981edb8e9c1c4909f3de",
-    (
-        "validate",
-        "Set up Go 1.26.1",
-    ): "b1c4733e10b56244128d2bf6cb10e7589f2184dcec63d8ad7672737fb22eaced",
-    (
-        "validate",
-        "Install Python dependencies",
-    ): "1cc8a6f4914dd52ca4f74102f32c9a770adfc017abb5c3b22c036f10b44a81e4",
-    (
-        "validate",
-        "Verify immutable retired-schema freeze",
-    ): "554ff05c5a51c170ef836b45d757afd40f6c4b0a1fbe47e4b41a0a659c2abe01",
-    (
-        "validate",
-        "Fetch pinned signed corpus release object",
-    ): "a68c6748b9954d7e6203734e53608aab7d67e469b82f9a4b77ce9e57769648f0",
-    (
-        "validate",
-        "Authenticate signed corpus provenance commit",
-    ): "7d696d9c51afaf528f6855ace54841d426dc537faba0c9f8a120daa880202140",
-    (
-        "validate",
-        "Provision protected verification supervisor",
-    ): "d976d9ab296fdae0194e5c5945561ca4df5b20d55efe508257aae1e5f2e69e9b",
-    (
-        "validate",
-        "Build protected axiom-compose runtime",
-    ): "0fc9a5763cf668b05a7cebbdb62cbb89735d63e4b82140ad59f149cc3151376d",
-    (
-        "validate",
-        "Build axiom-rules-engine",
-    ): "2326314797d47046ddc59bbfee4b01fe3e9c10f1aa0a8a6724059755d2bc4e15",
-    (
-        "validate",
-        "Expose axiom-rules-engine on PATH",
-    ): "6d474b4ca11c9759ee3e9e7158c759bd6d3425aa56c786ed770d103b22d645fe",
-    (
-        "validate",
-        "Link axiom-rules-engine as sibling checkout",
-    ): "85efef68316daa2e6a596e02d0050c717fb379dd41f93c0998840222ec3199ed",
-    (
-        "validate",
-        "Reject obsolete generated files",
-    ): "9c3fa59a5449778a0607281c2fa1c4d1b34598ce31d0ccdeb9b6535dcf9a1036",
-    (
-        "validate",
-        "Reject disallowed repository layout",
-    ): "48ee16dcfd51f70d2751c63098508bb28a926d5731e09088cbdca71cefebe091",
-    (
-        "validate",
-        "Enforce validation waiver ratchet",
-    ): "c3888a0ca9828636fb08c200048d547ac19fc2547e98515c154f3c8d298514d8",
-    (
-        "validate",
-        "Reject manual RuleSpec changes",
-    ): "35e62793fce8542a21bda877fdc7ee609ac8d2f6e15e2adc167b08932bd73bfd",
-    (
-        "validate",
-        "Select RuleSpec validation targets",
-    ): "84e36ebc4ec25dee93625aa19c6e26bd2056f2de0fdc8aa17770fa14f6d89624",
-    (
-        "validate",
-        "Validate RuleSpec YAML",
-    ): "f9812918dca055703697aa43c8bf7c3b557418ede1b25ac12f41436e2cf838e8",
-    (
-        "validate",
-        "Execute RuleSpec companion tests",
-    ): "ad13a3aef68874ff6d57274ef2fc3f38c0832c6e07454414e343bc6fb80e0cbe",
-    (
-        "validate",
-        "Validate RuleSpec proofs and claims",
-    ): "4783087737a247cc28fd139ba7574371aab6e689ed18d6f2ff2ef8f8a9626b89",
-    (
-        "validate",
-        "Require money proof atoms",
-    ): "1b3af2e020474228799a03d9e4fe07652268ae50ad8c5547acfeb892c6df6f8c",
-    (
-        "validate",
-        "Validate PolicyEngine oracle coverage classification",
-    ): "08ae8fbbba35c381b08ca2d267fe49db9cf384b52798ce2d05258f367c88f667",
-    (
-        "validate",
-        "Checkout changed-file oracle coverage classifier",
-    ): "b55e9ef2a1246a84562a204b8d290b5c1d361b6c4ab38723e3fc9e1f27d1920f",
-    (
-        "validate",
-        "Relocate dependency axiom-encode-oracle-coverage",
-    ): "0ab604fc57faf3e56edf26bb40ddbf348b8e31d5754e0cc8e9c15de42050f26d",
-    (
-        "validate",
-        "Install changed-file oracle coverage classifier",
-    ): "026c9bf43c405c0cb655433afc5a6a4076ec96f990b54e5eb9146d2560d48987",
-    (
-        "validate",
-        "Validate changed PolicyEngine oracle coverage classification",
-    ): "0020f9c8d8a0783b5a0d64579468436164f41c4c18cd6e98365d93ef816c9e62",
-    (
-        "validate",
-        "Run repository tests",
-    ): "9f79c04c1a6deff195d11c94f243fcf4655f402410ebc717b84a459cba53e26e",
-    (
-        "validate-complete",
-        "Check validation matrix result",
-    ): "7881b8c4208283fff7af19072159352cde22a12daefafbcc92f93f3579095c88",
-}
 # Job-level keys outside the step contracts: time limits and the matrix
 # bounds (.github#116) change no verdict ci reaches; see docs/ci-parity.md.
 JOB_SETTINGS_92CCB0F2 = {
@@ -319,20 +97,30 @@ def _steps(payload: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def test_every_92ccb0f2_step_contract_is_pinned() -> None:
-    fixture = WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[PIN_92CCB0F2].fixture
-    payload = yaml.safe_load(fixture.read_text())
-    actual = {
-        (job, step["name"]): hashlib.sha256(
-            yaml.safe_dump(
-                workflow_gate_contract(step, payload, job), sort_keys=True
-            ).encode()
-        ).hexdigest()
-        for job, step in workflow_steps(fixture)
+def test_92ccb0f2_review_added_exactly_its_new_and_changed_steps() -> None:
+    # Every glue variant 92ccb0f2's review added is a step it added or changed
+    # relative to 6f11be26 (enumerated in the divergence test below), plus the
+    # job settings of .github#116.
+    added = {
+        (entry.kind, entry.job, entry.step)
+        for entry in load_reviewed_glue()
+        if entry.reviewed_in == PIN_92CCB0F2[:8]
     }
+    old, new = (
+        _steps(_workflow_payload(PIN_6F11BE26)),
+        _steps(_workflow_payload(PIN_92CCB0F2)),
+    )
+    changed = {key for key in new if key not in old or old[key] != new[key]}
 
-    assert actual == STEP_CONTRACT_SHA256_92CCB0F2
-    for _, name in actual:
+    assert added == {("step", job, name) for job, name in changed} | {
+        ("job", "shards", None),
+        ("job", "validate", None),
+        ("job", "validate-complete", None),
+    }
+    for job, step in workflow_steps(
+        WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[PIN_92CCB0F2].fixture
+    ):
+        name = step["name"]
         assert (
             (name in WORKFLOW_GATE_STEPS)
             + (name in WORKFLOW_RESOLUTION_STEPS)
