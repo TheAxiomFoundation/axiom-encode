@@ -220,9 +220,11 @@ from .harness.evals import (
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
     _git_checkout_execution_identity,
+    _github_repository_identity,
     _load_eval_suite_resume_state,
     _open_secure_eval_parent,
     _preserves_companion_test_cases,
+    _read_only_git_environment,
     _render_eval_result_verdict_evidence,
     _resolve_eval_output_path,
     _rulespec_root_execution_identity,
@@ -27349,12 +27351,14 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
 def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            [shutil.which("git") or "git", "-C", str(repo), "show", f"{ref}:{path}"],
             capture_output=True,
             check=True,
             text=True,
+            timeout=30,
+            env=_read_only_git_environment(),
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
 
 
@@ -27533,6 +27537,50 @@ def _encoder_producer_admission_issue(
     return f"{mismatch}: {history_issue}" if history_issue else None
 
 
+def _guard_encoder_git_run(
+    checkout: Path, *args: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            shutil.which("git") or "git",
+            "--no-replace-objects",
+            "-C",
+            str(checkout),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_read_only_git_environment(),
+    )
+
+
+def _guard_encoder_git_metadata_issue(checkout: Path) -> str | None:
+    """Refuse graph-rewriting metadata, including shared worktree metadata."""
+
+    try:
+        graft_path = _guard_encoder_git_run(
+            checkout, "rev-parse", "--path-format=absolute", "--git-common-dir"
+        )
+        if graft_path.returncode != 0 or not graft_path.stdout.strip():
+            return "encoder Git metadata is unavailable: git rev-parse failed"
+        # --git-path info/grafts follows GIT_GRAFT_FILE=/dev/null; inspect the
+        # common directory directly so the neutralizer cannot hide metadata.
+        grafts = Path(graft_path.stdout.strip()) / "info/grafts"
+        if grafts.exists() or grafts.is_symlink():
+            return "encoder history contains forbidden graft metadata"
+        replacements = _guard_encoder_git_run(
+            checkout, "for-each-ref", "--format=%(refname)", "refs/replace/"
+        )
+        if replacements.returncode != 0:
+            return "encoder Git metadata is unavailable: git for-each-ref failed"
+        if replacements.stdout.strip():
+            return "encoder history contains forbidden replacement refs"
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        return f"cannot verify encoder Git metadata: {exc}"
+    return None
+
+
 def _encoder_git_history_admission_issue(
     checkout: Path,
     *,
@@ -27542,14 +27590,7 @@ def _encoder_git_history_admission_issue(
     """Prove ancestry using complete, already fetched canonical main history."""
 
     def run(*args: str) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            ["git", "--no-replace-objects", "-C", str(checkout), *args],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
-        )
-        return result
+        return _guard_encoder_git_run(checkout, *args)
 
     def require_success(*args: str) -> str:
         result = run(*args)
@@ -27560,6 +27601,9 @@ def _encoder_git_history_admission_issue(
         return result.stdout.strip()
 
     try:
+        metadata_issue = _guard_encoder_git_metadata_issue(checkout)
+        if metadata_issue:
+            return metadata_issue
         shallow = require_success("rev-parse", "--is-shallow-repository")
         if shallow != "false":
             return (
@@ -27572,19 +27616,55 @@ def _encoder_git_history_admission_issue(
             ):
                 return f"encoder history does not contain the {label} commit"
 
-        # CI explicitly fetches main into origin/main in the provisioned encoder
-        # checkout, whose HEAD stays at the pin. Prefer that fetched ref over a
-        # possibly stale local main. Never resolve origin/HEAD or a default branch.
-        main_ref = "refs/remotes/origin/main"
-        remote_main = run("show-ref", "--verify", "--quiet", main_ref)
-        if remote_main.returncode == 1:
-            main_ref = "refs/heads/main"
-        elif remote_main.returncode != 0:
-            return (
-                "encoder history is unavailable: git show-ref exited "
-                f"{remote_main.returncode}"
+        # FETCH_HEAD is a Git-written fetch record, not a ref that can redirect
+        # to another branch. Callers authenticate its source and freshness.
+        fetch_head = Path(
+            require_success(
+                "rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"
             )
-        first_parent_main = require_success("rev-list", "--first-parent", main_ref)
+        )
+        if fetch_head.is_symlink():
+            return "encoder fetched main record must not be symbolic"
+        try:
+            fetch_head.lstat()
+        except FileNotFoundError:
+            fetched = None
+        else:
+            raw, _metadata = _read_bounded_nofollow_regular_file(
+                fetch_head,
+                label="encoder fetched main record",
+                max_bytes=4096,
+                require_private=False,
+            )
+            fetched = raw.decode("utf-8")
+        if fetched is not None:
+            record = re.fullmatch(
+                r"([0-9a-f]{40})\t(?:not-for-merge)?\tbranch 'main' of ([^\n]+)\n?",
+                fetched,
+            )
+            if (
+                record is None
+                or _github_repository_identity(record[2])
+                != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+            ):
+                return (
+                    "encoder fetched main record is ambiguous or is not official main"
+                )
+            main_ref, main_commit = "FETCH_HEAD", record[1]
+        else:
+            main_ref = "refs/heads/main"
+            symbolic = run("symbolic-ref", "--quiet", main_ref)
+            if symbolic.returncode == 0:
+                return "encoder canonical main ref must not be symbolic"
+            if symbolic.returncode != 1:
+                return "encoder history is unavailable: git symbolic-ref failed"
+            main_commit = require_success("show-ref", "--verify", "--hash", main_ref)
+        if (
+            require_success("rev-parse", "--verify", f"{main_commit}^{{commit}}")
+            != main_commit
+        ):
+            return "encoder main history does not identify a direct commit"
+        first_parent_main = require_success("rev-list", "--first-parent", main_commit)
         if producer not in first_parent_main.splitlines():
             return f"producer is not on the first-parent history of {main_ref}"
         ancestry = run("merge-base", "--is-ancestor", pin, producer)
@@ -27595,7 +27675,7 @@ def _encoder_git_history_admission_issue(
                 "encoder history is unavailable: git merge-base exited "
                 f"{ancestry.returncode}"
             )
-    except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+    except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
         return f"cannot prove encoder producer ancestry: {exc}"
     return None
 
@@ -27642,6 +27722,9 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     repo_root = checkout_identity.get("path")
     if not isinstance(repo_root, str):
         raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    metadata_issue = _guard_encoder_git_metadata_issue(Path(repo_root))
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
@@ -27685,6 +27768,9 @@ def _read_only_guard_encoder_execution_identity(
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
+    metadata_issue = _guard_encoder_git_metadata_issue(repo_root)
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
     checkout_version = versions.get("pyproject")
     if not checkout_version or any(

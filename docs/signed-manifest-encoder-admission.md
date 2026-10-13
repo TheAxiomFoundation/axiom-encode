@@ -25,30 +25,34 @@ supply a checkout path. Without this argument, a clean running encoder Git
 checkout supplies the context. A Git-free runtime can verify the exact pin, but
 cannot prove admission of a different producer without the explicit checkout.
 
-The shared `validate-rulespec.yml` authenticates provisioned dependencies by
-fetching complete history with `--unshallow` when necessary. For axiom-encode's
-current main branch, that fetch creates **`refs/remotes/origin/main`** in the
-provisioned encoder checkout. The guard prefers this explicitly fetched ref.
-If it is absent, a full development checkout can use **`refs/heads/main`**.
-Both names are hardcoded: neither `origin/HEAD` nor the default-branch symref is
-used to authorize producers. An existing remote main ref takes precedence over
-a potentially stale local main.
+Callers must authenticate the encoder checkout and provision complete main
+history before invoking the guard. The proof prefers `FETCH_HEAD` only when its
+record unambiguously identifies a fetch of the official encoder repository's
+`main` branch. If `FETCH_HEAD` is absent, it requires a direct, non-symbolic
+`refs/heads/main`; a present invalid or ambiguous fetch record rejects
+ancestry admission. `refs/remotes/origin/main` does not authorize producers.
+Callers must ensure the selected main history is authentic and fresh; this
+repository does not establish that an external workflow fulfills these
+requirements.
 
 The guard performs no fetch. Missing history, an unknown commit, a shallow
-checkout, a missing main ref, missing history needed for the proof, a timeout or a Git
-error rejects a different producer with an ancestry diagnostic. Failed fetches
-must fail the workflow's existing dependency-authentication step. The history
-proof disables replacement objects and lazy object fetches. Feature commits and
-merged second-parent commits remain inadmissible even when the pin is their
-ancestor. Producers older than the pin remain inadmissible even with the same
-version. Historical manifests nested in retirement or migration receipts retain
-their existing exact identity and signature verification.
+checkout, a missing main ref, missing history needed for the proof, a timeout or
+a Git error rejects a different producer with an ancestry diagnostic. Callers
+must stop on failed history fetches. Git commands used to verify the checkout
+and prove ancestry discard ambient `GIT_*` overrides, disable graft files,
+replacement objects and lazy object fetches. Git-backed checkout resolution and
+ancestry proofs refuse repositories containing `info/grafts` or `refs/replace/*`.
+Symbolic selected local main refs and unusable fetched-main records reject
+ancestry admission. Feature commits and merged second-parent commits remain
+inadmissible even when the pin is their ancestor. Producers older than the pin
+remain inadmissible even with the same version. Historical manifests nested in
+retirement or migration receipts retain their existing exact identity and
+signature verification.
 
 ## Scope and pin protection
 
-This admission rule resolves the targeted signed-output producer/pin mismatch
-in #1844, including reviewed-candidate promotion and deterministic wrappers.
-It does not change production signing, protected trust roots, deployment policy
-or the shared validation workflow. Protecting consumer pins against pull-request
-changes, enforcing protected dependency inputs and enforcing authenticated,
-fresh main-history fetches remain the separate shared-workflow work.
+This admission rule applies to signed model output, reviewed-candidate promotion
+and deterministic wrappers. It does not change production signing, protected
+trust roots, deployment policy or external validation workflows. Callers remain
+responsible for protecting consumer pins and dependency inputs against
+pull-request changes and for authenticating fresh main history.

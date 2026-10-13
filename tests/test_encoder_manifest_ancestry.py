@@ -222,8 +222,10 @@ def test_second_parent_reachable_from_main_is_still_rejected(graph):
     )
 
 
-def test_fetched_origin_main_admits_head_when_local_main_stays_at_pin(graph):
-    _git(graph.root, "update-ref", "refs/remotes/origin/main", graph.commits[4])
+def test_fetched_main_admits_head_when_local_main_stays_at_pin(graph):
+    (graph.root / ".git/FETCH_HEAD").write_text(
+        f"{graph.commits[4]}\t\tbranch 'main' of https://github.com/TheAxiomFoundation/axiom-encode\n"
+    )
     _git(graph.root, "update-ref", "refs/heads/main", graph.commits[1])
     assert (
         cli._encoder_producer_admission_issue(
@@ -233,8 +235,18 @@ def test_fetched_origin_main_admits_head_when_local_main_stays_at_pin(graph):
     )
 
 
-def test_present_origin_main_is_authoritative_over_ahead_local_main(graph):
-    _git(graph.root, "update-ref", "refs/remotes/origin/main", graph.commits[1])
+def test_explicit_main_fetch_is_authoritative_over_ahead_local_main(graph):
+    (graph.root / ".git/FETCH_HEAD").write_text(
+        f"{graph.commits[1]}\t\tbranch 'main' of https://github.com/TheAxiomFoundation/axiom-encode\n"
+    )
+    assert cli._encoder_producer_admission_issue(
+        _identity(graph.commits[4]), _expected(graph)
+    )
+
+
+def test_origin_main_without_canonical_main_cannot_authorize_producers(graph):
+    _write_git_ref(graph.root, "refs/remotes/origin/main", graph.commits[4])
+    (graph.root / ".git/refs/heads/main").unlink()
     assert cli._encoder_producer_admission_issue(
         _identity(graph.commits[4]), _expected(graph)
     )
@@ -353,8 +365,9 @@ def identity_checkout(tmp_path):
     _git(checkout, "add", ".")
     graph.tree = _git(checkout, "write-tree")
     pin_index = graph.add(main=True)
-    producer_index = graph.add(pin_index)
+    producer_index = graph.add(pin_index, main=True)
     pin, producer = graph.commits[pin_index], graph.commits[producer_index]
+    (checkout / ".git/HEAD").write_text(pin + "\n")
     _write_git_ref(checkout, "refs/remotes/origin/main", producer)
     return checkout, pin, producer
 
