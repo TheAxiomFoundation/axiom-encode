@@ -1,3 +1,7 @@
+## 0.2.2180
+
+- Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
+
 ## 0.2.2179
 
 - Match worksheet formula proofs to independently recognized chart headings without treating a printed chart identifier as a formula operand. Preserve exact source coordinates, unique excerpt ownership and numeric proof boundaries.
