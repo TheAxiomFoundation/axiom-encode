@@ -4007,10 +4007,10 @@ def _composer_arguments(run: WorkflowRun) -> tuple[str, ...]:
         return ()
     arguments: tuple[str, ...] = ("--axiom-compose-path", str(composer))
     if run.repo.name != "rulespec-us":
-        # CI's $AXIOM_DEPENDENCY_ROOT/rulespec-us is the moved checkout itself.
-        # ci's dependency-root entry is a link to it, and the encoder refuses
-        # a dependency root whose lexical path holds a symlink, so ci passes
-        # the resolved checkout the entry points to.
+        # CI passes $AXIOM_DEPENDENCY_ROOT/rulespec-us, the moved fresh
+        # checkout. Under the isolated layout run.paths["rulespec_us"] is that
+        # entry (a fresh clone, see _fresh_dependency_entry), a real directory
+        # the encoder's symlink-refusing dependency-root walk accepts.
         arguments += ("--rulespec-dependency-root", str(run.paths["rulespec_us"]))
     return arguments
 
@@ -5699,6 +5699,8 @@ def _write_pinned_tree(
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_CONFIG_NOSYSTEM": "1",
         "GIT_ATTR_NOSYSTEM": "1",
+        # A local refs/replace entry must not swap the pinned tree or a blob.
+        "GIT_NO_REPLACE_OBJECTS": "1",
     }
     listing = subprocess.run(
         ["git", "-C", str(checkout), "ls-tree", "-r", "-z", commit, "--", prefix],
@@ -5718,7 +5720,12 @@ def _write_pinned_tree(
         mode, kind, blob = meta.decode("ascii").split()
         path = PurePosixPath(os.fsdecode(raw_path))
         if kind != "blob" or mode not in {"100644", "100755"}:
-            continue
+            # CI's checkout would materialize a symlink or submodule here;
+            # ci copies only regular blobs, so it refuses rather than omit one.
+            raise ValueError(
+                f"Encoder pin {commit} has a non-regular {prefix}/ entry ci cannot "
+                f"reproduce: {path} (mode {mode})"
+            )
         if path.is_absolute() or ".." in path.parts:
             raise ValueError(f"Unsafe path in encoder pin {commit}: {path}")
         content = subprocess.run(
@@ -5735,6 +5742,20 @@ def _write_pinned_tree(
 
 
 _COMPOSER_UV_STEP = "Install uv for composer runtime"
+# uv reads system configuration from $XDG_CONFIG_DIRS/uv/uv.toml and, when
+# none is found there, from this file, even with XDG_CONFIG_DIRS set
+# (uv-dirs system_config_file). A fresh runner has neither.
+SYSTEM_UV_CONFIG = Path("/etc/uv/uv.toml")
+
+
+def composer_uv_config_mismatch() -> DependencyMismatch | None:
+    """A host-wide uv configuration CI's runner does not have, if any."""
+
+    if not (SYSTEM_UV_CONFIG.exists() or SYSTEM_UV_CONFIG.is_symlink()):
+        return None
+    return DependencyMismatch(
+        "composer-uv-config", f"system uv configuration {SYSTEM_UV_CONFIG}", "none"
+    )
 
 
 def composer_uv_mismatch(workflow: PinnedWorkflow) -> DependencyMismatch | None:
@@ -6451,14 +6472,17 @@ def _run_ci_in_checkout(
                     ),
                 }
             if compose_path is not None:
-                uv_mismatch = composer_uv_mismatch(workflow)
-                if uv_mismatch is not None:
+                for uv_mismatch in filter(
+                    None,
+                    (composer_uv_mismatch(workflow), composer_uv_config_mismatch()),
+                ):
                     if not getattr(args, "allow_encoder_mismatch", False):
                         raise ValueError(
                             f"UV MISMATCH: {uv_mismatch.banner_line()}; the "
                             "composer runtime would be built with another uv "
-                            "than CI's; pass --allow-encoder-mismatch for a "
-                            "qualified development verdict"
+                            "or uv configuration than CI's; pass "
+                            "--allow-encoder-mismatch for a qualified "
+                            "development verdict"
                         )
                     mismatches.append(uv_mismatch)
                 # "Checkout axiom-compose" is a fresh full clone at the pin

@@ -1350,6 +1350,7 @@ def _harness(
     events: list[tuple[Any, ...]] = []
     # The local uv is checked against the workflow's pin in its own tests.
     monkeypatch.setattr(ci_parity, "composer_uv_mismatch", lambda workflow: None)
+    monkeypatch.setattr(ci_parity, "composer_uv_config_mismatch", lambda: None)
     monkeypatch.setattr(
         ci_parity,
         "validate_composer_pin",
@@ -1513,25 +1514,33 @@ def test_exclusive_directories_are_new_mktemp_names(
         assert stat.S_IMODE(path.stat().st_mode) == 0o700
 
 
-def test_dependency_root_argument_is_symlink_free_in_the_isolated_layout(
-    tmp_path: Path,
-) -> None:
+def test_dependency_root_argument_is_the_fresh_entry(tmp_path: Path) -> None:
+    import contextlib
+
+    source, commit = _canonical_rulespec_us(tmp_path)
     run = _composer_run(tmp_path, "rulespec-us-tn")
-    run.paths = _dependency_paths(tmp_path)
-    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp = (tmp_path / "runner-temp-root").resolve()
     runner_temp.mkdir()
     run.layout = isolated_dependency_layout(run.workflow, run.repo, runner_temp)
-    ci_parity._link_workflow_checkouts(run.repo, run.paths, run.layout)
 
-    arguments = ci_parity._composer_arguments(run)
+    with contextlib.ExitStack() as resources:
+        run.paths["rulespec_us"] = ci_parity._fresh_dependency_entry(
+            resources,
+            run.layout,
+            "rulespec_us",
+            source,
+            commit,
+            "TheAxiomFoundation/rulespec-us",
+        )
+        arguments = ci_parity._composer_arguments(run)
 
-    root = Path(arguments[arguments.index("--rulespec-dependency-root") + 1])
-    assert (run.layout.root / "rulespec-us").is_symlink()
-    assert root == run.paths["rulespec_us"]
-    cursor = Path(root.anchor)
-    for part in root.parts[1:]:
-        cursor /= part
-        assert not cursor.is_symlink() or str(cursor) in {"/var", "/tmp"}
+        root = Path(arguments[arguments.index("--rulespec-dependency-root") + 1])
+        assert root == run.layout.root / "rulespec-us"
+        # No component of the path is a link, as the encoder's walk requires.
+        cursor = Path(root.anchor)
+        for part in root.parts[1:]:
+            cursor /= part
+            assert not cursor.is_symlink(), cursor
 
 
 def test_a_mismatched_composer_checkout_builds_its_own_head(
@@ -1742,3 +1751,107 @@ def test_executor_uses_the_runs_runner_temp(tmp_path: Path) -> None:
     assert seen == [runner_temp]
     # The caller owns its lifetime, so the executor leaves it in place.
     assert runner_temp.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# Cycle-2 review fixes
+# ---------------------------------------------------------------------------
+
+
+def test_a_system_uv_configuration_is_a_composer_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "etc" / "uv" / "uv.toml"
+    monkeypatch.setattr(ci_parity, "SYSTEM_UV_CONFIG", config)
+    assert ci_parity.composer_uv_config_mismatch() is None
+
+    config.parent.mkdir(parents=True)
+    config.write_text('exclude-newer = "2024-01-01"\n')
+    mismatch = ci_parity.composer_uv_config_mismatch()
+
+    assert mismatch == ci_parity.DependencyMismatch(
+        "composer-uv-config", f"system uv configuration {config}", "none"
+    )
+    # A dangling link is still configuration uv would try to read.
+    config.unlink()
+    config.symlink_to(tmp_path / "missing.toml")
+    assert ci_parity.composer_uv_config_mismatch() is not None
+
+
+@pytest.mark.parametrize("allow", [False, True])
+def test_run_ci_refuses_a_system_uv_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    allow: bool,
+) -> None:
+    harness, events, compose = _harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ci_parity,
+        "composer_uv_config_mismatch",
+        lambda: ci_parity.DependencyMismatch(
+            "composer-uv-config", "system uv configuration /etc/uv/uv.toml", "none"
+        ),
+    )
+
+    if not allow:
+        assert run_ci(harness.args("--compose-path", str(compose))) == 1
+        assert (
+            "UV MISMATCH: composer-uv-config"
+            in json.loads(capsys.readouterr().out)["resolution_error"]
+        )
+        assert [event[0] for event in events] == ["validate_composer_pin"]
+        return
+    assert (
+        run_ci(harness.args("--compose-path", str(compose), "--allow-encoder-mismatch"))
+        == 3
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert "composer-uv-config" in [
+        item["name"] for item in report["dependency_mismatches"]
+    ]
+
+
+def test_pinned_scripts_ignore_local_replace_refs(tmp_path: Path) -> None:
+    encode = gates._repo(
+        tmp_path,
+        {"scripts/provision_axiom_compose_runtime.py": "print('pinned')\n"},
+        name="axiom-encode",
+    )
+    pin = gates._git(encode, "rev-parse", "HEAD")
+    pinned_blob = gates._git(
+        encode, "rev-parse", f"{pin}:scripts/provision_axiom_compose_runtime.py"
+    )
+    edited = (
+        subprocess.run(
+            ["git", "-C", str(encode), "hash-object", "-w", "--stdin"],
+            input=b"print('replaced')\n",
+            stdout=subprocess.PIPE,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    gates._git(encode, "replace", pinned_blob, edited)
+    destination = tmp_path / "scripts-out"
+
+    ci_parity._write_pinned_tree(encode, pin, "scripts", destination)
+
+    assert (
+        destination / "scripts" / "provision_axiom_compose_runtime.py"
+    ).read_text() == "print('pinned')\n"
+
+
+def test_pinned_scripts_refuse_entries_ci_would_materialize_differently(
+    tmp_path: Path,
+) -> None:
+    encode = gates._repo(
+        tmp_path,
+        {"scripts/provision_axiom_compose_runtime.py": "print('pinned')\n"},
+        name="axiom-encode",
+    )
+    (encode / "scripts" / "helper.py").symlink_to("provision_axiom_compose_runtime.py")
+    pin = gates._commit(encode, message="symlinked helper")
+
+    with pytest.raises(ValueError, match="non-regular scripts/ entry .* 120000"):
+        ci_parity._write_pinned_tree(encode, pin, "scripts", tmp_path / "out")
