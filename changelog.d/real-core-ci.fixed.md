@@ -7,4 +7,6 @@ compiles it in the run with cargo dependencies cached, and runs
 `pytest -m real_core` with `AXIOM_REQUIRE_REAL_CORE=1`. Under that flag a
 missing, unusable or unpinned core fails these tests instead of skipping them.
 The tests get core through one `real_core` fixture (`tests/real_core.py`),
-and a test that skips for a missing core without that fixture fails everywhere.
+which marks them `real_core`. A skip whose reason says core is missing (in a
+wording the guard recognizes) fails in every run when the test lacks that
+marker, since CI's selection would never run it.

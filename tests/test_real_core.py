@@ -1,4 +1,4 @@
-"""The real-core fixture checks the core it is given, and core skips cannot hide.
+"""The real-core fixture checks the core it is given; core skips fail where they would hide.
 
 No encoder CI job ever set AXIOM_CORE_BIN, so the six tests in
 tests/test_core_export_integration.py skipped in every run (main run
@@ -9,10 +9,13 @@ silently disappearing again:
 
 - the binary: what a configured AXIOM_CORE_BIN must report before a test uses
   it, and that a configured but unusable one fails rather than skips;
-- the pin: AXIOM_CORE_REF holds only for a cargo build in a clean checkout at
-  that commit, built from that checkout's Cargo.lock;
-- the guard: skip_problem's properties, its separation from the engine guard
-  in tests/real_engine.py, and the hooks end to end in a separate pytest run;
+- the pin: AXIOM_CORE_REF holds only for a binary at the cargo build path of a
+  checkout that is clean at that commit and that reports that checkout's
+  Cargo.lock digest;
+- the guard: which skip reasons count as core absence (hand-labelled lists, not
+  the implementation's regex), skip_problem's properties, its separation from
+  the engine guard in tests/real_engine.py, and the hooks end to end in a
+  separate pytest run;
 - the suite: no test hand-writes a core skip, the six tests are exactly what
   `-m real_core` selects, and ci.yml wires the job to the pin and the flag.
 """
@@ -46,7 +49,8 @@ ENGINE_ENV = (
 LOCK = "# SYNTHETIC Cargo.lock for tests\nversion = 4\n"
 LOCK_SHA256 = hashlib.sha256(LOCK.encode()).hexdigest()
 # A stand-in for `axiom-core capabilities`: it reports the sha256 of its own
-# bytes, as core does, unless a test overrides a field.
+# bytes, as core does. A test overrides one field to break one thing:
+# `document` replaces the whole JSON output, `stderr` and `exit_code` follow it.
 FAKE_CORE = """#!{python}
 import hashlib
 import json
@@ -62,7 +66,9 @@ engine = {{
     "dependency_lock_sha256": {lock!r},
     "execution_host_sha256": {host!r} or digest,
 }}
-print(json.dumps({{"format": {format!r}, "engine": engine}}))
+print({document!r} or json.dumps({{"format": {format!r}, "engine": engine}}))
+sys.stderr.write({stderr!r})
+sys.exit({exit_code!r})
 """
 
 
@@ -76,7 +82,7 @@ def isolated_resolution(monkeypatch):
     real_core.locate.cache_clear()
 
 
-def _core(path: Path, **fields: str) -> Path:
+def _core(path: Path, **fields: object) -> Path:
     values = {
         "python": sys.executable,
         "repository": real_core.ENGINE_REPOSITORY,
@@ -84,17 +90,13 @@ def _core(path: Path, **fields: str) -> Path:
         "lock": LOCK_SHA256,
         "host": "",
         "format": real_core.CAPABILITIES_FORMAT,
+        "document": "",
+        "stderr": "",
+        "exit_code": 0,
         **fields,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(FAKE_CORE.format(**values))
-    path.chmod(0o755)
-    return path
-
-
-def _script(path: Path, text: str) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
     path.chmod(0o755)
     return path
 
@@ -125,7 +127,7 @@ def _commit(root: Path, message: str) -> str:
 
 
 def _checkout(root: Path, profile: str = "debug") -> tuple[Path, str]:
-    """A clean core checkout and a cargo build of it: (binary, HEAD)."""
+    """A clean core checkout with a stand-in core at its build path: (binary, HEAD)."""
     root.mkdir(parents=True)
     (root / ".gitignore").write_text("/target\n")
     (root / "Cargo.toml").write_text('[workspace]\nmembers = ["crates/axiom-core"]\n')
@@ -212,16 +214,20 @@ def _unusable(tmp_path: Path, breakage: str) -> Path:
     if breakage == "not executable":
         _core(path).chmod(0o644)
         return path
+    # Each of these prints otherwise valid capabilities for its own bytes.
     if breakage == "exits nonzero":
-        return _script(path, "#!/bin/sh\nexit 1\n")
+        return _core(path, exit_code=1)
     if breakage == "writes stderr":
-        return _script(
-            path,
-            f"#!/bin/sh\necho warning >&2\nexec {sys.executable} "
-            f"{_core(tmp_path / 'real' / real_core.BINARY_NAME)} capabilities\n",
-        )
+        return _core(path, stderr="warning\n")
     if breakage == "prints no JSON":
-        return _script(path, "#!/bin/sh\necho capabilities\n")
+        return _core(path, document="capabilities")
+    if breakage == "JSON not an object":
+        return _core(path, document="[]")
+    if breakage == "engine not an object":
+        return _core(
+            path,
+            document=f'{{"format": "{real_core.CAPABILITIES_FORMAT}", "engine": null}}',
+        )
     if breakage == "other format":
         return _core(path, format="axiom/capabilities/v1")
     if breakage == "other engine repository":
@@ -240,6 +246,8 @@ def _unusable(tmp_path: Path, breakage: str) -> Path:
         ("exits nonzero", "capabilities exited 1"),
         ("writes stderr", "capabilities exited 0: warning"),
         ("prints no JSON", "did not print JSON"),
+        ("JSON not an object", f"are not {real_core.CAPABILITIES_FORMAT}"),
+        ("engine not an object", f"do not name {real_core.ENGINE_REPOSITORY}"),
         ("other format", f"are not {real_core.CAPABILITIES_FORMAT}"),
         ("other engine repository", f"do not name {real_core.ENGINE_REPOSITORY}"),
         ("wrong self digest", "but its bytes hash to"),
@@ -255,6 +263,32 @@ def test_a_configured_but_unusable_core_fails_rather_than_skips(
     assert core is None
     assert why.startswith(f"{real_core.BINARY_ENV}=")
     assert expected in why
+    with pytest.raises(pytest.fail.Exception, match=real_core.UNAVAILABLE):
+        real_core.require()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.TimeoutExpired(["axiom-core", "capabilities"], 60),
+        OSError("exec format error"),
+    ],
+    ids=["timeout", "oserror"],
+)
+def test_a_core_whose_probe_cannot_run_fails_rather_than_skips(
+    monkeypatch, tmp_path, error
+):
+    monkeypatch.setenv(real_core.BINARY_ENV, str(_core(tmp_path / "axiom-core")))
+
+    def refuse(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(real_core.subprocess, "run", refuse)
+
+    core, why = real_core.locate()
+
+    assert core is None
+    assert "could not run" in why
     with pytest.raises(pytest.fail.Exception, match=real_core.UNAVAILABLE):
         real_core.require()
 
@@ -301,6 +335,9 @@ def _break_pin(root: Path, binary: Path, head: str, tmp_path: Path, breakage: st
         return binary, head.upper()
     if breakage == "tracked change":
         (root / "Cargo.toml").write_text("changed\n")
+    elif breakage == "staged change":
+        (root / "Cargo.toml").write_text("changed\n")
+        _git(root, "add", "Cargo.toml")
     elif breakage == "built from another lock":
         _core(binary, lock="1" * 64)
     elif breakage == "lock changed since the build":
@@ -314,8 +351,12 @@ def _break_pin(root: Path, binary: Path, head: str, tmp_path: Path, breakage: st
     elif breakage == "not a checkout":
         return _core(tmp_path / "plain" / "target" / "debug" / "axiom-core"), head
     elif breakage == "nested":
-        # A build in a subdirectory of the pinned checkout, not its root.
-        return _core(root / "vendored" / "target" / "debug" / "axiom-core"), head
+        # A build in a subdirectory of the pinned checkout, with a copy of the
+        # matching lock beside it, so only the checkout-root check can refuse it.
+        vendored = root / "vendored"
+        vendored.mkdir()
+        (vendored / "Cargo.lock").write_text(LOCK)
+        return _core(vendored / "target" / "debug" / "axiom-core"), head
     else:
         raise AssertionError(breakage)
     return binary, head
@@ -328,6 +369,7 @@ def _break_pin(root: Path, binary: Path, head: str, tmp_path: Path, breakage: st
         ("short sha", "is not a full lowercase commit SHA"),
         ("uppercase sha", "is not a full lowercase commit SHA"),
         ("tracked change", "has tracked changes"),
+        ("staged change", "has tracked changes"),
         ("built from another lock", "was not built from the Cargo.lock"),
         ("lock changed since the build", "was not built from the Cargo.lock"),
         ("no lock", "has no Cargo.lock"),
@@ -354,16 +396,37 @@ def test_the_pin_fails_closed(monkeypatch, tmp_path, breakage, expected):
 
 # The guard
 
-# The wording the integration tests used before tests/real_core.py, and other
-# hand-written ways to say core is missing.
-LEGACY_CORE_SKIPS = [
+# Labelled by hand, independently of CORE_ABSENT_REASON: reasons that say core
+# is missing, including the integration tests' old wording.
+CORE_ABSENCE_SKIPS = [
     "AXIOM_CORE_BIN is unset; provide a real axiom-core executable",
     "set AXIOM_CORE_BIN to run the core interoperability tests",
+    "AXIOM_CORE_REF is not set",
     "axiom-core binary is not built",
+    "axiom-core is missing",
+    "axiom-core CLI not found",
+    "Axiom-Core executable unavailable",
     "no built axiom-core executable is available",
+    "this test requires axiom-core",
+    f"{real_core.UNAVAILABLE}: anything at all",
 ]
-# Skips that are not about a missing axiom-core.
+ENGINE_UNDER_A_CORE_PATH = (
+    f"{real_engine.UNAVAILABLE}: {real_engine.ROOT_ENV}=/srv/axiom-core/engine: "
+    "no axiom-rules-engine binary under /srv/axiom-core/engine"
+)
+# Labelled by hand: reasons that mention core but do not say it is missing,
+# and skips about other things.
 OTHER_SKIPS = [
+    "axiom-core executable lacks an optional feature",
+    "axiom-core only supports Linux",
+    "axiom-core lacks native traces before v0.2",
+    "Axiom Core is slow on macOS",
+    "core dumps are disabled",
+    "/tmp/axiom_core_build is read-only",
+    # Lens A, round 1: an engine checkout under an axiom-core directory.
+    ENGINE_UNDER_A_CORE_PATH,
+    # The engine helper's prefix wins over any path it reports.
+    f"{real_engine.UNAVAILABLE}: {real_engine.ROOT_ENV}=/srv/no axiom-core here",
     *LEGACY_ENGINE_SKIPS,
     "axiom-rules-engine repo not present",
     "rulespec-us repo not present",
@@ -372,25 +435,35 @@ OTHER_SKIPS = [
     "PolicyEngine US is not installed",
 ]
 CORE_REASONS = st.one_of(
-    st.sampled_from(LEGACY_CORE_SKIPS),
+    st.sampled_from(CORE_ABSENCE_SKIPS),
     st.text().map(lambda text: f"{real_core.UNAVAILABLE}: {text}"),
 )
+FLAGS = [(marked, required) for marked in (False, True) for required in (False, True)]
 
 
-@pytest.mark.parametrize("reason", LEGACY_CORE_SKIPS)
-def test_legacy_core_skip_wordings_are_recognized(reason):
-    assert real_core.CORE_ABSENT_REASON.search(f"Skipped: {reason}")
+@pytest.mark.parametrize("reason", CORE_ABSENCE_SKIPS)
+@pytest.mark.parametrize(("marked", "required"), FLAGS)
+def test_core_absence_skips_fail_unless_marked_and_optional(reason, marked, required):
+    problem = real_core.skip_problem(
+        f"Skipped: {reason}", marked=marked, required=required
+    )
+
+    assert (problem is None) == (marked and not required)
 
 
 @pytest.mark.parametrize("reason", OTHER_SKIPS)
-def test_other_skips_are_not_core_skips(reason):
-    assert not real_core.CORE_ABSENT_REASON.search(f"Skipped: {reason}")
+@pytest.mark.parametrize(("marked", "required"), FLAGS)
+def test_other_skips_always_stand(reason, marked, required):
+    assert (
+        real_core.skip_problem(f"Skipped: {reason}", marked=marked, required=required)
+        is None
+    )
 
 
 @given(reason=st.text(), marked=st.booleans(), required=st.booleans())
-def test_only_core_skips_ever_become_failures(reason, marked, required):
+def test_only_core_absence_skips_ever_become_failures(reason, marked, required):
     problem = real_core.skip_problem(reason, marked=marked, required=required)
-    if not real_core.CORE_ABSENT_REASON.search(reason):
+    if not real_core.is_core_absence(reason):
         assert problem is None
 
 
@@ -411,11 +484,36 @@ def test_a_marked_core_skip_fails_exactly_when_required(reason):
 
 # Both guards see every skip. Each must leave the other's skips alone, or a
 # marked real_core test skipping locally would be failed as an unmarked engine
-# skip (and the reverse). Every engine pattern needs "rules-engine",
-# "rules_engine" or "locate", and every core pattern needs "core"; the filters
-# use the guards' own case-insensitive matching (under which "ı" matches "i").
+# skip, and the reverse.
+
+
+@given(detail=st.text(), prefix=st.sampled_from(["", "Skipped: "]))
+def test_the_core_guard_never_claims_an_engine_helper_skip(detail, prefix):
+    # Whatever path or text the engine helper reports after its prefix.
+    reason = f"{prefix}{real_engine.UNAVAILABLE}: {detail}"
+
+    assert real_core.skip_problem(reason, marked=False, required=True) is None
+
+
+def test_an_engine_checkout_under_an_axiom_core_path_stays_an_engine_skip(
+    monkeypatch, tmp_path
+):
+    # Lens A, round 1, with the engine helper's real reason.
+    monkeypatch.setenv(real_engine.ROOT_ENV, str(tmp_path / "axiom-core" / "engine"))
+    real_engine.locate.cache_clear()
+    try:
+        engine, why = real_engine.locate()
+    finally:
+        real_engine.locate.cache_clear()
+
+    assert engine is None and "axiom-core" in why
+    reason = f"Skipped: {real_engine.UNAVAILABLE}: {why}"
+    assert real_core.skip_problem(reason, marked=False, required=True) is None
+
+
+# Every engine pattern needs "rules-engine", "rules_engine" or "locate"; the
+# filter uses the guard's own case-insensitive matching ("ı" matches "i").
 ENGINE_WORDS = re.compile(r"rules[-_]engine|locate", re.IGNORECASE)
-CORE_WORDS = re.compile(r"core", re.IGNORECASE)
 
 
 @given(detail=st.text().filter(lambda text: not ENGINE_WORDS.search(text)))
@@ -425,19 +523,12 @@ def test_the_engine_guard_ignores_core_skips(detail):
     assert real_engine.skip_problem(reason, marked=False, required=True) is None
 
 
-@given(detail=st.text().filter(lambda text: not CORE_WORDS.search(text)))
-def test_the_core_guard_ignores_engine_skips(detail):
-    reason = f"{real_engine.UNAVAILABLE}: {detail}"
-
-    assert real_core.skip_problem(reason, marked=False, required=True) is None
-
-
 def test_the_helpers_own_skip_reasons_stay_on_their_side():
     core_reason = f"{real_core.UNAVAILABLE}: {real_core.locate()[1]}"
 
-    assert real_core.CORE_ABSENT_REASON.search(core_reason)
+    assert real_core.is_core_absence(core_reason)
     assert not real_engine.ENGINE_ABSENT_REASON.search(core_reason)
-    for reason in LEGACY_CORE_SKIPS:
+    for reason in CORE_ABSENCE_SKIPS:
         assert not real_engine.ENGINE_ABSENT_REASON.search(reason), reason
 
 
@@ -450,7 +541,7 @@ def test_no_test_writes_its_own_core_skip():
         for path in sorted(tests.glob("test_*.py"))
         if path.name != Path(__file__).name
         for reason in _skip_reasons(path)
-        if real_core.CORE_ABSENT_REASON.search(reason)
+        if real_core.is_core_absence(reason)
     ]
     assert offenders == []
 
@@ -472,6 +563,11 @@ def test_direct(real_core):
 
 def test_transitive(wrapped):
     assert wrapped.sha256
+
+
+def test_engine_only(real_engine):
+    # The runs point the engine at .../axiom-core/no-engine: still an engine skip.
+    assert real_engine.binary.is_file()
 
 
 def test_handwritten_skip():
@@ -512,7 +608,7 @@ def _run_sample(
 ):
     project = tmp_path / "project"
     if not project.exists():
-        project.mkdir()
+        project.mkdir(parents=True)
         (project / "conftest.py").write_text(SAMPLE_CONFTEST)
         for name, text in (tests or {"test_sample.py": SAMPLE_TESTS}).items():
             (project / name).write_text(text)
@@ -538,8 +634,10 @@ def _run_sample(
         env={
             **base,
             "PYTHONPATH": os.pathsep.join([str(REPO), str(REPO / "src")]),
-            # No engine discovery: these runs are about core.
-            real_engine.ROOT_ENV: str(tmp_path / "no-engine"),
+            # No engine discovery: these runs are about core. The path holds
+            # "axiom-core" so the core guard must still leave the engine's
+            # skip alone (lens A, round 1).
+            real_engine.ROOT_ENV: str(tmp_path / "axiom-core" / "no-engine"),
             **env,
         },
         capture_output=True,
@@ -563,6 +661,7 @@ def test_hooks_without_core(tmp_path):
     assert outcomes == {
         "test_direct": "skipped",
         "test_transitive": "skipped",
+        "test_engine_only": "skipped",
         "test_handwritten_skip": "failure",
         "test_unrelated_skip": "skipped",
         "test_expected_failure": "skipped",
@@ -577,6 +676,7 @@ def test_hooks_fail_core_tests_when_core_is_required(tmp_path):
     assert outcomes == {
         "test_direct": "error",
         "test_transitive": "error",
+        "test_engine_only": "skipped",
         "test_handwritten_skip": "failure",
         "test_unrelated_skip": "skipped",
         "test_expected_failure": "skipped",
@@ -592,6 +692,7 @@ def test_hooks_fail_core_tests_when_core_is_configured_but_broken(tmp_path):
 
     assert outcomes["test_direct"] == "error", completed.stdout
     assert outcomes["test_transitive"] == "error", completed.stdout
+    assert outcomes["test_engine_only"] == "skipped", completed.stdout
     assert completed.returncode == 1
 
 
@@ -626,6 +727,36 @@ def test_hooks_let_the_main_job_deselect_every_core_test(tmp_path):
         "test_expected_failure",
         "test_plain",
     }, completed.stdout
+
+
+MARKED_SKIP = """
+import pytest
+
+
+@pytest.mark.real_core
+def test_marked_handwritten_skip():
+    pytest.skip("AXIOM_CORE_BIN is unset")
+"""
+
+
+def test_hooks_fail_a_marked_core_skip_exactly_when_core_is_required(tmp_path):
+    # The fixture cannot be the one failing here: this test never requests it,
+    # so only the report hook can honour the flag.
+    optional, outcomes = _run_sample(
+        tmp_path / "optional", {}, tests={"test_marked.py": MARKED_SKIP}
+    )
+    assert outcomes == {"test_marked_handwritten_skip": "skipped"}, optional.stdout
+
+    required, outcomes = _run_sample(
+        tmp_path / "required",
+        {real_core.REQUIRE_ENV: "1"},
+        "-m",
+        real_core.MARKER,
+        tests={"test_marked.py": MARKED_SKIP},
+    )
+    assert outcomes == {"test_marked_handwritten_skip": "failure"}, required.stdout
+    assert f"skipped under {real_core.REQUIRE_ENV}=1" in required.stdout
+    assert required.returncode == 1
 
 
 def test_hooks_fail_a_module_skipped_for_a_missing_core(tmp_path):
@@ -693,7 +824,8 @@ def _collected(*args: str) -> list[str]:
 def test_every_integration_test_is_a_real_core_test():
     everything = _collected()
 
-    assert everything
+    # The six tests this job exists for; update when that file changes.
+    assert len(everything) == 6, everything
     assert _collected("-m", real_core.MARKER) == everything
     assert (
         _collected("-m", f"not {real_engine.MARKER} and not {real_core.MARKER}") == []
@@ -715,9 +847,23 @@ def test_ci_compiles_the_pinned_core_and_requires_it():
     assert real_core._FULL_SHA.fullmatch(job["env"][real_core.REF_ENV])
 
     [checkout] = [step for step in steps if "axiom-core.git" in _run(step)]
+    [toolchain] = [step for step in steps if "rustup" in _run(step)]
+    [cache] = [step for step in steps if "cache" in step.get("uses", "")]
     [build] = [step for step in steps if "cargo" in _run(step)]
     [tests] = [step for step in steps if real_core.MARKER in _run(step)]
-    assert steps.index(checkout) < steps.index(build) < steps.index(tests)
+    order = [steps.index(step) for step in (checkout, toolchain, cache, build, tests)]
+    assert order == sorted(order)
+    # No `if:` can skip these steps and no `continue-on-error:` can hide their
+    # failure (lens B, round 1); the job itself has neither
+    # (test_workflow_toolchain_pins).
+    assert set(checkout) == {"name", "run"}
+    assert set(toolchain) == {"name", "working-directory", "run"}
+    assert set(cache) == {"name", "uses", "with"}
+    assert set(build) == {"name", "working-directory", "run"}
+    assert set(tests) == {"name", "env", "run"}
+    # rustup installs the toolchain the pinned checkout's rust-toolchain.toml names.
+    assert toolchain["working-directory"] == "${{ runner.temp }}/axiom-core"
+    assert _run(toolchain) == "rustup toolchain install"
     # The checkout fetches the pin and proves HEAD is it.
     assert '"$AXIOM_CORE_REF"' in checkout["run"]
     assert (
@@ -731,12 +877,11 @@ def test_ci_compiles_the_pinned_core_and_requires_it():
         real_core.REQUIRE_ENV: "1",
         real_core.BINARY_ENV: "${{ runner.temp }}/axiom-core/target/debug/axiom-core",
     }
-    # Nothing restores a cached core: rust-cache keeps dependencies only.
-    caches = [step for step in steps if "cache" in step.get("uses", "")]
-    assert [step["uses"].partition("@")[0] for step in caches] == [
-        "Swatinem/rust-cache"
-    ]
-    assert set(caches[0]["with"]) == {"workspaces"}
+    # Nothing restores a cached core: the one cache is rust-cache on core's
+    # workspace, whose cache-workspace-crates default (false) keeps no
+    # workspace crate.
+    assert cache["uses"].partition("@")[0] == "Swatinem/rust-cache"
+    assert cache["with"] == {"workspaces": "${{ runner.temp }}/axiom-core"}
 
 
 def test_the_test_job_leaves_core_tests_to_real_core():

@@ -129,11 +129,12 @@ jobs:
     timeout-minutes: 30
     env:
       # axiom-core main since 2026-09-17 (#4). Core's own encoder-interop job
-      # ran these tests at this commit against encoder 629b8f9f, the commit
-      # that last changed them: 6 passed, no skips (axiom-core run
-      # 35266183509). It differs from 8ac3a54f, where that job was reviewed,
-      # only in its license. The tests check the binary was built in a clean
-      # checkout of this commit, from its Cargo.lock.
+      # ran these tests at this commit against encoder 629b8f9f, the last
+      # commit to change them before this job existed: 6 passed, no skips
+      # (axiom-core run 35266183509). It differs from 8ac3a54f, where that job
+      # was reviewed, only in its license. The tests check that the binary sits
+      # at the build path of a checkout clean at this commit and reports that
+      # checkout's Cargo.lock digest.
       AXIOM_CORE_REF: d989fb08c58ec401612e01e4a5af72a07aa83b07
 
     steps:
@@ -173,8 +174,9 @@ jobs:
         run: rustup toolchain install
 
       # Dependencies only, including the axiom-rules-engine revision core
-      # links: rust-cache never caches workspace crates, so the core binary is
-      # compiled below from the pinned checkout on every run.
+      # links: with cache-workspace-crates left at its default (false),
+      # rust-cache keeps no workspace crate, so the core binary is compiled
+      # below from the pinned checkout on every run.
       - name: Cache core's cargo dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:

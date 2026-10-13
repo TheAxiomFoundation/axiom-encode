@@ -18,13 +18,22 @@ Nothing here discovers, downloads or builds core; ``AXIOM_CORE_BIN`` names it.
   ``axiom/capabilities/v0`` format, the axiom-rules-engine repository, and the
   sha256 of its own bytes. A configured binary that fails a check fails the
   tests instead of skipping them.
-- With ``AXIOM_CORE_REF`` set, the binary must also be a cargo build
-  (``target/debug`` or ``target/release``) inside a clean git checkout at that
-  commit, and the ``Cargo.lock`` digest core compiles into itself
+- With ``AXIOM_CORE_REF`` set, the binary must also sit at cargo's build path
+  (``target/debug`` or ``target/release``) in a git checkout that is currently
+  clean at that commit, and the ``Cargo.lock`` digest core compiles into itself
   (``capabilities.engine.dependency_lock_sha256``) must be that checkout's.
   That ties the binary to the pinned dependency lock, and so to the engine
-  revision core links. It does not prove which core sources were compiled;
-  the CI job compiles them from the pinned checkout in the same run.
+  revision core links. It does not prove which core sources were compiled, or
+  that the checkout was clean when they were; the CI job compiles them from
+  the freshly fetched pinned checkout in the same run.
+
+The guard hooks turn a skip whose reason says core is missing (see
+``is_core_absence``) into a failure in three cases: the test lacks the
+``real_core`` marker, so ``-m real_core`` would never select it; the run sets
+``AXIOM_REQUIRE_REAL_CORE=1``; or the skip happened at module collection, where
+no marker can reach it. Other skips, and xfails, stand. The classification
+reads the reason's wording, so it recognizes the phrasings
+``CORE_ABSENT_REASON`` lists, not every way of saying core is missing.
 
 To reproduce CI locally, from a checkout of the pin::
 
@@ -46,6 +55,8 @@ from pathlib import Path
 
 import pytest
 
+from tests import real_engine
+
 BINARY_NAME = "axiom-core"
 MARKER = "real_core"
 REQUIRE_ENV = "AXIOM_REQUIRE_REAL_CORE"
@@ -54,15 +65,24 @@ REF_ENV = "AXIOM_CORE_REF"
 UNAVAILABLE = "real axiom-core unavailable"
 CAPABILITIES_FORMAT = "axiom/capabilities/v0"
 ENGINE_REPOSITORY = "https://github.com/TheAxiomFoundation/axiom-rules-engine"
-# Skip reasons that mean "no core": the helper's own, and the wording the
-# integration tests used before it existed. See skip_problem.
+# Skip reasons that mean "no core": this helper's own; any naming an
+# AXIOM_CORE_* provisioning variable (the integration tests' old wording was
+# "AXIOM_CORE_BIN is unset; provide a real axiom-core executable"); and
+# "axiom-core" right next to an absence word, either way round. Adjacency keeps
+# reasons about a present core ("axiom-core lacks native traces") and paths
+# that merely contain the name (".../axiom-core/target") out. See is_core_absence.
 CORE_ABSENT_REASON = re.compile(
     rf"{re.escape(UNAVAILABLE)}"
-    r"|AXIOM_CORE_[A-Z]+"
-    r"|\baxiom-core\b[^.;]*\b(?:binary|executable|built|unavailable|available)\b"
-    r"|\b(?:binary|executable|built)\b[^.;]*\baxiom-core\b",
+    r"|(?-i:\bAXIOM_CORE_[A-Z]+)"
+    r"|\baxiom-core(?:\s+(?:binary|executable|cli|build))?"
+    r"\s+(?:is\s+|was\s+)?"
+    r"(?:missing|absent|unavailable|unset"
+    r"|not\s+(?:available|built|found|installed|present|configured|provided|set))\b"
+    r"|\b(?:no|missing|without|unbuilt|needs?|requires?|provide)"
+    r"\s+(?:an?\s+|the\s+)?(?:real\s+|built\s+|local\s+)?axiom-core\b",
     re.IGNORECASE,
 )
+_SKIP_PREFIX = re.compile(r"\A(?:Skipped:\s*)?")
 _PROBE_TIMEOUT_SECONDS = 60
 _FULL_SHA = re.compile(r"[0-9a-f]{40}")
 
@@ -74,7 +94,8 @@ class RealCore:
     binary: Path
     sha256: str
     engine_revision: str
-    # The pinned checkout the binary was built in, when AXIOM_CORE_REF is set.
+    # The clean checkout at AXIOM_CORE_REF whose build path holds the binary,
+    # when AXIOM_CORE_REF is set.
     checkout: Path | None
 
 
@@ -116,7 +137,7 @@ def _capabilities(binary: Path) -> tuple[dict | None, str]:
     if probe.returncode != 0 or probe.stderr:
         return None, (
             f"{binary} capabilities exited {probe.returncode}: "
-            f"{probe.stderr.strip()[:500]}"
+            f"{' '.join(probe.stderr.split())[:500]}"
         )
     try:
         capabilities = json.loads(probe.stdout)
@@ -140,7 +161,7 @@ def _capabilities(binary: Path) -> tuple[dict | None, str]:
 
 
 def _pinned_checkout(binary: Path, engine: dict, pin: str) -> tuple[Path | None, str]:
-    """The clean checkout at ``pin`` that ``binary`` was built in, or why not."""
+    """The checkout, clean at ``pin``, whose build path holds ``binary``, or why not."""
     if not _FULL_SHA.fullmatch(pin):
         return None, f"{REF_ENV}={pin} is not a full lowercase commit SHA"
     profile = binary.parent
@@ -193,7 +214,7 @@ def locate() -> tuple[RealCore | None, str]:
         if checkout is None:
             return None, f"{origin}: {why}"
     elif required():
-        return None, f"{REQUIRE_ENV}=1 needs {REF_ENV}, the commit core was built from"
+        return None, f"{REQUIRE_ENV}=1 needs {REF_ENV}, the commit core is built at"
     return (
         RealCore(
             binary=binary,
@@ -235,6 +256,18 @@ def describe() -> str:
     )
 
 
+def is_core_absence(reason: str) -> bool:
+    """Whether a skip ``reason`` says axiom-core is missing.
+
+    The engine helper's own reasons never are, whatever paths they carry
+    (an engine checkout under ``.../axiom-core/...`` is still about the engine).
+    """
+    text = _SKIP_PREFIX.sub("", reason, count=1)
+    if text.startswith(real_engine.UNAVAILABLE):
+        return False
+    return CORE_ABSENT_REASON.search(text) is not None
+
+
 def skip_problem(reason: str, *, marked: bool, required: bool) -> str | None:
     """Why a skip with ``reason`` must be a failure instead, or None to keep it.
 
@@ -243,7 +276,7 @@ def skip_problem(reason: str, *, marked: bool, required: bool) -> str | None:
     never run it, and when core is required, because then it is a provisioning
     regression. Every other skip stands.
     """
-    if not CORE_ABSENT_REASON.search(reason):
+    if not is_core_absence(reason):
         return None
     if not marked:
         return (
@@ -299,7 +332,7 @@ def pytest_make_collect_report(collector: pytest.Collector):
     report = yield
     if report.skipped:
         reason = _reason(report.longrepr)
-        if CORE_ABSENT_REASON.search(reason):
+        if is_core_absence(reason):
             report.outcome = "failed"
             report.longrepr = (
                 f"{collector.nodeid} skipped at collection for a missing "

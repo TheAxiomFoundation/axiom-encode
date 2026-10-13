@@ -483,8 +483,9 @@ AXIOM_CORE_BIN=/absolute/path/to/axiom-core/target/debug/axiom-core \
 ```
 
 Without `AXIOM_CORE_BIN`, these tests skip; a configured but unusable binary
-fails them. Also set `AXIOM_CORE_REF=<commit>` to check that the binary was
-built in a clean checkout of that commit, from its `Cargo.lock`.
+fails them. Also set `AXIOM_CORE_REF=<commit>` to check that the binary sits at
+the cargo build path of a checkout that is clean at that commit, and reports
+that checkout's `Cargo.lock` digest.
 
 ## Eval suites and readiness gates
 
