@@ -6221,12 +6221,12 @@ def _composer_local_references(compose_checkout: Path) -> list[str]:
                         references.append(entry["path"])
         workspace = uv.get("workspace")
         if isinstance(workspace, dict):
-            for key in ("members", "exclude"):
-                references.extend(
-                    pattern
-                    for pattern in workspace.get(key, []) or []
-                    if isinstance(pattern, str)
-                )
+            # Exclusions only narrow the members, so they reach nothing.
+            references.extend(
+                pattern
+                for pattern in workspace.get("members", []) or []
+                if isinstance(pattern, str)
+            )
     return references
 
 
@@ -6298,6 +6298,7 @@ def _fresh_composer_siblings(
             for name in sorted(names):
                 entry = layout.entry(_CHECKOUT_NAMES[name])
                 source, commit = checkouts[name]
+                swapped.append(name)
                 if entry.is_symlink():
                     entry.unlink()
                 _fresh_dependency_entry(
@@ -6308,13 +6309,16 @@ def _fresh_composer_siblings(
                     commit,
                     f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}",
                 )
-                swapped.append(name)
             yield
         finally:
             for name in swapped:
                 entry = layout.entry(_CHECKOUT_NAMES[name])
-                shutil.rmtree(entry, ignore_errors=True)
-                entry.symlink_to(checkouts[name][0], target_is_directory=True)
+                if entry.is_symlink():
+                    entry.unlink()
+                elif entry.exists():
+                    shutil.rmtree(entry, ignore_errors=True)
+                if not entry.exists():
+                    entry.symlink_to(checkouts[name][0], target_is_directory=True)
 
 
 def _dependency_commit(

@@ -2603,6 +2603,11 @@ def _composer_layout(tmp_path: Path):
             {"encode", "engine", "corpus"},
         ),
         ("", '[tool.uv.workspace]\nmembers = ["packages/*"]\n', set()),
+        (
+            "",
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\nexclude = ["../../x"]\n',
+            set(),
+        ),
         ("", '[tool.uv.sources]\nx = { path = "../rulespec-us" }\n', set()),
         ("", '[tool.uv.sources]\nx = { git = "https://example.test/x" }\n', set()),
     ],
