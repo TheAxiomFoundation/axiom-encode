@@ -83,7 +83,11 @@ FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
 LEGACY_PIN = "615c1df9b9ace7deea84da65efd137f46f8bad2b"
-EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26)
+EMBEDDED_PINS = (
+    PIN_0EFFA6A5,
+    PIN_6F11BE26,
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3",
+)
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
 APPLY_KEY = base64.b64encode(bytes(range(128, 160))).decode("ascii")
 RETIRED_KEY = base64.b64encode(bytes(range(32, 64))).decode("ascii")
@@ -128,6 +132,12 @@ EMBEDDED_SCRIPT_STEPS = {
     PIN_6F11BE26: (
         *EMBEDDED_SCRIPT_STEPS_0EFFA6A5,
         ("shards", "Reject unmanifested RuleSpec content", "heredoc"),
+    ),
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": (
+        *EMBEDDED_SCRIPT_STEPS_0EFFA6A5,
+        ("shards", "Reject unmanifested RuleSpec content", "heredoc"),
+        ("validate", "Reserve isolated dependency directories", "heredoc"),
+        ("validate", "Validate composer pin", "heredoc"),
     ),
 }
 HEREDOC_MARKER_RE = re.compile(r"<<-?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*")
@@ -390,6 +400,14 @@ def test_single_quoted_python_extracts_the_program() -> None:
     assert _single_quoted_python(run) == "\nimport sys\nprint(sys.stdin.read())\n"
     with pytest.raises(ValueError):
         _single_quoted_python("python - <<'PY'\nprint(1)\nPY\n")
+
+
+def test_every_embedded_pin_lists_the_scripts_ci_executes() -> None:
+    assert set(EMBEDDED_SCRIPT_STEPS) == {
+        sha
+        for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
+        if pin.gate_parameters.embedded_scripts
+    }
 
 
 @pytest.mark.parametrize(
@@ -2721,9 +2739,10 @@ class _CiHarness:
         run.notes.append("note recorded by a gate")
         return self.results
 
-    def _link_workflow_checkouts(self, repo, paths):
+    def _link_workflow_checkouts(self, repo, paths, layout=None):
         # Reporting uses fake dependency directories and no Git checkout.
         # Real link safety is exercised in test_ci_parity_review_c10.py.
+        self.layout = layout
         self._record("_link_workflow_checkouts", repo, paths)
 
     def _build_workflow_engine(

@@ -2438,7 +2438,7 @@ def _repository_test_environment(
     # the pytest step from its inputs instead of a developer's shell.
     if run is not None:
         engine_bin = run.paths["engine"] / "target" / "debug"
-        layout = run.layout if run.layout is not None else DependencyLayout(Path())
+        layout = _run_layout(run)
         if layout.isolated:
             # 92ccb0f2 L2043-2044 puts the engine's dependency-root path on PATH.
             engine_bin = layout.entry("axiom-rules-engine") / "target" / "debug"
@@ -3997,13 +3997,14 @@ def _composer_arguments(run: WorkflowRun) -> tuple[str, ...]:
     because protected runtimes discard ambient root variables.
     """
 
-    if run.composer is None:
+    composer = getattr(run, "composer", None)
+    if composer is None:
         return ()
-    arguments: tuple[str, ...] = ("--axiom-compose-path", str(run.composer))
+    arguments: tuple[str, ...] = ("--axiom-compose-path", str(composer))
     if run.repo.name != "rulespec-us":
         dependency = (
-            run.layout.entry("rulespec-us")
-            if run.layout is not None and run.layout.isolated
+            _run_layout(run).entry("rulespec-us")
+            if _run_layout(run).isolated
             else run.paths["rulespec_us"]
         )
         arguments += ("--rulespec-dependency-root", str(dependency))
@@ -4783,8 +4784,8 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
     }
     multi_group = False
     canonical_rulespec_us = (
-        run.layout.entry("rulespec-us")
-        if run.layout is not None and run.layout.isolated
+        _run_layout(run).entry("rulespec-us")
+        if _run_layout(run).isolated
         else run.paths["rulespec_us"]
     )
     for shard in run.plan.matrix:
@@ -5558,7 +5559,18 @@ def _build_workflow_composer(
     }
     commands = [
         ["uv", "python", "install", COMPOSER_PYTHON, *options],
-        ["uv", "venv", "--python", COMPOSER_PYTHON, *options, str(build)],
+        [
+            "uv",
+            "venv",
+            "--python",
+            # On a fresh runner the only managed 3.14 is the GIL build the
+            # previous command installed; locally uv may prefer a newer
+            # free-threaded 3.14t, so ask for the GIL build, as the
+            # repository-test venv does.
+            f"{COMPOSER_PYTHON}+gil",
+            *options,
+            str(build),
+        ],
         [
             "uv",
             "export",
@@ -5804,6 +5816,13 @@ class DependencyLayout:
         }
 
 
+def _run_layout(run: Any) -> DependencyLayout:
+    """The run's isolated layout, or a non-isolated stand-in for _axiom pins."""
+
+    layout = getattr(run, "layout", None)
+    return layout if layout is not None else DependencyLayout(Path())
+
+
 def isolated_dependency_layout(
     workflow: PinnedWorkflow, repo: Path, runner_temp: Path
 ) -> DependencyLayout:
@@ -5948,11 +5967,11 @@ def _repository_test_python(run: WorkflowRun) -> str:
     # here from the verified encode checkout itself: the same source, without
     # a link inside the rules checkout (see _link_workflow_checkouts).
     classifier = run.paths["encode"]
-    if run.mode != "full-toolchain-bump" and run.layout is not None and run.layout.isolated:
+    if run.mode != "full-toolchain-bump" and _run_layout(run).isolated:
         # 92ccb0f2 L3109-3129 moves the classifier checkout to
         # $AXIOM_DEPENDENCY_ROOT, outside the rules checkout; ci gives the
         # root that entry too, pointing at the same verified checkout.
-        classifier = run.layout.entry("axiom-encode-oracle-coverage")
+        classifier = _run_layout(run).entry("axiom-encode-oracle-coverage")
         try:
             classifier.lstat()
         except FileNotFoundError:
