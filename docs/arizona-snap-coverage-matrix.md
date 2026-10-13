@@ -336,6 +336,18 @@ coverage and 142 focused document/provenance tests passing. This scope is
 **unsigned and unreleased**; it is a candidate source repair, not a citation
 that the current protected RuleSpec run can use.
 
+The same PDF bytes are also authenticated in the corpus repository's signed
+and locked `us/guidance/2026-09-13-snap-fns-guidance` scope, under
+`us/guidance/usda/fns/snap-fy2026-cola-memo` with seven page descendants.
+The `us-rulespec-2026-09-14-wave4-r2-union` release selector includes that
+scope, but the current RuleSpec toolchain pins the older
+`us-rulespec-2026-08-08-obbb-alien-snap` release, which does not. Verify the
+later release object's availability and the protected workflow's release-pin
+transition before using the already signed full-memorandum citation for
+replacement generation. That alternate source route does not repair the
+incorrect PDF provenance recorded in the older page-table scopes, and its
+flattened table text still needs exact proof and numeric-recall validation.
+
 PolicyEngine's SNAP tree at the pinned commit explicitly points to three unique
 Arizona DES manual pages in its SNAP parameters (medical deduction, FAA5 utility
 eligibility, FAA6 allowance amounts). This narrow citation set is **not** a
