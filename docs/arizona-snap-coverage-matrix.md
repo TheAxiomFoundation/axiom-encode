@@ -339,18 +339,19 @@ that the current protected RuleSpec run can use.
 The same PDF bytes are also authenticated in the corpus repository's signed
 and locked `us/guidance/2026-09-13-snap-fns-guidance` scope, under
 `us/guidance/usda/fns/snap-fy2026-cola-memo` with seven page descendants.
-The `us-rulespec-2026-09-14-wave4-r2-union` release selector includes that
-scope, but the current RuleSpec toolchain pins the older
-`us-rulespec-2026-08-08-obbb-alien-snap` release, which does not. The
-[later release's successful publication run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/34909195701)
-records content SHA-256
-`528f596ac8c9e4b0f99d43489425a1e901b9b0ac84cece411560acd9a62fe30f`,
-but its required public-mirror URL returned HTTP 404 on 2026-10-13; the
-protected workflow fetches release objects from that public bucket. An
-authorized, verifier-gated mirror of the already signed release and a reviewed
-RuleSpec release-pin transition are therefore prerequisites to using this
-full-memorandum citation for protected replacement generation. This alternate
-source route does not repair the
+The signed, publicly mirrored
+`us-rulespec-2026-10-07-w6-bundle-gaps-union` release includes this separate
+scope. Its exact public release object (content SHA-256
+`b3e35ce8d718ff3289a0601a2b9cc79c5a6e6f3eee40fe2dcc0d8b08ad56582a`)
+was verified against the corpus release key, and the scope's ingest manifest
+and locked PDF were verified independently. The [mirror run](https://github.com/TheAxiomFoundation/axiom-corpus/actions/runs/38047871927)
+succeeded. [Draft RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
+proposes the release and provenance pins; it is not merged and must pass
+independent review and green exact-head validation before protected generation
+uses this citation. Its first validation attempt exposed an HTTP 500 from the
+optional registry endpoint for the 30 MB release object; the revised PR uses
+the reusable validator's signed public-object path, with validation pending.
+This alternate source route does not repair the
 incorrect PDF provenance recorded in the older page-table scopes, and its
 flattened table text still needs exact proof and numeric-recall validation.
 
