@@ -25,6 +25,7 @@ import io
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -68,6 +69,10 @@ DEPENDENCY_INPUTS = {
     "corpus": "axiom-corpus-ref",
     "rulespec_us": "rulespec-us-ref",
 }
+# Dependency inputs a pin declares as optional: an empty value skips every
+# step that would check the dependency out (92ccb0f2 L15-19, L1569-1634).
+OPTIONAL_DEPENDENCY_INPUTS = {"compose": "axiom-compose-ref"}
+COMPOSE_REPOSITORY = "TheAxiomFoundation/axiom-compose"
 DEFAULT_RELEASE_BASE_URL = "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"
 # The organization's public corpus.release_objects registry. Callers pass it
 # from the NEXT_PUBLIC_SUPABASE_URL repository variable, which a local run
@@ -101,6 +106,11 @@ VARS_RE = re.compile(r"vars\.(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
 RECOGNIZED_WORKFLOW_TOOLCHAIN_RESOLVERS: dict[str, str] = {
     "677a17ea1e348bd0d564095ae29c3ea9f4cd00f0ba9ee37302a5407bcc315da3": (
         "TheAxiomFoundation/rulespec-us repository-checks.yml@cf03a179"
+    ),
+    # The same resolver reading axiom_compose_ref as well; unchanged from
+    # 60dd397f through 4c9aeadd (the 92ccb0f2 repin).
+    "3017281352f85f9350ed4d988d46cdaff1acbe021b501964fcda6dacc7dfa392": (
+        "TheAxiomFoundation/rulespec-us repository-checks.yml@4c9aeadd"
     ),
 }
 # Environment names the protected verification supervisor forwards into its
@@ -173,6 +183,16 @@ WORKFLOW_INPUTS_0EFFA6A5: dict[str, WorkflowInput] = {
     "guard-programs-root": WorkflowInput("boolean", default=False),
     "run-money-atom-check": WorkflowInput("boolean", default=True),
 }
+WORKFLOW_INPUTS_92CCB0F2: dict[str, WorkflowInput] = {
+    "python-version": WorkflowInput("string", default="3.14"),
+    "axiom-encode-ref": WorkflowInput("string", required=True),
+    "axiom-compose-ref": WorkflowInput("string", default=""),
+    **{
+        name: declaration
+        for name, declaration in WORKFLOW_INPUTS_0EFFA6A5.items()
+        if name not in {"python-version", "axiom-encode-ref"}
+    },
+}
 _INPUT_TYPE_DEFAULTS: dict[str, str | bool | int] = {
     "string": "",
     "boolean": False,
@@ -192,6 +212,16 @@ class WorkflowGateParameters:
     exact_guard_base_ref: bool = False
     # The supervisor is provisioned with the retired corpus release root too.
     retired_corpus_release_key: bool = False
+    # Dependency checkouts live outside the rules checkout, under
+    # $RUNNER_TEMP, with an empty staging directory left in the workspace
+    # (92ccb0f2 L1442-1462); earlier pins check them out under _axiom.
+    isolated_dependencies: bool = False
+    # A non-empty axiom-compose-ref provisions the pinned composer runtime and
+    # passes it to the audit, validation and companion tests (92ccb0f2).
+    composer_runtime: bool = False
+    # The unmanifested pre-check reads guard-programs-root and shape-checks
+    # changed ProgramSpecs with the pinned PyYAML parser (92ccb0f2 L211-224).
+    program_spec_precheck: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +271,7 @@ WORKFLOW_GATE_ORDER_6F11BE26: tuple[str, ...] = (
     "unmanifested_rulespec",
     *WORKFLOW_GATE_ORDER_0EFFA6A5[1:],
 )
+WORKFLOW_GATE_ORDER_92CCB0F2 = WORKFLOW_GATE_ORDER_6F11BE26
 
 SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
     "615c1df9b9ace7deea84da65efd137f46f8bad2b": SupportedWorkflowPin(
@@ -284,6 +315,22 @@ SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
         workflow_blob="cd5c32cc269818a74e53909e044c4bd12f21b46d",
         inputs=WORKFLOW_INPUTS_0EFFA6A5,
         gates=WORKFLOW_GATE_ORDER_6F11BE26,
+    ),
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": SupportedWorkflowPin(
+        fixture="validate-rulespec-92ccb0f2.yml",
+        gate_parameters=WorkflowGateParameters(
+            exclude_programs_from_money_atom_check=True,
+            embedded_scripts=True,
+            unmanifested_precheck=True,
+            exact_guard_base_ref=True,
+            retired_corpus_release_key=True,
+            isolated_dependencies=True,
+            composer_runtime=True,
+            program_spec_precheck=True,
+        ),
+        workflow_blob="5ab6f02dcd5e9561c0acffeea59e93a55b125b54",
+        inputs=WORKFLOW_INPUTS_92CCB0F2,
+        gates=WORKFLOW_GATE_ORDER_92CCB0F2,
     ),
 }
 
@@ -575,12 +622,48 @@ _WORKFLOW_GATE_DEFINITIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 }
 
 
+# 92ccb0f2 passes the composer runtime and, for callers other than
+# rulespec-us, the canonical rulespec-us checkout to the audit, validation and
+# companion tests (bash arrays, L2511-2536, L2830-2853, L2943-2958), and the
+# audit reports JSON (#118).
+_COMPOSER_ARGUMENTS = ("{composer-args}", "{dependency-args}")
+_WORKFLOW_GATE_FLAGS_92CCB0F2: dict[str, tuple[str, ...]] = {
+    "validation_waivers": (
+        *_COMPOSER_ARGUMENTS,
+        "--json",
+        *_WORKFLOW_GATE_DEFINITIONS["validation_waivers"][2],
+    ),
+    "validate": (
+        "{files}",
+        "--skip-reviewers",
+        *_COMPOSER_ARGUMENTS,
+        *_WORKFLOW_GATE_DEFINITIONS["validate"][2][2:],
+    ),
+    "companion_tests": (
+        *_COMPOSER_ARGUMENTS,
+        *_WORKFLOW_GATE_DEFINITIONS["companion_tests"][2],
+    ),
+}
+
+
 def _workflow_gate_registry(
-    order: Sequence[str], lines: Mapping[str, str]
+    order: Sequence[str],
+    lines: Mapping[str, str],
+    flags: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[GateSpec, ...]:
-    return tuple(
-        GateSpec(key, *_WORKFLOW_GATE_DEFINITIONS[key], lines[key]) for key in order
-    )
+    registry = []
+    for key in order:
+        name, subcommand, default_flags = _WORKFLOW_GATE_DEFINITIONS[key]
+        registry.append(
+            GateSpec(
+                key,
+                name,
+                subcommand,
+                (flags or {}).get(key, default_flags),
+                lines[key],
+            )
+        )
+    return tuple(registry)
 
 
 WORKFLOW_GATE_REGISTRY_0EFFA6A5 = _workflow_gate_registry(
@@ -624,15 +707,40 @@ WORKFLOW_GATE_REGISTRY_6F11BE26 = _workflow_gate_registry(
         "repository_tests": "2621-2628",
     },
 )
+WORKFLOW_GATE_REGISTRY_92CCB0F2 = _workflow_gate_registry(
+    WORKFLOW_GATE_ORDER_92CCB0F2,
+    {
+        "unsupported_paths": "164-209",
+        "unmanifested_rulespec": "219-927",
+        "migration_authorization": "1116-1266",
+        "retired_schema_freeze": "1655-1868",
+        "obsolete_files": "2056-2066",
+        "repository_layout": "2068-2236",
+        "validation_waivers": "2238-2536",
+        "guard_generated": "2538-2572",
+        "select_targets": "2574-2763",
+        "validate": "2765-2894",
+        "companion_tests": "2896-2960",
+        "proof_validate": "2962-3027",
+        "money_atoms": "3029-3096",
+        "oracle_coverage": "3098-3107",
+        "changed_oracle_coverage": "3109-3230",
+        "repository_tests": "3231-3238",
+    },
+    _WORKFLOW_GATE_FLAGS_92CCB0F2,
+)
+_EMBEDDED_GATE_REGISTRIES: dict[str, tuple[GateSpec, ...]] = {
+    "0effa6a5b05e7fac53902df7d523e909bd7fc48a": WORKFLOW_GATE_REGISTRY_0EFFA6A5,
+    "6f11be2655f79dd0a3b582db46525f58332ca120": WORKFLOW_GATE_REGISTRY_6F11BE26,
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": WORKFLOW_GATE_REGISTRY_92CCB0F2,
+}
 
 
 def gate_registry_for_pin(workflow_sha: str) -> tuple[GateSpec, ...]:
     """Return the ordered gate registry the pinned workflow runs."""
 
-    if workflow_sha == "0effa6a5b05e7fac53902df7d523e909bd7fc48a":
-        return WORKFLOW_GATE_REGISTRY_0EFFA6A5
-    if workflow_sha == "6f11be2655f79dd0a3b582db46525f58332ca120":
-        return WORKFLOW_GATE_REGISTRY_6F11BE26
+    if workflow_sha in _EMBEDDED_GATE_REGISTRIES:
+        return _EMBEDDED_GATE_REGISTRIES[workflow_sha]
     if workflow_sha in SUPPORTED_WORKFLOW_PINS:
         return CI_GATE_REGISTRY
     raise KeyError(workflow_sha)
@@ -678,6 +786,10 @@ WORKFLOW_RESOLUTION_STEPS: dict[str, str] = {
     ),
     "Build axiom-rules-engine": "_build_workflow_engine",
     "Check validation matrix result": "ci_verdict",
+    "Reserve isolated dependency directories": "DependencyLayout.isolated",
+    "Validate composer pin": "validate_composer_pin",
+    "Authenticate composer commit": "verify_dependency_checkout (compose)",
+    "Build protected axiom-compose runtime": "_build_workflow_composer",
 }
 WORKFLOW_ENVIRONMENT_STEPS: dict[str, str] = {
     "Checkout rules repository": "the --repo checkout",
@@ -692,6 +804,18 @@ WORKFLOW_ENVIRONMENT_STEPS: dict[str, str] = {
     "Install Python dependencies": "_repository_test_python",
     "Expose axiom-rules-engine on PATH": "the encoder resolves the engine path",
     "Link axiom-rules-engine as sibling checkout": "explicit checkout paths",
+    "Set up Python for the RuleSpec pre-check": "the ambient interpreter",
+    "Install the ProgramSpec shape-check parser": (
+        "the ambient interpreter's PyYAML, checked against the pinned version"
+    ),
+    "Relocate dependency axiom-encode": "DependencyLayout entries",
+    "Relocate dependency axiom-rules-engine": "DependencyLayout entries",
+    "Relocate dependency axiom-corpus": "DependencyLayout entries",
+    "Relocate dependency rulespec-us": "DependencyLayout entries",
+    "Relocate dependency axiom-compose": "DependencyLayout entries",
+    "Relocate dependency axiom-encode-oracle-coverage": "DependencyLayout entries",
+    "Checkout axiom-compose": "the --compose-path checkout",
+    "Install uv for composer runtime": "the local uv (version recorded)",
 }
 
 
@@ -732,6 +856,14 @@ def register_ci_parser(subparsers: Any) -> None:
     parser.add_argument("--engine-path", type=Path)
     parser.add_argument("--rulespec-us-path", type=Path)
     parser.add_argument("--encode-path", type=Path)
+    parser.add_argument(
+        "--compose-path",
+        type=Path,
+        help=(
+            "axiom-compose checkout for a caller that sets axiom-compose-ref "
+            "(default: the axiom-compose sibling of --repo)"
+        ),
+    )
     parser.add_argument("--base-ref", default="origin/main")
     parser.add_argument(
         "--base-branch",
@@ -983,6 +1115,13 @@ def parse_caller_job(
                 f"Caller {path}: {input_name} must be a full lowercase SHA"
             )
         refs[dependency] = value
+    # An optional dependency is checked out only when its input is non-empty.
+    # Its value is validated where CI validates it ("Validate composer pin"),
+    # so a malformed one fails the validate job rather than the caller parse.
+    for dependency, input_name in OPTIONAL_DEPENDENCY_INPUTS.items():
+        value = inputs.get(input_name)
+        if isinstance(value, str) and value:
+            refs[dependency] = value
     return CallerConfig(
         path=path,
         workflow_sha=workflow_sha,
@@ -2299,6 +2438,10 @@ def _repository_test_environment(
     # the pytest step from its inputs instead of a developer's shell.
     if run is not None:
         engine_bin = run.paths["engine"] / "target" / "debug"
+        layout = run.layout if run.layout is not None else DependencyLayout(Path())
+        if layout.isolated:
+            # 92ccb0f2 L2043-2044 puts the engine's dependency-root path on PATH.
+            engine_bin = layout.entry("axiom-rules-engine") / "target" / "debug"
         python_bin = str(Path(interpreter or sys.executable).parent)
         environment = {
             "PATH": os.pathsep.join((str(engine_bin), python_bin, os.defpath)),
@@ -2323,6 +2466,8 @@ def _repository_test_environment(
             RULESPEC_TEST_FILE_LIST=str(run.temp / "rulespec-test-files.txt"),
             RULESPEC_VALIDATION_MODE=run.mode,
         )
+        # 92ccb0f2 L1460-1461 adds the dependency directories to GITHUB_ENV.
+        environment.update(layout.environment())
         return environment
     return {
         name: value
@@ -3181,6 +3326,34 @@ def resolve_workflow_toolchain(
         raise ValueError((stderr or stdout).strip() or "RuleSpec toolchain error")
 
 
+def validate_composer_pin(
+    workflow: PinnedWorkflow, repo: Path, compose_ref: str
+) -> None:
+    """Run the workflow's "Validate composer pin" script unchanged (92ccb0f2 L1569-1592).
+
+    It requires a full lowercase SHA that equals the committed
+    ``.axiom/workflow-toolchain.toml`` composer pin.
+    """
+
+    code, stdout, stderr = _run_embedded_python(
+        workflow.python("validate", "Validate composer pin"),
+        cwd=repo,
+        environment={"AXIOM_COMPOSE_REF": compose_ref},
+    )
+    if code:
+        raise ValueError(
+            "Validate composer pin failed: "
+            + ((stderr or stdout).strip() or f"exit status {code}")
+        )
+
+
+def resolve_compose_path(args: argparse.Namespace, repo: Path) -> Path:
+    """The local axiom-compose checkout, like the other dependency defaults."""
+
+    configured = getattr(args, "compose_path", None)
+    return (configured or repo.parent / "axiom-compose").expanduser().resolve()
+
+
 @dataclass(frozen=True, slots=True)
 class ShardPlan:
     """The shards job's outputs for the simulated pull request."""
@@ -3651,6 +3824,10 @@ class WorkflowRun:
     offline: bool = False
     dependency_mismatches: list[DependencyMismatch] = field(default_factory=list)
     shards_done: bool = False
+    # Where the dependency checkouts live (None: the legacy _axiom layout).
+    layout: DependencyLayout | None = None
+    # The provisioned axiom-compose launcher, when the caller pins a composer.
+    composer: Path | None = None
 
 
 @dataclass(slots=True)
@@ -3811,6 +3988,28 @@ def _aggregate(
     )
 
 
+def _composer_arguments(run: WorkflowRun) -> tuple[str, ...]:
+    """CI's ``"${composer_args[@]}" "${dependency_args[@]}"`` for this run.
+
+    92ccb0f2 L2511-2522 (and L2830-2841, L2943-2954): with a composer ref,
+    the protected composer launcher; for a caller whose workspace is not
+    named rulespec-us, also the authenticated canonical rulespec-us checkout,
+    because protected runtimes discard ambient root variables.
+    """
+
+    if run.composer is None:
+        return ()
+    arguments: tuple[str, ...] = ("--axiom-compose-path", str(run.composer))
+    if run.repo.name != "rulespec-us":
+        dependency = (
+            run.layout.entry("rulespec-us")
+            if run.layout is not None and run.layout.isolated
+            else run.paths["rulespec_us"]
+        )
+        arguments += ("--rulespec-dependency-root", str(dependency))
+    return arguments
+
+
 def _render_boolean(value: Any) -> str:
     """Render a boolean input the way ${{ inputs.<name> }} does."""
 
@@ -3864,21 +4063,61 @@ def _gate_unsupported_paths(
     return _step_result(spec, code, stdout, stderr, command)
 
 
+_PROGRAM_SPEC_PARSER_STEP = "Install the ProgramSpec shape-check parser"
+_PINNED_PYYAML_RE = re.compile(r"(?<![A-Za-z0-9_.-])pyyaml==(?P<version>[0-9][^\s]*)")
+
+
+def program_spec_parser_mismatch(workflow: PinnedWorkflow) -> DependencyMismatch | None:
+    """Compare ci's PyYAML with the parser the pre-check installs (92ccb0f2 L216-217).
+
+    The pre-check's ProgramSpec shape check imports yaml in the interpreter
+    that runs it; ci runs it in its own interpreter.
+    """
+
+    steps = [
+        step
+        for step in workflow.payload["jobs"]["shards"]["steps"]
+        if isinstance(step, dict) and step.get("name") == _PROGRAM_SPEC_PARSER_STEP
+    ]
+    if not steps:
+        return None
+    match = _PINNED_PYYAML_RE.search(str(steps[0].get("run", "")))
+    if match is None:
+        raise ValueError(
+            f"validate-rulespec@{workflow.sha[:8]} {_PROGRAM_SPEC_PARSER_STEP!r} "
+            "installs no exact pyyaml version"
+        )
+    running = getattr(yaml, "__version__", "unknown")
+    if running == match.group("version"):
+        return None
+    return DependencyMismatch(
+        "program-spec-parser", f"pyyaml {running}", f"pyyaml {match.group('version')}"
+    )
+
+
 def _gate_unmanifested_rulespec(
     run: WorkflowRun | _ShardsRun, spec: GateSpec
 ) -> GateResult:
+    environment = {
+        **run.simulation.github_environment(run.repo),
+        "BASE_SHA": run.simulation.base_sha,
+        "EVENT_NAME": PULL_REQUEST_EVENT,
+        "RUN_GENERATED_GUARD": _render_boolean(
+            run.caller.inputs["run-generated-guard"]
+        ),
+        "SCAN_MODE": "diff",
+    }
+    # 92ccb0f2 L224 passes guard-programs-root; earlier pins do not.
+    if "GUARD_PROGRAMS_ROOT" in (
+        run.workflow.step("shards", spec.name).get("env") or {}
+    ):
+        environment["GUARD_PROGRAMS_ROOT"] = _render_boolean(
+            run.caller.inputs["guard-programs-root"]
+        )
     code, stdout, stderr = _run_embedded_python(
         run.workflow.python("shards", spec.name),
         cwd=run.repo,
-        environment={
-            **run.simulation.github_environment(run.repo),
-            "BASE_SHA": run.simulation.base_sha,
-            "EVENT_NAME": PULL_REQUEST_EVENT,
-            "RUN_GENERATED_GUARD": _render_boolean(
-                run.caller.inputs["run-generated-guard"]
-            ),
-            "SCAN_MODE": "diff",
-        },
+        environment=environment,
     )
     return _step_result(
         spec,
@@ -4210,6 +4449,8 @@ def _gate_validation_waivers(run: WorkflowRun, spec: GateSpec) -> GateResult:
             (
                 "validation-waivers",
                 "audit",
+                *_composer_arguments(run),
+                *(("--json",) if "--json" in spec.flags else ()),
                 "--root",
                 str(repo),
                 "--corpus-path",
@@ -4497,6 +4738,7 @@ def _gate_validate(run: WorkflowRun, spec: GateSpec) -> GateResult:
                             "validate",
                             *selected[worker::count],
                             "--skip-reviewers",
+                            *_composer_arguments(run),
                             "--corpus-path",
                             str(run.paths["corpus"]),
                             "--axiom-rules-engine-path",
@@ -4540,6 +4782,11 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
         shard: [] for shard in run.plan.matrix
     }
     multi_group = False
+    canonical_rulespec_us = (
+        run.layout.entry("rulespec-us")
+        if run.layout is not None and run.layout.isolated
+        else run.paths["rulespec_us"]
+    )
     for shard in run.plan.matrix:
         lines = messages.setdefault(shard, [])
         # The skip list exists only where the validate step wrote it.
@@ -4571,6 +4818,7 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
                     CliInvocation(
                         (
                             "test",
+                            *_composer_arguments(run),
                             "--root",
                             str(run.repo / jurisdiction),
                             "--axiom-rules-engine-path",
@@ -4579,8 +4827,9 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
                         ),
                         cwd=run.repo,
                         environment={
+                            # 92ccb0f2 L2903 names the dependency-root entry.
                             "AXIOM_RULESPEC_REPO_ROOTS": (
-                                f"{run.repo}:{run.paths['rulespec_us']}"
+                                f"{run.repo}:{canonical_rulespec_us}"
                             )
                         },
                     )
@@ -5264,6 +5513,202 @@ def _build_workflow_engine(
     return view
 
 
+# "Build protected axiom-compose runtime" pins its own Python, not the
+# caller's python-version (92ccb0f2 L2016-2017).
+COMPOSER_PYTHON = "3.14"
+_PROVISION_COMPOSER_SCRIPT = "scripts/provision_axiom_compose_runtime.py"
+
+
+def _build_workflow_composer(
+    compose_checkout: Path,
+    compose_ref: str,
+    encode_path: Path,
+    encode_pin: str,
+    temp: Path,
+    *,
+    offline: bool,
+    notes: list[str] | None = None,
+) -> Path:
+    """Mirror "Build protected axiom-compose runtime" (92ccb0f2 L2009-2037).
+
+    ``compose_checkout`` is a fresh clone at ``compose_ref`` with CI's origin,
+    as "Checkout axiom-compose" leaves it. The runtime is staged with uv
+    exactly as the step does, then provisioned by the encoder pin's own
+    provision_axiom_compose_runtime.py, read from the pinned commit rather
+    than the checkout's worktree. CI runs that script under sudo into /opt
+    and makes the result root-owned; locally it runs as the user into a
+    private directory that is then made group- and other-unwritable. A
+    failure is a resolution failure: CI's step fails every leg before a gate.
+    """
+
+    temp.mkdir(parents=True, exist_ok=True)
+    build = temp / "axiom-compose-build"
+    requirements = temp / "axiom-compose-requirements.txt"
+    site_packages = temp / "axiom-compose-site-packages"
+    destination = temp / "axiom-compose-verification"
+    scripts = temp / "axiom-compose-provision"
+    interpreter = build / "bin" / "python"
+    # CI's uv sees no user or repository configuration (setup-uv on a fresh
+    # runner), so none may steer the local build either.
+    options = ["--no-config", *(["--offline"] if offline else [])]
+    environment = {
+        name: value
+        for name, value in _git_environment().items()
+        if not name.startswith(("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA"))
+    }
+    commands = [
+        ["uv", "python", "install", COMPOSER_PYTHON, *options],
+        ["uv", "venv", "--python", COMPOSER_PYTHON, *options, str(build)],
+        [
+            "uv",
+            "export",
+            "--project",
+            str(compose_checkout),
+            "--locked",
+            "--no-dev",
+            "--no-emit-project",
+            "--format",
+            "requirements.txt",
+            "--output-file",
+            str(requirements),
+            *options,
+        ],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(interpreter),
+            "--target",
+            str(site_packages),
+            "--requirement",
+            str(requirements),
+            *options,
+        ],
+    ]
+    for command in commands:
+        result = _run_build_command(command, cwd=temp, environment=environment)
+        if result.returncode:
+            raise ValueError(
+                "Build protected axiom-compose runtime failed: "
+                f"{' '.join(command)}: {result.stdout[-2000:]}"
+            )
+    # The provisioning script and its helper come from the encoder pin's
+    # committed tree, as CI's checkout of that pin supplies them.
+    archive = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(encode_path),
+            "archive",
+            "--format=tar",
+            encode_pin,
+            "scripts",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env={
+            **_git_environment(),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+        },
+    )
+    if archive.returncode:
+        raise ValueError(
+            f"Encoder pin {encode_pin} has no scripts/ to provision the composer: "
+            + archive.stderr.decode("utf-8", "replace").strip()
+        )
+    scripts.mkdir()
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as bundle:
+        bundle.extractall(scripts, filter="data")
+    provision = scripts / _PROVISION_COMPOSER_SCRIPT
+    if not provision.is_file():
+        raise ValueError(
+            f"Encoder pin {encode_pin} has no {_PROVISION_COMPOSER_SCRIPT}; the "
+            "composer runtime needs a composer-aware encoder"
+        )
+    home = temp / "axiom-compose-provision-home"
+    home.mkdir()
+    # sudo resets the environment to a minimal one (env_reset).
+    provision_environment = {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(home),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+    }
+    result = _run_build_command(
+        [
+            str(interpreter),
+            str(provision),
+            "--destination",
+            str(destination),
+            "--site-packages",
+            str(site_packages),
+            "--compose-checkout",
+            str(compose_checkout),
+            "--compose-ref",
+            compose_ref,
+        ],
+        cwd=temp,
+        environment=provision_environment,
+    )
+    if result.returncode:
+        raise ValueError(
+            "Build protected axiom-compose runtime failed: "
+            f"{_PROVISION_COMPOSER_SCRIPT}: {result.stdout[-2000:]}"
+        )
+    for path in (destination, *destination.rglob("*")):
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode & ~(stat.S_IWGRP | stat.S_IWOTH))
+    launcher = destination / "axiom-compose"
+    smoke = _run_build_command(
+        [str(launcher), "--help"], cwd=temp, environment=provision_environment
+    )
+    if smoke.returncode:
+        raise ValueError(
+            f"Provisioned axiom-compose runtime does not run: {smoke.stdout[-2000:]}"
+        )
+    if notes is not None:
+        uv_version = _run_build_command(
+            ["uv", "--version"], cwd=temp, environment=environment
+        ).stdout.strip()
+        attestation = destination / "runtime-attestation.json"
+        try:
+            runtime = json.loads(attestation.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            runtime = {}
+        python = _run_build_command(
+            [str(interpreter), "-c", "import sys; print(sys.version.split()[0])"],
+            cwd=temp,
+            environment=environment,
+        ).stdout.strip()
+        notes.append(
+            f"composer runtime: axiom-compose {compose_ref} provisioned by "
+            f"{_PROVISION_COMPOSER_SCRIPT}@{encode_pin[:12]} at {launcher} "
+            f"(Python {python}; {uv_version}; package tree sha256 "
+            f"{runtime.get('package_tree_sha256', 'unknown')})"
+        )
+    return launcher
+
+
+def _run_build_command(
+    command: Sequence[str], *, cwd: Path, environment: Mapping[str, str]
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            list(command),
+            cwd=cwd,
+            env=dict(environment),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(f"{command[0]} could not run: {exc}") from exc
+
+
 def _workflow_internal_directory(repo: Path) -> Path:
     """Reject PR-controlled checkout destinations before writing any links."""
 
@@ -5316,34 +5761,131 @@ def _reject_tracked_dependency_symlinks(paths: Mapping[str, Path]) -> None:
                 )
 
 
-def _link_workflow_checkouts(repo: Path, paths: Mapping[str, Path]) -> None:
-    """Give implicit discovery CI's sibling-checkout layout.
+_CHECKOUT_NAMES = {
+    "encode": "axiom-encode",
+    "engine": "axiom-rules-engine",
+    "corpus": "axiom-corpus",
+    "rulespec_us": "rulespec-us",
+    "compose": "axiom-compose",
+}
+_STAGE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-    CI also checks the dependencies out under ``_axiom/`` inside the rules
-    checkout (6f11be26 L1064/L1072/L1080/L1088; 0effa6a5 L711/L719/L727/L735)
-    as real directories. The gates' ``find`` steps prune ``_axiom`` and no
-    repository test reads it. The pinned encoder's symlink audit does walk it,
-    and rejects any symlink in an active RuleSpec checkout, so ``_axiom/`` is
-    left absent here rather than linked; a symlink the dependencies themselves
-    track is refused separately (``_reject_tracked_dependency_symlinks``).
-    A PR that commits ``_axiom`` content still fails closed, since CI's
-    checkouts would land on it.
+
+@dataclass(frozen=True, slots=True)
+class DependencyLayout:
+    """Where CI's validate job keeps its dependency checkouts.
+
+    Pins before 92ccb0f2 check them out under ``_axiom`` inside the rules
+    checkout. From 92ccb0f2 on they live in a directory under RUNNER_TEMP,
+    outside the checkout, exported to every later step as
+    AXIOM_DEPENDENCY_ROOT, and the workspace keeps only an empty staging
+    directory named by AXIOM_DEPENDENCY_STAGE (L1442-1462).
     """
 
-    names = {
-        "encode": "axiom-encode",
-        "engine": "axiom-rules-engine",
-        "corpus": "axiom-corpus",
-        "rulespec_us": "rulespec-us",
-    }
-    _workflow_internal_directory(repo)
-    # 6f11be26 L1497-1504 (0effa6a5 L1144-1151) links the dependencies as
-    # siblings of the workspace, outside the rules checkout.
-    links = [
-        (repo.parent / names[name], paths[name])
-        for name in ("engine", "corpus", "rulespec_us")
-        if names[name] != repo.name
-    ]
+    root: Path
+    # The workspace-relative staging directory, for the isolated layout.
+    stage: str | None = None
+
+    @property
+    def isolated(self) -> bool:
+        return self.stage is not None
+
+    def entry(self, name: str) -> Path:
+        return self.root / name
+
+    def environment(self) -> dict[str, str]:
+        """The GITHUB_ENV exports later steps (repository pytest) see."""
+
+        if self.stage is None:
+            return {}
+        return {
+            "AXIOM_DEPENDENCY_STAGE": self.stage,
+            "AXIOM_DEPENDENCY_ROOT": str(self.root),
+        }
+
+
+def isolated_dependency_layout(
+    workflow: PinnedWorkflow, repo: Path, runner_temp: Path
+) -> DependencyLayout:
+    """Mirror "Reserve isolated dependency directories" (92ccb0f2 L1442-1462).
+
+    The step makes an exclusive staging directory in the workspace, which
+    stays there, empty, once every checkout has been moved out of it, and an
+    exclusive dependency root under RUNNER_TEMP, mode 0755. Its embedded
+    check that the root is outside the workspace runs unchanged.
+    """
+
+    step = workflow.step("validate", "Reserve isolated dependency directories")
+    stage = _exclusive_directory(repo, ".axiom-dependency-stage.")
+    tools = _exclusive_directory(runner_temp, "axiom-dependencies.")
+    code, stdout, stderr = _run_embedded_python(
+        _heredoc_bodies(step["run"])[0],
+        cwd=repo,
+        environment={"GITHUB_WORKSPACE": str(repo), "tools": str(tools)},
+    )
+    if code:
+        raise ValueError(
+            "Reserve isolated dependency directories failed: "
+            + ((stderr or stdout).strip() or f"exit status {code}")
+        )
+    tools.chmod(0o755)
+    return DependencyLayout(tools.resolve(strict=True), stage.name)
+
+
+def _exclusive_directory(parent: Path, prefix: str) -> Path:
+    """``mktemp -d <parent>/<prefix>XXXXXXXX``: a new directory, never reused."""
+
+    for _ in range(100):
+        suffix = "".join(secrets.choice(_STAGE_ALPHABET) for _ in range(8))
+        candidate = parent / f"{prefix}{suffix}"
+        try:
+            candidate.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        return candidate
+    raise ValueError(f"Cannot create a unique {prefix}XXXXXXXX directory in {parent}")
+
+
+def _link_workflow_checkouts(
+    repo: Path,
+    paths: Mapping[str, Path],
+    layout: DependencyLayout | None = None,
+) -> None:
+    """Give implicit discovery CI's checkout layout, never inside the checkout.
+
+    Before 92ccb0f2, CI also checks the dependencies out under ``_axiom/``
+    inside the rules checkout (6f11be26 L1064/L1072/L1080/L1088; 0effa6a5
+    L711/L719/L727/L735) as real directories. The gates' ``find`` steps prune
+    ``_axiom`` and no repository test reads it. The pinned encoder's symlink
+    audit does walk it, and rejects any symlink in an active RuleSpec
+    checkout, so ``_axiom/`` is left absent here rather than linked; a
+    symlink the dependencies themselves track is refused separately
+    (``_reject_tracked_dependency_symlinks``). A PR that commits ``_axiom``
+    content still fails closed, since CI's checkouts would land on it. From
+    92ccb0f2 on, CI moves
+    every checkout to $AXIOM_DEPENDENCY_ROOT, outside the rules checkout
+    (L1471-1541, L1604-1615), and links the siblings to those entries
+    (L2046-2054); ci gives the root the same entries.
+    """
+
+    if layout is None or not layout.isolated:
+        _workflow_internal_directory(repo)
+        # 6f11be26 L1497-1504 (0effa6a5 L1144-1151) links the dependencies as
+        # siblings of the workspace, outside the rules checkout.
+        links = [
+            (repo.parent / _CHECKOUT_NAMES[name], paths[name])
+            for name in ("engine", "corpus", "rulespec_us")
+            if _CHECKOUT_NAMES[name] != repo.name
+        ]
+    else:
+        links = [
+            (layout.entry(_CHECKOUT_NAMES[name]), path) for name, path in paths.items()
+        ]
+        links.extend(
+            (repo.parent / _CHECKOUT_NAMES[name], layout.entry(_CHECKOUT_NAMES[name]))
+            for name in ("engine", "corpus", "rulespec_us")
+            if _CHECKOUT_NAMES[name] != repo.name
+        )
     for link, path in links:
         if link.exists() or link.is_symlink():
             if link.resolve() != path.resolve():
@@ -5406,6 +5948,20 @@ def _repository_test_python(run: WorkflowRun) -> str:
     # here from the verified encode checkout itself: the same source, without
     # a link inside the rules checkout (see _link_workflow_checkouts).
     classifier = run.paths["encode"]
+    if run.mode != "full-toolchain-bump" and run.layout is not None and run.layout.isolated:
+        # 92ccb0f2 L3109-3129 moves the classifier checkout to
+        # $AXIOM_DEPENDENCY_ROOT, outside the rules checkout; ci gives the
+        # root that entry too, pointing at the same verified checkout.
+        classifier = run.layout.entry("axiom-encode-oracle-coverage")
+        try:
+            classifier.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError(
+                f"CI checkout link would replace an existing path: {classifier}"
+            )
+        classifier.symlink_to(run.paths["encode"], target_is_directory=True)
     try:
         if run.mode != "full-toolchain-bump":
             commands.append(
@@ -5595,6 +6151,17 @@ def _run_ci_in_checkout(
             repository=repository,
             base_branch=base_branch,
         )
+        if pin.gate_parameters.program_spec_precheck:
+            parser_mismatch = program_spec_parser_mismatch(workflow)
+            if parser_mismatch is not None:
+                if not getattr(args, "allow_encoder_mismatch", False):
+                    raise ValueError(
+                        f"PARSER MISMATCH: {parser_mismatch.banner_line()}; the "
+                        "ProgramSpec shape check would parse with a different "
+                        "PyYAML than CI's; pass --allow-encoder-mismatch for a "
+                        "qualified development verdict"
+                    )
+                mismatches.append(parser_mismatch)
         shards = _ShardsRun(caller, workflow, repo, simulation, results)
         plan = _execute_shards_job(shards, validate_roots_input)
         if plan is None:
@@ -5631,8 +6198,31 @@ def _run_ci_in_checkout(
         )
         if mismatch:
             mismatches.append(mismatch)
-    if workflow is not None:
+    if workflow is not None and not pin.gate_parameters.isolated_dependencies:
+        # Before 92ccb0f2 the dependencies sit under _axiom/ inside the active
+        # checkout, where the encoder's symlink audit walks them. From
+        # 92ccb0f2 on they are outside it (L1471-1541), so only a
+        # --rulespec-dependency-root is walked, by the encoder itself.
         _reject_tracked_dependency_symlinks(paths)
+    compose_path: Path | None = None
+    if (
+        workflow is not None
+        and pin.gate_parameters.composer_runtime
+        and "compose" in caller.refs
+    ):
+        # 92ccb0f2 L1569-1628: the composer pin is checked against the
+        # committed workflow toolchain before its checkout is authenticated.
+        validate_composer_pin(workflow, repo, caller.refs["compose"])
+        compose_path = resolve_compose_path(args, source)
+        mismatch = verify_dependency_checkout(
+            "compose",
+            compose_path,
+            caller.refs["compose"],
+            caller.path,
+            allow_ref_mismatch=args.allow_ref_mismatch,
+        )
+        if mismatch:
+            mismatches.append(mismatch)
     pinned_version = encoder_version_at_pin(paths["encode"], caller.refs["encode"])
     encoder_mismatch = verify_ambient_encoder(
         caller.refs["encode"],
@@ -5705,7 +6295,40 @@ def _run_ci_in_checkout(
         ),
         remote_fetch_disabled() if args.offline else contextlib.nullcontext(),
     ):
+        layout: DependencyLayout | None = None
+        composer: Path | None = None
         if workflow is not None:
+            if pin.gate_parameters.isolated_dependencies:
+                runner_temp = Path(
+                    run_resources.enter_context(
+                        tempfile.TemporaryDirectory(prefix="axiom-ci-runner-temp-")
+                    )
+                ).resolve()
+                layout = isolated_dependency_layout(workflow, repo, runner_temp)
+            if compose_path is not None:
+                # "Checkout axiom-compose" is a fresh full clone at the pin
+                # whose origin is the GitHub repository (92ccb0f2 L1594-1628).
+                compose_checkout = run_resources.enter_context(
+                    committed_checkout(
+                        compose_path,
+                        caller.refs["compose"],
+                        repository=COMPOSE_REPOSITORY,
+                    )
+                )
+                composer = _build_workflow_composer(
+                    compose_checkout,
+                    caller.refs["compose"],
+                    paths["encode"],
+                    caller.refs["encode"],
+                    Path(
+                        run_resources.enter_context(
+                            tempfile.TemporaryDirectory(prefix="axiom-ci-composer-")
+                        )
+                    ).resolve(),
+                    offline=args.offline,
+                    notes=notes,
+                )
+                paths = {**paths, "compose": compose_checkout}
             engine_temp = Path(
                 run_resources.enter_context(
                     tempfile.TemporaryDirectory(prefix="axiom-ci-engine-")
@@ -5724,10 +6347,12 @@ def _run_ci_in_checkout(
                     ),
                     offline=args.offline,
                     notes=notes,
-                    rules_checkout=repo,
+                    # From 92ccb0f2 the engine builds under RUNNER_TEMP, so
+                    # the rules checkout's Cargo inputs no longer reach it.
+                    rules_checkout=None if layout is not None else repo,
                 ),
             }
-            _link_workflow_checkouts(repo, paths)
+            _link_workflow_checkouts(repo, paths, layout)
             # 6f11be26 L1495 (0effa6a5 L1142) exposes the fresh debug
             # binary before every engine-consuming gate and repository pytest.
             os.environ["PATH"] = os.pathsep.join(
@@ -5756,6 +6381,8 @@ def _run_ci_in_checkout(
                 offline=args.offline,
                 dependency_mismatches=mismatches,
                 shards_done=True,
+                layout=layout,
+                composer=composer,
             )
             results.extend(execute_workflow_gates(run))
             notes.extend(run.notes)
