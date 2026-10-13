@@ -1410,6 +1410,11 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     )
     assert run.composer is not None and run.composer.name == "axiom-compose"
     assert not (harness.repo / "_axiom").exists()
+    # The dependencies are outside the active checkout from 92ccb0f2 on, so
+    # the encoder's audit never walks them and ci does not refuse a symlink
+    # one of them tracks; a --rulespec-dependency-root is walked by the
+    # encoder itself.
+    assert "_reject_tracked_dependency_symlinks" not in harness.calls
 
 
 def test_run_ci_without_a_composer_ref_skips_every_composer_step(
@@ -1463,6 +1468,9 @@ def test_workspace_pins_keep_the_legacy_layout_and_engine_inputs(
     assert harness.rules_checkout == harness.repo
     assert harness.layout is None
     assert harness.run is not None and harness.run.layout is None
+    # Before 92ccb0f2 CI's dependencies sit inside the active checkout, where
+    # the encoder's symlink audit walks them, so tracked symlinks are refused.
+    assert len(harness.calls["_reject_tracked_dependency_symlinks"]) == 1
 
 
 def test_compose_path_is_a_ci_flag(tmp_path: Path) -> None:
