@@ -14,7 +14,7 @@ function runs in exactly one of them.
 
 That argument needs every shard to see the same collection and the same
 table, and each shard to run what it kept. So a shard publishes a report only
-after pytest exits 0 having run every test it kept. The report carries a
+when pytest exits 0 having run every test it kept. The report carries a
 digest of the collection and of the assignment computed from it. The
 ``test (3.13)`` job in ``ci.yml`` runs ``check_reports``: it fails unless every
 shard published a report, the digests and totals agree, and the kept counts add

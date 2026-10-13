@@ -69,18 +69,23 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item, nextitem):
-    # Counts every test this session starts, whatever its outcome.
+    # Counts every test whose run completes, whatever its outcome. A test that
+    # stops the session (pytest.exit, KeyboardInterrupt) raises through here
+    # uncounted, so its shard publishes nothing.
+    result = yield
     run = item.config.stash.get(_SHARD_RUN, None)
     if run is not None:
         run["ran"] += 1
-    return (yield)
+    return result
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """Publish this shard's report, but only as proof that its tests ran and passed.
+    """Write this shard's report when the session ran every kept test and passed.
 
-    A failed, interrupted or collect-only run publishes nothing, and the gate
-    job fails on the missing report.
+    A failed, interrupted or collect-only run writes nothing. CI copies the
+    report into the job's outputs only after pytest itself exits 0, so a failure
+    after this hook (in another plugin's hooks) also publishes nothing, and the
+    gate job fails on the missing report.
     """
     run = session.config.stash.get(_SHARD_RUN, None)
     if run is None or exitstatus != 0:

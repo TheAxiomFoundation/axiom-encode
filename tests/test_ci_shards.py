@@ -332,12 +332,28 @@ def test_environment_has_no_shard_variables():
 
 def test_fails_when_asked():
     assert not os.environ.get("GENERATED_TEST_FAILS")
+
+
+def test_nests_a_pytest_run_when_asked(tmp_path):
+    if os.environ.get("GENERATED_TEST_NESTS"):
+        inner = tmp_path / "test_inner.py"
+        inner.write_text("def test_inner():\\n    pass\\n")
+        arguments = ["-q", "-p", "no:cacheprovider", "-p", "tests.conftest", str(inner)]
+        assert pytest.main(arguments) == 0
+
+
+def test_stops_the_session_when_asked():
+    if os.environ.get("GENERATED_TEST_EXITS"):
+        pytest.exit("stopping the session", returncode=0)
 """
 # The generated file is outside the repository, so pytest prints its tests as "::name".
 _RESULT_LINE = re.compile(r"^\S*?::(\S+) (PASSED|FAILED|SKIPPED|ERROR)\b", re.M)
 
 
-def _run(tmp_path: Path, shard: str | None, *options: str, fail: bool = False):
+_ASKS = ("GENERATED_TEST_FAILS", "GENERATED_TEST_NESTS", "GENERATED_TEST_EXITS")
+
+
+def _run(tmp_path: Path, shard: str | None, *options: str, ask: str | None = None):
     """Run the generated tests under ``shard``: exit code, results by node, report, stderr."""
     tests = tmp_path / "test_generated.py"
     tests.write_text(_GENERATED_TESTS, encoding="utf-8")
@@ -346,14 +362,14 @@ def _run(tmp_path: Path, shard: str | None, *options: str, fail: bool = False):
     environment = {
         name: value
         for name, value in os.environ.items()
-        if name
-        not in {ci_shards.SHARD_ENV, ci_shards.REPORT_ENV, "GENERATED_TEST_FAILS"}
+        if name not in {ci_shards.SHARD_ENV, ci_shards.REPORT_ENV, *_ASKS}
     }
     environment[ci_shards.REPORT_ENV] = str(report)
     if shard is not None:
         environment[ci_shards.SHARD_ENV] = shard
-    if fail:
-        environment["GENERATED_TEST_FAILS"] = "1"
+    if ask is not None:
+        assert ask in _ASKS
+        environment[ask] = "1"
     result = subprocess.run(
         [
             sys.executable,
@@ -395,7 +411,7 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
     shards = [_run(tmp_path, f"{shard}/3") for shard in (1, 2, 3)]
 
     assert code == 0 and no_report == ""
-    assert len(whole) == 14 and whole["test_skipped"] == "SKIPPED"
+    assert len(whole) == 16 and whole["test_skipped"] == "SKIPPED"
     assert [code for code, _, _, _ in shards] == [0, 0, 0]
     assert sum(len(results) for _, results, _, _ in shards) == len(whole)
     merged = {}
@@ -413,7 +429,9 @@ def test_each_test_runs_in_exactly_one_shard_and_unsharded_runs_all(tmp_path):
 
 
 def test_a_shard_whose_tests_fail_publishes_no_report(tmp_path):
-    shards = [_run(tmp_path, f"{shard}/2", fail=True) for shard in (1, 2)]
+    shards = [
+        _run(tmp_path, f"{shard}/2", ask="GENERATED_TEST_FAILS") for shard in (1, 2)
+    ]
     failing = [
         index
         for index, (_, results, _, _) in enumerate(shards)
@@ -428,6 +446,25 @@ def test_a_shard_whose_tests_fail_publishes_no_report(tmp_path):
     reports = ["", ""]
     reports[1 - failing[0]] = _report_of(other_line, 2 - failing[0])
     assert ci_shards.check_reports(reports) != []
+
+
+def test_a_test_that_stops_the_session_leaves_no_report(tmp_path):
+    # The shard's last kept test stops the session with exit status 0.
+    code, results, line, stderr = _run(tmp_path, "1/1", ask="GENERATED_TEST_EXITS")
+
+    assert code == 0
+    assert "test_stops_the_session_when_asked" not in results
+    assert line == ""
+    assert "not publishing its report" in stderr
+
+
+def test_a_nested_pytest_run_leaves_the_shard_count_alone(tmp_path):
+    code, results, line, _ = _run(tmp_path, "1/1", ask="GENERATED_TEST_NESTS")
+
+    assert code == 0
+    assert results["test_nests_a_pytest_run_when_asked"] == "PASSED"
+    assert line.count("\n") == 1
+    assert ci_shards.check_reports([_report_of(line, 1)]) == []
 
 
 def test_a_shard_that_only_collects_publishes_no_report(tmp_path):
@@ -578,8 +615,12 @@ def test_workflow_runs_every_shard_and_reports_each():
         "id": "tests",
         "env": {ci_shards.SHARD_ENV: f"${{{{ matrix.shard }}}}/{len(shards)}"},
         "run": (
-            f'export {ci_shards.REPORT_ENV}="$GITHUB_OUTPUT"\n'
+            "set -e\n"
+            f'export {ci_shards.REPORT_ENV}="$RUNNER_TEMP/shard-report"\n'
             ".venv/bin/pytest --durations=200 --durations-min=5 tests/\n"
+            "# Reached only when pytest exits 0, so a failure anywhere in the run,\n"
+            "# including after the report was written, publishes nothing.\n"
+            'cat "$RUNNER_TEMP/shard-report" >> "$GITHUB_OUTPUT"\n'
         ),
     }
     assert job["outputs"] == {

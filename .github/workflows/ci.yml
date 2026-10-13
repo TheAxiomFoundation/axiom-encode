@@ -61,14 +61,18 @@ jobs:
         env:
           AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
         run: |
-          export AXIOM_ENCODE_TEST_SHARD_REPORT="$GITHUB_OUTPUT"
+          set -e
+          export AXIOM_ENCODE_TEST_SHARD_REPORT="$RUNNER_TEMP/shard-report"
           .venv/bin/pytest --durations=200 --durations-min=5 tests/
+          # Reached only when pytest exits 0, so a failure anywhere in the run,
+          # including after the report was written, publishes nothing.
+          cat "$RUNNER_TEMP/shard-report" >> "$GITHUB_OUTPUT"
 
   # Branch protection requires the check named "test (3.13)". It passes only
   # when every shard published a report and the reports show that together they
   # ran the whole suite: all shards collected the same tests and split them the
   # same way, and the tests they kept add up to the tests collected. A shard
-  # publishes its report only after its pytest run exits 0 having run every
+  # publishes its report only when its pytest run exits 0 having run every
   # test it kept, so a failed, cancelled or never-started shard leaves its
   # report empty. `always()` keeps such a shard from turning this job into a
   # skipped (and so passing) check.
