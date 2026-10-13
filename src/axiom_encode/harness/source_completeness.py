@@ -5713,6 +5713,7 @@ def _principal_formula_clause_rules(
 
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
+    chart_heading_starts = frozenset(_work_chart_heading_starts(source_text))
 
     @functools.cache
     def excerpt_spans(excerpt: str) -> tuple[tuple[int, int], ...]:
@@ -5720,19 +5721,33 @@ def _principal_formula_clause_rules(
             source_text=source_text, evidence_text=excerpt
         )
 
-    def excerpt_covers_clause(excerpt: str, clause: SourceStructureBranch) -> bool:
+    def clause_body(clause: SourceStructureBranch) -> str | None:
         if not (
             type(clause.start) is int
             and type(clause.end) is int
             and 0 <= clause.start < clause.end <= len(source_text)
             and source_text[clause.start : clause.end] == clause.text
         ):
+            return None
+        if clause.start in chart_heading_starts:
+            # The admitted source independently identifies this printed chart
+            # heading. Its identifier is a structural marker, not an operand.
+            # Keep the title and computation, and leave numeric proof-token
+            # boundaries unchanged (a preceding row may look like "12 401").
+            marker = re.match(r"\d{1,4}\s+(?=WORK CHART\s+[–—-]\s+)", clause.text)
+            if marker is not None:
+                return clause.text[marker.end() :]
+        return _strip_source_clause_marker(clause.text)
+
+    def excerpt_covers_clause(
+        excerpt: str, clause: SourceStructureBranch, body: str | None
+    ) -> bool:
+        if body is None:
             return False
         spans = excerpt_spans(excerpt)
         if len(spans) != 1:
             return False
         start, end = spans[0]
-        body = _strip_source_clause_marker(clause.text)
         body_start = clause.end - len(body)
         return (start <= body_start and clause.end <= end) or (
             body_start <= start and end <= clause.end
@@ -5755,7 +5770,8 @@ def _principal_formula_clause_rules(
             )
         }
         uses_ancestor_binding = not path_rules
-        clause_text = _normalized_formula_clause_text(clause.text)
+        body = clause_body(clause)
+        clause_text = _collapse_text(body) if body is not None else ""
         rounding_direction = _rounding_only_direction(clause.text)
         clause_rules[clause] = {
             rule_name
@@ -5772,7 +5788,7 @@ def _principal_formula_clause_rules(
                 and excerpt_citation_path.strip("/").lower() == normalized_citation_path
                 and source_states_explicit_computation(excerpt)
                 and (excerpt_text in clause_text or clause_text in excerpt_text)
-                and excerpt_covers_clause(excerpt, clause)
+                and excerpt_covers_clause(excerpt, clause, body)
                 for excerpt_citation_path, excerpt in (
                     _formula_dependency_source_excerpts(
                         principal_rules[rule_name],
