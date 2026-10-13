@@ -1,0 +1,1 @@
+Add opt-in `validation-waivers audit --scope incremental` with conservative dependency selection, explicit full-audit fallbacks, and selection reasons. Full scope remains the default; ledger transition checks and validation fingerprints are unchanged.
