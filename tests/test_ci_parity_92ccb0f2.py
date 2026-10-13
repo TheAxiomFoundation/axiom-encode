@@ -9,6 +9,7 @@ passed to the waiver audit, validation and companion tests.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -1143,18 +1144,9 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
         for command, environment in calls
         if command[0] == "uv" and command[-2:] == ["cache", "dir"]
     ]
-    # uv is asked for its cache directory with no configuration and in the
-    # rules checkout, before any command that would write.
-    assert [command for command, _ in probes] == [
-        ["uv", "--no-config", "cache", "dir"],
-        ["uv", "cache", "dir"],
-    ]
-    assert [cwd for command, cwd in cwds[:2]] == [
-        temp / "axiom-compose-empty-config",
-        workspace,
-    ]
-    assert all("UV_CACHE_DIR" not in environment for _, environment in probes)
-    assert calls[: len(probes)] == probes
+    # Online, nothing asks uv about its cache: setup-uv's own reading of the
+    # rules checkout decides, and its directory is set for every command.
+    assert probes == []
     uv_calls = [
         command
         for command, _ in calls
@@ -1182,6 +1174,8 @@ def test_composer_build_runs_the_steps_uv_commands_in_order(
             if command[-2:] != ["cache", "dir"]:
                 # $RUNNER_TEMP/setup-uv-cache, as setup-uv exports it.
                 assert environment["UV_CACHE_DIR"] == str(temp / "setup-uv-cache")
+            # uv's temporary files stay in the run's RUNNER_TEMP.
+            assert environment["TMPDIR"] == str(temp / "uv-tmp")
             # A fresh runner has no user or system uv configuration.
             assert environment["XDG_CONFIG_HOME"] == str(empty)
             assert environment["XDG_CONFIG_DIRS"] == str(empty)
@@ -1986,20 +1980,27 @@ def test_isolated_layout_leaves_no_symlink_in_the_active_checkout(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("file", "content"),
+    [
+        ("uv.toml", 'cache-dir = "/Users/dev/Documents"\n'),
+        ("pyproject.toml", '[tool.uv]\ncache-dir = "/Users/dev/Documents"\n'),
+    ],
+)
+@pytest.mark.parametrize("offline", [False, True])
 def test_composer_build_refuses_a_committed_uv_cache_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    file: str,
+    content: str,
+    offline: bool,
 ) -> None:
     workspace = tmp_path / "rulespec-us"
     workspace.mkdir()
-    calls: list[list[str]] = []
+    (workspace / file).write_text(content)
 
     def fake(command, *, cwd, environment):
-        calls.append(list(command))
-        assert command[-2:] == ["cache", "dir"], f"ran before the refusal: {command}"
-        steered = Path(cwd) == workspace
-        return subprocess.CompletedProcess(
-            command, 0, "/Users/dev/Documents\n" if steered else "/default\n", None
-        )
+        raise AssertionError(f"ran before the refusal: {command}")
 
     monkeypatch.setattr(ci_parity, "_run_build_command", fake)
 
@@ -2011,12 +2012,10 @@ def test_composer_build_refuses_a_committed_uv_cache_directory(
             "0" * 40,
             tmp_path / "temp",
             workspace=workspace,
-            offline=False,
+            offline=offline,
         )
 
     assert "/Users/dev/Documents" in str(error.value)
-    # Only the two read-only probes ran.
-    assert calls == [["uv", "--no-config", "cache", "dir"], ["uv", "cache", "dir"]]
 
 
 def test_composer_build_needs_uv_to_report_its_cache(
@@ -2032,6 +2031,7 @@ def test_composer_build_needs_uv_to_report_its_cache(
     workspace = tmp_path / "rulespec-us"
     workspace.mkdir()
 
+    # Only offline does ci need uv's default cache directory.
     with pytest.raises(ValueError, match="could not report its cache directory"):
         ci_parity._build_workflow_composer(
             tmp_path / "compose",
@@ -2040,12 +2040,12 @@ def test_composer_build_needs_uv_to_report_its_cache(
             "0" * 40,
             tmp_path / "temp",
             workspace=workspace,
-            offline=False,
+            offline=True,
         )
 
 
 def _real_uv_until_the_first_write(monkeypatch: pytest.MonkeyPatch, compose: Path):
-    """Real uv for the read-only probes; the build stops at its first command.
+    """Real uv for cache probes; the build stops at its first command.
 
     Returns the cache directory real uv would use for the composer project
     under the environment that first command was given.
@@ -2501,3 +2501,381 @@ def test_composer_build_refuses_a_cache_dir_only_setup_uv_would_honor(
             workspace=workspace,
             offline=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review fixes (GPT-6.1 Sol): sibling clones, committed no-cache
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_committed_no_cache_builds_with_a_temporary_cache_in_the_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # CI allows a committed no-cache: setup-uv still exports UV_CACHE_DIR, and
+    # uv uses a temporary cache instead. ci builds, and that cache stays in
+    # the run's RUNNER_TEMP.
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
+    (workspace / "uv.toml").write_text("no-cache = true\n")
+    real_run = ci_parity._run_build_command
+    seen: dict[str, str] = {}
+
+    def run(command, *, cwd, environment):
+        if command[-2:] == ["cache", "dir"]:
+            return real_run(command, cwd=cwd, environment=environment)
+        probe = real_run(["uv", "cache", "dir"], cwd=cwd, environment=environment)
+        seen["cache"] = probe.stdout.strip()
+        seen["tmpdir"] = environment["TMPDIR"]
+        return subprocess.CompletedProcess(command, 1, "stopped by the test\n", None)
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", run)
+    temp = tmp_path / "temp"
+
+    with pytest.raises(ValueError, match="stopped by the test"):
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            temp,
+            workspace=workspace,
+            offline=False,
+        )
+
+    assert seen["tmpdir"] == str(temp / "uv-tmp")
+    # uv's temporary cache, not setup-uv's directory, and inside the run.
+    assert seen["cache"] != str(temp / "setup-uv-cache")
+    assert Path(seen["cache"]).resolve().is_relative_to((temp / "uv-tmp").resolve())
+
+
+def _composer_layout(tmp_path: Path):
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+    compose = layout.root / "axiom-compose"
+    compose.mkdir()
+    return layout, compose
+
+
+@pytest.mark.parametrize(
+    ("lock", "pyproject", "expected"),
+    [
+        ("", "", set()),
+        ('[[package]]\nname = "c"\nsource = { editable = "." }\n', "", set()),
+        (
+            '[[package]]\nname = "c"\nsource = { virtual = "." }\n'
+            '[[package]]\nname = "w"\nsource = { editable = "packages/w" }\n',
+            "",
+            set(),
+        ),
+        (
+            '[[package]]\nname = "axiom-corpus"\n'
+            'source = { directory = "../axiom-corpus" }\n',
+            "",
+            {"corpus"},
+        ),
+        (
+            '[[package]]\nname = "c"\nsource = { editable = "." }\n'
+            "[package.metadata.requires-dev]\n"
+            'dev = [{ name = "axiom-encode", directory = "../axiom-encode" }]\n',
+            "",
+            {"encode"},
+        ),
+        (
+            '[[package]]\nname = "c"\nsource = { editable = "." }\n'
+            "[package.metadata]\n"
+            'requires-dist = [{ name = "e", editable = "../axiom-rules-engine/py" }]\n',
+            "",
+            {"engine"},
+        ),
+        ("", '[tool.uv.sources]\nx = { path = "../axiom-corpus" }\n', {"corpus"}),
+        (
+            "",
+            '[tool.uv.sources]\nx = [{ path = "../axiom-encode", marker = "a" }]\n',
+            {"encode"},
+        ),
+        (
+            "",
+            '[tool.uv.workspace]\nmembers = ["../axiom-*"]\n',
+            {"encode", "engine", "corpus"},
+        ),
+        ("", '[tool.uv.workspace]\nmembers = ["packages/*"]\n', set()),
+        (
+            "",
+            '[tool.uv.workspace]\nmembers = ["packages/*"]\nexclude = ["../../x"]\n',
+            set(),
+        ),
+        ("", '[tool.uv.sources]\nx = { path = "../rulespec-us" }\n', set()),
+        ("", '[tool.uv.sources]\nx = { git = "https://example.test/x" }\n', set()),
+    ],
+)
+def test_composer_sibling_entries_follow_its_local_sources(
+    tmp_path: Path, lock: str, pyproject: str, expected: set[str]
+) -> None:
+    layout, compose = _composer_layout(tmp_path)
+    if lock:
+        (compose / "uv.lock").write_text(lock)
+    if pyproject:
+        (compose / "pyproject.toml").write_text(pyproject)
+
+    assert ci_parity._composer_sibling_entries(compose, layout) == expected
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["../../outside", "/Users/dev/axiom-corpus", "../axiom-dependencies-other"],
+)
+def test_composer_sources_outside_the_dependency_root_fail_resolution(
+    tmp_path: Path, reference: str
+) -> None:
+    layout, compose = _composer_layout(tmp_path)
+    (compose / "pyproject.toml").write_text(
+        f'[tool.uv.sources]\nx = {{ path = "{reference}" }}\n'
+    )
+
+    with pytest.raises(ValueError, match="outside the dependency root"):
+        ci_parity._composer_sibling_entries(compose, layout)
+
+
+def test_composer_sources_cannot_leave_through_a_tracked_symlink(
+    tmp_path: Path,
+) -> None:
+    layout, compose = _composer_layout(tmp_path)
+    (compose / "vendor").symlink_to(tmp_path, target_is_directory=True)
+    (compose / "pyproject.toml").write_text(
+        '[tool.uv.sources]\nx = { path = "vendor/elsewhere" }\n'
+    )
+
+    with pytest.raises(ValueError, match="through a symlink"):
+        ci_parity._composer_sibling_entries(compose, layout)
+
+
+def test_an_unreadable_composer_lock_fails_resolution(tmp_path: Path) -> None:
+    layout, compose = _composer_layout(tmp_path)
+    (compose / "uv.lock").write_text("not toml [")
+
+    with pytest.raises(ValueError, match="Cannot read the composer's uv.lock"):
+        ci_parity._composer_sibling_entries(compose, layout)
+
+
+def _dynamic_metadata_corpus(tmp_path: Path, log: Path) -> tuple[Path, str]:
+    """A corpus checkout whose metadata only an in-tree backend can produce.
+
+    The backend writes into its own source tree, as setuptools' .egg-info
+    does, and records where it ran in ``log``.
+    """
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    backend = (
+        "import pathlib\n"
+        f"LOG = pathlib.Path({str(log)!r})\n"
+        "HERE = pathlib.Path(__file__).resolve().parent\n"
+        "def _record():\n"
+        "    (HERE / 'BUILT-BY-BACKEND').write_text('x')\n"
+        "    with LOG.open('a') as handle:\n"
+        "        handle.write(str(HERE) + '\\n')\n"
+        "def get_requires_for_build_wheel(config_settings=None):\n"
+        "    return []\n"
+        "def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):\n"
+        "    _record()\n"
+        "    info = pathlib.Path(metadata_directory) / 'axiom_corpus-0.0.0.dist-info'\n"
+        "    info.mkdir()\n"
+        "    (info / 'METADATA').write_text(\n"
+        "        'Metadata-Version: 2.1\\nName: axiom-corpus\\nVersion: 0.0.0\\n'\n"
+        "    )\n"
+        "    return info.name\n"
+        "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
+        "    raise RuntimeError('only metadata is built')\n"
+    )
+    corpus = gates._repo(
+        tmp_path,
+        {
+            "pyproject.toml": (
+                "[build-system]\n"
+                "requires = []\n"
+                'build-backend = "backend"\n'
+                'backend-path = ["."]\n\n'
+                "[project]\n"
+                'name = "axiom-corpus"\n'
+                'version = "0.0.0"\n'
+                'requires-python = ">=3.12"\n'
+                'dynamic = ["dependencies"]\n'
+            ),
+            "backend.py": backend,
+        },
+        name="axiom-corpus",
+    )
+    return corpus, gates._git(corpus, "rev-parse", "HEAD")
+
+
+def _corpus_composer(compose: Path) -> None:
+    (compose / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "axiom-compose"\n'
+        'version = "0.0.0"\n'
+        'requires-python = ">=3.12"\n'
+        "dependencies = []\n\n"
+        "[dependency-groups]\n"
+        'dev = ["axiom-corpus"]\n\n'
+        "[tool.uv.sources]\n"
+        'axiom-corpus = { path = "../axiom-corpus" }\n'
+    )
+
+
+def test_fresh_composer_siblings_swap_links_for_clones_and_back(
+    tmp_path: Path,
+) -> None:
+    layout, _compose = _composer_layout(tmp_path)
+    log = tmp_path / "backend.log"
+    corpus, commit = _dynamic_metadata_corpus(tmp_path / "local", log)
+    ci_parity._link_dependency_entries(layout, {"corpus": corpus})
+    entry = layout.root / "axiom-corpus"
+
+    with ci_parity._fresh_composer_siblings(
+        layout, {"corpus"}, {"corpus": (corpus, commit)}
+    ):
+        assert entry.is_dir() and not entry.is_symlink()
+        assert gates._git(entry, "rev-parse", "HEAD") == commit
+        assert (
+            gates._git(entry, "remote", "get-url", "origin")
+            == "https://github.com/TheAxiomFoundation/axiom-corpus"
+        )
+        (entry / "written-by-the-build").write_text("x")
+
+    assert entry.is_symlink() and entry.resolve() == corpus.resolve()
+    assert not (corpus / "written-by-the-build").exists()
+    # Restored on failure too.
+    with pytest.raises(RuntimeError, match="build failed"):
+        with ci_parity._fresh_composer_siblings(
+            layout, {"corpus"}, {"corpus": (corpus, commit)}
+        ):
+            raise RuntimeError("build failed")
+    assert entry.is_symlink() and entry.resolve() == corpus.resolve()
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_builds_a_dynamic_sibling_in_a_clone_never_the_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's scenario on real uv: a dev-only corpus sibling whose
+    metadata only its build backend can produce."""
+
+    layout, compose = _composer_layout(tmp_path)
+    log = tmp_path / "backend.log"
+    corpus, commit = _dynamic_metadata_corpus(tmp_path / "local", log)
+    _corpus_composer(compose)
+    empty = tmp_path / "empty-config"
+    empty.mkdir()
+    lock_environment = {
+        **{name: os.environ[name] for name in ("PATH", "HOME")},
+        "UV_CACHE_DIR": str(tmp_path / "lock-cache"),
+        "XDG_CONFIG_HOME": str(empty),
+        "XDG_CONFIG_DIRS": str(empty),
+    }
+    # Lock against a scratch copy of the layout, so the original is untouched.
+    scratch = tmp_path / "scratch"
+    shutil.copytree(compose, scratch / "axiom-compose")
+    shutil.copytree(
+        corpus, scratch / "axiom-corpus", ignore=shutil.ignore_patterns(".git")
+    )
+    locked = ci_parity._run_build_command(
+        ["uv", "lock", "--project", str(scratch / "axiom-compose")],
+        cwd=scratch,
+        environment=lock_environment,
+    )
+    assert locked.returncode == 0, locked.stdout
+    shutil.copy(scratch / "axiom-compose" / "uv.lock", compose / "uv.lock")
+    log.write_text("")
+    ci_parity._link_dependency_entries(layout, {"corpus": corpus})
+    assert ci_parity._composer_sibling_entries(compose, layout) == {"corpus"}
+    real_run = ci_parity._run_build_command
+    exports: list[subprocess.CompletedProcess] = []
+
+    def run(command, *, cwd, environment):
+        if command[:2] == ["uv", "export"]:
+            exports.append(real_run(command, cwd=cwd, environment=environment))
+            return exports[-1]
+        stop = command[:2] == ["uv", "pip"]
+        return subprocess.CompletedProcess(
+            command, int(stop), "stopped by the test\n" if stop else "", None
+        )
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", run)
+
+    with ci_parity._fresh_composer_siblings(
+        layout, {"corpus"}, {"corpus": (corpus, commit)}
+    ):
+        with pytest.raises(
+            ValueError, match="(?s)uv pip install .*stopped by the test"
+        ):
+            ci_parity._build_workflow_composer(
+                compose,
+                COMPOSE_REF,
+                tmp_path / "encode-pin",
+                "0" * 40,
+                tmp_path / "temp",
+                workspace=tmp_path / "rulespec-us",
+                offline=False,
+            )
+
+    assert exports and exports[-1].returncode == 0, exports[-1].stdout
+    # The backend ran, in the clone at the entry, and wrote there only.
+    assert log.read_text().splitlines() == [str(layout.root / "axiom-corpus")]
+    assert not (corpus / "BUILT-BY-BACKEND").exists()
+    assert gates._git(corpus, "status", "--porcelain", "--ignored") == ""
+    assert (layout.root / "axiom-corpus").resolve() == corpus.resolve()
+
+    # Without the clones (abba418a), the same build writes into the
+    # developer's checkout through the entry link.
+    log.write_text("")
+    with pytest.raises(ValueError, match="(?s)uv pip install .*stopped by the test"):
+        ci_parity._build_workflow_composer(
+            compose,
+            COMPOSE_REF,
+            tmp_path / "encode-pin",
+            "0" * 40,
+            tmp_path / "temp-without-clones",
+            workspace=tmp_path / "rulespec-us",
+            offline=False,
+        )
+    assert log.read_text().splitlines() == [str(corpus.resolve())]
+    assert (corpus / "BUILT-BY-BACKEND").exists()
+
+
+def test_run_ci_builds_the_composer_against_fresh_sibling_clones(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    harness, events, compose = _harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ci_parity, "_composer_sibling_entries", lambda checkout, layout: {"corpus"}
+    )
+
+    @contextlib.contextmanager
+    def swap(layout, names, checkouts):
+        events.append(("siblings", set(names), dict(checkouts)))
+        yield
+        events.append(("siblings_restored",))
+
+    monkeypatch.setattr(ci_parity, "_fresh_composer_siblings", swap)
+
+    code = run_ci(harness.args("--compose-path", str(compose)))
+    report = json.loads(capsys.readouterr().out)
+
+    assert code == 0, report
+    assert [event[0] for event in events] == [
+        "validate_composer_pin",
+        "siblings",
+        "build_composer",
+        "siblings_restored",
+    ]
+    _, names, checkouts = events[1]
+    assert names == {"corpus"}
+    assert checkouts == {
+        "corpus": (harness.paths["corpus"].resolve(), harness.caller.refs["corpus"])
+    }
+    assert any("axiom-corpus by path" in note for note in report["notes"])
