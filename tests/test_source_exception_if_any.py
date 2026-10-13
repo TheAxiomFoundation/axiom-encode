@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+from functools import partial
+
 import pytest
+import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.validator_pipeline import (
+    extract_named_scalar_occurrences,
+    extract_typed_numeric_occurrences_from_text,
+    numeric_value_is_grounded,
+)
+
+CITATION = "us-nm/statute/7-2-18.1"
 
 NM_SPOUSE_SOURCE = """B. Any resident may claim a credit if the resident:
 (3) compensates a caregiver for child day care for a qualifying dependent to enable such resident together with the resident's spouse, if any and if not disabled, to be gainfully employed;
@@ -20,6 +30,95 @@ def _exception_obligations(source: str) -> tuple[sc.SourceStructureBranch, ...]:
     return sc._source_exception_branches(
         source, branches=branches, active_branches=branches, deferred_paths=set()
     )
+
+
+def _public_condition_candidate(
+    source: str, conditions: tuple[tuple[str, str, bool], ...]
+) -> sc.CompleteSourceUnitAnalysis:
+    """Prove each condition with its own executed, single-input case pair."""
+    expression = " and ".join(
+        name if active else f"not {name}" for name, _, active in conditions
+    )
+    formula = f"if {expression}: true else: false" if expression else "true"
+    rule = {
+        "name": "condition_applies",
+        "kind": "derived",
+        "dtype": "Judgment",
+        "source": CITATION + "(1)",
+        "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "kind": "formula",
+                        "source": {
+                            "corpus_citation_path": CITATION,
+                            "excerpt": source,
+                        },
+                    }
+                ]
+            }
+        },
+    }
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": CITATION}},
+        "inputs": [
+            {"name": name, "dtype": "Boolean", "description": description}
+            for name, description, _ in conditions
+        ],
+        "rules": [rule],
+    }
+    active_inputs = {name: active for name, _, active in conditions}
+    cases = [
+        {
+            "period": "2026",
+            "input": active_inputs,
+            "output": {"condition_applies": True},
+        }
+    ]
+    for name, _, active in conditions:
+        cases.append(
+            {
+                "period": "2026",
+                "input": {**active_inputs, name: not active},
+                "output": {"condition_applies": False},
+            }
+        )
+    return sc.analyze_complete_source_unit(
+        yaml.safe_dump(payload),
+        source,
+        corpus_citation_path=CITATION,
+        test_cases=cases,
+        extract_numeric_occurrences=partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def _assert_public_condition_required(
+    source: str,
+    conditions: tuple[tuple[str, str, bool], ...],
+    *,
+    conservative_dependency: bool = False,
+) -> None:
+    proved = _public_condition_candidate(source, conditions)
+    if conservative_dependency:
+        assert any(
+            "[complete-source-unit:source-explicit-conditions]" in issue
+            for issue in proved.issues
+        ), proved.issues
+    else:
+        assert not proved.issues, proved.issues
+    missing = _public_condition_candidate(source, conditions[1:])
+    assert any(
+        "[complete-source-unit:tests]" in issue
+        and "exceptions or applicability conditions" in issue
+        for issue in missing.issues
+    ), missing.issues
 
 
 def test_nm_spouse_parenthetical_is_not_a_bare_exception_obligation():
@@ -100,6 +199,25 @@ def test_parenthetical_cue_removal_preserves_the_full_real_condition(
     assert obligations[0].text == source[obligations[0].start : obligations[0].end]
     assert sc._source_exception_requires_paired_witness(obligations[0].text)
 
+    selector = {
+        "not disabled": "is_disabled",
+        "gainfully employed": "is_gainfully_employed",
+        "eligible": "is_eligible",
+    }[condition]
+    active = condition != "not disabled"
+    if cue == "unless":
+        active = not active
+    _assert_public_condition_required(
+        source,
+        (
+            (
+                selector,
+                f"The claimant's {subject} is {condition.removeprefix('not ')}.",
+                active,
+            ),
+        ),
+    )
+
 
 @settings(max_examples=80, deadline=None)
 @given(
@@ -127,3 +245,18 @@ def test_any_with_a_subject_predicate_always_retains_its_condition_cue(
     assert f"IS {predicate.upper()}" in first.text.upper()
     assert first.text == source[first.start : first.end]
     assert sc._source_exception_requires_paired_witness(first.text)
+
+    _assert_public_condition_required(
+        source,
+        (
+            (
+                f"any_{subject}_is_{predicate.replace(' ', '_')}",
+                f"Any {subject} is {predicate}.",
+                True,
+            ),
+            ("claimant_has_income", "The claimant has income.", True),
+        ),
+        # The bare subject noun remains a conservative unknown dependency
+        # reading; attaching "if any" must not turn that into acceptance.
+        conservative_dependency=subject == "dependent",
+    )
