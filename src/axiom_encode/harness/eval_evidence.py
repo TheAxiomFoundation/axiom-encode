@@ -28,6 +28,7 @@ from axiom_encode.signing_broker import (
     reject_direct_private_signing_environment,
     scrub_private_signing_environment,
 )
+from axiom_encode.toolchain import local_signing_public_key
 
 EVAL_EVIDENCE_SIGNATURE_ALGORITHM = "ed25519-domain-v1"
 
@@ -57,6 +58,10 @@ def isolated_eval_evidence_signer() -> Iterator[SigningBroker]:
 def load_eval_evidence_public_key_from_broker() -> Ed25519PublicKey:
     """Load the broker-provisioned eval root; environment trust is forbidden."""
 
+    # `axiom-encode ci` supplies a verification-only root explicitly.
+    local_public_key = local_signing_public_key("eval")
+    if local_public_key is not None:
+        return Ed25519PublicKey.from_public_bytes(local_public_key)
     try:
         broker = get_signing_broker()
     except SigningBrokerError as exc:
