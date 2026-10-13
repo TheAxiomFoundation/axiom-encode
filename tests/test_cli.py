@@ -21702,10 +21702,7 @@ rules: []
         )
         result.error = "Generated RuleSpec failed compile validation"
         output_file = (
-            tmp_path
-            / "out"
-            / "codex-test-model"
-            / "regulations/7-cfr/273/10.yaml"
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
         )
         output_file.parent.mkdir(parents=True)
         output_file.write_text(
@@ -21747,9 +21744,12 @@ rules: []
         assert exc_info.value.code == 0
         assert mock_overlay.call_count == 2
         mock_apply.assert_called_once()
-        assert "values" not in yaml.safe_load(output_file.read_text())["module"][
-            "source_verification"
-        ]
+        assert (
+            "values"
+            not in yaml.safe_load(output_file.read_text())["module"][
+                "source_verification"
+            ]
+        )
         assert (
             "apply=auto_repaired_invalid_source_verification_values:"
             "module.source_verification.values" in capsys.readouterr().out
