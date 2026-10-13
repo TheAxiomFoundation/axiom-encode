@@ -157,6 +157,7 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
     source_states_stated_conversion_result,
@@ -17435,7 +17436,6 @@ def _stated_conversion_ungrounded_literal_hint(
     if (
         not require_complete_source_unit
         or value not in _STATED_CONVERSION_CALENDAR_CONSTANTS
-        or not source_states_stated_conversion_result(source_text)
     ):
         return ""
     try:
@@ -17452,6 +17452,10 @@ def _stated_conversion_ungrounded_literal_hint(
         and citation_path.strip() != source_citation_path.strip()
     ):
         return ""
+    # Read the source with the scope the complete-source-unit analysis uses.
+    with _us_manual_prose_scope(citation_path.strip()):
+        if not source_states_stated_conversion_result(source_text):
+            return ""
     return f" {_STATED_CONVERSION_UNGROUNDED_HINT}"
 
 
