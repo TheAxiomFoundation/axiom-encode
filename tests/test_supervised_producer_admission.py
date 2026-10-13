@@ -67,7 +67,14 @@ def test_supervised_wrapper_reads_the_fetched_main_record(graph, tmp_path, monke
         "https://github.com/TheAxiomFoundation/axiom-encode\n"
     )
     subprocess.run(
-        ["git", "-C", str(graph.root), "update-ref", "refs/heads/main", graph.commits[1]],
+        [
+            "git",
+            "-C",
+            str(graph.root),
+            "update-ref",
+            "refs/heads/main",
+            graph.commits[1],
+        ],
         check=True,
     )
     _route_git_through_wrapper(tmp_path, monkeypatch)
