@@ -18,9 +18,10 @@ therefore reports what it collected and what it kept (``report``), and the
 shards reported, they agree on the collection digest, and the kept counts add
 up to the collected ones.
 
-``ci_shard_seconds.json`` holds seconds per test file. It only balances the
-shards; a stale or missing entry never drops a test. To refresh it, save the
-"Run tests" logs of a green run's shards and run::
+``ci_shard_seconds.json`` holds seconds per test file, and per test function
+for the slow ones. It only balances the shards; a stale or missing entry never
+drops a test. To refresh it, save the "Run tests" logs of a green run's shards
+and run::
 
     python -m tests.ci_shards seconds shard-1.log shard-2.log ... > tests/ci_shard_seconds.json
 """
@@ -41,6 +42,8 @@ REPORT_ENV = "AXIOM_ENCODE_TEST_SHARD_REPORT"
 SECONDS_PATH = Path(__file__).with_name("ci_shard_seconds.json")
 # Weight of a file the seconds table does not name yet. Most files take about a second.
 DEFAULT_FILE_MILLISECONDS = 1_000
+# A function gets its own entry in a refreshed table once its listed tests take this long.
+FUNCTION_ENTRY_SECONDS = 20
 
 _SHARD = re.compile(r"([1-9][0-9]{0,2})/([1-9][0-9]{0,2})")
 _REPORT = re.compile(
@@ -48,6 +51,7 @@ _REPORT = re.compile(
 )
 _LOG_FILE_LINE = re.compile(r"(tests/\S+\.py) ([.sxXFE]+)\s*(?:\[\s*\d+%\])?")
 _LOG_MORE_LINE = re.compile(r"([.sxXFE]+)\s*(?:\[\s*\d+%\])?")
+_LOG_DURATION = re.compile(r"(\d+\.\d+)s (?:call|setup|teardown)\s+(tests/\S+\.py::.+)")
 _LOG_STAMP = re.compile(
     r"\ufeff?(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?)\d*Z (.*)"
 )
@@ -85,30 +89,46 @@ def _file_of(unit: str) -> str:
     return unit.split("::", 1)[0]
 
 
+def _milliseconds(seconds: float) -> int:
+    return max(0, round(seconds * 1000))
+
+
 def weights(
-    unit_cases: Mapping[str, int], file_seconds: Mapping[str, float]
+    unit_cases: Mapping[str, int], seconds: Mapping[str, float]
 ) -> dict[str, int]:
-    """Each unit's share of its file's time, in whole microseconds (at least 1)."""
-    file_cases: Counter[str] = Counter()
+    """Each unit's expected time in whole microseconds (at least 1).
+
+    ``seconds`` maps test files, and some test functions, to seconds. A function
+    with its own entry weighs that. The others share what is left of their
+    file's time in proportion to their case counts.
+    """
+    shared_cases: Counter[str] = Counter()
+    own_milliseconds: Counter[str] = Counter()
     for unit, cases in unit_cases.items():
         if cases < 1:
             raise ValueError(f"{unit} has {cases} cases")
-        file_cases[_file_of(unit)] += cases
+        if "::" in unit and unit in seconds:
+            own_milliseconds[_file_of(unit)] += _milliseconds(seconds[unit])
+        else:
+            shared_cases[_file_of(unit)] += cases
     result = {}
     for unit, cases in unit_cases.items():
         file = _file_of(unit)
-        seconds = file_seconds.get(file)
-        milliseconds = (
-            DEFAULT_FILE_MILLISECONDS
-            if seconds is None
-            else max(0, round(seconds * 1000))
-        )
-        result[unit] = max(1, milliseconds * 1000 * cases // file_cases[file])
+        if "::" in unit and unit in seconds:
+            microseconds = _milliseconds(seconds[unit]) * 1000
+        else:
+            shared = (
+                DEFAULT_FILE_MILLISECONDS
+                if file not in seconds
+                else max(0, _milliseconds(seconds[file]) - own_milliseconds[file])
+            )
+            microseconds = shared * 1000 * cases // shared_cases[file]
+        result[unit] = max(1, microseconds)
     return result
 
 
 def assign(
-    unit_cases: Mapping[str, int], file_seconds: Mapping[str, float], shards: int
+    unit_cases: Mapping[str, int], seconds: Mapping[str, float], shards: int
 ) -> dict[str, int]:
     """Shard (1-based) of every unit: heaviest first, each to the lightest shard.
 
@@ -117,7 +137,7 @@ def assign(
     """
     if shards < 1:
         raise ValueError(f"cannot split into {shards} shards")
-    unit_weights = weights(unit_cases, file_seconds)
+    unit_weights = weights(unit_cases, seconds)
     loads = [0] * shards
     assignment = {}
     for unit in sorted(unit_weights, key=lambda u: (-unit_weights[u], u)):
@@ -133,7 +153,7 @@ def digest(unit_cases: Mapping[str, int]) -> str:
     return hashlib.sha256(lines.encode("utf-8")).hexdigest()
 
 
-def load_file_seconds(path: Path = SECONDS_PATH) -> dict[str, float]:
+def load_seconds(path: Path = SECONDS_PATH) -> dict[str, float]:
     table = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(table, dict) or not all(
         isinstance(key, str)
@@ -142,7 +162,7 @@ def load_file_seconds(path: Path = SECONDS_PATH) -> dict[str, float]:
         and value >= 0
         for key, value in table.items()
     ):
-        raise ValueError(f"{path.name} must map test files to seconds")
+        raise ValueError(f"{path.name} must map test files and functions to seconds")
     return table
 
 
@@ -150,7 +170,7 @@ def select(
     units: Sequence[str],
     shard: int,
     shards: int,
-    file_seconds: Mapping[str, float],
+    seconds: Mapping[str, float],
 ) -> tuple[list[bool], str]:
     """Which collected items (given as their units, in order) shard ``k`` keeps.
 
@@ -159,7 +179,7 @@ def select(
     if not 1 <= shard <= shards:
         raise ValueError(f"shard {shard} is not one of 1..{shards}")
     unit_cases = Counter(units)
-    assignment = assign(unit_cases, file_seconds, shards)
+    assignment = assign(unit_cases, seconds, shards)
     keep = [assignment[unit] == shard for unit in units]
     kept_units = sum(1 for unit in unit_cases if assignment[unit] == shard)
     return keep, report(
@@ -232,13 +252,19 @@ def check_reports(reports: Sequence[str]) -> list[str]:
 
 
 def seconds_from_logs(logs: Iterable[str]) -> dict[str, float]:
-    """Seconds per test file, summed over the given "Run tests" step logs.
+    """The seconds table, from the given "Run tests" step logs added together.
 
-    Reads pytest's default progress lines (``tests/x.py ....  [ 5%]``) and the
+    Files: pytest's default progress lines (``tests/x.py ....  [ 5%]``) and the
     timestamp GitHub puts before each one. A file's time in one log runs from
     the previous progress line (or the session start) to its last line.
+
+    Functions: the ``--durations`` lines (``12.34s call tests/x.py::test_y[z]``).
+    A function whose listed tests add up to ``FUNCTION_ENTRY_SECONDS`` or more
+    gets its own entry. The list is pytest's slowest tests, not all of them, so
+    an entry can undercount; the rest of the file's time is shared out anyway.
     """
     totals: Counter[str] = Counter()
+    functions: Counter[str] = Counter()
     for log in logs:
         previous = None
         current = None
@@ -251,6 +277,12 @@ def seconds_from_logs(logs: Iterable[str]) -> dict[str, float]:
             if "test session starts" in text:
                 previous, current = at, None
                 continue
+            duration = _LOG_DURATION.fullmatch(text)
+            if duration is not None:
+                functions[duration.group(2).split("[", 1)[0].rstrip()] += float(
+                    duration.group(1)
+                )
+                continue
             if previous is None:
                 continue
             file_line = _LOG_FILE_LINE.fullmatch(text)
@@ -260,7 +292,11 @@ def seconds_from_logs(logs: Iterable[str]) -> dict[str, float]:
                 continue
             totals[current] += (at - previous).total_seconds()
             previous = at
-    return {file: round(seconds, 1) for file, seconds in sorted(totals.items())}
+    table = {file: round(seconds, 1) for file, seconds in totals.items()}
+    for function, seconds in functions.items():
+        if seconds >= FUNCTION_ENTRY_SECONDS and _file_of(function) in table:
+            table[function] = round(seconds, 1)
+    return dict(sorted(table.items()))
 
 
 def main(argv: Sequence[str]) -> int:

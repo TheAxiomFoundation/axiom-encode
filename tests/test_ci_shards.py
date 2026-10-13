@@ -26,10 +26,11 @@ _UNITS = st.tuples(_FILES, _NAMES).map(lambda pair: f"{pair[0]}::test_{pair[1]}"
 _UNIT_CASES = st.dictionaries(
     _UNITS, st.integers(min_value=1, max_value=40), max_size=30
 )
+# Seconds for files and, as the refreshed table has for slow tests, for functions.
 _FILE_SECONDS = st.dictionaries(
-    _FILES,
+    st.one_of(_FILES, _UNITS),
     st.floats(min_value=0, max_value=5000, allow_nan=False, allow_infinity=False),
-    max_size=10,
+    max_size=14,
 )
 _SHARDS = st.integers(min_value=1, max_value=12)
 
@@ -158,6 +159,29 @@ def test_gate_rejects_a_missing_or_disagreeing_shard(
         assert ci_shards.check_reports(candidate) != []
 
 
+def test_a_measured_function_weighs_its_own_seconds_and_the_rest_share_the_file():
+    unit_cases = {
+        "tests/test_a.py::test_slow": 2,
+        "tests/test_a.py::test_one": 1,
+        "tests/test_a.py::test_three": 3,
+        "tests/test_b.py::test_unlisted_file": 5,
+    }
+    seconds = {"tests/test_a.py": 100, "tests/test_a.py::test_slow": 60}
+
+    assert ci_shards.weights(unit_cases, seconds) == {
+        "tests/test_a.py::test_slow": 60_000_000,
+        "tests/test_a.py::test_one": 10_000_000,
+        "tests/test_a.py::test_three": 30_000_000,
+        "tests/test_b.py::test_unlisted_file": ci_shards.DEFAULT_FILE_MILLISECONDS
+        * 1000,
+    }
+    # A function entry larger than its file's leaves the others the minimum, not less.
+    stale = {"tests/test_a.py": 10, "tests/test_a.py::test_slow": 60}
+    assert ci_shards.weights(unit_cases, stale)["tests/test_a.py::test_one"] == 1
+    with pytest.raises(ValueError):
+        ci_shards.weights({"tests/test_a.py::test_x": 0}, seconds)
+
+
 def test_gate_rejects_no_shards_and_an_empty_suite():
     empty = ci_shards.digest({})
 
@@ -238,7 +262,7 @@ def test_this_sessions_real_tests_split_without_loss(request):
         ci_shards.unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
         for item in items
     ]
-    file_seconds = ci_shards.load_file_seconds()
+    file_seconds = ci_shards.load_seconds()
 
     assert all(
         item.nodeid.startswith(unit) for item, unit in zip(items, units, strict=True)
@@ -325,10 +349,10 @@ def test_conftest_refuses_a_malformed_shard(tmp_path):
 
 
 def test_seconds_table_covers_real_test_files_only():
-    table = ci_shards.load_file_seconds()
+    table = ci_shards.load_seconds()
 
     assert table
-    assert all((ROOT / file).is_file() for file in table), (
+    assert all((ROOT / entry.split("::", 1)[0]).is_file() for entry in table), (
         "drop entries for deleted files"
     )
 
@@ -342,6 +366,12 @@ def test_seconds_come_from_a_run_tests_log():
             "test\tRun tests\t2026-10-13T12:41:20.5000000Z tests/test_a.py ..s        [ 33%]",
             "test\tRun tests\t2026-10-13T12:41:50.5000000Z tests/test_b.py ....       [ 77%]",
             "test\tRun tests\t2026-10-13T12:42:00.5000000Z ..                         [100%]",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z ===== slowest 200 durations =====",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z 15.25s call     tests/test_b.py::test_slow[a b]",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z 14.50s call     tests/test_b.py::test_slow[c]",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z 0.25s setup    tests/test_b.py::test_slow[c]",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z 9.00s call     tests/test_b.py::TestK::test_quick",
+            "test\tRun tests\t2026-10-13T12:42:00.6000000Z 25.00s call     tests/test_gone.py::test_not_run_here",
             "test\tRun tests\t2026-10-13T12:42:01.0000000Z ===== 8 passed, 1 skipped in 42s =====",
         ]
     )
@@ -349,8 +379,12 @@ def test_seconds_come_from_a_run_tests_log():
     assert ci_shards.seconds_from_logs([log]) == {
         "tests/test_a.py": 2.0,
         "tests/test_b.py": 40.0,
+        "tests/test_b.py::test_slow": 30.0,
     }
-    assert ci_shards.seconds_from_logs([log, log])["tests/test_b.py"] == 80.0
+    twice = ci_shards.seconds_from_logs([log, log])
+    assert twice["tests/test_b.py"] == 80.0
+    assert twice["tests/test_b.py::test_slow"] == 60.0
+    assert "tests/test_b.py::TestK::test_quick" not in twice
 
 
 def test_command_line_checks_reports(capsys):
@@ -378,7 +412,7 @@ def test_workflow_runs_every_shard_and_reports_each():
         ci_shards.SHARD_ENV: f"${{{{ matrix.shard }}}}/{len(shards)}"
     }
     assert f'export {ci_shards.REPORT_ENV}="$GITHUB_OUTPUT"' in run_tests[0]["run"]
-    assert re.search(r"^\.venv/bin/pytest .*tests/$", run_tests[0]["run"], re.M)
+    assert re.search(r"^\.venv/bin/pytest .*\btests/", run_tests[0]["run"], re.M)
     assert job["outputs"] == {
         f"shard_{shard}": f"${{{{ steps.tests.outputs.shard_{shard} }}}}"
         for shard in shards

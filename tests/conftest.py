@@ -46,7 +46,7 @@ def pytest_collection_modifyitems(config, items):
         ci_shards.unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
         for item in items
     ]
-    keep, report = ci_shards.select(units, shard, shards, ci_shards.load_file_seconds())
+    keep, report = ci_shards.select(units, shard, shards, ci_shards.load_seconds())
     deselected = [item for item, kept in zip(items, keep, strict=True) if not kept]
     items[:] = [item for item, kept in zip(items, keep, strict=True) if kept]
     if deselected:
