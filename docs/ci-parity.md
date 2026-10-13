@@ -144,7 +144,9 @@ Python. The scripts cover:
   root's `axiom-rules-engine` (the bound engine view, where repository tests
   look for the binary), `rulespec-us` and `axiom-compose` are real
   directories: the latter two are fresh clones of the verified checkouts at
-  their pins, with CI's origins and only the committed tree, so untracked
+  their pins (at the checkout's committed `HEAD` under a recorded ref
+  mismatch, so uncommitted edits never reach them), with CI's origins and only
+  the committed tree, so untracked
   local files never reach the encoder, which walks a dependency root and
   refuses any symlink in it. The encoder and corpus entries, and the
   changed-file classifier, are links to the verified local checkouts; those
@@ -169,9 +171,11 @@ Python. The scripts cover:
   --no-emit-project` of the composer's lock, `uv pip install --target` of
   those requirements. Like the step, they run in the rules checkout and read
   the committed project configuration there and in the composer project;
-  user and system uv configuration point at an empty directory, as a fresh
-  runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values are
-  removed. Finally the encoder pin's own
+  user and system configuration directories point at an empty directory, as
+  a fresh runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values
+  are removed. uv still reads `/etc/uv/uv.toml` when no system configuration
+  is found there, so that file fails resolution (a `composer-uv-config`
+  mismatch under `--allow-encoder-mismatch`). Finally the encoder pin's own
   `scripts/provision_axiom_compose_runtime.py`, read blob by blob from the
   pinned commit (not the worktree, and without local Git attributes or
   filters), and run with a minimal sudo-like environment into a
@@ -182,8 +186,8 @@ Python. The scripts cover:
   canonical rulespec-us entry) when the repository is not rulespec-us, as its
   `dependency_args` condition reads. An empty composer ref skips all of this,
   as the steps' `if:` does. With a recorded composer ref mismatch
-  (`--allow-ref-mismatch`), the checkout's own `HEAD` is built, as for the
-  engine. A failure anywhere is a resolution failure.
+  (`--allow-ref-mismatch`), the checkout's own committed `HEAD` is built, as
+  for the engine; its uncommitted edits are not. A failure anywhere is a resolution failure.
 - **Repository pytest.** It runs last, on the first shard, in a temporary venv
   of the caller's `python-version`, requested as `<version>+gil` (uv 0.9.8 or
   later) and then checked to be release CPython with the GIL, the build
@@ -319,7 +323,8 @@ Every dependency checkout must be at its pin:
   CI does, so Rust and cargo must be installed.
 - With a composer pin, the `--compose-path` checkout (default: the
   `axiom-compose` sibling of `--repo`) must be at `axiom_compose_ref`, and `uv`
-  must be installed; `ci` builds the composer runtime as CI does.
+  must be the version the workflow installs (`0.11.7` for `92ccb0f2`) with no
+  `/etc/uv/uv.toml`; `ci` builds the composer runtime as CI does.
 
 rulespec-us has close to two thousand active waivers, and the waiver audit
 fingerprints every one of them on every pull request. CI spreads that work over
