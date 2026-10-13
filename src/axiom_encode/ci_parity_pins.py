@@ -276,6 +276,9 @@ _SUBPROCESS_CALLS = frozenset(
         "startfile",
     }
 )
+# File-system and network calls whose names are unambiguous wherever they
+# appear. Names shared with str, list or dict methods (replace, remove, copy,
+# link) count only when called on an imported module (_MODULE_EFFECT_CALLS).
 _EFFECT_CALLS = frozenset(
     {
         "write_text",
@@ -284,20 +287,15 @@ _EFFECT_CALLS = frozenset(
         "makedirs",
         "touch",
         "unlink",
-        "remove",
         "rmdir",
         "removedirs",
         "rename",
         "renames",
-        "replace",
         "symlink",
         "symlink_to",
         "hardlink_to",
-        "link",
         "chmod",
         "chown",
-        "lchmod",
-        "copy",
         "copy2",
         "copyfile",
         "copytree",
@@ -311,11 +309,51 @@ _EFFECT_CALLS = frozenset(
         "SpooledTemporaryFile",
         "urlopen",
         "urlretrieve",
-        "socket",
         "create_connection",
     }
 )
+_MODULE_EFFECT_CALLS = frozenset({"replace", "remove", "copy", "link", "truncate"})
+_ENVIRON_NAMES = frozenset({"environ", "environb"})
 _ENVIRON_ACCESSORS = frozenset({"get", "setdefault", "pop", "__getitem__"})
+_GETENV_NAMES = frozenset({"getenv", "getenvb"})
+_DYNAMIC_IMPORT_NAMES = frozenset(
+    {
+        "import_module",
+        "find_spec",
+        "spec_from_file_location",
+        "module_from_spec",
+        "exec_module",
+        "load_module",
+    }
+)
+# Builtins that run or reach code by name; only the builtin itself counts
+# (re.compile is not compile).
+_DYNAMIC_BUILTINS = frozenset(
+    {
+        "exec",
+        "eval",
+        "compile",
+        "getattr",
+        "setattr",
+        "delattr",
+        "vars",
+        "globals",
+        "locals",
+        "__import__",
+    }
+)
+_DYNAMIC_ATTRIBUTES = frozenset(
+    {
+        "__dict__",
+        "__getattribute__",
+        "__globals__",
+        "__builtins__",
+        "attrgetter",
+        "methodcaller",
+    }
+)
+_HOME_NAMES = frozenset({"expanduser", "home"})
+_OPAQUE_SNIPPET_LIMIT = 160
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,10 +361,17 @@ class ProgramInterface:
     """What an exit-status program reads or changes outside its own text.
 
     ci runs the program unchanged, but supplies its environment and runs it in
-    its own interpreter and file system. A program that starts reading another
-    variable, importing another module, starting another executable, naming
-    another absolute path or changing files in another way needs review even
-    when its step's glue is unchanged.
+    its own interpreter. A program that starts reading another variable,
+    importing another module, starting another executable, naming another
+    absolute path or writing files through another call needs review even
+    when its step's glue is unchanged. ``opaque`` holds, verbatim, every
+    access the other fields cannot name: the environment passed on whole, a
+    variable or executable chosen at run time, dynamic imports and code,
+    attribute access by name, and the home directory.
+
+    The interface guards against an ordinary edit that widens what a program
+    reads. It resolves import aliases, but it is not a sandbox: a program
+    written to hide an access can.
     """
 
     environment: tuple[str, ...]
@@ -334,7 +379,13 @@ class ProgramInterface:
     executables: tuple[str, ...]
     paths: tuple[str, ...]
     effects: tuple[str, ...]
-    flags: tuple[str, ...]
+    opaque: tuple[str, ...]
+
+    @property
+    def flags(self) -> tuple[str, ...]:
+        """The kinds of opaque access present."""
+
+        return tuple(sorted({item.split(": ", 1)[0] for item in self.opaque}))
 
     def as_json(self) -> dict[str, list[str]]:
         return {
@@ -343,51 +394,192 @@ class ProgramInterface:
             "executables": list(self.executables),
             "paths": list(self.paths),
             "effects": list(self.effects),
-            "flags": list(self.flags),
+            "opaque": list(self.opaque),
         }
 
 
-def _is_environ(node: ast.AST) -> bool:
-    return (
-        isinstance(node, ast.Attribute) and node.attr in {"environ", "environb"}
-    ) or (isinstance(node, ast.Name) and node.id in {"environ", "environb"})
-
-
-def _constant_name(node: ast.AST | None) -> str:
+def _constant_name(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str | bytes):
         value = node.value
         return value.decode("utf-8", "replace") if isinstance(value, bytes) else value
-    return "<dynamic>"
+    return None
 
 
-def _call_name(node: ast.Call) -> str:
-    function = node.func
-    if isinstance(function, ast.Attribute):
-        return function.attr
-    if isinstance(function, ast.Name):
-        return function.id
-    return ""
+def _snippet(node: ast.AST) -> str:
+    text = " ".join(ast.unparse(node).split())
+    return text[:_OPAQUE_SNIPPET_LIMIT]
 
 
-def _open_mode(node: ast.Call) -> str | None:
-    """The mode of an ``open(...)`` / ``Path.open(...)`` call, if writable."""
+class _InterfaceVisitor:
+    """Collects a program's interface, resolving ``import ... as`` names."""
 
-    name = _call_name(node)
-    if name not in {"open", "fdopen"}:
+    def __init__(self, tree: ast.AST) -> None:
+        self.environment: set[str] = set()
+        self.imports: set[str] = set()
+        self.executables: set[str] = set()
+        self.paths: set[str] = set()
+        self.effects: set[str] = set()
+        self.opaque: set[str] = set()
+        self.parents: dict[ast.AST, ast.AST] = {}
+        # Bound name -> what it names: a module ("os") or a member ("os.environ").
+        self.aliases: dict[str, str] = {}
+        self.modules: set[str] = set()
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                self.parents[child] = parent
+            if isinstance(parent, ast.Import):
+                for alias in parent.names:
+                    self.imports.add(alias.name.split(".")[0])
+                    bound = alias.asname or alias.name.split(".")[0]
+                    self.aliases[bound] = (
+                        alias.name if alias.asname else alias.name.split(".")[0]
+                    )
+                    self.modules.add(bound)
+            elif isinstance(parent, ast.ImportFrom):
+                if parent.level:
+                    self.opaque.add(f"relative-import: {_snippet(parent)}")
+                self.imports.add((parent.module or "").split(".")[0])
+                for alias in parent.names:
+                    if alias.name == "*":
+                        self.opaque.add(f"star-import: {_snippet(parent)}")
+                        continue
+                    self.aliases[alias.asname or alias.name] = (
+                        f"{parent.module or ''}.{alias.name}"
+                    )
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant):
+                if isinstance(node.value, str) and _ABSOLUTE_PATH_RE.fullmatch(
+                    node.value
+                ):
+                    self.paths.add(node.value)
+            elif isinstance(node, ast.Name | ast.Attribute):
+                self._reference(node)
+
+    def _dotted(self, node: ast.AST) -> tuple[str, bool]:
+        """(resolved dotted name, whether its base is an imported module)."""
+
+        parts: list[str] = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            base = self.aliases.get(node.id, node.id)
+            return ".".join([base, *reversed(parts)]), node.id in self.modules
+        return ".".join(["<object>", *reversed(parts)]), False
+
+    def _call(self, node: ast.AST) -> ast.Call | None:
+        parent = self.parents.get(node)
+        if isinstance(parent, ast.Call) and parent.func is node:
+            return parent
         return None
-    positional = 0 if isinstance(node.func, ast.Attribute) else 1
-    mode: ast.AST | None = None
-    if len(node.args) > positional:
-        mode = node.args[positional]
-    for keyword in node.keywords:
-        if keyword.arg == "mode":
-            mode = keyword.value
-    if mode is None:
-        return None
-    text = _constant_name(mode)
-    if text == "<dynamic>":
-        return "open:<dynamic>"
-    return f"open:{text}" if set(text) & set("wax+") else None
+
+    def _reference(self, node: ast.Name | ast.Attribute) -> None:
+        if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            return
+        dotted, on_module = self._dotted(node)
+        leaf = dotted.rsplit(".", 1)[-1]
+        call = self._call(node)
+        first = call.args[0] if call is not None and call.args else None
+        if leaf in _ENVIRON_NAMES:
+            self._environ(node)
+        elif leaf in _GETENV_NAMES:
+            name = _constant_name(first) if call is not None else None
+            if name is None:
+                self.environment.add("<dynamic>")
+                self.opaque.add(f"dynamic-environment: {_snippet(call or node)}")
+            else:
+                self.environment.add(name)
+        elif leaf in _DYNAMIC_IMPORT_NAMES:
+            self.opaque.add(f"dynamic-import: {_snippet(call or node)}")
+        elif (
+            dotted in _DYNAMIC_BUILTINS
+            or dotted.removeprefix("builtins.") in _DYNAMIC_BUILTINS
+            or leaf in _DYNAMIC_ATTRIBUTES
+            or dotted == "sys.modules"
+        ):
+            self.opaque.add(f"dynamic-code: {_snippet(call or node)}")
+        elif leaf in _HOME_NAMES:
+            self.opaque.add(f"home-directory: {_snippet(call or node)}")
+        if leaf in _SUBPROCESS_CALLS:
+            executable = None
+            if isinstance(first, ast.List | ast.Tuple) and first.elts:
+                executable = _constant_name(first.elts[0])
+            elif _constant_name(first) is not None:
+                executable = (
+                    "shell:" + ((_constant_name(first) or "").split() or [""])[0]
+                )
+            if executable is None:
+                self.executables.add("<dynamic>")
+                self.opaque.add(f"dynamic-executable: {_snippet(call or node)}")
+            else:
+                self.executables.add(executable)
+        if leaf in _EFFECT_CALLS or (on_module and leaf in _MODULE_EFFECT_CALLS):
+            self.effects.add(dotted if on_module else leaf)
+        if leaf in {"open", "fdopen"}:
+            self._open(dotted, on_module, call, node)
+
+    def _environ(self, node: ast.AST) -> None:
+        parent = self.parents.get(node)
+        name: str | None = None
+        named = False
+        if isinstance(parent, ast.Subscript) and parent.value is node:
+            name, named = _constant_name(parent.slice), True
+        elif (
+            isinstance(parent, ast.Attribute)
+            and parent.value is node
+            and parent.attr in _ENVIRON_ACCESSORS
+            and self._call(parent) is not None
+        ):
+            call = self._call(parent)
+            assert call is not None
+            name, named = _constant_name(call.args[0] if call.args else None), True
+            parent = call
+        elif (
+            isinstance(parent, ast.Compare)
+            and node in parent.comparators
+            and all(isinstance(op, ast.In | ast.NotIn) for op in parent.ops)
+        ):
+            name, named = _constant_name(parent.left), True
+        if named and name is not None:
+            self.environment.add(name)
+        elif named:
+            self.environment.add("<dynamic>")
+            self.opaque.add(f"dynamic-environment: {_snippet(parent or node)}")
+        else:
+            # The whole environment escapes (passed on, copied, iterated):
+            # what reaches the program is no longer a named set.
+            self.opaque.add(f"environment-escapes: {_snippet(parent or node)}")
+
+    def _open(
+        self,
+        dotted: str,
+        on_module: bool,
+        call: ast.Call | None,
+        node: ast.AST,
+    ) -> None:
+        if call is None:
+            self.effects.add("open:<dynamic>")
+            return
+        if dotted == "os.open":
+            flags = call.args[1] if len(call.args) > 1 else None
+            self.effects.add(f"os.open:{_snippet(flags) if flags else ''}")
+            return
+        # open(file, mode) and module-level openers take the mode second; a
+        # method such as Path.open(mode) takes it first.
+        position = 1 if on_module or isinstance(node, ast.Name) else 0
+        mode: ast.AST | None = (
+            call.args[position] if len(call.args) > position else None
+        )
+        for keyword in call.keywords:
+            if keyword.arg == "mode":
+                mode = keyword.value
+        if mode is None:
+            return
+        text = _constant_name(mode)
+        if text is None:
+            self.effects.add("open:<dynamic>")
+        elif set(text) & set("wax+"):
+            self.effects.add(f"open:{text}")
 
 
 def program_interface(source: str) -> ProgramInterface:
@@ -397,86 +589,14 @@ def program_interface(source: str) -> ProgramInterface:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise GlueError(f"embedded program does not parse: {exc}") from exc
-    parents: dict[ast.AST, ast.AST] = {}
-    for parent in ast.walk(tree):
-        for child in ast.iter_child_nodes(parent):
-            parents[child] = parent
-    environment: set[str] = set()
-    imports: set[str] = set()
-    executables: set[str] = set()
-    paths: set[str] = set()
-    effects: set[str] = set()
-    flags: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imports.update(alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                flags.add("relative-import")
-            imports.add((node.module or "").split(".")[0])
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if _ABSOLUTE_PATH_RE.fullmatch(node.value):
-                paths.add(node.value)
-        elif _is_environ(node):
-            parent = parents.get(node)
-            if isinstance(parent, ast.Subscript) and parent.value is node:
-                environment.add(_constant_name(parent.slice))
-            elif (
-                isinstance(parent, ast.Attribute)
-                and parent.value is node
-                and parent.attr in _ENVIRON_ACCESSORS
-                and isinstance(parents.get(parent), ast.Call)
-                and parents[parent].func is parent
-            ):
-                call = parents[parent]
-                environment.add(_constant_name(call.args[0] if call.args else None))
-            elif (
-                isinstance(parent, ast.Compare)
-                and node in parent.comparators
-                and all(isinstance(op, ast.In | ast.NotIn) for op in parent.ops)
-            ):
-                environment.add(_constant_name(parent.left))
-            elif not isinstance(parent, ast.alias):
-                # The whole environment escapes (passed on, copied, iterated):
-                # what reaches the program is no longer a named set.
-                flags.add("environment-escapes")
-        elif isinstance(node, ast.Call):
-            name = _call_name(node)
-            if name in {"getenv", "getenvb"}:
-                environment.add(_constant_name(node.args[0] if node.args else None))
-            elif name in {
-                "__import__",
-                "import_module",
-                "find_spec",
-                "spec_from_file_location",
-            }:
-                flags.add("dynamic-import")
-            elif name in {"exec", "eval", "compile"}:
-                flags.add("dynamic-code")
-            elif name in {"expanduser", "home"}:
-                flags.add("home-directory")
-            if name in _SUBPROCESS_CALLS:
-                command = node.args[0] if node.args else None
-                if isinstance(command, ast.List | ast.Tuple) and command.elts:
-                    executables.add(_constant_name(command.elts[0]))
-                elif isinstance(command, ast.Constant) and isinstance(
-                    command.value, str
-                ):
-                    executables.add("shell:" + (command.value.split() or [""])[0])
-                else:
-                    executables.add("<dynamic>")
-            if name in _EFFECT_CALLS:
-                effects.add(name)
-            mode = _open_mode(node)
-            if mode is not None:
-                effects.add(mode)
+    found = _InterfaceVisitor(tree)
     return ProgramInterface(
-        environment=tuple(sorted(environment)),
-        imports=tuple(sorted(imports)),
-        executables=tuple(sorted(executables)),
-        paths=tuple(sorted(paths)),
-        effects=tuple(sorted(effects)),
-        flags=tuple(sorted(flags)),
+        environment=tuple(sorted(found.environment)),
+        imports=tuple(sorted(found.imports)),
+        executables=tuple(sorted(found.executables)),
+        paths=tuple(sorted(found.paths)),
+        effects=tuple(sorted(found.effects)),
+        opaque=tuple(sorted(found.opaque)),
     )
 
 
@@ -495,7 +615,7 @@ def _jsonable(value: Any) -> Any:
         return [_jsonable(item) for item in value]
     if value is None or isinstance(value, str | bool | int | float):
         return value
-    return str(value)
+    raise GlueError(f"unsupported YAML value {value!r} ({type(value).__name__})")
 
 
 def canonical_json(value: Any) -> str:
@@ -986,8 +1106,9 @@ def write_reviewed_glue(entries: Sequence[ReviewedGlue], directory: Path) -> Non
         if entry.gate_flags is not None:
             item["gate_flags"] = entry.gate_flags
         rows.append(json.dumps(item, ensure_ascii=False))
-    (directory / REVIEWED_GLUE_NAME).write_text(
-        "[\n" + ",\n".join(f"  {row}" for row in rows) + "\n]\n", encoding="utf-8"
+    _write_atomic(
+        directory / REVIEWED_GLUE_NAME,
+        ("[\n" + ",\n".join(f"  {row}" for row in rows) + "\n]\n").encode("utf-8"),
     )
 
 
@@ -1154,9 +1275,16 @@ class Admission:
         return not self.problems
 
 
-def _env_exports(unit: GlueUnit) -> set[str]:
+def _run_text(unit: GlueUnit) -> str:
     run = unit.view["step"].get("run") if unit.kind == "step" else None
-    if not isinstance(run, str) or "GITHUB_ENV" not in run:
+    return run if isinstance(run, str) else ""
+
+
+def _env_exports(unit: GlueUnit) -> set[str]:
+    """Names a step may export through GITHUB_ENV (an over-approximation)."""
+
+    run = _run_text(unit)
+    if "GITHUB_ENV" not in run:
         return set()
     return {match.group("name") for match in _ENV_NAME_RE.finditer(run)}
 
@@ -1164,7 +1292,13 @@ def _env_exports(unit: GlueUnit) -> set[str]:
 def _dependencies(
     units: Sequence[GlueUnit],
 ) -> tuple[list[tuple[GlueUnit, GlueUnit, str]], list[Problem]]:
-    """(consumer, producer, reference) pairs a pin's glue relies on."""
+    """(consumer, producer, reference) pairs a pin's glue relies on.
+
+    Step outputs (``steps.<id>``), job outputs (``needs.<job>``), names an
+    earlier step of the job may export through GITHUB_ENV and that the unit
+    mentions anywhere (bash, expressions, or an exit-status program's
+    interface), and every earlier step of the job that writes GITHUB_PATH.
+    """
 
     pairs: list[tuple[GlueUnit, GlueUnit, str]] = []
     problems: list[Problem] = []
@@ -1172,7 +1306,7 @@ def _dependencies(
     for index, unit in enumerate(units):
         if unit.kind == "workflow":
             continue
-        same_job = [
+        earlier = [
             other
             for other in units[:index]
             if other.kind == "step" and other.job == unit.job
@@ -1191,7 +1325,8 @@ def _dependencies(
                 problems.append(
                     Problem(
                         "dependency",
-                        f"{unit.label} reads steps.{step_id}, which no step of its job defines",
+                        f"{unit.label} reads steps.{step_id}, which no step of "
+                        "its job defines",
                         unit,
                     )
                 )
@@ -1202,16 +1337,23 @@ def _dependencies(
                 problems.append(
                     Problem(
                         "dependency",
-                        f"{unit.label} reads needs.{match.group('job')}, which is no job",
+                        f"{unit.label} reads needs.{match.group('job')}, which "
+                        "is no job",
                         unit,
                     )
                 )
                 continue
             pairs.append((unit, needed, f"needs.{match.group('job')}"))
-        for producer in same_job:
+        if unit.kind != "step":
+            continue
+        for producer in earlier:
             for name in _env_exports(producer):
-                if re.search(rf"(?:\$\{{?|\benv\.){re.escape(name)}\b", text):
+                if re.search(
+                    rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text
+                ):
                     pairs.append((unit, producer, f"GITHUB_ENV {name}"))
+            if "GITHUB_PATH" in _run_text(producer):
+                pairs.append((unit, producer, "GITHUB_PATH"))
     unique = {(c.digest, p.digest, ref): (c, p, ref) for c, p, ref in pairs}
     return list(unique.values()), problems
 
@@ -1504,12 +1646,21 @@ def load_manifest(directory: Path = WORKFLOW_DIRECTORY) -> dict[str, PackagedPin
     return pins
 
 
+def _write_atomic(path: Path, data: bytes) -> None:
+    """Replace ``path`` in one step, so an interrupted write leaves the old file."""
+
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_bytes(data)
+    os.replace(temporary, path)
+
+
 def write_manifest(pins: Mapping[str, PackagedPin], directory: Path) -> None:
     payload = {
         sha: {"blob": pin.blob, "file": pin.file} for sha, pin in sorted(pins.items())
     }
-    (directory / MANIFEST_NAME).write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+    _write_atomic(
+        directory / MANIFEST_NAME,
+        (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
     )
 
 
@@ -1525,8 +1676,86 @@ def read_packaged(pin: PackagedPin, directory: Path = WORKFLOW_DIRECTORY) -> byt
     return data
 
 
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+# Plain scalars every YAML reader gives the same value. PyYAML follows YAML
+# 1.1 (on/off/yes/no are booleans, 0777 and 1:30 are integers, dates are
+# dates); a YAML 1.2 reader does not.
+_PORTABLE_SCALARS = {
+    "tag:yaml.org,2002:bool": re.compile(r"^(?:true|false)$"),
+    "tag:yaml.org,2002:int": re.compile(r"^-?(?:0|[1-9][0-9]*)$"),
+    "tag:yaml.org,2002:float": re.compile(r"^-?[0-9]+\.[0-9]+$"),
+    "tag:yaml.org,2002:null": re.compile(r"^(?:|~|null)$"),
+}
+
+
+# Plain scalars PyYAML keeps as strings but the YAML 1.2 core schema reads as
+# numbers (0o17, 0x1F, 1e3, .5, .inf, .nan).
+_CORE_SCHEMA_NUMBER_RE = re.compile(
+    r"^[-+]?(?:0o[0-7]+|0x[0-9a-fA-F]+|\.(?:inf|Inf|INF)|"
+    r"(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?)$|^\.(?:nan|NaN|NAN)$"
+)
+
+
+def check_portable_yaml(text: str) -> None:
+    """Refuse a workflow whose values depend on the YAML reader.
+
+    Every plain scalar must be a string, or a boolean, integer, decimal or
+    null spelled the one way all readers agree on; the top-level ``on`` key
+    is the one exception. Anchors, aliases and explicit tags are refused too.
+    Glue digests then mean the same under PyYAML as under GitHub's reader.
+    """
+
+    try:
+        events = list(yaml.parse(text, Loader=_YAML_LOADER))
+        root = yaml.compose(text, Loader=_YAML_LOADER)
+    except yaml.YAMLError as exc:
+        raise GlueError(f"the workflow is not valid YAML: {exc}") from exc
+    for event in events:
+        if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
+            raise GlueError("the workflow uses a YAML anchor or alias")
+        if isinstance(event, yaml.ScalarEvent):
+            if event.tag is not None and not any(event.implicit):
+                raise GlueError(f"the workflow uses an explicit YAML tag {event.tag}")
+        elif isinstance(event, yaml.CollectionStartEvent):
+            if event.tag is not None and not event.implicit:
+                raise GlueError(f"the workflow uses an explicit YAML tag {event.tag}")
+    if not isinstance(root, yaml.MappingNode):
+        raise GlueError("the workflow is not a mapping")
+    trigger_keys = {id(key) for key, _ in root.value if key.value == "on"}
+    stack: list[yaml.Node] = [root]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                stack.extend((key, value))
+        elif isinstance(node, yaml.SequenceNode):
+            stack.extend(node.value)
+        elif isinstance(node, yaml.ScalarNode):
+            # A plain scalar's style is None from the Python parser and "" from
+            # libyaml's.
+            if node.style not in (None, "") or id(node) in trigger_keys:
+                continue
+            if node.tag == "tag:yaml.org,2002:str":
+                portable = _CORE_SCHEMA_NUMBER_RE.fullmatch(node.value) is None
+            else:
+                pattern = _PORTABLE_SCALARS.get(node.tag)
+                portable = pattern is not None and bool(pattern.fullmatch(node.value))
+            if not portable:
+                raise GlueError(
+                    f"line {node.start_mark.line + 1}: plain scalar {node.value!r} "
+                    "is read differently by different YAML readers; quote it"
+                )
+
+
 def load_workflow(data: bytes) -> dict[str, Any]:
-    payload = yaml.load(data, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+    """Parse a workflow whose values do not depend on the YAML reader."""
+
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise GlueError(f"the workflow is not UTF-8: {exc}") from exc
+    check_portable_yaml(text)
+    payload = yaml.load(text, Loader=_YAML_LOADER)
     if not isinstance(payload, dict):
         raise GlueError("the workflow is not a mapping")
     return payload
@@ -1644,6 +1873,10 @@ def _hermetic_git_environment() -> dict[str, str]:
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_TERMINAL_PROMPT": "0",
+            # Ancestry is read from the commit objects, not a commit-graph file.
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.commitGraph",
+            "GIT_CONFIG_VALUE_0": "false",
         }
     )
     return environment
@@ -1845,8 +2078,8 @@ def add_pin(
         file=out,
     )
     manifest = load_manifest(directory)
-    if source.sha in manifest:
-        packaged = manifest[source.sha]
+    packaged = manifest.get(source.sha)
+    if packaged is not None:
         if packaged.blob != source.blob:
             raise PinSourceError(
                 f"{source.sha} is packaged as blob {packaged.blob}, but .github "
@@ -1854,7 +2087,8 @@ def add_pin(
             )
         read_packaged(packaged, directory)
         print(f"already packaged as {packaged.file}", file=out)
-        return 0
+        if not template:
+            return 0
     if template and source.sha not in TEMPLATE_FEATURES:
         raise PinSourceError(
             f"{source.sha} is not declared in TEMPLATE_FEATURES; review the "
@@ -1923,12 +2157,17 @@ def add_pin(
     path = directory / file_name
     if path.exists() and path.read_bytes() != source.data:
         raise PinSourceError(f"{path} exists with other content")
-    path.write_bytes(source.data)
-    manifest[source.sha] = PackagedPin(source.sha, file_name, source.blob)
-    write_manifest(manifest, directory)
+    # Each file is replaced in one step; the manifest entry, which is what
+    # makes the pin supported, goes last.
+    if packaged is None:
+        _write_atomic(path, source.data)
     if template:
         write_reviewed_glue(entries, directory)
-    print(f"packaged {file_name} and registered it in {MANIFEST_NAME}", file=out)
+        print(f"wrote {REVIEWED_GLUE_NAME}", file=out)
+    if packaged is None:
+        manifest[source.sha] = PackagedPin(source.sha, file_name, source.blob)
+        write_manifest(manifest, directory)
+        print(f"packaged {file_name} and registered it in {MANIFEST_NAME}", file=out)
     return 0
 
 

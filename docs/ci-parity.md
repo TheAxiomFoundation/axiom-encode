@@ -54,7 +54,7 @@ file and its `pins.json` entry) with a version bump.
   command fetches from GitHub into `refs/axiom-encode/ci-pin/main`. With
   `--no-fetch`, it uses the checkout's own `origin/main` instead. It refuses
   shallow clones, grafts and `url.*.insteadOf` rewrites, and it ignores replace
-  refs.
+  refs and the commit-graph file.
 - **File.** `.github/workflows/validate-rulespec.yml` at `<sha>` must be a
   regular file. It is copied byte-exact, and its blob id is recorded and checked
   on every use.
@@ -91,12 +91,14 @@ canonical JSON.
   - its imports;
   - the executables it starts;
   - the absolute paths it names;
-  - its file and network effects;
-  - any opaque access: an escaping `os.environ`, dynamic imports,
-    `exec`/`eval`, the home directory.
+  - its file-writing and network calls;
+  - verbatim, every access it cannot name: the environment passed on whole, a
+    variable or executable chosen at run time, dynamic imports, `exec`/`eval`,
+    `getattr` and similar, and the home directory.
 
-  Rewriting such a program needs no review while its interface holds. ff774c29
-  differs from 92ccb0f2 only that way.
+  Import aliases are resolved, so `from os import environ as env` is still a
+  read of the environment. Rewriting such a program needs no review while its
+  interface holds. ff774c29 differs from 92ccb0f2 only that way.
 - **Output programs.** These are:
   - the shard scope;
   - migration authorization;
@@ -114,6 +116,12 @@ Every executed program must be one that `ci` and bash read identically:
 - an executed heredoc step has exactly one heredoc, and it is quoted;
 - no program contains `${{ }}`, which GitHub substitutes before bash runs;
 - the program parses.
+
+The workflow file must also read the same under any YAML reader. PyYAML follows
+YAML 1.1, where a plain `on` is `true` and `0777` is 511. So every plain scalar
+must be a string, or `true`, `false`, a decimal number or null in its canonical
+spelling; the top-level `on:` key is the one exception. Anchors, aliases and
+explicit tags are refused.
 
 **Templates.** The reviewed glue is every unit of the template pins
 (`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole
@@ -146,8 +154,11 @@ A pin is admitted when:
    steps, the composer's steps);
 3. its variants' feature requirements agree, and each group's feature is on
    exactly when its steps are present;
-4. every step output, job output (`needs.*`) and `GITHUB_ENV` export a unit
-   reads comes from a producer variant that occurs with it in some template;
+4. each producer a unit relies on is a variant that occurs with it in some
+   template. The producers are the steps and jobs whose outputs it reads
+   (`steps.<id>`, `needs.<job>`), each earlier step of its job that may export
+   through `GITHUB_ENV` a name the unit mentions, and each earlier step of its
+   job that writes `GITHUB_PATH`;
 5. it declares every input `ci` reads, with the type `ci` assumes.
 
 The merged features become the pin's gate parameters. Its inputs, gate order,
@@ -170,7 +181,8 @@ variant, and each order, feature, dependency or input problem. Then:
    branches on something new.
 3. Run `uv run axiom-encode ci-pin add <sha> --github-checkout <path>
    --template`. It packages the pin, adds its new digests to `reviewed-glue.json`
-   and checks that its glue implies the declared features.
+   and checks that its glue implies the declared features. It runs the same
+   checks for a pin that is already packaged, to promote it to a template.
 4. If a gate step's literal flags changed, set that variant's `gate_flags` in
    `reviewed-glue.json` to a profile in `ci_parity._WORKFLOW_GATE_FLAG_PROFILES`.
 5. Run `tests/test_ci_parity*.py`. The embedded-pin batteries run against every
@@ -180,11 +192,17 @@ variant, and each order, feature, dependency or input problem. Then:
 
 - Admission trusts the `EXECUTED_PROGRAMS` classification. A program belongs
   under exit status only if `ci` never parses its output.
-- An exit-status program can change its logic without review; `ci` runs the
-  new text unchanged, in CI's working directory and environment.
-- The producer/consumer check follows `steps.<id>`, `needs.<job>` and
-  `GITHUB_ENV` exports written as `NAME=`. It does not follow files passed
-  through `$RUNNER_TEMP`. Feature requirements, rather than that check, keep
+- An exit-status program can change its logic without review. `ci` runs the
+  new text unchanged, but in its own interpreter and with only the environment
+  `ci` passes that step. The interface is what catches a program that starts
+  reading something `ci` does not pass.
+- The interface catches ordinary edits. It is not a sandbox: it reads the
+  program's syntax, so a program written to hide an access, such as one that
+  builds a path from pieces at run time, can evade it. `.github` main is
+  reviewed, and that review is the defense against such a program.
+- `GITHUB_ENV` exports are found by name (`NAME=` in a step that mentions
+  `GITHUB_ENV`), which over-approximates. Files passed through `$RUNNER_TEMP`
+  are not followed. Feature requirements, rather than the producer check, keep
   variants written for different layouts apart.
 - Pins before `0effa6a5` (`615c1df9`, `34bcfab2`) run `ci`'s fixed gate
   sequence and are not content-keyed.

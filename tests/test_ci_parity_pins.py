@@ -38,7 +38,7 @@ from typing import Any
 
 import pytest
 import yaml
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, event, given, settings
 from hypothesis import strategies as st
 
 from axiom_encode import ci_parity, ci_parity_pins
@@ -549,28 +549,36 @@ _NEUTRAL_LINES = st.one_of(
     st.just("pass"),
     st.text("abcdefgh ", max_size=12).map(lambda text: f"_label = {text!r}"),
 )
+# Lines that widen what a program reads or changes; none of the names occurs
+# in a packaged program, so each one must change the interface.
 _INTERFACE_LINES = st.sampled_from(
     [
         'import os; os.environ["CI_PIN_PROPERTY_NEW"]',
         'import os; os.getenv("CI_PIN_PROPERTY_NEW")',
+        'from os import environ as ci_pin_env; ci_pin_env.get("CI_PIN_PROPERTY_NEW")',
+        'from os import getenv as ci_pin_getenv; ci_pin_getenv("CI_PIN_PROPERTY_NEW")',
         "import socket",
         'import subprocess; subprocess.run(["curl", "-s"])',
+        'from subprocess import run as ci_pin_run; ci_pin_run(["curl", "-s"])',
         'open("ci-pin-property", "w")',
+        'import io; io.open("ci-pin-property", "w")',
         '_path = "/opt/ci-pin-property"',
         "import os; dict(os.environ)",
+        'import os; getattr(os, "environ")',
         'exec("1")',
     ]
 )
 
 
-@settings(max_examples=150, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     key=st.sampled_from(_EXIT_STEPS),
-    lines=st.lists(st.one_of(_NEUTRAL_LINES, _INTERFACE_LINES), min_size=1, max_size=4),
+    neutral=st.lists(_NEUTRAL_LINES, max_size=3),
+    widening=st.lists(_INTERFACE_LINES, max_size=2),
     data=st.data(),
 )
 def test_exit_status_program_edits_keep_the_digest_iff_the_interface_holds(
-    key: tuple[str, str], lines: list[str], data: st.DataObject
+    key: tuple[str, str], neutral: list[str], widening: list[str], data: st.DataObject
 ) -> None:
     job, name = key
     step = _step(_PAYLOAD_92CC, job, name)
@@ -578,6 +586,7 @@ def test_exit_status_program_edits_keep_the_digest_iff_the_interface_holds(
     run = step["run"]
     start, stop = _program_span(run, program.embedding)
     source = run[start:stop]
+    lines = data.draw(st.permutations([*neutral, *widening]))
     offset = data.draw(st.sampled_from(_top_level_offsets(source)))
     edited_source = (
         source[:offset] + "".join(f"{line}\n" for line in lines) + source[offset:]
@@ -585,15 +594,46 @@ def test_exit_status_program_edits_keep_the_digest_iff_the_interface_holds(
     edited = {**step, "run": run[:start] + edited_source + run[stop:]}
 
     if program.embedding == "inline" and "'" in edited_source:
+        event("refused: quote in an inline program")
         with pytest.raises(GlueError, match="single quote"):
             _digest_of(job, edited)
         return
     if "${{" in edited_source:
+        event("refused: expression")
         with pytest.raises(GlueError, match="expression"):
             _digest_of(job, edited)
         return
-    same_interface = program_interface(edited_source) == program_interface(source)
-    assert (_digest_of(job, edited) == _digest_of(job, step)) is same_interface
+    same = _digest_of(job, edited) == _digest_of(job, step)
+    # The oracle is the edit itself, not the extractor under test: only
+    # comments, unused assignments and `pass` keep the digest.
+    event("widening edit" if widening else "neutral edit")
+    assert same is (not widening), lines
+    assert (program_interface(edited_source) == program_interface(source)) is same
+
+
+@pytest.mark.parametrize(
+    ("line", "same"),
+    [
+        ("# a reworded comment", True),
+        ("_unused = 1", True),
+        ('import os; os.environ["CI_PIN_PROPERTY_NEW"]', False),
+        ('from os import environ as e; e.get("CI_PIN_PROPERTY_NEW")', False),
+        ('from os import getenv as g; g("GITHUB_BASE_REF")', False),
+        ("import socket", False),
+        ('open("ci-pin-property", "w")', False),
+    ],
+)
+def test_precheck_program_edits_keep_the_digest_only_with_the_interface(
+    line: str, same: bool
+) -> None:
+    # Both directions of the property above, on ff774c29's actual change site.
+    step = _step(_PAYLOAD_92CC, *PRECHECK)
+    run = step["run"]
+    start, stop = _program_span(run, "heredoc")
+    source = run[start:stop]
+    edited = {**step, "run": run[:start] + f"{line}\n" + source + run[stop:]}
+
+    assert (_digest_of(PRECHECK[0], edited) == _digest_of(PRECHECK[0], step)) is same
 
 
 @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
@@ -701,6 +741,8 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
         "Path('x').write_text('y')\n"
         "open('z', 'a')\n"
         "open('r')\n"
+        "'text'.replace('t', 'T')\n"
+        "pattern = re.compile('x')\n"
         "p = '/opt/axiom-verification/bin'\n"
         "q = '/ is not a path'\n"
     )
@@ -710,7 +752,66 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
     assert interface.executables == ("<dynamic>", "git", "shell:make")
     assert interface.effects == ("open:a", "write_text")
     assert interface.paths == ("/opt/axiom-verification/bin",)
-    assert interface.flags == ()
+    # What cannot be named is kept verbatim, so adding another is a change.
+    assert interface.opaque == (
+        "dynamic-environment: os.environ[a]",
+        "dynamic-executable: sp.check_output(command)",
+    )
+    assert interface.flags == ("dynamic-environment", "dynamic-executable")
+
+
+# An ordinary rewrite must not hide an access behind another name.
+ALIASED_ACCESS = [
+    ("from os import environ as env\nx = env.get('NEW')\n", "environment", "NEW"),
+    ("from os import environ as env\nx = env['NEW']\n", "environment", "NEW"),
+    ("from os import getenv as g\nx = g('NEW')\n", "environment", "NEW"),
+    ("import os as o\nx = o.getenv('NEW')\n", "environment", "NEW"),
+    ("from subprocess import run as r\nr(['curl', '-s'])\n", "executables", "curl"),
+    ("import subprocess as sp\nsp.Popen(['wget'])\n", "executables", "wget"),
+    ("import io\nio.open('f', 'w')\n", "effects", "open:w"),
+    ("import codecs\ncodecs.open('f', 'a')\n", "effects", "open:a"),
+    ("from pathlib import Path\nPath('f').open('w')\n", "effects", "open:w"),
+    ("import os\nos.fdopen(3, 'w')\n", "effects", "open:w"),
+    (
+        "import os\nos.open('f', os.O_WRONLY | os.O_CREAT)\n",
+        "effects",
+        "os.open:os.O_WRONLY | os.O_CREAT",
+    ),
+    ("import os\nos.replace('a', 'b')\n", "effects", "os.replace"),
+    ("import shutil as sh\nsh.copy('a', 'b')\n", "effects", "shutil.copy"),
+    (
+        "import os\nx = getattr(os, 'environ')['NEW']\n",
+        "opaque",
+        "dynamic-code: getattr(os, 'environ')",
+    ),
+    (
+        "import os\ng = os.getenv\nx = g('NEW')\n",
+        "opaque",
+        "dynamic-environment: os.getenv",
+    ),
+    (
+        "import subprocess\nf = subprocess.run\nf(['curl'])\n",
+        "opaque",
+        "dynamic-executable: subprocess.run",
+    ),
+    (
+        "import sys\nx = sys.modules['os'].environ\n",
+        "opaque",
+        "dynamic-code: sys.modules",
+    ),
+    (
+        "from os import *\nx = environ['NEW']\n",
+        "opaque",
+        "star-import: from os import *",
+    ),
+]
+
+
+@pytest.mark.parametrize(("source", "field", "expected"), ALIASED_ACCESS)
+def test_program_interface_resolves_aliases_and_indirection(
+    source: str, field: str, expected: str
+) -> None:
+    assert expected in getattr(program_interface(source), field)
 
 
 @pytest.mark.parametrize(
@@ -718,10 +819,13 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
     [
         ("import os\nenv = dict(os.environ)\n", "environment-escapes"),
         ("import os\nsubprocess.run(['x'], env=os.environ)\n", "environment-escapes"),
+        ("import os\nfor key in os.environ:\n    pass\n", "environment-escapes"),
         ("import importlib\nimportlib.import_module('x')\n", "dynamic-import"),
-        ("__import__('x')\n", "dynamic-import"),
+        ("__import__('x')\n", "dynamic-code"),
         ("exec('print(1)')\n", "dynamic-code"),
         ("eval('1')\n", "dynamic-code"),
+        ("x = vars(os)['environ']\n", "dynamic-code"),
+        ("x = os.__dict__['environ']\n", "dynamic-code"),
         ("from pathlib import Path\nPath.home()\n", "home-directory"),
         ("import os\nos.path.expanduser('~')\n", "home-directory"),
         ("from . import x\n", "relative-import"),
@@ -729,6 +833,30 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
 )
 def test_program_interface_flags_opaque_access(source: str, flag: str) -> None:
     assert flag in program_interface(source).flags
+
+
+def test_ordinary_code_is_not_opaque() -> None:
+    interface = program_interface(
+        "import re, json\n"
+        "pattern = re.compile('[a-z]+')\n"
+        "text = 'a b'.replace(' ', '')\n"
+        "items = [1, 2]\n"
+        "items.remove(1)\n"
+        "copy = dict(a=1).copy()\n"
+        "data = json.loads('{}')\n"
+    )
+
+    assert (interface.opaque, interface.effects, interface.executables) == ((), (), ())
+
+
+def test_two_opaque_accesses_of_one_kind_are_two_interface_entries() -> None:
+    one = program_interface("import os\na = getattr(os, 'sep')\n")
+    two = program_interface(
+        "import os\na = getattr(os, 'sep')\nb = getattr(os, 'environ')\n"
+    )
+
+    assert one.flags == two.flags == ("dynamic-code",)
+    assert one != two
 
 
 def test_environ_import_alone_is_not_an_escape() -> None:
@@ -1242,15 +1370,100 @@ def test_marker_and_programs_cannot_collide() -> None:
     ) == (f"python - <<'PY'\n{PROGRAM_MARKER}\nPY\n", "print(1)\n")
 
 
-def test_yaml_one_point_one_booleans_do_not_change_digests() -> None:
-    # Digests read the packaged file with the C or pure-Python SafeLoader; both
-    # must give the same units.
+def test_c_and_python_yaml_loaders_give_the_same_units() -> None:
     data = packaged_bytes(PIN_92CCB0F2)
     pure = yaml.load(data, Loader=yaml.SafeLoader)
 
     assert [unit.digest for unit in glue_units(pure)] == [
         unit.digest for unit in glue_units(packaged_payload(PIN_92CCB0F2))
     ]
+
+
+@pytest.mark.parametrize(
+    "scalar",
+    [
+        "on",
+        "off",
+        "yes",
+        "No",
+        "True",
+        "TRUE",
+        "0777",
+        "0o17",
+        "0x1F",
+        "1_000",
+        "1:30",
+        "1e3",
+        ".inf",
+        "2026-10-13",
+        "Null",
+    ],
+)
+def test_scalars_yaml_readers_disagree_on_are_refused(scalar: str) -> None:
+    # PyYAML (YAML 1.1) reads `on` as true, 0777 as 511, 1:30 as 90 and a date
+    # as a date; a YAML 1.2 reader reads 0o17 and 1e3 as numbers. A digest must
+    # not equate `on` with `true`.
+    text = (
+        packaged_bytes(PIN_92CCB0F2)
+        .decode()
+        .replace(
+            "fetch-depth: 0\n",
+            f"fetch-depth: 0\n          ci-pin-property: {scalar}\n",
+            1,
+        )
+    )
+    assert f"ci-pin-property: {scalar}" in text
+
+    with pytest.raises(GlueError, match="read differently by different YAML readers"):
+        ci_parity_pins.load_workflow(text.encode())
+    quoted = text.replace(f"ci-pin-property: {scalar}", f"ci-pin-property: '{scalar}'")
+    assert ci_parity_pins.load_workflow(quoted.encode())
+
+
+@pytest.mark.parametrize(
+    ("addition", "message"),
+    [
+        ("          anchored: &a value\n", "anchor or alias"),
+        ("          tagged: !!str 12\n", "explicit YAML tag"),
+    ],
+)
+def test_anchors_and_explicit_tags_are_refused(addition: str, message: str) -> None:
+    text = (
+        packaged_bytes(PIN_92CCB0F2)
+        .decode()
+        .replace("fetch-depth: 0\n", f"fetch-depth: 0\n{addition}", 1)
+    )
+
+    with pytest.raises(GlueError, match=message):
+        ci_parity_pins.load_workflow(text.encode())
+
+
+@pytest.mark.parametrize(
+    "sha", sorted(SUPPORTED_WORKFLOW_PINS), ids=lambda sha: sha[:8]
+)
+def test_packaged_workflows_read_the_same_under_either_yaml_schema(sha: str) -> None:
+    data = (WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[sha].fixture).read_bytes()
+    payload = ci_parity_pins.load_workflow(data)
+    strict = yaml.load(data, Loader=ci_parity._WorkflowYamlLoader)
+
+    # Only the top-level `on` key differs between YAML 1.1 and ci's 1.2 loader.
+    assert {
+        ("on" if key is True else key): value for key, value in payload.items()
+    } == strict
+
+
+def test_git_reads_ancestry_from_commit_objects_only(github: dict[str, Any]) -> None:
+    environment = ci_parity_pins._hermetic_git_environment()
+    value = subprocess.run(
+        ["git", "-C", str(github["repo"]), "config", "--get", "core.commitGraph"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert value == "false"
+    assert environment["GIT_NO_REPLACE_OBJECTS"] == "1"
 
 
 def _edited_glue(data: bytes) -> bytes:
@@ -1320,3 +1533,95 @@ def test_template_mode_refuses_features_its_glue_contradicts(
     assert code == 1
     assert "exact_guard_base_ref" in output
     assert _snapshot(github["destination"]) == before
+
+
+def test_dependencies_follow_exports_into_python_and_the_path() -> None:
+    units = glue_units(packaged_payload(PIN_92CCB0F2))
+    pairs, problems = ci_parity_pins._dependencies(units)
+    found = {
+        (consumer.step, producer.step, reference)
+        for consumer, producer, reference in pairs
+    }
+
+    assert problems == []
+    # A Python reader (os.environ[...]) of a GITHUB_ENV export, not only bash.
+    assert (
+        "Install changed-file oracle coverage classifier",
+        "Reserve isolated dependency directories",
+        "GITHUB_ENV AXIOM_DEPENDENCY_ROOT",
+    ) in found
+    # Every later step of the job runs with a GITHUB_PATH writer's PATH.
+    later = {
+        consumer
+        for consumer, producer, reference in found
+        if (producer, reference) == ("Expose axiom-rules-engine on PATH", "GITHUB_PATH")
+    }
+    names = [
+        unit.step for unit in units if unit.kind == "step" and unit.job == "validate"
+    ]
+    assert later == set(names[names.index("Expose axiom-rules-engine on PATH") + 1 :])
+    # Step and job outputs.
+    assert ("Run repository tests", None, "needs.shards") in found
+    assert any(reference == "steps.toolchain" for _, _, reference in found)
+
+
+def test_a_path_writer_variant_must_have_been_reviewed_with_its_readers() -> None:
+    # 0effa6a5's "Expose axiom-rules-engine on PATH" writes another directory
+    # to GITHUB_PATH; every later 92ccb0f2 step ran with 92ccb0f2's.
+    payload = _payload(PIN_92CCB0F2)
+    steps = payload["jobs"]["validate"]["steps"]
+    index = next(
+        i
+        for i, step in enumerate(steps)
+        if step["name"] == "Expose axiom-rules-engine on PATH"
+    )
+    steps[index] = _step(
+        _payload(PIN_0EFFA6A5), "validate", "Expose axiom-rules-engine on PATH"
+    )
+    admission = _admit(payload)
+
+    assert {"features", "dependency"} <= _kinds(admission)
+    assert any("GITHUB_PATH" in problem.message for problem in admission.problems)
+
+
+def test_template_mode_checks_an_already_packaged_pin(
+    github: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _add(github, github["second"])[0] == 0
+    before = _snapshot(github["destination"])
+
+    # Promoting it with features its glue contradicts is refused, not "already
+    # packaged".
+    _declare_template(
+        monkeypatch,
+        github["second"],
+        {**TEMPLATE_FEATURES[PIN_92CCB0F2], "isolated_dependencies": False},
+    )
+    code, output = _add(github, github["second"], template=True)
+    assert code == 1, output
+    assert "already packaged" in output and "NOT admitted" in output
+    assert _snapshot(github["destination"]) == before
+
+    _declare_template(
+        monkeypatch, github["second"], dict(TEMPLATE_FEATURES[PIN_92CCB0F2])
+    )
+    code, output = _add(github, github["second"], template=True)
+    assert code == 0, output
+    assert "wrote reviewed-glue.json" in output
+    after = _snapshot(github["destination"])
+    assert set(after) == set(before)
+    assert {
+        name: data for name, data in after.items() if name != REVIEWED_GLUE_NAME
+    } == {name: data for name, data in before.items() if name != REVIEWED_GLUE_NAME}
+    # Its pre-check program is not 92ccb0f2's, but its glue is: nothing new.
+    assert after[REVIEWED_GLUE_NAME] == before[REVIEWED_GLUE_NAME]
+
+
+def test_add_leaves_no_temporary_files(github: dict[str, Any]) -> None:
+    assert _add(github, github["second"])[0] == 0
+
+    assert not [
+        path.name
+        for path in github["destination"].iterdir()
+        if path.name.startswith(".")
+    ]

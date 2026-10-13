@@ -859,8 +859,8 @@ def _unsupported_pin_error(workflow_sha: str, path: Path) -> ValueError:
     supported = ", ".join(SUPPORTED_WORKFLOW_PINS)
     return ValueError(
         f"Unsupported validate-rulespec workflow pin {workflow_sha} "
-        f"in {path}; this axiom-encode release implements "
-        f"these pins: {supported}"
+        f"in {path}; this axiom-encode release packages "
+        f"these pins: {supported} (axiom-encode ci-pin add packages another)"
     )
 
 
