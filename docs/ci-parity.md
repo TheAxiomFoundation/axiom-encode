@@ -2,7 +2,8 @@
 
 `axiom-encode ci --repo /path/to/rulespec-<country>` runs the validation gates
 declared by that lane's reusable `validate-rulespec.yml` caller. It reads the
-four pinned dependency commits and caller inputs, verifies the strict
+pinned dependency commits (four, or five with a pinned composer) and caller
+inputs, verifies the strict
 `.axiom/toolchain.toml` and waiver-set binding, authenticates each local checkout
 against `origin/main`, selects changes relative to `--base-ref origin/main`, and
 runs every applicable gate in workflow order.
@@ -14,8 +15,9 @@ pins:
 |---|---|---|
 | `34bcfab235c585c47292c95f51be1a4f4f91d29e` | reimplemented gates | money-atom scan includes `programs/` |
 | `615c1df9b9ace7deea84da65efd137f46f8bad2b` | reimplemented gates | money-atom scan excludes `programs/` |
-| `0effa6a5b05e7fac53902df7d523e909bd7fc48a` | the workflow's own scripts | used by rulespec-us |
+| `0effa6a5b05e7fac53902df7d523e909bd7fc48a` | the workflow's own scripts | used by rulespec-us at `cf03a179` |
 | `6f11be2655f79dd0a3b582db46525f58332ca120` | the workflow's own scripts | adds the unmanifested-RuleSpec pre-check |
+| `92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3` | the workflow's own scripts | used by rulespec-us since `4c9aeadd`; isolated dependency layout, pinned composer, ProgramSpec pre-check |
 
 A caller pinned to another workflow revision is rejected until the pinned
 workflow, gate registry, and implementation are updated together. The pinned
@@ -38,7 +40,9 @@ Python. The scripts cover:
 - the shard scope decision,
 - the strict toolchain check,
 - unsupported tracked paths,
-- the unmanifested-RuleSpec pre-check (`6f11be26`),
+- the unmanifested-RuleSpec pre-check (`6f11be26`), with its ProgramSpec shape
+  check (`92ccb0f2`),
+- the dependency-layout check and the composer pin check (`92ccb0f2`),
 - reviewed-migration authorization,
 - the retired-schema freeze,
 - the corpus release object verifier,
@@ -90,22 +94,28 @@ Python. The scripts cover:
   other Cargo config section or key fails resolution, including wrappers,
   target-specific settings, package/build-override profiles, source
   replacement and `[env]`, whose effects this command cannot neutralize
-  exactly. CI builds the engine at `_axiom/axiom-rules-engine` inside the
-  rules checkout, so its cargo and rustup also read the rules checkout's own
-  `.cargo/config` and `rust-toolchain` files; the local build runs in a private
-  snapshot that reads neither. Because the engine manifest declares no
-  workspace, cargo also parses every ancestor `Cargo.toml` while looking for
-  one. These all fail resolution, because their effect on CI's build cannot be
-  reproduced exactly:
-  - any non-empty Cargo config in the rules checkout (only CI's cargo would
-    read, and validate, it);
+  exactly. Before `92ccb0f2`, CI builds the engine at
+  `_axiom/axiom-rules-engine` inside the rules checkout, so its cargo and
+  rustup also read the rules checkout's own `.cargo/config` and
+  `rust-toolchain` files; the local build runs in a private snapshot that
+  reads neither. From `92ccb0f2` on, CI builds it under `$RUNNER_TEMP`,
+  outside the rules checkout, so the rules checkout's Cargo inputs are no
+  longer CI inputs and `ci` does not inspect them. Because the engine manifest
+  declares no workspace, cargo also parses every ancestor `Cargo.toml` while
+  looking for one. These all fail resolution, because their effect on CI's
+  build cannot be reproduced exactly:
+  - for pins before `92ccb0f2`, any non-empty Cargo config in the rules
+    checkout (only CI's cargo would read, and validate, it), and a
+    `Cargo.toml`, `rust-toolchain` or `rust-toolchain.toml` in the rules
+    checkout root;
   - a committed engine-checkout Cargo config with anything beyond the
     sections above;
-  - a `Cargo.toml`, `rust-toolchain` or `rust-toolchain.toml` in the rules
-    checkout root, or in any directory above the private snapshot;
-  - a symlinked `.cargo` directory or Cargo config in the rules or engine
-    checkout, which resolves differently in CI's `_axiom` layout, and any
-    Cargo config that cannot be read, a dangling link included.
+  - a `Cargo.toml`, `rust-toolchain` or `rust-toolchain.toml` in any
+    directory above the private snapshot;
+  - a symlinked `.cargo` directory or Cargo config in the engine checkout, or
+    (before `92ccb0f2`) in the rules checkout, which resolves differently in
+    CI's `_axiom` layout, and any Cargo config that cannot be read, a dangling
+    link included.
   Config inspection covers the snapshot's committed `.cargo`, its temporary
   ancestors through `/`, and the absolute `$HOME/.cargo`; the developer's
   engine checkout's ancestors do not participate in this build. When rustup
@@ -121,6 +131,43 @@ Python. The scripts cover:
   without `--locked`; the report notes the rewrite in the private snapshot and
   retains the receipt for a verified-pin build. The original checkout is never
   built in or modified.
+- **Dependency layout.** Before `92ccb0f2`, CI checks the dependencies out
+  under `_axiom/` in the rules checkout, and `ci` links them there. From
+  `92ccb0f2` on, "Reserve isolated dependency directories" makes an exclusive
+  `.axiom-dependency-stage.XXXXXXXX` directory in the workspace, which stays
+  there empty once every checkout is moved out, and an exclusive
+  `axiom-dependencies.XXXXXXXX` root (mode 0755) under `$RUNNER_TEMP`, and
+  exports both to later steps as `AXIOM_DEPENDENCY_STAGE` and
+  `AXIOM_DEPENDENCY_ROOT`. `ci` makes the same two directories (the root in a
+  private temporary runner directory), runs the step's own outside-the-checkout
+  check unchanged, links each dependency (the bound engine view, the composer
+  checkout, the changed-file classifier) under the root, and points the
+  `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
+  `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
+  as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
+  is ordinary content for this layout (the find gates still prune it, as the
+  workflow's own `find` commands do).
+- **Composer runtime.** When a `92ccb0f2` caller passes a non-empty
+  `axiom-compose-ref`, `ci` runs "Validate composer pin" unchanged (a full
+  lowercase SHA equal to `.axiom/workflow-toolchain.toml`'s
+  `axiom_compose_ref`), authenticates the `--compose-path` checkout like the
+  other dependencies, and clones it fresh at the pin with origin
+  `https://github.com/TheAxiomFoundation/axiom-compose`, as "Checkout
+  axiom-compose" and "Authenticate composer commit" leave it. It then mirrors
+  "Build protected axiom-compose runtime": `uv python install 3.14`, a
+  `uv venv` on the GIL build of 3.14, `uv export --locked --no-dev
+  --no-emit-project` of the composer's lock, `uv pip install --target` of
+  those requirements, all with `--no-config` and without ambient `UV_*`,
+  `PIP_*` or `PYTHON*` values, and finally the encoder pin's own
+  `scripts/provision_axiom_compose_runtime.py`, taken from the pinned commit
+  (not the worktree) and run with a minimal sudo-like environment into a
+  private directory, which is then made group- and other-unwritable and smoke
+  tested with `axiom-compose --help`. The waiver audit, validation and
+  companion tests receive `--axiom-compose-path` in the same positions as the
+  workflow's `composer_args`, plus `--rulespec-dependency-root` (the canonical
+  rulespec-us entry) when the repository is not rulespec-us, as its
+  `dependency_args` condition reads. An empty composer ref skips all of this,
+  as the steps' `if:` does. A failure anywhere is a resolution failure.
 - **Repository pytest.** It runs last, on the first shard, in a temporary venv
   of the caller's `python-version`, requested as `<version>+gil` (uv 0.9.8 or
   later) and then checked to be release CPython with the GIL, the build
@@ -129,7 +176,9 @@ Python. The scripts cover:
   changed-file pull requests the oracle coverage classifier and its exact
   axiom-oracles pin), using `uv --no-config` (`--offline` under `--offline`). Its
   environment is built from the run's inputs (`CI`, `GITHUB_ACTIONS`, the
-  selection step's `RULESPEC_*` variables, a UTC clock and `C.UTF-8`); ambient
+  selection step's `RULESPEC_*` variables, a UTC clock and `C.UTF-8`, and from
+  `92ccb0f2` on `AXIOM_DEPENDENCY_STAGE`, `AXIOM_DEPENDENCY_ROOT` and the root's
+  engine directory first on `PATH`); ambient
   `AXIOM_*`, `DRAIN_*`, `RULESPEC_*`, `PYTHON*` and `GIT_*` values never reach
   it. Pytest uses a fresh temporary `HOME`, `GIT_CONFIG_GLOBAL` set to the null
   device and `GIT_CONFIG_NOSYSTEM=1`, so user and system Git configuration cannot
@@ -155,9 +204,10 @@ Python. The scripts cover:
 - **Waiver audit.** The supervised audit runs once per partition key, with the
   same `--partition-key` and `--partition-keys-json` the matrix passes, so the
   partitioned isolated-recheck budget applies. Each partition uses four audit
-  workers: the supervisor drops the step's `AXIOM_ENCODE_WAIVER_AUDIT_WORKERS:
-  "1"`, so CI's audit falls back to `min(8, cpu_count)`, which is four on the
-  public runner. Before the audit, every head-ledger module path must match a
+  workers: the supervisor drops the step's `AXIOM_ENCODE_WAIVER_AUDIT_WORKERS`
+  (`"1"`, and from `92ccb0f2` `"2"` on rulespec-us's `us-wa` leg), so CI's
+  audit falls back to `min(8, cpu_count)`, which is four on the public runner.
+  From `92ccb0f2` the audit also runs with `--json`. Before the audit, every head-ledger module path must match a
   directory entry's exact spelling; a case alias fails as a missing path, as
   Linux lookup does.
 - **Retired-schema skips.** The first leg's freeze run decides the gate. Every
@@ -183,6 +233,12 @@ Python. The scripts cover:
   otherwise from `corpus-release-base-url`. The workflow's verifier then checks
   it and rewrites it in canonical form. An object already cached in the corpus
   checkout is re-verified and rewritten instead of being fetched again.
+- **Unmanifested pre-check.** From `92ccb0f2` the pre-check receives
+  `guard-programs-root` as `GUARD_PROGRAMS_ROOT` and shape-checks changed
+  `programs/` files as axiom-compose ProgramSpecs, importing PyYAML in the
+  interpreter that runs it. CI installs `pyyaml==6.0.3` for it; `ci` runs it in
+  its own interpreter and fails resolution when that interpreter's PyYAML
+  differs (a `program-spec-parser` mismatch under `--allow-encoder-mismatch`).
 - **Migration authorization.** Reviewed-migration authorization is
   pull-request scoped. When a caller requests it, pass `--pull-request N`, or
   the gate fails the way CI would without a pull-request number.
@@ -229,6 +285,7 @@ axiom-encode ci --repo ../rulespec-us \
   --engine-path ../axiom-rules-engine \
   --rulespec-us-path ../rulespec-us-pinned \
   --encode-path ../axiom-encode-pinned \
+  --compose-path ../axiom-compose-pinned \
   --corpus-release-public-key "$PUBLIC_KEY" \
   --corpus-release-retired-public-key "$RETIRED_PUBLIC_KEY" \
   --apply-public-key "$APPLY_PUBLIC_KEY" \
@@ -244,6 +301,9 @@ Every dependency checkout must be at its pin:
   repository under test.
 - The engine checkout must be at its pin; `ci` builds it (`cargo build`), as
   CI does, so Rust and cargo must be installed.
+- With a composer pin, the `--compose-path` checkout (default: the
+  `axiom-compose` sibling of `--repo`) must be at `axiom_compose_ref`, and `uv`
+  must be installed; `ci` builds the composer runtime as CI does.
 
 rulespec-us has close to two thousand active waivers, and the waiver audit
 fingerprints every one of them on every pull request. CI spreads that work over
@@ -307,18 +367,25 @@ the environment.
   eval roles.
 - **Capabilities.** It acquires no signing capability and never runs `--apply`.
 - **Writes.** It writes temporary report inputs, the private engine snapshot
-  and target directory, the temporary engine view and the repository-test venv.
-  Cargo and uv may populate their normal local caches. Outside these temporary
+  and target directory, the temporary engine view, the repository-test venv,
+  and, from `92ccb0f2`, the dependency root, the empty staging directory in the
+  temporary checkout and the composer runtime. Cargo and uv may populate their
+  normal local caches, and `uv python install 3.14` may add uv's managed
+  Python 3.14, as on the runner. Outside these temporary
   directories and caches it writes only the pinned public
   release object at the workflow-defined corpus release path, which the corpus
   checkout's cleanliness check exempts. Like CI's "Link axiom-rules-engine as
   sibling checkout" step, it links the engine, corpus and rulespec-us
   dependency checkouts next to the temporary checkout. It creates nothing under
-  `_axiom/` inside it. CI's checkouts there are real directories, which the
-  gates' `find` steps prune. The pinned encoder's symlink audit does walk them
-  and rejects a symlink anywhere in an active RuleSpec checkout, so a symlink
-  tracked by a dependency checkout fails resolution. So does committed
-  `_axiom` content, which CI's checkouts would land on.
+  `_axiom/` inside it. Before `92ccb0f2`, CI's checkouts there are real
+  directories, which the gates' `find` steps prune. The pinned encoder's
+  symlink audit does walk them and rejects a symlink anywhere in an active
+  RuleSpec checkout, so a symlink tracked by a dependency checkout fails
+  resolution. So does committed `_axiom` content, which CI's checkouts would
+  land on. From `92ccb0f2` on, CI's dependency checkouts are outside the rules
+  checkout, so neither check applies: the links go only into the exclusive
+  dependency root and beside the temporary checkout, never inside it, and
+  `_axiom` is ordinary content.
 - **Network.** Unless `--offline` is set, it downloads that object, and cargo
   and uv may fetch the engine's crates and the repository-test packages.
 
@@ -329,7 +396,8 @@ and names both SHAs. `--allow-ref-mismatch` permits all gates to run, but a
 successful run receives the qualified `PASS-WITH-MISMATCHED-DEPS` verdict and
 exit code 3. Its mandatory final banner enumerates every dependency mismatch.
 
-- Plain `PASS` and exit code 0 require all four dependency checkouts to match.
+- Plain `PASS` and exit code 0 require every dependency checkout (four, or
+  five with a composer) to match.
 - Gates run against a fresh checkout of the rules repository's committed
   `HEAD`, as `actions/checkout` produces:
   - It is an independent transport clone (`--no-local`), so every object is
@@ -411,6 +479,21 @@ named:
   host in its engine note. Without rustup the toolchain source is unchecked,
   with a report note. An engine change that compiles or
   behaves differently across stable releases can differ.
+- **Time limits.** From `92ccb0f2` CI bounds the shards job (10 minutes), each
+  validate leg (180), the final check (5), the waiver audit (150 per leg),
+  validation (120) and companion tests (60), and runs at most 20 legs at once.
+  `ci` enforces none of these, because local wall time is not runner time, so
+  a leg CI would time out can pass locally.
+- **Composer runtime ownership and Python.** CI provisions the composer
+  runtime as root under `/opt` and makes it root-owned; `ci` provisions it as
+  the user in a private directory and removes group and other write bits. The
+  runtime's Python is the GIL 3.14 that the local uv resolves; CI's is the one
+  `uv python install 3.14` downloads on a fresh runner, so patch releases can
+  differ (the report notes the version, uv's version and the package tree
+  digest).
+- **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
+  `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` does not export them to
+  repository pytest.
 
 ## Troubleshooting
 
@@ -422,6 +505,11 @@ named:
   repository-test venv (no network under `--offline` with an empty uv cache,
   or no interpreter for the caller's `python-version`). Install that Python
   (`uv python install <version>`) or rerun online.
+- **"Build protected axiom-compose runtime failed".** A `uv` step or the
+  encoder pin's provision script failed; the message carries its output.
+  `uv export --locked` fails when the composer's `uv.lock` is out of date at
+  its pin, as it would in CI. Under `--offline`, uv's cache must already hold
+  the composer's dependencies and a managed Python 3.14.
 - **"Build axiom-rules-engine failed".** The engine checkout did not build at
   its pin; the message carries cargo's output. Under `--offline`, the crates
   must already be in cargo's cache.
