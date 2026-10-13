@@ -45,20 +45,30 @@ def _route_git_through_wrapper(tmp_path: Path, monkeypatch) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("producer", "accepted"),
-    [(1, True), (2, False), (3, True), (4, True), (5, False)],
-    ids=["pin", "second-parent", "merge", "main-head", "feature"],
+    ("producer", "refusal"),
+    [
+        (0, "the pinned encoder commit is not an ancestor of the producer"),
+        (1, None),
+        (2, "producer is not on the first-parent history of refs/heads/main"),
+        (3, None),
+        (4, None),
+        (5, "producer is not on the first-parent history of refs/heads/main"),
+    ],
+    ids=["older", "pin", "second-parent", "merge", "main-head", "feature"],
 )
 def test_supervised_wrapper_admits_only_first_parent_main_descendants(
-    graph, tmp_path, monkeypatch, producer, accepted
+    graph, tmp_path, monkeypatch, producer, refusal
 ):
     _route_git_through_wrapper(tmp_path, monkeypatch)
     issue = cli._encoder_producer_admission_issue(
         _identity(graph.commits[producer]), _expected(graph)
     )
-    assert (issue is None) is accepted, issue
-    if not accepted:
-        assert "trusted git wrapper" not in issue
+    if refusal is None:
+        assert issue is None, issue
+    else:
+        # The history query itself must run; a wrapper refusal would surface
+        # as an unavailable-metadata issue instead of this ancestry verdict.
+        assert issue is not None and issue.endswith(refusal), issue
 
 
 def test_supervised_wrapper_reads_the_fetched_main_record(graph, tmp_path, monkeypatch):
