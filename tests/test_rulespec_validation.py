@@ -7113,7 +7113,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2180"')
+        .startswith('__version__ = "0.2.2181"')
     )
 
 
@@ -7345,13 +7345,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2180"
+    assert encoder_package["version"] == "0.2.2181"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2180"
+    assert project["project"]["version"] == "0.2.2181"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2180"')
+        .startswith('__version__ = "0.2.2181"')
     )
 
 
@@ -7613,13 +7613,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2180"
+    assert encoder_package["version"] == "0.2.2181"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2180"
+    assert project["project"]["version"] == "0.2.2181"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2180"')
+        .startswith('__version__ = "0.2.2181"')
     )
 
 
@@ -52828,6 +52828,32 @@ def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
     # turn adjacent labels into an invented substantive amount.
     assert 6 not in values
     assert 6 not in extract_numbers_from_text(source)
+
+
+def test_flattened_numeric_table_heading_keeps_values_not_row_keys():
+    source = "Table 1: Income limits, size 1 100 size 2 200"
+    occurrences = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile="en-US"
+    )
+    assert [occurrence.value for occurrence in occurrences] == [100, 200]
+    assert [source[item.start : item.end] for item in occurrences] == ["100", "200"]
+
+
+def test_standalone_table_heading_remains_structural():
+    source = "Table 3: Income limits for 2026"
+    assert not extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile="en-US"
+    )
+
+
+def test_flattened_size_rewrite_does_not_apply_to_prose_or_unlabeled_grid():
+    for source in (
+        "Household size 1 100 people qualify",
+        "Table 1: Income limits 1 100 2 200",
+    ):
+        assert not extract_typed_numeric_inventory_occurrences_from_text(
+            source, profile="en-US"
+        )
 
 
 @pytest.mark.parametrize("row_ordered", [False, True])
