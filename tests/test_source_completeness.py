@@ -21093,6 +21093,41 @@ rules: []
 
 
 @pytest.mark.parametrize(
+    ("cited_branch", "accepted"),
+    [
+        ("(a)(1)", True),
+        ("(a)", False),
+        ("(a)(2)", False),
+    ],
+)
+def test_source_bound_regulation_runtime_gap_requires_exact_branch(
+    cited_branch: str, accepted: bool
+):
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7/273/10/a/1#agency_plan_contents
+      reason: >-
+        Cannot be computed until the agency policies document and submission
+        event required by us/regulation/7/273/10{cited_branch} are encoded.
+rules: []
+"""
+    source = "(a) Agency plans shall contain:\n1. Agency shall submit plan policies."
+
+    result = _analyze(
+        content,
+        source,
+        corpus_citation_path="us/regulation/7/273/10",
+        test_cases=[],
+    )
+
+    assert _has_issue(result, "(a)", "deferral") is not accepted
+
+
+@pytest.mark.parametrize(
     "reason",
     [
         "Absatz 6 hängt von Absatz 5 ab.",
