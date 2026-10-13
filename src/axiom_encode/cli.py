@@ -269,7 +269,11 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
-from .harness.source_completeness import _rulespec_target_base
+from .harness.source_completeness import (
+    _deferred_coverage,
+    _rulespec_target_base,
+    recognize_source_structure,
+)
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
@@ -44045,7 +44049,7 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
     policy_repo_path: Path,
     issues: list[str],
 ) -> list[str]:
-    """Add deferred outputs for unsupported source gaps in otherwise encoded modules."""
+    """Add only source-corroborated deferrals for gaps in encoded modules."""
     source_gaps = [
         gap
         for issue in issues
@@ -44079,8 +44083,26 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         return []
     module = payload.get("module")
     if not isinstance(module, dict):
-        module = {}
-        payload["module"] = module
+        return []
+    verification = module.get("source_verification")
+    citation_path = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if not isinstance(citation_path, str) or not citation_path.strip():
+        return []
+    try:
+        source_text = _read_eval_source_text(
+            getattr(result, "context_manifest_file", "")
+        )
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not source_text:
+        return []
+    branches = recognize_source_structure(
+        source_text, corpus_citation_path=citation_path
+    )
     deferred_outputs = module.get("deferred_outputs")
     if deferred_outputs is None:
         deferred_outputs = []
@@ -44104,18 +44126,28 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         output = f"{output_path}#{symbol}"
         if output in existing_outputs:
             continue
-        deferred_outputs.append(
-            {
-                "output": output,
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
+        record = {
+            "output": output,
+            "reason": (
+                "Generated module encodes the supported rules from this "
+                "source, but this source subparagraph depends on policy "
+                "surfaces or entities that are not available in the current "
+                "RuleSpec context. It is deferred instead of being modeled "
+                "as a caller-supplied input or an unsupported local entity."
+            ),
+        }
+        # Coverage is not evidence of a missing capability. Authenticate the
+        # proposed record with the same precise-deferral gate before writing it.
+        proposed = {**payload, "module": {**module, "deferred_outputs": [record]}}
+        covered, deferral_issues = _deferred_coverage(
+            proposed,
+            corpus_citation_path=citation_path,
+            source_text=source_text,
+            branches=branches,
         )
+        if not covered or deferral_issues:
+            continue
+        deferred_outputs.append(record)
         existing_outputs.add(output)
         repaired.append(output)
 
