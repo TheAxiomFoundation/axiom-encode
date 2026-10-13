@@ -995,12 +995,8 @@ def test_composer_arguments_follow_the_workflows_bash_conditions(
     if composer:
         expected = ("--axiom-compose-path", "/runtime/axiom-compose")
         if name != "rulespec-us":
-            root = (
-                "/runner/axiom-dependencies.abcdefgh/rulespec-us"
-                if isolated
-                else "/deps/rulespec-us"
-            )
-            expected += ("--rulespec-dependency-root", root)
+            # Always the real checkout: the encoder refuses a symlinked root.
+            expected += ("--rulespec-dependency-root", "/deps/rulespec-us")
     assert arguments == expected
 
 
@@ -1371,6 +1367,11 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     assert run.layout is not None and run.layout.isolated
     assert harness.layout is run.layout
     assert (harness.repo / run.layout.stage).is_dir()
+    # The bound engine view is the dependency-root entry itself, not a link.
+    assert run.paths["engine"] == run.layout.root / "axiom-rules-engine"
+    assert harness.calls["_link_workflow_checkouts"][0][1]["engine"] == (
+        run.layout.root / "axiom-rules-engine"
+    )
     assert run.composer is not None and run.composer.name == "axiom-compose"
     assert not (harness.repo / "_axiom").exists()
 
@@ -1475,3 +1476,24 @@ def test_exclusive_directories_are_new_mktemp_names(
         assert re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9]{8}", path.name)
         assert path.is_dir() and list(path.iterdir()) == []
         assert stat.S_IMODE(path.stat().st_mode) == 0o700
+
+
+def test_dependency_root_argument_is_symlink_free_in_the_isolated_layout(
+    tmp_path: Path,
+) -> None:
+    run = _composer_run(tmp_path, "rulespec-us-tn")
+    run.paths = _dependency_paths(tmp_path)
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    run.layout = isolated_dependency_layout(run.workflow, run.repo, runner_temp)
+    ci_parity._link_workflow_checkouts(run.repo, run.paths, run.layout)
+
+    arguments = ci_parity._composer_arguments(run)
+
+    root = Path(arguments[arguments.index("--rulespec-dependency-root") + 1])
+    assert (run.layout.root / "rulespec-us").is_symlink()
+    assert root == run.paths["rulespec_us"]
+    cursor = Path(root.anchor)
+    for part in root.parts[1:]:
+        cursor /= part
+        assert not cursor.is_symlink() or str(cursor) in {"/var", "/tmp"}
