@@ -1348,6 +1348,8 @@ def _harness(
             inputs={**harness.caller.inputs, "axiom-compose-ref": compose},
         )
     events: list[tuple[Any, ...]] = []
+    # The local uv is checked against the workflow's pin in its own tests.
+    monkeypatch.setattr(ci_parity, "composer_uv_mismatch", lambda workflow: None)
     monkeypatch.setattr(
         ci_parity,
         "validate_composer_pin",
@@ -1382,12 +1384,7 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     ]
     assert events[0] == ("validate_composer_pin", COMPOSE_REF)
     _, checkout, ref, encode, pin, offline = events[1]
-    assert (checkout, ref, pin, offline) == (
-        compose.resolve(),
-        COMPOSE_REF,
-        harness.caller.refs["encode"],
-        False,
-    )
+    assert (ref, pin, offline) == (COMPOSE_REF, harness.caller.refs["encode"], False)
     assert encode == harness.paths["encode"].resolve()
     verified = [call for call in harness.calls["verify_dependency_checkout"]]
     assert [call[0] for call in verified][-1] == "compose"
@@ -1399,6 +1396,12 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     assert run.layout is not None and run.layout.isolated
     assert harness.layout is run.layout
     assert (harness.repo / run.layout.stage).is_dir()
+    # The composer and canonical rulespec-us entries are fresh checkouts moved
+    # into the root (the harness's checkout stand-in yields the source).
+    assert checkout == run.layout.root / "axiom-compose"
+    assert run.paths["compose"] == run.layout.root / "axiom-compose"
+    assert run.paths["rulespec_us"] == run.layout.root / "rulespec-us"
+    assert run.runner_temp == run.layout.root.parent
     # The bound engine view is the dependency-root entry itself, not a link.
     assert run.paths["engine"] == run.layout.root / "axiom-rules-engine"
     assert harness.calls["_link_workflow_checkouts"][0][1]["engine"] == (
@@ -1549,3 +1552,193 @@ def test_a_mismatched_composer_checkout_builds_its_own_head(
     assert events[1][2] == "HEAD"
     assert report["verdict"] == "PASS-WITH-MISMATCHED-DEPS"
     assert [item["name"] for item in report["dependency_mismatches"]] == ["compose"]
+
+
+# ---------------------------------------------------------------------------
+# Cycle-1 review fixes
+# ---------------------------------------------------------------------------
+
+
+def _canonical_rulespec_us(tmp_path: Path) -> tuple[Path, str]:
+    repo = gates._repo(
+        tmp_path,
+        {"us/statutes/x.yaml": gates.PLAIN, "README.md": "canonical\n"},
+        name="rulespec-us-source",
+        remote="https://github.com/TheAxiomFoundation/rulespec-us.git",
+    )
+    return repo, gates._git(repo, "rev-parse", "HEAD")
+
+
+def test_fresh_entries_are_clean_checkouts_the_encoder_accepts(tmp_path: Path) -> None:
+    import contextlib
+
+    from axiom_encode.harness.validator_pipeline import (
+        _normalize_rulespec_dependency_roots,
+    )
+
+    source, commit = _canonical_rulespec_us(tmp_path)
+    # Local state CI's fresh checkout never has: an untracked symlink.
+    (source / ".venv").mkdir()
+    (source / ".venv" / "python").symlink_to(sys.executable)
+    (source / "scratch.yaml").write_text("untracked\n")
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    repo = tmp_path / "checkout" / "rulespec-us-tn"
+    repo.mkdir(parents=True)
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+
+    with contextlib.ExitStack() as resources:
+        entry = ci_parity._fresh_dependency_entry(
+            resources,
+            layout,
+            "rulespec_us",
+            source,
+            commit,
+            "TheAxiomFoundation/rulespec-us",
+        )
+
+        assert entry == layout.root / "rulespec-us"
+        assert entry.is_dir() and not entry.is_symlink()
+        assert gates._git(entry, "rev-parse", "HEAD") == commit
+        assert gates._git(entry, "remote", "get-url", "origin") == (
+            "https://github.com/TheAxiomFoundation/rulespec-us"
+        )
+        assert not (entry / ".venv").exists()
+        assert not (entry / "scratch.yaml").exists()
+        assert _normalize_rulespec_dependency_roots([entry]) == (entry.resolve(),)
+        # The local checkout itself, with its untracked symlink, is refused,
+        # and so is a link to it: both are what ci passed before.
+        with pytest.raises(Exception, match="symlink"):
+            _normalize_rulespec_dependency_roots([source])
+        link = tmp_path / "linked" / "rulespec-us"
+        link.parent.mkdir()
+        link.symlink_to(entry)
+        with pytest.raises(Exception, match="symlink"):
+            _normalize_rulespec_dependency_roots([link])
+
+
+def test_fresh_entry_never_replaces_an_existing_path(tmp_path: Path) -> None:
+    import contextlib
+
+    source, commit = _canonical_rulespec_us(tmp_path)
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+    (layout.root / "rulespec-us").mkdir()
+
+    with (
+        contextlib.ExitStack() as resources,
+        pytest.raises(ValueError, match="already exists"),
+    ):
+        ci_parity._fresh_dependency_entry(
+            resources,
+            layout,
+            "rulespec_us",
+            source,
+            commit,
+            "TheAxiomFoundation/rulespec-us",
+        )
+
+
+def test_pinned_scripts_ignore_local_attributes_and_worktree(tmp_path: Path) -> None:
+    encode = gates._repo(
+        tmp_path,
+        {
+            "scripts/provision_axiom_compose_runtime.py": "print('pinned')\n",
+            "scripts/helper.py": "VALUE = 1\n",
+            "src/other.py": "x = 1\n",
+        },
+        name="axiom-encode",
+    )
+    pin = gates._git(encode, "rev-parse", "HEAD")
+    # Local state a CI checkout of the pin never has.
+    (encode / ".git" / "info").mkdir(exist_ok=True)
+    (encode / ".git" / "info" / "attributes").write_text("scripts/** export-ignore\n")
+    (encode / "scripts" / "helper.py").write_text("VALUE = 'edited'\n")
+    destination = tmp_path / "scripts-out"
+
+    ci_parity._write_pinned_tree(encode, pin, "scripts", destination)
+
+    assert sorted(
+        path.relative_to(destination).as_posix()
+        for path in destination.rglob("*")
+        if path.is_file()
+    ) == ["scripts/helper.py", "scripts/provision_axiom_compose_runtime.py"]
+    assert (destination / "scripts" / "helper.py").read_text() == "VALUE = 1\n"
+
+
+@pytest.mark.parametrize(
+    ("output", "code", "expected"),
+    [
+        ("uv 0.11.7 (9d177269e 2026-04-15 aarch64-apple-darwin)\n", 0, None),
+        ("uv 0.11.8 (abc 2026-05-01)\n", 0, ("uv 0.11.8", "uv 0.11.7")),
+        ("", 127, ("uv unavailable", "uv 0.11.7")),
+    ],
+    ids=["pinned", "newer", "missing"],
+)
+def test_composer_uv_is_the_version_setup_uv_installs(
+    monkeypatch: pytest.MonkeyPatch,
+    output: str,
+    code: int,
+    expected: tuple[str, str] | None,
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def fake_run(command, **kwargs):
+        assert command == ["uv", "--version"]
+        seen.append(kwargs["env"])
+        return subprocess.CompletedProcess(command, code, output, None)
+
+    monkeypatch.setattr(ci_parity.subprocess, "run", fake_run)
+    monkeypatch.setenv("UV_PYTHON", "3.12")
+
+    mismatch = ci_parity.composer_uv_mismatch(PinnedWorkflow(PIN_92CCB0F2))
+
+    assert (
+        None if mismatch is None else (mismatch.head_sha, mismatch.pinned_sha)
+    ) == expected
+    assert "UV_PYTHON" not in seen[0]
+    assert ci_parity.composer_uv_mismatch(PinnedWorkflow(PIN_6F11BE26)) is None
+
+
+def test_run_ci_refuses_another_uv_without_the_development_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    harness, events, compose = _harness(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        ci_parity,
+        "composer_uv_mismatch",
+        lambda workflow: ci_parity.DependencyMismatch(
+            "composer-uv", "uv 0.12.0", "uv 0.11.7"
+        ),
+    )
+
+    assert run_ci(harness.args("--compose-path", str(compose))) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert "UV MISMATCH: composer-uv" in report["resolution_error"]
+    assert [event[0] for event in events] == ["validate_composer_pin"]
+
+
+def test_executor_uses_the_runs_runner_temp(tmp_path: Path) -> None:
+    repo = gates._repo(tmp_path, {"README.md": "x\n"}, name="rulespec-us")
+    run = gates._run(repo, tmp_path, sha=PIN_92CCB0F2, plan=gates._plan("us"))
+    runner_temp = tmp_path / "shared-runner-temp"
+    runner_temp.mkdir()
+    run.runner_temp = runner_temp
+    seen: list[Path] = []
+
+    def first(run_, spec):
+        seen.append(run_.temp)
+        return ci_parity.GateResult(spec.key, spec.name, "FAIL")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ci_parity, "_gate_unsupported_paths", first)
+        ci_parity.execute_workflow_gates(run)
+
+    assert seen == [runner_temp]
+    # The caller owns its lifetime, so the executor leaves it in place.
+    assert runner_temp.is_dir()

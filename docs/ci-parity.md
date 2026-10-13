@@ -138,15 +138,17 @@ Python. The scripts cover:
   there empty once every checkout is moved out, and an exclusive
   `axiom-dependencies.XXXXXXXX` root (mode 0755) under `$RUNNER_TEMP`, and
   exports both to later steps as `AXIOM_DEPENDENCY_STAGE` and
-  `AXIOM_DEPENDENCY_ROOT`. `ci` makes the same two directories (the root in a
-  private temporary runner directory) and runs the step's own
-  outside-the-checkout check unchanged. The bound engine view is moved into the
-  root as `axiom-rules-engine`, a real directory as in CI, where repository
-  tests look for the binary; every other entry (the encoder, corpus,
-  rulespec-us and composer checkouts, the changed-file classifier) is a link to
-  the verified local checkout. The encoder refuses dependency roots whose path
-  holds a symlink, so subcommands receive the resolved checkouts, which are the
-  same trees CI's entries hold. `ci` also points the
+  `AXIOM_DEPENDENCY_ROOT`. `ci` makes the same two directories, the root inside
+  the run's single temporary `RUNNER_TEMP` (the one repository pytest sees),
+  and runs the step's own outside-the-checkout check unchanged. As in CI, the
+  root's `axiom-rules-engine` (the bound engine view, where repository tests
+  look for the binary), `rulespec-us` and `axiom-compose` are real
+  directories: the latter two are fresh clones of the verified checkouts at
+  their pins, with CI's origins and only the committed tree, so untracked
+  local files never reach the encoder, which walks a dependency root and
+  refuses any symlink in it. The encoder and corpus entries, and the
+  changed-file classifier, are links to the verified local checkouts; those
+  subcommands receive the resolved checkout paths. `ci` also points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
   as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
@@ -156,9 +158,12 @@ Python. The scripts cover:
   `axiom-compose-ref`, `ci` runs "Validate composer pin" unchanged (a full
   lowercase SHA equal to `.axiom/workflow-toolchain.toml`'s
   `axiom_compose_ref`), authenticates the `--compose-path` checkout like the
-  other dependencies, and clones it fresh at the pin with origin
-  `https://github.com/TheAxiomFoundation/axiom-compose`, as "Checkout
-  axiom-compose" and "Authenticate composer commit" leave it. It then mirrors
+  other dependencies, and clones it fresh at the pin into the dependency root
+  with origin `https://github.com/TheAxiomFoundation/axiom-compose`, as
+  "Checkout axiom-compose" and "Authenticate composer commit" leave it. The
+  local `uv` must be the version "Install uv for composer runtime" installs
+  (`0.11.7`), or the run fails resolution (a `composer-uv` mismatch under
+  `--allow-encoder-mismatch`). It then mirrors
   "Build protected axiom-compose runtime": `uv python install 3.14`, a
   `uv venv` on the GIL build of 3.14, `uv export --locked --no-dev
   --no-emit-project` of the composer's lock, `uv pip install --target` of
@@ -167,13 +172,14 @@ Python. The scripts cover:
   user and system uv configuration point at an empty directory, as a fresh
   runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values are
   removed. Finally the encoder pin's own
-  `scripts/provision_axiom_compose_runtime.py`, taken from the pinned commit
-  (not the worktree) and run with a minimal sudo-like environment into a
+  `scripts/provision_axiom_compose_runtime.py`, read blob by blob from the
+  pinned commit (not the worktree, and without local Git attributes or
+  filters), and run with a minimal sudo-like environment into a
   private directory, which is then made group- and other-unwritable and smoke
   tested with `axiom-compose --help`. The waiver audit, validation and
   companion tests receive `--axiom-compose-path` in the same positions as the
-  workflow's `composer_args`, plus `--rulespec-dependency-root` (the canonical
-  rulespec-us entry) when the repository is not rulespec-us, as its
+  workflow's `composer_args`, plus `--rulespec-dependency-root` (the fresh
+  canonical rulespec-us entry) when the repository is not rulespec-us, as its
   `dependency_args` condition reads. An empty composer ref skips all of this,
   as the steps' `if:` does. With a recorded composer ref mismatch
   (`--allow-ref-mismatch`), the checkout's own `HEAD` is built, as for the
@@ -498,13 +504,15 @@ named:
   runtime as root under `/opt` and makes it root-owned; `ci` provisions it as
   the user in a private directory and removes group and other write bits. The
   runtime's Python is the GIL 3.14 that the local uv resolves; CI's is the one
-  `uv python install 3.14` downloads on a fresh runner, so patch releases can
-  differ (the report notes the version, uv's version and the package tree
-  digest).
-- **Dependency-root links.** Apart from the engine, `ci`'s
-  `$AXIOM_DEPENDENCY_ROOT` entries are links to the local checkouts, where
-  CI's are the checkouts themselves. A repository test that hands such an
-  entry to a symlink-refusing tool would fail locally and not in CI.
+  `uv python install 3.14` downloads on a fresh runner with uv 0.11.7
+  (cpython-3.14.4 in rulespec-us run 38191002296). A different local uv or
+  managed install can give another patch release; the report notes the
+  version, uv's version and the package tree digest.
+- **Dependency-root links.** The encoder and corpus entries of `ci`'s
+  `$AXIOM_DEPENDENCY_ROOT` are links to the local checkouts, where CI's are
+  the checkouts themselves; ci hands subcommands the resolved paths. A
+  repository test that passes such an entry to a symlink-refusing tool would
+  fail locally and not in CI.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` does not export them to
   repository pytest.
