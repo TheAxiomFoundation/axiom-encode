@@ -3104,6 +3104,79 @@ def _parenthesized_outline_root_child_evidence(
     return None
 
 
+def _parenthesized_outline_following_sibling_label(
+    source_text: str,
+    matches: Sequence[re.Match[str]],
+    match_index: int,
+    *,
+    _active_numeric_root: str | None = None,
+) -> str | None:
+    """Peek through a bounded numeric-child run to resolve a single Roman letter."""
+
+    match = matches[match_index]
+    labels = re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker"))
+    if not labels or not (
+        len(labels[-1]) == 1
+        and labels[-1].isupper()
+        and _is_roman_outline_label(labels[-1])
+    ):
+        return None
+    previous_numeric: str | None = None
+    cursor = match.end("marker")
+    for following in matches[match_index + 1 : match_index + 33]:
+        if following.start("marker") == match.start("marker"):
+            continue
+        if (
+            _active_numeric_root is not None
+            and _line_start_is_wrapped_outline_reference(
+                source_text,
+                following.start("marker"),
+                _active_numeric_root=_active_numeric_root,
+            )
+        ):
+            continue
+        following_labels = re.findall(r"\(([A-Za-z0-9.]+)\)", following.group("marker"))
+        if not following_labels:
+            return None
+        label = following_labels[0]
+        if re.search(
+            r"\r?\n[ \t]*\r?\n", source_text[cursor : following.start("marker")]
+        ):
+            # Whitespace cannot change an immediate, already-qualified Roman
+            # sibling or first alpha child. It cannot prove a numeric run or
+            # an unqualified paragraph transition.
+            return (
+                label
+                if previous_numeric is None
+                and (
+                    label == "A"
+                    or _parenthesized_outline_label_follows(labels[-1], label, "roman")
+                )
+                else None
+            )
+        if label[0].isdigit():
+            if len(following_labels) != 1 or not (
+                _parenthesized_outline_label_is_first(label, "numeric")
+                if previous_numeric is None
+                else _parenthesized_outline_label_follows(
+                    previous_numeric, label, "numeric"
+                )
+            ):
+                return None
+            previous_numeric = label
+            cursor = following.end("marker")
+            continue
+        if previous_numeric is not None and not (
+            _parenthesized_outline_label_follows(labels[-1], label, "upper-alpha")
+            or _parenthesized_outline_label_follows(labels[-1], label, "roman")
+        ):
+            # A after (1) belongs to that numeric child. Only an actual
+            # successor can prove a returning sibling beyond its child run.
+            return None
+        return label
+    return None
+
+
 def _qualified_parenthesized_legal_outline_markers(
     source_text: str,
     *,
@@ -3174,6 +3247,9 @@ def _qualified_parenthesized_legal_outline_markers(
             match,
             matches[match_index + 1] if match_index + 1 < len(matches) else None,
         )
+        following_sibling_label = _parenthesized_outline_following_sibling_label(
+            source_text, matches, match_index
+        )
         attached_parent_level: int | None = None
         for label_index, raw_label in enumerate(raw_labels):
             level, category = _parenthesized_legal_outline_level(
@@ -3181,7 +3257,16 @@ def _qualified_parenthesized_legal_outline_markers(
                 active=active,
                 attached_parent_level=attached_parent_level,
                 outline_levels=outline_levels,
-                following_child_label=root_child_evidence if label_index == 0 else None,
+                following_child_label=(
+                    raw_labels[label_index + 1]
+                    if label_index + 1 < len(raw_labels)
+                    else root_child_evidence
+                    if label_index == 0
+                    else None
+                ),
+                following_sibling_label=following_sibling_label
+                if label_index + 1 == len(raw_labels)
+                else None,
             )
             if (
                 marker_start in inline_marker_starts
@@ -3454,6 +3539,10 @@ def _line_start_is_wrapped_outline_reference(
     """
 
     prefix = source_text[max(0, marker_start - 256) : marker_start]
+    # The bounded reference grammar ends in a locator, number, word or comma;
+    # terminal sentence punctuation cannot establish a wrapped citation.
+    if prefix.rstrip().endswith((".", ";", ":", "!", "?")):
+        return False
     reference = _LINE_WRAPPED_OUTLINE_REFERENCE_CONTEXT.search(prefix)
     if reference is None:
         return False
@@ -3557,6 +3646,12 @@ def _line_start_is_wrapped_outline_reference(
                 if previous_index + 1 < len(previous_matches)
                 else None,
             )
+            following_sibling_label = _parenthesized_outline_following_sibling_label(
+                source_text,
+                previous_matches,
+                previous_index,
+                _active_numeric_root=active_root,
+            )
             attached_parent_level: int | None = None
             for label_index, raw_label in enumerate(previous_labels):
                 level, category = _parenthesized_legal_outline_level(
@@ -3564,8 +3659,15 @@ def _line_start_is_wrapped_outline_reference(
                     active=active,
                     attached_parent_level=attached_parent_level,
                     outline_levels=outline_levels,
-                    following_child_label=root_child_evidence
-                    if label_index == 0
+                    following_child_label=(
+                        previous_labels[label_index + 1]
+                        if label_index + 1 < len(previous_labels)
+                        else root_child_evidence
+                        if label_index == 0
+                        else None
+                    ),
+                    following_sibling_label=following_sibling_label
+                    if label_index + 1 == len(previous_labels)
                     else None,
                 )
                 active = [entry for entry in active if entry[0] < level]
@@ -3613,8 +3715,32 @@ def _parenthesized_legal_outline_level(
     attached_parent_level: int | None,
     outline_levels: Sequence[str],
     following_child_label: str | None = None,
+    following_sibling_label: str | None = None,
 ) -> tuple[int, str]:
     categories = _parenthesized_legal_outline_categories(raw_label)
+    if len(raw_label) == 1 and raw_label.isupper() and "roman" in categories:
+        # An isolated I/C/D remains an uppercase letter unless its actual
+        # children, next sibling, or established Roman ancestor prove otherwise.
+        # This retains a partial I/J/K alphabet, including I's numeric children.
+        has_roman_evidence = (
+            following_child_label == "A"
+            or (
+                following_sibling_label is not None
+                and (
+                    following_sibling_label == "A"
+                    or _parenthesized_outline_label_follows(
+                        raw_label, following_sibling_label, "roman"
+                    )
+                )
+            )
+            or any(
+                category == "roman"
+                and _parenthesized_outline_label_follows(previous, raw_label, "roman")
+                for _level, previous, _normalized, category in active
+            )
+        )
+        if not has_roman_evidence:
+            categories = ("upper-alpha",)
     candidate_levels = tuple(
         level for level, category in enumerate(outline_levels) if category in categories
     )
@@ -3684,7 +3810,14 @@ def _parenthesized_legal_outline_categories(raw_label: str) -> tuple[str, ...]:
     if raw_label[0].isdigit():
         return ("numeric",)
     if raw_label.isupper():
-        return ("upper-alpha",)
+        # A returning Roman sibling can follow uppercase-letter children. Keep
+        # ambiguous single letters eligible for alphabetic continuation, while
+        # the established Roman ancestor proves (III) -> (IV) ownership.
+        return (
+            ("upper-alpha", "roman")
+            if _is_roman_outline_label(raw_label)
+            else ("upper-alpha",)
+        )
     categories = ["lower-alpha"]
     if _is_roman_outline_label(raw_label):
         categories.append("roman")
@@ -3697,6 +3830,17 @@ def _parenthesized_outline_label_follows(
     category: str,
 ) -> bool:
     if category == "numeric":
+        # Ordinary integer outlines avoid Decimal allocation. Retain the
+        # general grammar for decimals, suffixes, Unicode and huge labels.
+        if (
+            len(previous) <= 18
+            and len(current) <= 18
+            and previous.isascii()
+            and current.isascii()
+            and previous.isdigit()
+            and current.isdigit()
+        ):
+            return int(current) == int(previous) + 1
         previous_match = re.fullmatch(
             r"(\d+(?:\.\d+)?)([a-z]?)", previous, re.IGNORECASE
         )
@@ -14545,7 +14689,239 @@ def _source_gate_replace_guarded_yet(
     return "".join(pieces)
 
 
-def _source_gate_join_wrapped_continuations(text: str) -> str:
+def _source_gate_needs_conservative_physical_scan(
+    original: str, joined: str, *, has_preposed_result: bool
+) -> bool:
+    """Keep enforced facts when a coordinated antecedent has no closed parse."""
+
+    original_gates = _source_gate_fact_signatures(
+        _source_gate_split_conjunctive_conditions(
+            original, has_preposed_result=has_preposed_result
+        )
+    )
+    if not original_gates:
+        # An AND inside an explicit OR alternative does not make every fact
+        # necessary on the first alternative's active path. A zero-gate
+        # physical scan cannot authenticate new universal conjunction gates.
+        if re.search(r"\bor\s+(?:if|when|unless)\b", joined, re.IGNORECASE):
+            return bool(
+                _source_gate_fact_signatures(
+                    _source_gate_split_conjunctive_conditions(
+                        joined, has_preposed_result=has_preposed_result
+                    )
+                )
+            )
+        return False
+    joined_gates = _source_gate_fact_signatures(
+        _source_gate_split_conjunctive_conditions(
+            joined, has_preposed_result=has_preposed_result
+        )
+    )
+    if original_gates == joined_gates:
+        return False
+    if not joined_gates:
+        return not _source_gate_closed_refund_tax_arithmetic(joined)
+    return not (
+        _source_gate_closed_factual_list(
+            joined, has_preposed_result=has_preposed_result
+        )
+        or _source_gate_closed_documentary_effort(joined)
+        or _source_gate_closed_receipt_classification(joined)
+        or _source_gate_closed_identification_diligence(joined)
+        or _source_gate_closed_restrictive_property(joined)
+    )
+
+
+def _source_gate_closed_refund_tax_arithmetic(text: str) -> bool:
+    """Authenticate a complete quantity comparison and its monetary result."""
+
+    text = " ".join(text.split())
+    carry_election = (
+        r"(?: The claimant may elect to carry forward the amount of the refund "
+        r"not used as an offset against income taxes or as an offset against "
+        r"subsequent years' income tax liability\.)?"
+    )
+    refund = re.fullmatch(
+        r"the refund allowed under this section exceeds the income taxes "
+        r"otherwise due on the claimant's income, the amount of the refund "
+        r"shall be refunded to the claimant\." + carry_election,
+        text,
+        re.I,
+    )
+    elective_credit = re.fullmatch(
+        r"the amount of the tax credit allowed in or carried forward to any tax "
+        r"year pursuant to this section exceeds the amount of income tax due "
+        r"on the income of the taxpayer for the year, the taxpayer may elect "
+        r"to have the amount of the credit not used as an offset against income "
+        r"taxes in said income tax year refunded to the taxpayer\.",
+        text,
+        re.I,
+    )
+    return refund is not None or elective_credit is not None
+
+
+def _source_gate_closed_factual_list(text: str, *, has_preposed_result: bool) -> bool:
+    """Authenticate each complete member in a bounded factual list."""
+
+    separated = _source_gate_unbulleted_fact_list_boundaries(text)
+    if separated == text and not (
+        _source_gate_serial_comma_boundaries(
+            text, has_preposed_result=has_preposed_result
+        )
+        or _source_gate_restrictive_human_relative_boundaries(text)
+        or _source_gate_finite_but_boundaries(
+            text, has_preposed_result=has_preposed_result
+        )
+        or any(
+            _source_gate_yet_classification(text, match) == "independent"
+            for match in _SOURCE_GATE_YET.finditer(text)
+        )
+        or _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.search(text)
+    ):
+        return False
+    members = [
+        member
+        for _connector, member in _source_gate_split_conjunctive_conditions(
+            text, has_preposed_result=has_preposed_result
+        )
+        if member.strip()
+    ]
+    subject = (
+        r"(?:(?:(?:the|an?|each|any|such|same|this|that)\s+)?"
+        rf"(?:{_SOURCE_GATE_ENTITY_PATTERN}|he|she|they|it)\s+)?"
+    )
+    modifiers = (
+        r"(?:(?:really|plainly|apparently|ordinarily|typically|normally|generally|"
+        r"ever|never|always|often|sometimes|still|already|also|yet|just|even|"
+        r"now|well|not)\s+)*"
+    )
+    income = (
+        rf"{modifiers}(?:has|have|had)\s+(?:no\s+)?income"
+        rf"|(?:do|does|did)\s+{modifiers}have\s+(?:no\s+)?income"
+    )
+    amount = (
+        r"(?:receives?|received|has|have|had)\s+(?:an?|the|such)\s+amount\s+"
+        r"that\s+(?:(?:really|plainly|apparently|ordinarily|typically|normally|"
+        r"generally)\s+)?(?:is|are|was|were)\s+income"
+    )
+    legal_qualification = (
+        r"(?:\s+(?:under\s+(?:subsection\s+\([1-9]\d*(?:\.\d+)?\)"
+        r"(?:\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|subclause))?|"
+        r"[1-9]\d*\s+U\.S\.C\.\s+[1-9]\d*(?:\([A-Za-z0-9]+\))*)|"
+        r"(?:in\s+accordance\s+with|pursuant\s+to|as\s+(?:defined|described)\s+in)"
+        r"\s+(?:section|subsection|paragraph|subparagraph|clause|subclause)\s*"
+        r"(?:\(\s*[A-Za-z0-9.]+\s*\)\s*)+of\s+this\s+"
+        r"(?:section|subsection|paragraph|subparagraph|clause|subclause)))?"
+    )
+    status = (
+        r"(?:(?:is|are|was|were)\s+)?(?:a\s+)?"
+        r"(?:resident|blind|disabled|married|student|licensed\s+(?:person|blender))"
+        + legal_qualification
+    )
+    election = r"(?:elects?|elected)\s+to\s+receive\s+cash"
+    permit = (
+        r"(?:has|have|had)\s+(?:a\s+)?(?:valid\s+)?(?:federal\s+blending\s+)?permit"
+    )
+    member = re.compile(
+        rf"\s*{subject}(?:{modifiers}{status}|{income}|{amount}|{election}|{permit})[,.!?]?\s*",
+        re.I,
+    )
+    return len(members) >= 2 and all(member.fullmatch(part) for part in members)
+
+
+def _source_gate_closed_documentary_effort(text: str) -> bool:
+    """Authenticate the complete owner report and both substantive complements."""
+
+    carrier = re.match(
+        r"\s*(?:the\s+)?(?:property\s+owner|owner)\s+provides?\s+"
+        r"documentary\s+evidence\s+(?:to\s+(?:the\s+)?assessor\s+)?that\b",
+        text,
+        re.I,
+    )
+    boundaries = _source_gate_reported_finite_but_boundaries(text)
+    if carrier is None or len(boundaries) != 2:
+        return False
+    first, second = boundaries
+    if first.end() != carrier.end():
+        return False
+    effort = text[first.end() : second.start()]
+    if (
+        re.fullmatch(
+            r"\s*(?:(?:during|within|throughout)\s+(?:(?:the|this|that|such|an?)\s+)?"
+            r"(?:(?:specified|relevant|same)\s+)?(?:period|year|time)\s+)?"
+            r"a\s+good-faith\s+effort\s+was\s+made\s+to\s+"
+            r"(?:rehabilitate\s+the\s+productivity\s+of\s+the\s+land\s+for\s+"
+            r"agricultural\s+use|construct\s+or\s+place\s+a\s+new\s+or\s+part\s+"
+            r"of\s+a\s+new\s+residential\s+improvement\s+on\s+the\s+land)\s*",
+            effort,
+            re.I,
+        )
+        is None
+    ):
+        return False
+    return (
+        re.fullmatch(
+            r"\s*additional\s+time\s+is\s+necessary[;.!?]?\s*",
+            text[second.end() :],
+            re.I,
+        )
+        is not None
+    )
+
+
+def _source_gate_closed_receipt_classification(text: str) -> bool:
+    """Keep a receipt trigger and its income classification in their scopes."""
+
+    return (
+        re.fullmatch(
+            r"it is not received by the client or landlord until "
+            r"(?:January|February|March|April|May|June|July|August|September|"
+            r"October|November|December), it is a non-recurring lump sum payment "
+            r"and is exempt as income\.",
+            " ".join(text.split()),
+            re.I,
+        )
+        is not None
+    )
+
+
+def _source_gate_closed_identification_diligence(text: str) -> bool:
+    """Authenticate both identification facts and their bounded credit result."""
+
+    return (
+        re.fullmatch(
+            r"the resident individual does not provide the taxpayer identification "
+            r"number but is able to show that he or she exercised due diligence in "
+            r"attempting to provide the required information, the individual may "
+            r"claim the credit\.",
+            " ".join(text.split()),
+            re.I,
+        )
+        is not None
+    )
+
+
+def _source_gate_closed_restrictive_property(text: str) -> bool:
+    """Authenticate the property's three qualifiers and complete valuation result."""
+
+    return (
+        re.fullmatch(
+            r"the actual use as of the assessment date of any real property that is "
+            r"located in a limited gaming district but that is not used for limited "
+            r"gaming is used as residential real property, the real property shall "
+            r"be classified as residential real property, and the assessing officer "
+            r"shall determine the actual value of said real property as of the "
+            r"assessment date by applying the market approach to appraisal\.",
+            " ".join(text.split()),
+            re.I,
+        )
+        is not None
+    )
+
+
+def _source_gate_join_wrapped_continuations(
+    text: str, *, has_preposed_result: bool = True
+) -> str:
     """Join physical source wraps while retaining explicit logical boundaries."""
 
     # Printed calculation rows need the existing full-layout partition proof.
@@ -14594,7 +14970,12 @@ def _source_gate_join_wrapped_continuations(text: str) -> str:
             pieces.append("\n" if logical_boundary else " ")
         pieces.append(line)
         line_start += len(line) + 1
-    return "".join(pieces)
+    joined = "".join(pieces)
+    if joined != text and _source_gate_needs_conservative_physical_scan(
+        text, joined, has_preposed_result=has_preposed_result
+    ):
+        return text
+    return joined
 
 
 def _source_gate_split_conjunctive_conditions(
@@ -14610,29 +14991,60 @@ def _source_gate_split_conjunctive_conditions(
         independent_replacement="\n",
         ambiguous_replacement=f"\n{_SOURCE_GATE_AMBIGUOUS_YET_MARKER} ",
     )
+    # A finite ``but`` inside one alternative does not prove a conjunction
+    # across the whole condition. Keep its original factual segmentation even
+    # when an OR sibling is on another physical line. ``He or she`` names the
+    # same subject and does not introduce an alternative requirement.
+    alternative_scope = re.search(
+        r"\bor\b",
+        re.sub(r"\b(?:he\s+or\s+she|she\s+or\s+he)\b", "they", text, flags=re.I),
+        flags=re.I,
+    )
     segments: list[tuple[str | None, str]] = []
     for line in with_yet_boundaries.splitlines():
+        serial_boundaries = _source_gate_serial_comma_boundaries(
+            line, has_preposed_result=has_preposed_result
+        )
+        if serial_boundaries and not has_preposed_result:
+            final_boundary = serial_boundaries[-1]
+            eligibility_result = (
+                r"\s*(?:then\s+)?(?:the\s+)?"
+                rf"(?:{_SOURCE_GATE_ENTITY_PATTERN}|he|she|they|it|"
+                r"(?-i:[A-Z][A-Z0-9-]{1,31}))\s+"
+                r"(?:is|are)\s+(?:not\s+)?eligible[.;!?]?\s*"
+            )
+            if re.fullmatch(
+                eligibility_result, line[final_boundary.end() :], re.IGNORECASE
+            ):
+                # The authenticated serial facts govern this complete result;
+                # the eligibility outcome is not an additional prerequisite.
+                line = line[: final_boundary.start()]
+                serial_boundaries = serial_boundaries[:-1]
         prior_end = 0
         connector: str | None = None
         boundaries = [
             (match, match.group(0).casefold())
             for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line)
         ]
-        boundaries.extend(
-            (match, "and")
-            for match in _source_gate_serial_comma_boundaries(
-                line, has_preposed_result=has_preposed_result
-            )
-        )
+        boundaries.extend((match, "and") for match in serial_boundaries)
         boundaries.extend(
             (match, "and")
             for match in _source_gate_restrictive_human_relative_boundaries(line)
         )
+        if alternative_scope is None:
+            boundaries.extend(
+                (match, "and")
+                for match in _source_gate_finite_but_boundaries(
+                    line, has_preposed_result=has_preposed_result
+                )
+            )
         boundaries.extend(
             (match, "and")
-            for match in _source_gate_finite_but_boundaries(
-                line, has_preposed_result=has_preposed_result
-            )
+            for match in _source_gate_restrictive_repeated_relative_but_boundaries(line)
+        )
+        boundaries.extend(
+            (match, "and")
+            for match in _source_gate_reported_finite_but_boundaries(line)
         )
         for match, next_connector in sorted(
             boundaries, key=lambda boundary: boundary[0].start()
@@ -14712,6 +15124,7 @@ def _source_gate_finite_but_boundaries(
                 - _SOURCE_GATE_ENTITIES
                 - _SOURCE_GATE_SUBJECT_PRONOUNS
             )
+            and not predicates & _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES
             and (
                 _SOURCE_GATE_PREDICATE_LANGUAGE.search(part)
                 or predicates
@@ -14725,6 +15138,164 @@ def _source_gate_finite_but_boundaries(
         ):
             boundaries.append(match)
     return tuple(boundaries)
+
+
+def _source_gate_reported_finite_but_boundaries(
+    text: str,
+) -> tuple[re.Match[str], ...]:
+    """Keep independently coordinated facts required by documentary evidence."""
+
+    if re.search(r"\bbut\s+that\b", text, re.I) is None:
+        return ()
+    nominal = (
+        r"(?:(?!(?:of|for|with|from|to|by|under|in|on|at|or|and|that|"
+        r"who|whose|which|if|when|unless|except)\b)[A-Za-z][A-Za-z-]*\s+){1,5}"
+    )
+    carrier = re.match(
+        rf"^\s*{nominal}provides?\s+documentary\s+evidence\s+"
+        rf"(?:to\s+{nominal})?(?P<that>that)\b\s*",
+        text,
+        re.I,
+    )
+    if carrier is None or re.search(
+        r"\b(?:no|neither|never|not|may|might|can|could|would|should|"
+        r"must|shall|will)\b",
+        text[: carrier.start("that")],
+        re.I,
+    ):
+        return ()
+    finite_head = re.compile(
+        rf"^\s*{nominal}(?:is|are|was|were|has|have|had|does|do|did)\b",
+        re.I,
+    )
+    matches = tuple(re.finditer(r"\bbut\s+that\b", text, re.I))
+    if len(matches) != 1:
+        return ()
+    boundary = matches[0]
+    prefix = text[carrier.end() : boundary.start()]
+    suffix = re.split(r"[,;.!?:]", text[boundary.end() :], maxsplit=1)[0]
+    if re.search(
+        r"[,.!?;:\"“”]|\b(?:and|nor|who|whose|which|that|if|when|unless|"
+        r"except|where|whether|because|since|although|though|but)\b",
+        prefix,
+        re.I,
+    ) or re.search(
+        r"[\"“”]|\b(?:and|or|nor|who|whose|which|that|if|when|unless|"
+        r"except|where|whether|because|since|although|though|but)\b",
+        suffix,
+        re.I,
+    ):
+        return ()
+    # A coordinated construction method (``to construct or place``) remains
+    # inside the shared effort fact. An alternative finite proposition does
+    # not establish two independently necessary facts.
+    alternative = re.search(r"\bor\b", prefix, re.I)
+    infinitive = re.search(r"\bto\s+[A-Za-z]+\b", prefix, re.I)
+    if alternative is not None and (
+        infinitive is None or alternative.start() < infinitive.start()
+    ):
+        return ()
+    if alternative is not None and any(
+        finite_head.match(part) is not None
+        or re.match(
+            r"^\s*(?:that|is|are|was|were|has|have|had|does|do|did)\b", part, re.I
+        )
+        is not None
+        for part in re.split(r"\bor\b", prefix, flags=re.I)[1:]
+    ):
+        return ()
+    prefix_head = re.sub(
+        r"^\s*(?:during|within|throughout)\s+(?:(?:the|this|that|such|an?)\s+)?"
+        r"(?:(?:specified|relevant|same)\s+)?(?:period|year|time)\s+",
+        "",
+        prefix,
+        count=1,
+        flags=re.I,
+    )
+    if finite_head.match(prefix_head) is None or finite_head.match(suffix) is None:
+        return ()
+    if any(
+        len(re.findall(r"\b(?:is|are|was|were|has|have|had|does|do|did)\b", part, re.I))
+        != 1
+        for part in (prefix, suffix)
+    ):
+        return ()
+    first_that = next(re.finditer(r"\bthat\b", text, re.I), None)
+    if first_that is None or first_that.start() != carrier.start("that"):
+        return ()
+    # Separate the evidentiary carrier from its first reported fact, so the
+    # carrier alone cannot corroborate a missing substantive predicate.
+    return first_that, boundary
+
+
+def _source_gate_restrictive_repeated_relative_but_boundaries(
+    text: str,
+) -> tuple[re.Match[str], ...]:
+    """Keep repeated restrictive qualifiers and their matrix fact independent."""
+
+    joined = re.search(r"\bbut\s+that\s+", text, re.IGNORECASE)
+    if joined is None:
+        return ()
+    first = re.search(r"\bthat\s+", text[: joined.start()], re.IGNORECASE)
+    if first is None:
+        return ()
+    masked = _source_gate_mask_citation_punctuation(text)
+    prefix = masked[: first.start()]
+    # Authenticate a bounded noun phrase, rather than a reported proposition
+    # or an embedded referent. Both restrictive clauses share that noun owner.
+    if re.fullmatch(
+        r"\s*(?:[A-Za-z][A-Za-z'-]*\s+){1,32}", prefix
+    ) is None or re.search(
+        r"\b(?:or|who|whose|which|that|except|unless|not|never|no|neither|"
+        r"is|are|was|were|has|have|had|may|must|shall|can|could|"
+        r"knows?|believes?|reports?|states?|says?|shows?|indicates?|"
+        r"demonstrates?|aware|evidence)\b",
+        prefix,
+        re.IGNORECASE,
+    ):
+        return ()
+    finite = re.compile(r"\b(?:is|are|was|were)\b", re.IGNORECASE)
+    first_clause = masked[first.end() : joined.start()]
+    if finite.match(first_clause) is None:
+        return ()
+    second_start = joined.end()
+    second_head = finite.match(masked, second_start)
+    if second_head is None:
+        return ()
+    matrix = finite.search(masked, second_head.end())
+    if matrix is None:
+        return ()
+    second_clause = masked[second_start : matrix.start()]
+    stop = re.search(r"[,;.!?:]", masked[matrix.start() :])
+    matrix_end = matrix.start() + stop.start() if stop else len(text)
+    matrix_clause = masked[matrix.start() : matrix_end]
+    parts = (first_clause, second_clause, matrix_clause)
+    if any(
+        re.search(
+            r"[,;.!?:\"“”]|\b(?:or|and|nor|who|whose|which|that|where|when|"
+            r"except|unless|if|whether|because|since|although|though|"
+            r"may|must|shall|can|could|would|should)\b",
+            part,
+            re.IGNORECASE,
+        )
+        for part in parts
+    ):
+        return ()
+    if any(len(tuple(finite.finditer(part))) != 1 for part in parts):
+        return ()
+    if not all(
+        _source_gate_semantic_tokens(part)
+        - _SOURCE_GATE_ENTITIES
+        - _SOURCE_GATE_SUBJECT_PRONOUNS
+        for part in parts
+    ):
+        return ()
+    # A zero-width boundary retains the returning matrix auxiliary itself.
+    matrix_boundary = re.compile(r"(?=\b(?:is|are|was|were)\b)", re.I).match(
+        text, matrix.start()
+    )
+    assert matrix_boundary is not None
+    return first, joined, matrix_boundary
 
 
 def _source_gate_restrictive_human_relative_boundaries(
@@ -15598,7 +16169,10 @@ def _source_conjunctive_fact_gates(
                     break
     # Join physical source continuations before selector transformations emit
     # their own logical condition boundaries. A PDF wrap is not a conjunction.
-    body = _source_gate_join_wrapped_continuations(body)
+    has_preposed_result = _source_gate_has_preposed_result(text, conditional.start())
+    body = _source_gate_join_wrapped_continuations(
+        body, has_preposed_result=has_preposed_result
+    )
     # Parenthetical narrowing above reconstructs the body from the original
     # source, so flattened-list truncation must happen afterward.
     body = _without_flattened_pdf_alternative_list(body)
@@ -15606,8 +16180,16 @@ def _source_conjunctive_fact_gates(
     body = _without_worksheet_imperative_consequent(body)
     segments = _source_gate_split_conjunctive_conditions(
         body,
-        has_preposed_result=_source_gate_has_preposed_result(text, conditional.start()),
+        has_preposed_result=has_preposed_result,
     )
+    return _source_gate_fact_signatures(segments)
+
+
+def _source_gate_fact_signatures(
+    segments: Sequence[tuple[str | None, str]],
+) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
+    """Read the existing entity/predicate policy from condition segments."""
+
     if len(segments) < 2:
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []

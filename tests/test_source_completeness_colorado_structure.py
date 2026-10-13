@@ -425,6 +425,274 @@ def test_inserted_decimal_roots_keep_their_own_children(root, inserted):
     ]
 
 
+@pytest.mark.parametrize("root", ["1", "11.5"])
+def test_uppercase_roman_returns_to_its_parent_after_uppercase_letter_children(root):
+    # C.R.S. 39-22-303(11.5)(b)(IV) follows (III)(A) through (D).
+    source = (
+        ("(1) Prior rule.\n" if root != "1" else "")
+        + f"({root}) (b) For tax years beginning on and after January 1, 2026:\n"
+        "(I) The members shall file a combined report.\n"
+        "(II) The net income of each member is combined.\n"
+        "(III) (A) Income or loss is allocated and apportioned to this state.\n"
+        "(B) The combined group apportionment factor is a fraction.\n"
+        "(C) Intercompany transactions are excluded.\n"
+        "(D) Partnership factors are included in the combined group's factors.\n"
+        "(IV) The combined report must be filed under the name of the parent.\n"
+        "(V) Members of the combined group are jointly and severally liable.\n"
+        "(VI) The executive director shall not require consolidated returns.\n"
+        f"({int(root.split('.')[0]) + 1}) The next subsection."
+    )
+    branches = _branches(source)
+    expected = ([("1",)] if root != "1" else []) + [
+        (root,),
+        (root, "b"),
+        (root, "b", "i"),
+        (root, "b", "ii"),
+        (root, "b", "iii"),
+        *((root, "b", "iii", child) for child in "abcd"),
+        (root, "b", "iv"),
+        (root, "b", "v"),
+        (root, "b", "vi"),
+        (str(int(root.split(".")[0]) + 1),),
+    ]
+    assert [branch.path for branch in branches] == expected
+    third = next(branch for branch in branches if branch.path == (root, "b", "iii"))
+    fourth = next(branch for branch in branches if branch.path == (root, "b", "iv"))
+    assert third.end == fourth.start
+    assert "(D) Partnership" in third.text
+    assert "(IV)" not in third.text
+
+
+_UPPERCASE_ROMAN_SEQUENCE = (
+    "I",
+    "II",
+    "III",
+    "IV",
+    "V",
+    "VI",
+    "VII",
+    "VIII",
+    "IX",
+    "X",
+    "XI",
+    "XII",
+    "XIII",
+    "XIV",
+    "XV",
+    "XVI",
+    "XVII",
+    "XVIII",
+    "XIX",
+    "XX",
+)
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    root=st.sampled_from(["1", "2.5", "11.5"]),
+    length=st.integers(min_value=2, max_value=len(_UPPERCASE_ROMAN_SEQUENCE)),
+    child_count=st.integers(min_value=1, max_value=9),
+    attached=st.booleans(),
+    blank_lines=st.integers(min_value=0, max_value=2),
+)
+def test_sequential_uppercase_roman_siblings_keep_intervening_letter_children(
+    root, length, child_count, attached, blank_lines
+):
+    children = "ABCDEFGHI"[:child_count]
+    source = ("(1) Prior rule.\n" if root != "1" else "") + f"({root}) (b) Rules:\n"
+    expected = ([("1",)] if root != "1" else []) + [(root,), (root, "b")]
+    for label in _UPPERCASE_ROMAN_SEQUENCE[:length]:
+        source += f"({label})" + (" " if attached else " The provision applies:\n")
+        expected.append((root, "b", label.lower()))
+        for child in children:
+            source += f"({child}) The department must provide information.\n"
+            expected.append((root, "b", label.lower(), child.lower()))
+    next_root = str(int(root.split(".")[0]) + 1)
+    source += f"({next_root}) The next subsection."
+    expected.append((next_root,))
+    source = source.replace("\n", "\n" * (blank_lines + 1))
+    assert [branch.path for branch in _branches(source)] == expected
+
+
+@pytest.mark.parametrize("layout", ["i_to_ii", "i_to_a", "all_markers"])
+def test_blank_paragraphs_preserve_proven_uppercase_roman_owners(layout):
+    source = (
+        "(1) Prior rule.\n(11.5) (b) Rules:\n(I) The first provision applies.\n"
+        "(II) The second provision applies.\n"
+        "(III) (A) Income is apportioned.\n(B) The factor applies.\n"
+        "(C) Transactions are excluded.\n(D) Partnership factors apply.\n"
+        "(IV) The report must be filed.\n(V) Members are liable.\n"
+        "(VI) Returns are required.\n(12) The next subsection."
+    )
+    if layout == "i_to_a":
+        source = source.replace(
+            "(I) The first provision applies.\n",
+            "(I) The first provision applies:\n(A) The claimant must file a return.\n",
+        )
+        changed = source.replace("applies:\n(A)", "applies:\n\n(A)")
+    elif layout == "i_to_ii":
+        changed = source.replace("applies.\n(II)", "applies.\n\n(II)", 1)
+    else:
+        changed = source.replace("\n", "\n\n")
+    expected = [branch.path for branch in _branches(source)]
+    actual = [branch.path for branch in _branches(changed)]
+    assert ("11.5", "b", "iv") in expected
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    ("previous", "current", "expected"),
+    [
+        ("I", "II", False),
+        ("III", "IV", False),
+        ("IV", "V", False),
+        ("IX", "X", False),
+        ("X", "XI", False),
+        ("A", "B", True),
+        ("C", "D", True),
+        ("H", "I", True),
+        ("I", "J", True),
+        ("I", "V", False),
+        ("III", "V", False),
+        ("D", "IV", False),
+        ("IIV", "V", False),
+        ("III", "IIV", False),
+        ("ii", "III", False),
+        ("II", "iii", False),
+    ],
+)
+def test_uppercase_alphabet_order_is_preserved_for_roman_compatible_letters(
+    previous, current, expected
+):
+    assert (
+        sc._parenthesized_outline_label_follows(previous, current, "upper-alpha")
+        is expected
+    )
+
+
+@pytest.mark.parametrize("label", ["I", "II", "III", "IV", "V", "IX", "X", "C", "D"])
+def test_uppercase_valid_roman_labels_keep_both_outline_categories(label):
+    assert sc._parenthesized_legal_outline_categories(label) == ("upper-alpha", "roman")
+
+
+@pytest.mark.parametrize("label", ["A", "B", "E", "IIV", "IIX", "VX"])
+def test_uppercase_nonroman_labels_cannot_prove_a_roman_continuation(label):
+    assert sc._parenthesized_legal_outline_categories(label) == ("upper-alpha",)
+
+
+def test_uppercase_letter_siblings_keep_ambiguous_roman_letters_at_their_own_level():
+    source = (
+        "(1) (b) Rules:\n"
+        + "".join(
+            f"({label}) The department must provide information.\n"
+            for label in "ABCDEFGHIJK"
+        )
+        + "(2) The next subsection."
+    )
+    assert [branch.path for branch in _branches(source)] == [
+        ("1",),
+        ("1", "b"),
+        *(("1", "b", label.lower()) for label in "ABCDEFGHIJK"),
+        ("2",),
+    ]
+
+
+@pytest.mark.parametrize("child_count", [0, 1])
+@pytest.mark.parametrize("attached", [False, True])
+def test_partial_uppercase_alphabet_keeps_i_j_k_as_siblings(child_count, attached):
+    prefix = (
+        "(11.5) (b) (I) The first provision applies:\n"
+        if attached
+        else "(11.5) (b) Rules:\n(I) The first provision applies:\n"
+    )
+    source = "(1) Prior rule.\n" + prefix
+    expected = [("1",), ("11.5",), ("11.5", "b"), ("11.5", "b", "i")]
+    if child_count:
+        source += "(1) The department must provide information.\n"
+        expected.append(("11.5", "b", "i", "1"))
+    source += "(J) The next provision applies.\n(K) The last provision applies.\n(12) The next subsection."
+    expected.extend([("11.5", "b", "j"), ("11.5", "b", "k"), ("12",)])
+    assert [branch.path for branch in _branches(source)] == expected
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    initial=st.sampled_from(["C", "D", "I", "L", "M", "V", "X"]),
+    child_count=st.integers(min_value=0, max_value=4),
+    attached=st.booleans(),
+)
+def test_partial_alphabet_successors_prove_ambiguous_uppercase_letter_ownership(
+    initial, child_count, attached
+):
+    source = "(1) Prior rule.\n(11.5) (b)" + (" " if attached else " Rules:\n")
+    expected = [("1",), ("11.5",), ("11.5", "b")]
+    for index in range(3):
+        label = chr(ord(initial) + index)
+        source += f"({label}) The provision applies:\n"
+        expected.append(("11.5", "b", label.lower()))
+        for number in range(1, child_count + 1):
+            source += f"({number}) The department must provide information.\n"
+            expected.append(("11.5", "b", label.lower(), str(number)))
+    source += "(12) The next subsection."
+    expected.append(("12",))
+    assert [branch.path for branch in _branches(source)] == expected
+
+
+@pytest.mark.parametrize("root", ["1", "11.5"])
+def test_a_b_under_a_numeric_child_do_not_prove_the_parent_i_is_roman(root):
+    source = (
+        ("(1) Prior rule.\n" if root != "1" else "")
+        + f"({root}) (b) Rules:\n(I) The first provision applies:\n"
+        "(1) The rule applies:\n(A) The department must provide information.\n"
+        "(B) The claimant must file a return.\n"
+        "(J) The next provision applies.\n(K) The last provision applies.\n"
+        f"({int(root.split('.')[0]) + 1}) The next subsection."
+    )
+    expected = ([("1",)] if root != "1" else []) + [
+        (root,),
+        (root, "b"),
+        (root, "b", "i"),
+        (root, "b", "i", "1"),
+        (root, "b", "i", "1", "a"),
+        (root, "b", "i", "1", "b"),
+        (root, "b", "j"),
+        (root, "b", "k"),
+        (str(int(root.split(".")[0]) + 1),),
+    ]
+    assert [branch.path for branch in _branches(source)] == expected
+
+
+def test_wrapped_reference_cannot_prove_a_roman_child_in_the_prior_stack():
+    source = (
+        "(1) Prior rule.\n(11.5) (b) Rules:\n"
+        "(I) The amount is provided in paragraph\n(A) of this section.\n"
+        "(J) The credit is provided in this subsection\n(11.5) for each lease.\n"
+        "(K) The last provision applies.\n(12) The next subsection."
+    )
+    matches = tuple(sc._PARENTHESIZED_OUTLINE_MARKER.finditer(source))
+    index = next(
+        index for index, match in enumerate(matches) if match.group("marker") == "(I)"
+    )
+    assert (
+        sc._parenthesized_outline_following_sibling_label(
+            source, matches, index, _active_numeric_root="11.5"
+        )
+        == "J"
+    )
+    branches = _branches(source)
+    assert [branch.path for branch in branches] == [
+        ("1",),
+        ("11.5",),
+        ("11.5", "b"),
+        ("11.5", "b", "i"),
+        ("11.5", "b", "j"),
+        ("11.5", "b", "k"),
+        ("12",),
+    ]
+    assert "(A) of this section" in branches[3].text
+    assert "(11.5) for each lease" in branches[4].text
+
+
 def test_decimal_markers_are_stripped_without_losing_the_source_body():
     text = "(1.5)(b) The amount of interest income from state and local bonds."
     assert sc._strip_source_clause_marker(text) == (

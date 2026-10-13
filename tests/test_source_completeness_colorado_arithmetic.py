@@ -41,6 +41,23 @@ offset against income taxes in said income tax year refunded to the taxpayer."""
 IDENTIFICATION_DUE_DILIGENCE = """(b) If the resident individual does not provide the taxpayer identification
 number but is able to show that he or she exercised due diligence in attempting to
 provide the required information, the individual may claim the credit."""
+DISABILITY_BENEFIT_ALTERNATIVES = """Disability Benefits - 7 CFR § 273.9(b)(2)(ii) - Count the disability benefits as unearned income if:
+
+the person is no longer an employee regardless of the source of the payment, or
+
+the person is an employee but is not paid out of the employer’s funds."""
+REHABILITATION_EVIDENCE = """(A) The productivity of the land is not rehabilitated for agricultural use prior
+to the January 1 after the period described in subparagraph (I) of this paragraph (e),
+unless the property owner provides documentary evidence to the assessor that
+during such period a good-faith effort was made to rehabilitate the productivity of
+the land for agricultural use but that additional time is necessary;"""
+CONSTRUCTION_EVIDENCE = """(A) A new residential improvement or part of a new residential improvement
+is not constructed or placed on the land in accordance with applicable land use
+regulations prior to the January 1 after the period described in subparagraph (I) of
+this paragraph (b), unless the property owner provides documentary evidence to the
+assessor that during such period a good-faith effort was made to construct or place
+a new or part of a new residential improvement on the land but that additional time
+is necessary;"""
 
 
 def _rule(name: str, formula: str, excerpt: str) -> dict:
@@ -486,6 +503,72 @@ def test_finite_but_does_not_promote_results_alternatives_or_nested_referents(so
     assert sc._source_conjunctive_fact_gates(source) == ()
 
 
+def test_finite_but_inside_a_separate_or_alternative_adds_no_third_input():
+    gates = sc._source_conjunctive_fact_gates(DISABILITY_BENEFIT_ALTERNATIVES)
+    names = ("person_is_employee", "person_paid_from_employer_funds")
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": name.replace("_", " ")} for name in names
+            ]
+        }
+    )
+    assert len(gates) == 2
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(names), gates, terminal_evidence=evidence
+    )
+    for omitted in names:
+        assert not sc._terminal_names_corroborate_source_gates(
+            frozenset(names) - {omitted}, gates, terminal_evidence=evidence
+        )
+    formula = f"if not {names[0]} or not {names[1]}: disability_benefit_amount else: 0"
+    for employee, paid_from_employer, expected in (
+        (False, False, 50),
+        (False, True, 50),
+        (True, False, 50),
+        (True, True, 0),
+    ):
+        assert (
+            _execute(
+                formula,
+                {
+                    names[0]: employee,
+                    names[1]: paid_from_employer,
+                    "disability_benefit_amount": 50,
+                },
+            )
+            == expected
+        )
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    breaks=st.sets(st.integers(min_value=1, max_value=42), max_size=25),
+    but_first=st.booleans(),
+    separator=st.sampled_from((" ", "\n", "\n\n")),
+)
+def test_finite_but_cannot_infer_a_conjunction_inside_wrapped_or_scope(
+    breaks, but_first, separator
+):
+    alternatives = [
+        "the person is no longer an employee regardless of the source of the payment",
+        "the person is an employee but is not paid out of the employer's funds",
+    ]
+    if but_first:
+        alternatives.reverse()
+    body = f"{alternatives[0]}, or{separator}{alternatives[1]}."
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(body.split(), start=1)
+    ).strip()
+    if separator.strip() == "" and len(separator) > 1:
+        wrapped = wrapped.replace(" or ", f" or{separator}", 1)
+    assert all(
+        connector is None
+        for connector, _ in sc._source_gate_split_conjunctive_conditions(wrapped)
+    )
+
+
 @settings(max_examples=30, deadline=None)
 @given(breaks=st.sets(st.integers(min_value=1, max_value=45), max_size=25))
 def test_finite_but_identification_requirements_are_independent_of_word_wraps(breaks):
@@ -497,6 +580,122 @@ def test_finite_but_identification_requirements_are_independent_of_word_wraps(br
     gates = sc._source_conjunctive_fact_gates(wrapped)
     assert len(gates) == 2
     assert gates == sc._source_conjunctive_fact_gates(flat)
+
+
+@pytest.mark.parametrize(
+    "source", [REHABILITATION_EVIDENCE, " ".join(REHABILITATION_EVIDENCE.split())]
+)
+def test_reported_finite_but_preserves_both_rehabilitation_exception_facts(source):
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert {"good-faith", "effort", "rehabilitate", "productivity"} <= gates[0][1]
+    assert gates[1] == (frozenset(), frozenset({"time", "necessary"}))
+    descriptions = {
+        "good_faith_rehabilitation_effort": (
+            "A good-faith effort was made to rehabilitate the productivity of the "
+            "land for agricultural use during the specified period."
+        ),
+        "additional_time_is_necessary": "Additional time is necessary.",
+        "property_owner_documentary_evidence_provided": (
+            "The property owner provides documentary evidence to the assessor."
+        ),
+    }
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": description}
+                for name, description in descriptions.items()
+            ]
+        }
+    )
+    names = frozenset(descriptions)
+    assert sc._terminal_names_corroborate_source_gates(
+        names, gates, terminal_evidence=evidence
+    )
+    for omitted in ("good_faith_rehabilitation_effort", "additional_time_is_necessary"):
+        assert not sc._terminal_names_corroborate_source_gates(
+            names - {omitted}, gates, terminal_evidence=evidence
+        )
+
+
+@pytest.mark.parametrize(
+    "source", [CONSTRUCTION_EVIDENCE, " ".join(CONSTRUCTION_EVIDENCE.split())]
+)
+def test_reported_finite_but_keeps_shared_construction_choices_inside_effort_fact(
+    source,
+):
+    gates = sc._source_conjunctive_fact_gates(source)
+    assert len(gates) == 2
+    assert {"good-faith", "effort", "construct", "place"} <= gates[0][1]
+    assert gates[1] == (frozenset(), frozenset({"time", "necessary"}))
+    descriptions = {
+        "good_faith_construction_effort": (
+            "A good-faith effort was made to construct or place a new residential "
+            "improvement on the land during the specified period."
+        ),
+        "additional_time_is_necessary": "Additional time is necessary.",
+        "property_owner_documentary_evidence_provided": (
+            "The property owner provides documentary evidence to the assessor."
+        ),
+    }
+    evidence = sc._terminal_gate_evidence(
+        {
+            "inputs": [
+                {"name": name, "description": description}
+                for name, description in descriptions.items()
+            ]
+        }
+    )
+    names = frozenset(descriptions)
+    assert sc._terminal_names_corroborate_source_gates(
+        names, gates, terminal_evidence=evidence
+    )
+    for omitted in ("good_faith_construction_effort", "additional_time_is_necessary"):
+        assert not sc._terminal_names_corroborate_source_gates(
+            names - {omitted}, gates, terminal_evidence=evidence
+        )
+
+
+@settings(max_examples=30, deadline=None)
+@given(
+    source=st.sampled_from([REHABILITATION_EVIDENCE, CONSTRUCTION_EVIDENCE]),
+    breaks=st.sets(st.integers(min_value=1, max_value=96), max_size=35),
+)
+def test_reported_finite_but_rehabilitation_facts_ignore_physical_wraps(source, breaks):
+    flat = " ".join(source.split())
+    wrapped = "".join(
+        word + ("\n" if index in breaks else " ")
+        for index, word in enumerate(flat.split(), start=1)
+    ).strip()
+    gates = sc._source_conjunctive_fact_gates(wrapped)
+    assert len(gates) == 2
+    assert gates == sc._source_conjunctive_fact_gates(flat)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "the owner is aware that an effort was made but that time is necessary",
+        "the owner provides documentary evidence that an effort was made or abandoned but that time is necessary",
+        "the owner provides documentary evidence that an effort was made to rehabilitate land or time was insufficient but that time is necessary",
+        "the owner provides documentary evidence that an effort was made to rehabilitate land or that time was insufficient but that time is necessary",
+        "the owner provides documentary evidence that an effort was made to rehabilitate land or was abandoned but that time is necessary",
+        "the owner provides documentary evidence that an effort was made but that time is necessary or optional",
+        "the owner provides documentary evidence that a child who is blind was rehabilitated but that time is necessary",
+        'the owner provides documentary evidence that "an effort was made but that time is necessary"',
+        "the owner provides documentary evidence that an effort was made, an extension applies but that time is necessary",
+        "the owner provides documentary evidence that an effort was made but that an extension may be granted",
+        "the owner provides documentary evidence of an effort but that time is necessary",
+        "no property owner provides documentary evidence that an effort was made but that time is necessary",
+        "the owner never provides documentary evidence that an effort was made but that time is necessary",
+        "the owner does not provide documentary evidence that an effort was made but that time is necessary",
+        "the owner may provide documentary evidence that an effort was made but that time is necessary",
+        "the owner provides documentary evidence that an effort was made because time was insufficient but that time is necessary",
+        "the owner provides documentary evidence that an effort was made but that time is necessary although the land is rehabilitated",
+    ],
+)
+def test_reported_finite_but_rejects_alternatives_nested_referents_and_results(body):
+    assert sc._source_conjunctive_fact_gates(f"An extension applies if {body}.") == ()
 
 
 @pytest.mark.parametrize("separator", [" ", "\n"])
@@ -1214,6 +1413,10 @@ def test_unadmitted_printed_rows_retain_claimant_facts_and_operand_demands(
 
 @settings(max_examples=50, deadline=None)
 @example(source=REFUND_COMPARISON, breaks={14, 27})
+@example(
+    source="A credit applies if the spouse is blind, yet the spouse has no income.",
+    breaks={13},
+)
 @given(
     source=st.sampled_from(
         [
