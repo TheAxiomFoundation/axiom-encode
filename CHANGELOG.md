@@ -1,3 +1,7 @@
+## 0.2.2183
+
+- Let the signing supervisor's trusted Git wrapper run the producer-ancestry proof, so the generated-change guard can admit signed manifests from a newer first-parent main encoder instead of failing every identity check.
+
 ## 0.2.2182
 
 - Clarify source-bound canonical CFR branch citations for complete-source deferrals and record this encoder behavior after the SNAP source-check parent merge.
