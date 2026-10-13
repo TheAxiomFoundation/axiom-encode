@@ -139,9 +139,14 @@ Python. The scripts cover:
   `axiom-dependencies.XXXXXXXX` root (mode 0755) under `$RUNNER_TEMP`, and
   exports both to later steps as `AXIOM_DEPENDENCY_STAGE` and
   `AXIOM_DEPENDENCY_ROOT`. `ci` makes the same two directories (the root in a
-  private temporary runner directory), runs the step's own outside-the-checkout
-  check unchanged, links each dependency (the bound engine view, the composer
-  checkout, the changed-file classifier) under the root, and points the
+  private temporary runner directory) and runs the step's own
+  outside-the-checkout check unchanged. The bound engine view is moved into the
+  root as `axiom-rules-engine`, a real directory as in CI, where repository
+  tests look for the binary; every other entry (the encoder, corpus,
+  rulespec-us and composer checkouts, the changed-file classifier) is a link to
+  the verified local checkout. The encoder refuses dependency roots whose path
+  holds a symlink, so subcommands receive the resolved checkouts, which are the
+  same trees CI's entries hold. `ci` also points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
   as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
@@ -491,6 +496,10 @@ named:
   `uv python install 3.14` downloads on a fresh runner, so patch releases can
   differ (the report notes the version, uv's version and the package tree
   digest).
+- **Dependency-root links.** Apart from the engine, `ci`'s
+  `$AXIOM_DEPENDENCY_ROOT` entries are links to the local checkouts, where
+  CI's are the checkouts themselves. A repository test that hands such an
+  entry to a symlink-refusing tool would fail locally and not in CI.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` does not export them to
   repository pytest.

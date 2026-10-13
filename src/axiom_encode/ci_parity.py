@@ -4002,12 +4002,11 @@ def _composer_arguments(run: WorkflowRun) -> tuple[str, ...]:
         return ()
     arguments: tuple[str, ...] = ("--axiom-compose-path", str(composer))
     if run.repo.name != "rulespec-us":
-        dependency = (
-            _run_layout(run).entry("rulespec-us")
-            if _run_layout(run).isolated
-            else run.paths["rulespec_us"]
-        )
-        arguments += ("--rulespec-dependency-root", str(dependency))
+        # CI's $AXIOM_DEPENDENCY_ROOT/rulespec-us is the moved checkout itself.
+        # ci's dependency-root entry is a link to it, and the encoder refuses
+        # a dependency root whose lexical path holds a symlink, so ci passes
+        # the resolved checkout the entry points to.
+        arguments += ("--rulespec-dependency-root", str(run.paths["rulespec_us"]))
     return arguments
 
 
@@ -4783,11 +4782,6 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
         shard: [] for shard in run.plan.matrix
     }
     multi_group = False
-    canonical_rulespec_us = (
-        _run_layout(run).entry("rulespec-us")
-        if _run_layout(run).isolated
-        else run.paths["rulespec_us"]
-    )
     for shard in run.plan.matrix:
         lines = messages.setdefault(shard, [])
         # The skip list exists only where the validate step wrote it.
@@ -4828,9 +4822,10 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
                         ),
                         cwd=run.repo,
                         environment={
-                            # 92ccb0f2 L2903 names the dependency-root entry.
+                            # 92ccb0f2 L2903 names $AXIOM_DEPENDENCY_ROOT's
+                            # rulespec-us, the same checkout.
                             "AXIOM_RULESPEC_REPO_ROOTS": (
-                                f"{run.repo}:{canonical_rulespec_us}"
+                                f"{run.repo}:{run.paths['rulespec_us']}"
                             )
                         },
                     )
@@ -6371,6 +6366,14 @@ def _run_ci_in_checkout(
                     rules_checkout=None if layout is not None else repo,
                 ),
             }
+            if layout is not None:
+                # CI's $AXIOM_DEPENDENCY_ROOT/axiom-rules-engine is the built
+                # checkout itself (92ccb0f2 L1491-1501, L2039-2044), which
+                # repository tests read; the bound view moves there, receipt
+                # and all, rather than being linked.
+                engine_entry = layout.entry(_CHECKOUT_NAMES["engine"])
+                shutil.move(paths["engine"], engine_entry)
+                paths = {**paths, "engine": engine_entry}
             _link_workflow_checkouts(repo, paths, layout)
             # 6f11be26 L1495 (0effa6a5 L1142) exposes the fresh debug
             # binary before every engine-consuming gate and repository pytest.
