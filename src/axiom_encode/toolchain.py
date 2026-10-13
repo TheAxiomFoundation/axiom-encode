@@ -7,6 +7,7 @@ import os
 import re
 import tomllib
 from base64 import b64decode, b64encode
+from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -29,8 +30,13 @@ CORPUS_RELEASE_CONTENT_SHA256_FIELD = "axiom_corpus_release_content_sha256"
 VALIDATION_WAIVER_SET_SHA256_FIELD = "validation_waiver_set_sha256"
 VALIDATION_WAIVER_SET_PATH = "known-validation-gaps.yaml"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_LOCAL_CORPUS_RELEASE_PUBLIC_KEY: ContextVar[str | None] = ContextVar(
-    "axiom_ci_corpus_release_public_key", default=None
+_LOCAL_CORPUS_RELEASE_PUBLIC_KEYS: ContextVar[tuple[str, ...] | None] = ContextVar(
+    "axiom_ci_corpus_release_public_keys", default=None
+)
+# Verification-only apply-manifest and eval-evidence roots for ``ci``, keyed
+# "apply" and "eval"; like the corpus keyring, never read from the environment.
+_LOCAL_SIGNING_PUBLIC_KEYS: ContextVar[dict[str, bytes] | None] = ContextVar(
+    "axiom_ci_signing_public_keys", default=None
 )
 
 
@@ -253,9 +259,9 @@ def load_rulespec_local_corpus_release(
 
     toolchain = load_rulespec_toolchain(rulespec_root)
     _verify_rulespec_validation_waiver_set(toolchain)
-    public_key = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.get()
-    if public_key is not None:
-        public_keys = (public_key,)
+    local_public_keys = _LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get()
+    if local_public_keys is not None:
+        public_keys = local_public_keys
     else:
         try:
             broker = get_signing_broker()
@@ -282,28 +288,69 @@ def load_rulespec_local_corpus_release(
     )
 
 
+def local_signing_public_key(kind: str) -> bytes | None:
+    """Return ci's verification-only "apply" or "eval" root, if one is set."""
+
+    keys = _LOCAL_SIGNING_PUBLIC_KEYS.get()
+    return None if keys is None else keys.get(kind)
+
+
 @contextmanager
-def local_corpus_release_verification(public_key: str):
-    """Temporarily provide a verification-only corpus public key.
+def local_corpus_release_verification(
+    public_key: str,
+    *,
+    retired_public_keys: Sequence[str] = (),
+    apply_public_key: str | None = None,
+    eval_public_key: str | None = None,
+):
+    """Temporarily provide verification-only public trust roots.
 
     This exists solely for ``axiom-encode ci``.  It conveys no signing
     capability, is never populated from the environment, and keeps the trusted
-    bootstrap's prohibition on environment-supplied public roots intact.
+    bootstrap's prohibition on environment-supplied public roots intact.  The
+    corpus keyring is the current key followed by any retired keys, in the
+    order the protected verification supervisor provisions them; the optional
+    apply and eval roots verify persisted apply manifests and eval evidence as
+    the supervisor's apply and eval roots do.
     """
 
     # Construct once so malformed keys fail before any gate starts.
-    try:
-        raw = b64decode(public_key, validate=True)
-    except Exception as exc:
-        raise RuleSpecToolchainError(
-            "--corpus-release-public-key must be canonical base64"
-        ) from exc
-    if len(raw) != 32 or b64encode(raw).decode("ascii") != public_key:
-        raise RuleSpecToolchainError(
-            "--corpus-release-public-key must encode exactly 32 bytes"
+    keyring = (
+        _canonical_local_public_key(public_key, "--corpus-release-public-key"),
+        *(
+            _canonical_local_public_key(retired, "--corpus-release-retired-public-key")
+            for retired in retired_public_keys
+        ),
+    )
+    signing_keys = {
+        kind: b64decode(_canonical_local_public_key(value, flag))
+        for kind, value, flag in (
+            ("apply", apply_public_key, "--apply-public-key"),
+            ("eval", eval_public_key, "--eval-public-key"),
         )
-    token = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.set(public_key)
+        if value is not None
+    }
+    # The protected supervisor refuses trust roots that repeat across the
+    # corpus, retired, apply and eval roles; so does its local stand-in.
+    every_root = [b64decode(key) for key in keyring] + list(signing_keys.values())
+    if len(set(every_root)) != len(every_root):
+        raise RuleSpecToolchainError(
+            "corpus release, apply and eval public keys must be distinct"
+        )
+    token = _LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.set(keyring)
+    signing_token = _LOCAL_SIGNING_PUBLIC_KEYS.set(signing_keys)
     try:
         yield
     finally:
-        _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.reset(token)
+        _LOCAL_SIGNING_PUBLIC_KEYS.reset(signing_token)
+        _LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.reset(token)
+
+
+def _canonical_local_public_key(public_key: str, flag: str) -> str:
+    try:
+        raw = b64decode(public_key, validate=True)
+    except Exception as exc:
+        raise RuleSpecToolchainError(f"{flag} must be canonical base64") from exc
+    if len(raw) != 32 or b64encode(raw).decode("ascii") != public_key:
+        raise RuleSpecToolchainError(f"{flag} must encode exactly 32 bytes")
+    return public_key
