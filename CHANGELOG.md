@@ -1,3 +1,7 @@
+## 0.2.2181
+
+- Clarify source-bound canonical CFR branch citations for complete-source deferrals and record this encoder behavior after the SNAP source-check parent merge.
+
 ## 0.2.2180
 
 - Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
