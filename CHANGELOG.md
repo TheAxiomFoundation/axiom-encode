@@ -1,4 +1,4 @@
-## 0.2.2180
+## 0.2.2181
 
 - Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
 
