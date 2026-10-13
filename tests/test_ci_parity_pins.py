@@ -566,6 +566,13 @@ _INTERFACE_LINES = st.sampled_from(
         "import os; dict(os.environ)",
         'import os; getattr(os, "environ")',
         'exec("1")',
+        'import os; os.path.expandvars("$CI_PIN_PROPERTY_NEW")',
+        "import sys; sys.platform",
+        'import shutil; shutil.which("ci-pin-property")',
+        'from os import replace as ci_pin_move; ci_pin_move("a", "b")',
+        'from pathlib import Path; Path("ci-pin-a").replace("ci-pin-b")',
+        'from pathlib import Path; Path("ci-pin-a").stat().st_uid',
+        'from pathlib import Path; Path("ci-pin-a").owner()',
     ]
 )
 
@@ -619,6 +626,8 @@ def test_exit_status_program_edits_keep_the_digest_iff_the_interface_holds(
         ('import os; os.environ["CI_PIN_PROPERTY_NEW"]', False),
         ('from os import environ as e; e.get("CI_PIN_PROPERTY_NEW")', False),
         ('from os import getenv as g; g("GITHUB_BASE_REF")', False),
+        ('import os; os.path.expandvars("$GITHUB_BASE_REF")', False),
+        ("import sys; sys.platform", False),
         ("import socket", False),
         ('open("ci-pin-property", "w")', False),
     ],
@@ -749,6 +758,15 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
 
     assert interface.environment == ("<dynamic>", "ALPHA", "BETA", "DELTA", "GAMMA")
     assert interface.imports == ("json", "os", "pathlib", "subprocess")
+    # Members of modules that are not pure; `re` and `json` members are not.
+    assert interface.names == (
+        "os.environ",
+        "os.getenv",
+        "os.system",
+        "pathlib.Path",
+        "subprocess.check_output",
+        "subprocess.run",
+    )
     assert interface.executables == ("<dynamic>", "git", "shell:make")
     assert interface.effects == ("open:a", "write_text")
     assert interface.paths == ("/opt/axiom-verification/bin",)
@@ -777,8 +795,53 @@ ALIASED_ACCESS = [
         "effects",
         "os.open:os.O_WRONLY | os.O_CREAT",
     ),
-    ("import os\nos.replace('a', 'b')\n", "effects", "os.replace"),
-    ("import shutil as sh\nsh.copy('a', 'b')\n", "effects", "shutil.copy"),
+    ("import os\nos.replace('a', 'b')\n", "names", "os.replace"),
+    ("import shutil as sh\nsh.copy('a', 'b')\n", "names", "shutil.copy"),
+    (
+        "from os import replace as move_file\nmove_file('a', 'b')\n",
+        "names",
+        "os.replace",
+    ),
+    ("from pathlib import Path\nPath('a').replace('b')\n", "effects", "replace(1)"),
+    ("from pathlib import Path\nPath('a').copy('b')\n", "effects", "copy(1)"),
+    # Standard APIs that read the environment or the host without `environ`.
+    (
+        "import os\nx = os.path.expandvars('$GITHUB_BASE_REF/${RUNNER_OS}')\n",
+        "environment",
+        "GITHUB_BASE_REF",
+    ),
+    (
+        "import os\nx = os.path.expandvars('$GITHUB_BASE_REF/${RUNNER_OS}')\n",
+        "environment",
+        "RUNNER_OS",
+    ),
+    ("from os.path import expandvars as ev\nx = ev('$NEW')\n", "environment", "NEW"),
+    ("import os\nx = os.path.expandvars(template)\n", "environment", "<dynamic>"),
+    ("import os\nx = os.path.expandvars('$NEW')\n", "names", "os.path.expandvars"),
+    ("import sys\nx = sys.platform\n", "names", "sys.platform"),
+    ("import platform\nx = platform.system()\n", "names", "platform.system"),
+    ("import getpass\nx = getpass.getuser()\n", "names", "getpass.getuser"),
+    ("import tempfile\nx = tempfile.gettempdir()\n", "names", "tempfile.gettempdir"),
+    ("import socket\nx = socket.gethostname()\n", "names", "socket.gethostname"),
+    ("import shutil\nx = shutil.which('cargo')\n", "executables", "which:cargo"),
+    ("import shutil\nx = shutil.which(tool)\n", "executables", "<dynamic>"),
+    # The host reached through an object: ownership, times, where it lives.
+    (
+        "from pathlib import Path\nx = Path('a').stat().st_uid\n",
+        "names",
+        "<object>.st_uid",
+    ),
+    (
+        "from pathlib import Path\nx = Path('a').stat().st_uid\n",
+        "names",
+        "<object>.stat",
+    ),
+    (
+        "from pathlib import Path\nx = Path('a').resolve()\n",
+        "names",
+        "<object>.resolve",
+    ),
+    ("x = entry.owner()\n", "names", "<object>.owner"),
     (
         "import os\nx = getattr(os, 'environ')['NEW']\n",
         "opaque",
@@ -844,9 +907,28 @@ def test_ordinary_code_is_not_opaque() -> None:
         "items.remove(1)\n"
         "copy = dict(a=1).copy()\n"
         "data = json.loads('{}')\n"
+        "import datetime\n"
+        "when = datetime.datetime(2026, 1, 1).replace(tzinfo=datetime.timezone.utc)\n"
     )
 
     assert (interface.opaque, interface.effects, interface.executables) == ((), (), ())
+    assert interface.names == ()
+
+
+def test_members_are_named_for_every_module_that_is_not_pure() -> None:
+    # A pure module's members cannot reach the environment, so only its import
+    # counts; any other module's members are named, known or not.
+    interface = program_interface(
+        "import datetime, os, some_third_party\n"
+        "from decimal import Decimal\n"
+        "a = datetime.date.today()\n"
+        "b = Decimal('1')\n"
+        "c = os.path.join('a', 'b')\n"
+        "d = some_third_party.client.fetch()\n"
+    )
+
+    assert interface.imports == ("datetime", "decimal", "os", "some_third_party")
+    assert interface.names == ("os.path.join", "some_third_party.client.fetch")
 
 
 def test_two_opaque_accesses_of_one_kind_are_two_interface_entries() -> None:
@@ -1424,7 +1506,16 @@ def test_scalars_yaml_readers_disagree_on_are_refused(scalar: str) -> None:
     ("addition", "message"),
     [
         ("          anchored: &a value\n", "anchor or alias"),
+        ("          aliased: *missing\n", "not valid YAML"),
         ("          tagged: !!str 12\n", "explicit YAML tag"),
+        ("          tagged: ! true\n", "explicit YAML tag"),
+        ("          tagged: ! 'true'\n", "explicit YAML tag"),
+        ("          tagged: !custom {}\n", "explicit YAML tag"),
+        ("          1: numeric key\n", "is not a string"),
+        ("          true: boolean key\n", "is not a string"),
+        ("          <<: {a: b}\n", "is not a string"),
+        ("          fetch-depth: 1\n", "defined twice"),
+        ("          Fetch-Depth: 1\n", "defined twice"),
     ],
 )
 def test_anchors_and_explicit_tags_are_refused(addition: str, message: str) -> None:
@@ -1436,6 +1527,45 @@ def test_anchors_and_explicit_tags_are_refused(addition: str, message: str) -> N
 
     with pytest.raises(GlueError, match=message):
         ci_parity_pins.load_workflow(text.encode())
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        # A top-level `true:` is PyYAML's True too, but it is not GitHub's `on:`.
+        ("\non:\n", "\ntrue:\n", "is not a string"),
+        # GitHub reads an explicitly tagged boolean as a string.
+        ("required: true\n", "required: ! true\n", "explicit YAML tag"),
+        (
+            "runs-on: ubuntu-latest\n",
+            "runs-on: ubuntu-latest\n    runs-on: ubuntu-latest\n",
+            "defined twice",
+        ),
+    ],
+)
+def test_yaml_only_pyyaml_reads_as_the_reviewed_workflow_is_refused(
+    old: str, new: str, message: str
+) -> None:
+    # Each edit leaves PyYAML's values, and so every glue digest, unchanged.
+    text = packaged_bytes(PIN_92CCB0F2).decode()
+    assert old in text
+    edited = text.replace(old, new, 1)
+    assert yaml.safe_load(edited) == yaml.safe_load(text)
+
+    with pytest.raises(GlueError, match=message):
+        ci_parity_pins.load_workflow(edited.encode())
+
+
+def test_a_payload_with_a_non_string_key_has_no_digest() -> None:
+    payload = _payload(PIN_92CCB0F2)
+    _step(payload, "validate", "Free runner disk space").setdefault("env", {})[True] = (
+        "x"
+    )
+
+    assert _kinds(_admit(payload)) == {"malformed"}
+    both = _payload(PIN_92CCB0F2)
+    both["on"] = both[True]
+    assert _kinds(_admit(both)) == {"malformed"}
 
 
 @pytest.mark.parametrize(
@@ -1648,6 +1778,10 @@ def test_portable_yaml_check_is_the_same_under_either_pyyaml_parser(
         ("          ci-pin-property: 1e3\n", "read differently"),
         ("          anchored: &a value\n", "anchor or alias"),
         ("          tagged: !!str 12\n", "explicit YAML tag"),
+        ("          tagged: ! true\n", "explicit YAML tag"),
+        ("          tagged: ! 'true'\n", "explicit YAML tag"),
+        ("          true: boolean key\n", "is not a string"),
+        ("          fetch-depth: 1\n", "defined twice"),
     ):
         edited = text.replace("fetch-depth: 0\n", f"fetch-depth: 0\n{addition}", 1)
         with pytest.raises(GlueError, match=message):

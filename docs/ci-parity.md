@@ -87,11 +87,19 @@ canonical JSON.
 
   `ci` uses only their exit status, so their text is left out of the glue.
   Each is represented instead by its **interface**:
-  - the environment names it reads;
+  - the environment names it reads, through `os.environ`, `os.getenv` or
+    `os.path.expandvars`;
   - its imports;
+  - every member it uses of a module that is not pure, such as
+    `os.path.lexists`, `sys.platform` or `shutil.which`. A pure module (`re`,
+    `json`, `hashlib`, `datetime`, `yaml` and the like) cannot reach the
+    environment, the host, the file system or the network, so only its import
+    counts;
+  - the host attributes it reads on an object, such as a file's owner, its
+    times, or its resolved location (`stat`, `st_uid`, `resolve`);
   - the executables it starts;
   - the absolute paths it names;
-  - its file-writing and network calls;
+  - the methods it calls that write files or reach the network;
   - verbatim, every access it cannot name: the environment passed on whole, a
     variable or executable chosen at run time, dynamic imports, `exec`/`eval`,
     `getattr` and similar, and the home directory.
@@ -117,11 +125,16 @@ Every executed program must be one that `ci` and bash read identically:
 - no program contains `${{ }}`, which GitHub substitutes before bash runs;
 - the program parses.
 
-The workflow file must also read the same under any YAML reader. PyYAML follows
-YAML 1.1, where a plain `on` is `true` and `0777` is 511. So every plain scalar
-must be a string, or `true`, `false`, a decimal number or null in its canonical
-spelling; the top-level `on:` key is the one exception. Anchors, aliases and
-explicit tags are refused.
+The workflow file must also read the same under PyYAML as under GitHub's
+workflow parser, because the digests are taken from PyYAML's values:
+- every plain scalar is a string, or `true`, `false`, a decimal number or null
+  in its canonical spelling. PyYAML follows YAML 1.1, where a plain `on` is
+  `true` and `0777` is 511;
+- every mapping key is a string. The top-level `on:` is the one exception:
+  PyYAML reads it as `true`, so a top-level `true:` is refused;
+- no mapping defines a key twice, compared without case. GitHub's parser
+  reports the second as already defined; PyYAML silently keeps the last;
+- no anchor, alias or explicit tag (`!`, `!!str`).
 
 **Templates.** The reviewed glue is every unit of the template pins
 (`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole

@@ -276,9 +276,9 @@ _SUBPROCESS_CALLS = frozenset(
         "startfile",
     }
 )
-# File-system and network calls whose names are unambiguous wherever they
-# appear. Names shared with str, list or dict methods (replace, remove, copy,
-# link) count only when called on an imported module (_MODULE_EFFECT_CALLS).
+# Methods that write files or reach the network, by names no str, list or dict
+# method shares. Module functions need no list: every member of a module that
+# is not pure is recorded by name (ProgramInterface.names).
 _EFFECT_CALLS = frozenset(
     {
         "write_text",
@@ -300,6 +300,8 @@ _EFFECT_CALLS = frozenset(
         "copyfile",
         "copytree",
         "move",
+        "move_into",
+        "copy_into",
         "rmtree",
         "mkstemp",
         "mkdtemp",
@@ -312,7 +314,74 @@ _EFFECT_CALLS = frozenset(
         "create_connection",
     }
 )
-_MODULE_EFFECT_CALLS = frozenset({"replace", "remove", "copy", "link", "truncate"})
+# Modules whose members cannot read the environment, the host, the file
+# system or the network: only their import is part of the interface. Every
+# other module's referenced members are, so a program that starts calling
+# os.path.expandvars, shutil.which or sys.platform changes its interface.
+# datetime is here because the clock is an input ci already fixes (UTC).
+_PURE_MODULES = frozenset(
+    {
+        "abc",
+        "base64",
+        "binascii",
+        "bisect",
+        "collections",
+        "copy",
+        "dataclasses",
+        "datetime",
+        "decimal",
+        "difflib",
+        "enum",
+        "fnmatch",
+        "fractions",
+        "functools",
+        "hashlib",
+        "heapq",
+        "itertools",
+        "json",
+        "math",
+        "numbers",
+        "re",
+        "statistics",
+        "string",
+        "textwrap",
+        "tomllib",
+        "typing",
+        "unicodedata",
+        "yaml",
+    }
+)
+# Attributes that reach the host through an object (a Path, a stat result):
+# who owns a file, when it changed, where the checkout lives. No str, list,
+# dict or re.Match has them (so not `group`), and they are named wherever they
+# appear.
+_HOST_ATTRIBUTES = frozenset(
+    {
+        "stat",
+        "lstat",
+        "owner",
+        "is_mount",
+        "resolve",
+        "absolute",
+        "readlink",
+        "samefile",
+        "st_uid",
+        "st_gid",
+        "st_mode",
+        "st_dev",
+        "st_ino",
+        "st_nlink",
+        "st_mtime",
+        "st_mtime_ns",
+        "st_ctime",
+        "st_ctime_ns",
+        "st_atime",
+        "st_atime_ns",
+        "st_birthtime",
+        "st_birthtime_ns",
+    }
+)
+_EXPANDED_VARIABLE_RE = re.compile(r"\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
 _ENVIRON_NAMES = frozenset({"environ", "environb"})
 _ENVIRON_ACCESSORS = frozenset({"get", "setdefault", "pop", "__getitem__"})
 _GETENV_NAMES = frozenset({"getenv", "getenvb"})
@@ -361,13 +430,15 @@ class ProgramInterface:
     """What an exit-status program reads or changes outside its own text.
 
     ci runs the program unchanged, but supplies its environment and runs it in
-    its own interpreter. A program that starts reading another variable,
-    importing another module, starting another executable, naming another
-    absolute path or writing files through another call needs review even
-    when its step's glue is unchanged. ``opaque`` holds, verbatim, every
-    access the other fields cannot name: the environment passed on whole, a
-    variable or executable chosen at run time, dynamic imports and code,
-    attribute access by name, and the home directory.
+    its own interpreter, on another host. A program that starts reading
+    another variable, importing another module, using another member of a
+    module that is not pure (``names``: ``os.path.expandvars``,
+    ``sys.platform``, ``shutil.which``...), starting another executable,
+    naming another absolute path or writing files through another call needs
+    review even when its step's glue is unchanged. ``opaque`` holds,
+    verbatim, every access the other fields cannot name: the environment
+    passed on whole, a variable or executable chosen at run time, dynamic
+    imports and code, attribute access by name, and the home directory.
 
     The interface guards against an ordinary edit that widens what a program
     reads. It resolves import aliases, but it is not a sandbox: a program
@@ -376,6 +447,7 @@ class ProgramInterface:
 
     environment: tuple[str, ...]
     imports: tuple[str, ...]
+    names: tuple[str, ...]
     executables: tuple[str, ...]
     paths: tuple[str, ...]
     effects: tuple[str, ...]
@@ -391,6 +463,7 @@ class ProgramInterface:
         return {
             "environment": list(self.environment),
             "imports": list(self.imports),
+            "names": list(self.names),
             "executables": list(self.executables),
             "paths": list(self.paths),
             "effects": list(self.effects),
@@ -416,6 +489,7 @@ class _InterfaceVisitor:
     def __init__(self, tree: ast.AST) -> None:
         self.environment: set[str] = set()
         self.imports: set[str] = set()
+        self.names: set[str] = set()
         self.executables: set[str] = set()
         self.paths: set[str] = set()
         self.effects: set[str] = set()
@@ -454,6 +528,39 @@ class _InterfaceVisitor:
                     self.paths.add(node.value)
             elif isinstance(node, ast.Name | ast.Attribute):
                 self._reference(node)
+                self._member(node)
+
+    def _member(self, node: ast.Name | ast.Attribute) -> None:
+        """Record the longest module-rooted name ``node`` completes."""
+
+        parent = self.parents.get(node)
+        if isinstance(parent, ast.Attribute) and parent.value is node:
+            return  # a longer chain contains this one
+        parts: list[str] = []
+        root: ast.AST = node
+        while isinstance(root, ast.Attribute):
+            parts.append(root.attr)
+            root = root.value
+        if (
+            not isinstance(root, ast.Name)
+            or root.id not in self.aliases
+            or not isinstance(root.ctx, ast.Load)
+        ):
+            # Not rooted at an import: an object's attributes cannot be
+            # resolved, but the ones that reach the host are named.
+            self.names.update(
+                f"<object>.{part}" for part in parts if part in _HOST_ATTRIBUTES
+            )
+            return
+        resolved = [*self.aliases[root.id].split("."), *reversed(parts)]
+        if resolved[0] in _PURE_MODULES:
+            return
+        for index, part in enumerate(resolved):
+            if part in _ENVIRON_NAMES:
+                # How the environment is read is the `environment` field's job.
+                resolved = resolved[: index + 1]
+                break
+        self.names.add(".".join(resolved))
 
     def _dotted(self, node: ast.AST) -> tuple[str, bool]:
         """(resolved dotted name, whether its base is an imported module)."""
@@ -489,6 +596,24 @@ class _InterfaceVisitor:
                 self.opaque.add(f"dynamic-environment: {_snippet(call or node)}")
             else:
                 self.environment.add(name)
+        elif leaf == "expandvars":
+            # os.path.expandvars("$NAME") reads the environment by name.
+            template = _constant_name(first) if call is not None else None
+            if template is None:
+                self.environment.add("<dynamic>")
+                self.opaque.add(f"dynamic-environment: {_snippet(call or node)}")
+            else:
+                self.environment.update(
+                    match.group("name")
+                    for match in _EXPANDED_VARIABLE_RE.finditer(template)
+                )
+        elif leaf == "which":
+            program = _constant_name(first) if call is not None else None
+            if program is None:
+                self.executables.add("<dynamic>")
+                self.opaque.add(f"dynamic-executable: {_snippet(call or node)}")
+            else:
+                self.executables.add(f"which:{program}")
         elif leaf in _DYNAMIC_IMPORT_NAMES:
             self.opaque.add(f"dynamic-import: {_snippet(call or node)}")
         elif (
@@ -513,8 +638,17 @@ class _InterfaceVisitor:
                 self.opaque.add(f"dynamic-executable: {_snippet(call or node)}")
             else:
                 self.executables.add(executable)
-        if leaf in _EFFECT_CALLS or (on_module and leaf in _MODULE_EFFECT_CALLS):
-            self.effects.add(dotted if on_module else leaf)
+        if leaf in _EFFECT_CALLS:
+            self.effects.add(leaf)
+        elif call is not None and dotted.startswith("<object>."):
+            # Path.replace(target) and Path.copy(target) share a name with
+            # str.replace(old, new) and dict.copy(); the argument count tells
+            # them apart.
+            # (datetime.replace takes keywords only.)
+            if (leaf == "replace" and len(call.args) == 1 and not call.keywords) or (
+                leaf == "copy" and call.args
+            ):
+                self.effects.add(f"{leaf}({len(call.args)})")
         if leaf in {"open", "fdopen"}:
             self._open(dotted, on_module, call, node)
 
@@ -593,6 +727,7 @@ def program_interface(source: str) -> ProgramInterface:
     return ProgramInterface(
         environment=tuple(sorted(found.environment)),
         imports=tuple(sorted(found.imports)),
+        names=tuple(sorted(found.names)),
         executables=tuple(sorted(found.executables)),
         paths=tuple(sorted(found.paths)),
         effects=tuple(sorted(found.effects)),
@@ -607,10 +742,10 @@ def program_interface(source: str) -> ProgramInterface:
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {
-            ("on" if key is True else str(key)): _jsonable(item)
-            for key, item in value.items()
-        }
+        for key in value:
+            if not isinstance(key, str):
+                raise GlueError(f"mapping key {key!r} is not a string")
+        return {key: _jsonable(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
         return [_jsonable(item) for item in value]
     if value is None or isinstance(value, str | bool | int | float):
@@ -750,15 +885,22 @@ def glue_units(payload: Mapping[str, Any]) -> list[GlueUnit]:
     jobs = payload.get("jobs")
     if not isinstance(jobs, Mapping) or not jobs:
         raise GlueError("the workflow has no jobs")
-    settings = {key: value for key, value in payload.items() if key != "jobs"}
-    trigger_key = "on" if "on" in settings else True
-    trigger = settings.get(trigger_key)
+    settings: dict[str, Any] = {}
+    for key, value in payload.items():
+        if key == "jobs":
+            continue
+        # PyYAML reads the top-level `on:` key as True; no other key may be.
+        name = "on" if key is True else key
+        if name in settings:
+            raise GlueError("the workflow defines `on` twice")
+        settings[name] = value
+    trigger = settings.get("on")
     if isinstance(trigger, Mapping):
         trigger = dict(trigger)
         call = dict(trigger.get("workflow_call") or {})
         call.pop("inputs", None)
         trigger["workflow_call"] = call
-        settings[trigger_key] = trigger
+        settings["on"] = trigger
     workflow_view = {
         "kind": "workflow",
         "settings": settings,
@@ -1697,12 +1839,19 @@ _CORE_SCHEMA_NUMBER_RE = re.compile(
 
 
 def check_portable_yaml(text: str) -> None:
-    """Refuse a workflow whose values depend on the YAML reader.
+    """Refuse a workflow that readers of YAML could understand differently.
 
-    Every plain scalar must be a string, or a boolean, integer, decimal or
-    null spelled the one way all readers agree on; the top-level ``on`` key
-    is the one exception. Anchors, aliases and explicit tags are refused too.
-    Glue digests then mean the same under PyYAML as under GitHub's reader.
+    PyYAML and GitHub's workflow parser are different readers, so a digest of
+    PyYAML's values is a digest of the workflow only if both read it alike:
+
+    - every plain scalar is a string, or a boolean, integer, decimal or null
+      spelled the one way all readers agree on;
+    - every mapping key is a string, except the top-level ``on`` (PyYAML's
+      ``True``; GitHub turns any other non-string key into its text, so a
+      top-level ``true:`` is not ``on:``);
+    - no mapping defines a key twice, compared without case as GitHub's parser
+      does (it reports the second as already defined; PyYAML keeps the last);
+    - no anchor, alias or explicit tag (``!``, ``!!str``...).
     """
 
     try:
@@ -1713,29 +1862,53 @@ def check_portable_yaml(text: str) -> None:
     for event in events:
         if isinstance(event, yaml.AliasEvent) or getattr(event, "anchor", None):
             raise GlueError("the workflow uses a YAML anchor or alias")
-        if isinstance(event, yaml.ScalarEvent):
-            if event.tag is not None and not any(event.implicit):
-                raise GlueError(f"the workflow uses an explicit YAML tag {event.tag}")
-        elif isinstance(event, yaml.CollectionStartEvent):
-            if event.tag is not None and not event.implicit:
-                raise GlueError(f"the workflow uses an explicit YAML tag {event.tag}")
+        if (
+            isinstance(event, yaml.ScalarEvent | yaml.CollectionStartEvent)
+            and event.tag is not None
+        ):
+            raise GlueError(
+                f"line {event.start_mark.line + 1}: the workflow uses an explicit "
+                f"YAML tag {event.tag}"
+            )
     if not isinstance(root, yaml.MappingNode):
         raise GlueError("the workflow is not a mapping")
-    trigger_keys = {id(key) for key, _ in root.value if key.value == "on"}
+    string = "tag:yaml.org,2002:str"
     stack: list[yaml.Node] = [root]
     while stack:
         node = stack.pop()
         if isinstance(node, yaml.MappingNode):
+            defined: set[str] = set()
             for key, value in node.value:
-                stack.extend((key, value))
+                line = key.start_mark.line + 1
+                # A plain scalar's style is None from the Python parser and ""
+                # from libyaml's.
+                trigger = (
+                    node is root
+                    and isinstance(key, yaml.ScalarNode)
+                    and key.value == "on"
+                    and key.style in (None, "")
+                )
+                if not isinstance(key, yaml.ScalarNode) or (
+                    key.tag != string and not trigger
+                ):
+                    raise GlueError(
+                        f"line {line}: mapping key "
+                        f"{getattr(key, 'value', key.tag)!r} is not a string"
+                    )
+                if key.value.upper() in defined:
+                    raise GlueError(
+                        f"line {line}: mapping key {key.value!r} is defined twice"
+                    )
+                defined.add(key.value.upper())
+                if not trigger:
+                    stack.append(key)
+                stack.append(value)
         elif isinstance(node, yaml.SequenceNode):
             stack.extend(node.value)
         elif isinstance(node, yaml.ScalarNode):
-            # A plain scalar's style is None from the Python parser and "" from
-            # libyaml's.
-            if node.style not in (None, "") or id(node) in trigger_keys:
+            if node.style not in (None, ""):
                 continue
-            if node.tag == "tag:yaml.org,2002:str":
+            if node.tag == string:
                 portable = _CORE_SCHEMA_NUMBER_RE.fullmatch(node.value) is None
             else:
                 pattern = _PORTABLE_SCALARS.get(node.tag)
