@@ -30,17 +30,28 @@ from decimal import (
     InvalidOperation,
     localcontext,
 )
-from typing import Any, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
 
-from axiom_encode.harness.proof_validator import _normalize_atom_path
+from axiom_encode.harness.proof_validator import (
+    _normalize_atom_path,
+    _source_proof_evidence_spans,
+)
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.statute import (
     CitationParts,
     normalize_rulespec_path_segment,
     parse_usc_citation,
 )
+
+if TYPE_CHECKING:
+    from axiom_encode.harness.worksheet_composition_evidence import (
+        BoundWorksheetComposition,
+    )
+    from axiom_encode.harness.worksheet_replacement_evidence import (
+        BoundWorksheetReplacement,
+    )
 
 _UNBOUND_FORMULA_DIAGNOSTIC_RULE_LIMIT = 32
 _UNBOUND_FORMULA_DIAGNOSTIC_CASE_LIMIT = 8
@@ -135,6 +146,19 @@ class CompleteSourceUnitAnalysis:
     source_numeric_occurrence_count: int
     covered_source_numeric_occurrence_count: int
     missing_source_numeric_occurrence_count: int
+
+
+@dataclass(frozen=True)
+class _SourceImperativeArithmeticOperation:
+    """A source instruction with raw operands, not resolved RuleSpec values."""
+
+    kind: str
+    start: int
+    end: int
+    first_operand: tuple[int, int]
+    second_operand: tuple[int, int]
+    left_operand: tuple[int, int]
+    right_operand: tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -4519,6 +4543,78 @@ def _without_precomputed_income_table_percentage_captions(source_text: str) -> s
     return "".join(masked)
 
 
+def _imperative_arithmetic_operand_is_numeric(operand: str) -> bool:
+    """Admit quantities and exact row references, never identifier numbers."""
+
+    if re.search(
+        r"\b(?:if|unless|except|when|where|provided|only|and|or|but|then)\b"
+        r"|[,;][ \t]*[A-Za-z]",
+        operand,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if re.fullmatch(
+        r"(?:the[ \t]+amount[ \t]+(?:on|from)[ \t]+)?"
+        r"(?:line|row)[ \t]+[1-9]\d{0,3}",
+        operand.strip(),
+        flags=re.IGNORECASE,
+    ):
+        return True
+    # A trailing "number" can name an identifier, even after a monetary word
+    # ("tax number", "benefit number"). Counts must state what is counted.
+    if re.search(r"\bnumbers?[ \t]*$", operand, flags=re.IGNORECASE):
+        return False
+    if re.search(
+        r"\b(?:telephone|phone|fax|social[ \t]+insurance|account|identification|"
+        r"registration|reference|form|document|application|contact|section|page)"
+        r"[ \t]+numbers?\b",
+        operand,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    return _formula_operand_is_numeric(operand)
+
+
+@functools.lru_cache(maxsize=4096)
+def _source_imperative_arithmetic_operations(
+    source_text: str,
+) -> tuple[_SourceImperativeArithmeticOperation, ...]:
+    """Recognize four complete binary imperatives without truncating context."""
+
+    quoted = _annual_source_quoted_spans(source_text)
+    if quoted is None:
+        return ()
+    operations: list[_SourceImperativeArithmeticOperation] = []
+    pattern = (
+        r"(?:^|(?<=[.;!?]))[ \t\r\n]*"
+        r"(?P<verb>Add|Subtract|Multiply|Divide)[ \t]+"
+        r"(?P<first>(?:\.(?=\d)|[^.;!?\n]){1,160}?)[ \t]+"
+        r"(?P<connector>to|from|by)[ \t]+"
+        r"(?P<second>(?:\.(?=\d)|[^.;!?\n]){1,160}?)[ \t]*"
+        r"(?=\.(?!\d)|[;!?\n]|$)"
+    )
+    connectors = {"add": "to", "subtract": "from", "multiply": "by", "divide": "by"}
+    for match in re.finditer(pattern, source_text, flags=re.IGNORECASE):
+        kind = match.group("verb").lower()
+        if match.group("connector").lower() != connectors[kind]:
+            continue
+        if any(start <= match.start("verb") < end for start, end in quoted):
+            continue
+        if not all(
+            _imperative_arithmetic_operand_is_numeric(match.group(group))
+            for group in ("first", "second")
+        ):
+            continue
+        first, second = match.span("first"), match.span("second")
+        left, right = (second, first) if kind == "subtract" else (first, second)
+        operations.append(
+            _SourceImperativeArithmeticOperation(
+                kind, match.start("verb"), second[1], first, second, left, right
+            )
+        )
+    return tuple(operations)
+
+
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
@@ -4540,6 +4636,7 @@ def source_states_explicit_computation(source_text: str) -> bool:
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
+        or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
         or _ENGLISH_WORDED_PERCENTAGE_OF.search(computation_text)
@@ -4563,6 +4660,7 @@ def _source_states_nonrounding_computation(source_text: str) -> bool:
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
+        or _source_imperative_arithmetic_operations(computation_text)
         or _COMPUTATION_LANGUAGE.search(computation_text)
         or _EXCESS_BOUND_TAX_RATE_LANGUAGE.search(computation_text)
         or _ENGLISH_WORDED_PERCENTAGE_OF.search(computation_text)
@@ -5086,6 +5184,16 @@ def _analyze_rulespec_payload(
     )
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
+    from axiom_encode.harness.worksheet_country_evidence import (
+        certify_worksheet_country,
+    )
+
+    certified_country = certify_worksheet_country(
+        payload,
+        test_cases=test_cases,
+        source_text=source_text,
+        corpus_citation_path=corpus_citation_path,
+    )
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
         source_text=source_text,
@@ -5094,6 +5202,8 @@ def _analyze_rulespec_payload(
         corpus_citation_path=corpus_citation_path,
         certified_paths=certified_paths,
         certified_transfers=certified_transfers,
+        certified_country=certified_country,
+        test_cases=test_cases,
     )
     issues.extend(source_condition_issues)
     from axiom_encode.harness.worksheet_operation_evidence import (
@@ -5114,6 +5224,28 @@ def _analyze_rulespec_payload(
             test_cases=test_cases,
             paths_evidence=certified_paths,
         )
+    )
+
+    from axiom_encode.harness.worksheet_replacement_evidence import (
+        bind_worksheet_replacement,
+    )
+
+    certified_replacement = (
+        bind_worksheet_replacement(
+            payload, test_cases, source_text, source_context, certified_transfers
+        )
+        if not source_condition_issues and certified_transfers is not None
+        else None
+    )
+
+    from axiom_encode.harness.worksheet_composition_evidence import (
+        bind_worksheet_composition,
+    )
+
+    certified_composition = (
+        bind_worksheet_composition(certified_replacement)
+        if certified_replacement is not None
+        else None
     )
 
     for branch in branches:
@@ -5213,6 +5345,7 @@ def _analyze_rulespec_payload(
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
+        source_text=source_text,
         principal_rules=principal_rules,
         principal_rule_paths=principal_rule_paths,
         named_rules=named_rules,
@@ -5308,6 +5441,8 @@ def _analyze_rulespec_payload(
         companion_issues.extend(
             _companion_test_issues(
                 principal_rules,
+                certified_composition=certified_composition,
+                certified_replacement=certified_replacement,
                 represented_annual_spans=represented_annual_spans,
                 certified_paths=certified_paths,
                 certified_operations=certified_operations,
@@ -5558,6 +5693,7 @@ def _source_bound_constant_numeric_occurrences(
 def _principal_formula_clause_rules(
     formula_branches: Sequence[SourceStructureBranch],
     *,
+    source_text: str,
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     named_rules: dict[str, dict[str, Any]],
@@ -5567,7 +5703,8 @@ def _principal_formula_clause_rules(
 
     A direct source path is sufficient when its structural branch contains one
     computation. When several computations share that path, each one needs a
-    source-verbatim proof excerpt on the principal rule that claims it.
+    source-verbatim proof excerpt on the principal rule that claims it. A
+    repeated instruction must be anchored by its own unique source context.
     """
 
     clause_count_by_path: dict[tuple[str, ...], int] = {}
@@ -5576,6 +5713,31 @@ def _principal_formula_clause_rules(
 
     clause_rules: dict[SourceStructureBranch, set[str]] = {}
     normalized_citation_path = corpus_citation_path.strip("/").lower()
+
+    @functools.cache
+    def excerpt_spans(excerpt: str) -> tuple[tuple[int, int], ...]:
+        return _source_proof_evidence_spans(
+            source_text=source_text, evidence_text=excerpt
+        )
+
+    def excerpt_covers_clause(excerpt: str, clause: SourceStructureBranch) -> bool:
+        if not (
+            type(clause.start) is int
+            and type(clause.end) is int
+            and 0 <= clause.start < clause.end <= len(source_text)
+            and source_text[clause.start : clause.end] == clause.text
+        ):
+            return False
+        spans = excerpt_spans(excerpt)
+        if len(spans) != 1:
+            return False
+        start, end = spans[0]
+        body = _strip_source_clause_marker(clause.text)
+        body_start = clause.end - len(body)
+        return (start <= body_start and clause.end <= end) or (
+            body_start <= start and end <= clause.end
+        )
+
     for clause in formula_branches:
         path_rules = set(_rules_covering_branch(clause, principal_rule_paths))
         if clause_count_by_path[clause.path] == 1:
@@ -5610,6 +5772,7 @@ def _principal_formula_clause_rules(
                 and excerpt_citation_path.strip("/").lower() == normalized_citation_path
                 and source_states_explicit_computation(excerpt)
                 and (excerpt_text in clause_text or clause_text in excerpt_text)
+                and excerpt_covers_clause(excerpt, clause)
                 for excerpt_citation_path, excerpt in (
                     _formula_dependency_source_excerpts(
                         principal_rules[rule_name],
@@ -15751,6 +15914,8 @@ def _opaque_same_source_condition_input_issues(
     corpus_citation_path: str,
     certified_transfers: Any = None,
     certified_paths: Any = None,
+    certified_country: Any = None,
+    test_cases: Sequence[object] | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -16157,6 +16322,23 @@ def _opaque_same_source_condition_input_issues(
                     )
                 )
                 for clause in condition_clauses:
+                    if (
+                        certified_country is not None
+                        and not ambiguous
+                        and certified_country.owns_condition(
+                            payload=payload,
+                            test_cases=test_cases,
+                            source_text=source_text,
+                            corpus_citation_path=corpus_citation_path,
+                            owner=rule_name,
+                            version=version_index,
+                            interval_start=start,
+                            interval_end=end,
+                            start=clause.start,
+                            end=clause.end,
+                        )
+                    ):
+                        continue
                     if (
                         certified_paths is not None
                         and not ambiguous
@@ -17094,6 +17276,8 @@ def _companion_test_issues(
     certified_transfers: Any = None,
     certified_paths: Any = None,
     certified_operations: Any = None,
+    certified_replacement: BoundWorksheetReplacement | None = None,
+    certified_composition: BoundWorksheetComposition | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -17165,6 +17349,7 @@ def _companion_test_issues(
     ]
     missing_formula_branches = _unwitnessed_formula_branches(
         formula_branches,
+        certified_replacement=certified_replacement,
         source_text=source_text,
         represented_annual_spans=represented_annual_spans,
         corpus_citation_path=corpus_citation_path,
@@ -17339,6 +17524,8 @@ def _companion_test_issues(
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
+            certified_composition=certified_composition,
+            certified_replacement=certified_replacement,
             certified_paths=certified_paths,
             certified_operations=certified_operations,
             certified_transfers=certified_transfers,
@@ -18061,12 +18248,14 @@ def _unwitnessed_formula_branches(
     formula_environment: dict[str, Any],
     dependency_cache: dict[int, dict[str, Any]],
     execution_cache: dict[tuple[str, int], _FormulaExecution | None],
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Consume each executed rule/case witness for at most one source formula."""
 
     candidate_witnesses = {
         branch: _formula_branch_test_witnesses(
             branch,
+            certified_replacement=certified_replacement,
             source_text=source_text,
             represented_annual_spans=represented_annual_spans,
             corpus_citation_path=corpus_citation_path,
@@ -18289,6 +18478,7 @@ def _formula_branch_test_witnesses(
     source_text: str = "",
     represented_annual_spans: set[tuple[int, int]] | None = None,
     max_cases_per_rule: int | None = None,
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> set[tuple[str, str]]:
     interval = _formula_branch_interval(
         branch,
@@ -18337,6 +18527,7 @@ def _formula_branch_test_witnesses(
             if not _formula_execution_is_source_branch_witness(
                 execution,
                 branch,
+                certified_replacement=certified_replacement,
                 rule=rule,
                 case=case,
                 principal_rules=principal_rules,
@@ -18927,6 +19118,7 @@ def _formula_execution_is_source_branch_witness(
     formula_environment: dict[str, Any],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> bool:
     """Return whether one resolved execution proves the exact source branch."""
 
@@ -18958,6 +19150,13 @@ def _formula_execution_is_source_branch_witness(
         return _formula_execution_matches_source_branch(
             binding_execution,
             branch,
+            source_operation_kinds=(
+                certified_replacement.operation_kinds(
+                    rule=rule, case=case, branch=branch, execution=binding_execution
+                )
+                if certified_replacement is not None
+                else None
+            ),
             interval=interval,
             annual_evidence=annual_evidence,
             formula_environment=formula_environment,
@@ -20171,10 +20370,15 @@ def _formula_execution_matches_source_branch(
     execution_environment: dict[str, Any] | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     numeric_value_is_grounded: NumericGroundingPredicate,
+    source_operation_kinds: frozenset[str] | None = None,
 ) -> bool:
     """Bind a reached leaf to numeric evidence in its exact source formula."""
 
-    source_operations = _formula_operation_kinds(branch.text)
+    source_operations = (
+        set(source_operation_kinds)
+        if source_operation_kinds is not None
+        else _formula_operation_kinds(branch.text)
+    )
     binding_environment = {
         name: value
         for name, value in formula_environment.items()
@@ -20393,8 +20597,9 @@ def _formula_operation_kinds(text: str) -> set[str]:
     # Manual typography is neither division nor multiplication here either.
     # The sentinel, unlike a space, cannot turn the dash of a date range
     # (`10/2025–09/2026`) into a spaced subtraction.
+    imperative_operations = _source_imperative_arithmetic_operations(text)
     text = _without_manual_typography_operators(text)
-    operations: set[str] = set()
+    operations: set[str] = {operation.kind for operation in imperative_operations}
     lowered_text = text.lower()
     arithmetic_text = lowered_text
     operation_patterns = {
@@ -26604,6 +26809,8 @@ def _rounding_source_formula_branches(
 def _unwitnessed_exception_branches(
     exception_branches: Sequence[SourceStructureBranch],
     *,
+    certified_replacement: BoundWorksheetReplacement | None = None,
+    certified_composition: BoundWorksheetComposition | None = None,
     source_text: str = "",
     input_declarations: Mapping[str, dict[str, Any]] | None = None,
     formula_environment: dict[str, Any] | None = None,
@@ -26652,6 +26859,37 @@ def _unwitnessed_exception_branches(
                 )
                 if evidence is not None and evidence.annual_span is not None:
                     represented_annual_spans.add(evidence.annual_span)
+    # Preserve both the legacy candidate map and its allocation above: a new
+    # equality edge must not activate annual/cardinality evidence.
+    augmented_witnesses = candidate_witnesses
+    if certified_replacement is not None:
+        from axiom_encode.harness.worksheet_exception_evidence import existing_witnesses
+
+        augmented_witnesses = {
+            branch: witnesses
+            | existing_witnesses(
+                certified_replacement,
+                branch,
+                toggled_exception_selectors,
+                principal_rules=principal_rules,
+                asserted_by_rule=asserted_by_rule,
+            )
+            for branch, witnesses in candidate_witnesses.items()
+        }
+    if certified_composition is not None:
+        # Tags make mixed evidence sortable without changing existing witness
+        # identity. Every duplicate worksheet obligation competes for one resource.
+        normalized = {
+            branch: {(0, witness) for witness in witnesses}
+            for branch, witnesses in augmented_witnesses.items()
+        }
+        for branch, resources in normalized.items():
+            resource = certified_composition.resource_for(branch, principal_rules)
+            if resource is not None:
+                resources.add((1, resource))
+        missing = _unmatched_evidence_obligations(normalized)
+    elif certified_replacement is not None:
+        missing = _unmatched_evidence_obligations(augmented_witnesses)
     # New operation evidence cannot retroactively authorize annual evidence
     # from an otherwise unmatched legacy witness. Annual activation is separate.
     if certified_paths is not None:
