@@ -44382,6 +44382,86 @@ def test_irs_revenue_procedure_headings_are_not_numeric_obligations(suffix):
     assert "Low-Income Housing Credit." in cleaned
 
 
+def test_fns_fy2026_income_page_two_flattened_table_preserves_all_currency_cells():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    # Exact committed corpus provision body, not a synthetic table excerpt.
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path=citation_path
+    )
+    inventory = EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)
+    grounding = EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR(cleaned)
+    currency_values = {
+        2152,
+        2689,
+        2474,
+        2909,
+        3635,
+        3344,
+        3665,
+        4581,
+        4215,
+        4421,
+        5527,
+        5085,
+        5177,
+        6473,
+        5956,
+        5934,
+        7419,
+        6826,
+        6690,
+        8365,
+        7696,
+        7446,
+        9311,
+        8567,
+        757,
+        946,
+        871,
+    }
+    assert currency_values <= {item.value for item in inventory}
+    assert currency_values <= {item.value for item in grounding}
+    for occurrence in inventory:
+        if occurrence.value in currency_values:
+            assert cleaned[occurrence.start : occurrence.end].replace(",", "").isdigit()
+
+    content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    all_values = tuple(sorted({item.value for item in inventory}))
+    covered = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=all_values,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(covered, "numeric-recall"), covered.issues
+    missing = _analyze(
+        content,
+        source,
+        corpus_citation_path=citation_path,
+        artifact_numeric_values=tuple(value for value in all_values if value != 2474),
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert _has_issue(missing, "numeric-recall", "2474"), missing.issues
+
+
 @pytest.mark.parametrize(
     "source",
     [
@@ -45155,6 +45235,72 @@ def test_precomputed_income_table_captions_are_not_computation():
     # Computation classification must not alter the original numeric inventory.
     assert {100.0, 130.0, 165.0, 1001.0, 2001.0, 3008.0, 200.0, 300.0}.issubset(
         {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(source)}
+    )
+
+
+def test_exact_fns_fy2026_one_line_table_caption_is_not_a_computation():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
+    )
+    assert source_states_explicit_computation(source)
+    assert not source_states_explicit_computation(
+        source, corpus_citation_path=citation_path
+    )
+    assert not completeness_module._source_states_nonrounding_computation(
+        source, corpus_citation_path=citation_path
+    )
+    result = _analyze(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=citation_path,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(result, "formula-output"), result.issues
+    # The computation-only view must never erase the 165% caption or the
+    # published dollar cells from independent source-recall obligations.
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(
+        authoritative_numeric_recall_text(source, corpus_citation_path=citation_path)
+    )
+    assert {165, 2152, 2474, 8567, 871} <= {item.value for item in recalled}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("$8,567", ""),
+        lambda source: source + " The limit is computed as 165% of poverty.",
+    ],
+)
+def test_fns_fy2026_one_line_table_caption_fails_closed_when_changed(mutation):
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_page_2.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = (
+        "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards/page-2"
+    )
+    assert source_states_explicit_computation(
+        mutation(source), corpus_citation_path=citation_path
+    )
+    assert source_states_explicit_computation(
+        source, corpus_citation_path="us/guidance/example/income-table"
     )
 
 
