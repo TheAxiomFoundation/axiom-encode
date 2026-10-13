@@ -9,9 +9,9 @@ RuleSpec US `9f38330fb43ffc693c6295b9a17c8d5d96520ad2`, and Axiom Corpus
 pin or legal effective date changes. `not_comparable` oracle output is **not**
 behavioral parity.
 
-The repository's `oracle-coverage --program snap --json` classifier, run against
-the pinned RuleSpec US commit, finds 103 Arizona executable outputs: five have
-exact PolicyEngine registry mappings and companion tests, while 98 are
+The repository's `oracle-coverage --program snap --json` classifier, rerun against
+the pinned RuleSpec US commit, finds 101 Arizona executable outputs: five have
+exact PolicyEngine registry mappings and companion tests, while 96 are
 `known_not_comparable`. The five mappings cover the ECE FPL rate, three medical
 deduction outputs, and the shelter-deduction income-share rate. A companion
 test is **not** a matched PolicyEngine household comparison; these counts
