@@ -808,8 +808,12 @@ ALIASED_ACCESS = [
         "names",
         "os.replace",
     ),
-    ("from pathlib import Path\nPath('a').replace('b')\n", "effects", "replace(1)"),
-    ("from pathlib import Path\nPath('a').copy('b')\n", "effects", "copy(1)"),
+    (
+        "from pathlib import Path\nPath('a').replace('b')\n",
+        "effects",
+        "replace(target)",
+    ),
+    ("from pathlib import Path\nPath('a').copy('b')\n", "effects", "copy(target)"),
     # Standard APIs that read the environment or the host without `environ`.
     (
         "import os\nx = os.path.expandvars('$GITHUB_BASE_REF/${RUNNER_OS}')\n",
