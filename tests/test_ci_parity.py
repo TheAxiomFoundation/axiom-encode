@@ -45,6 +45,10 @@ from axiom_encode.toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
+from tests.test_ci_parity_92ccb0f2 import (
+    PIN_92CCB0F2,
+    STEP_CONTRACT_SHA256_92CCB0F2,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
@@ -215,6 +219,15 @@ EMBEDDED_STEP_SHA256_BY_PIN = {
             "Reject manual RuleSpec changes",
         ): "360e35f95d3f4bca21754b5b0ce5da7cb631e77bf7d8e833cb8961bc0500033e",
     },
+}
+
+
+# 92ccb0f2's table covers every step; this test checks its gate and
+# resolution steps like the other embedded pins'.
+EMBEDDED_STEP_SHA256_BY_PIN[PIN_92CCB0F2] = {
+    key: digest
+    for key, digest in STEP_CONTRACT_SHA256_92CCB0F2.items()
+    if key[1] in WORKFLOW_GATE_STEPS or key[1] in WORKFLOW_RESOLUTION_STEPS
 }
 
 
