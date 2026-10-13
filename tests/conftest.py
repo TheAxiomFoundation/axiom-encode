@@ -2,6 +2,7 @@
 Pytest fixtures for axiom_encode tests.
 """
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -22,8 +23,37 @@ from axiom_encode import (
     __version__,
 )
 from axiom_encode import signing_broker as _signing_broker
+from tests import ci_shards
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
+
+
+def pytest_collection_modifyitems(config, items):
+    """Keep only this CI shard's tests when ``AXIOM_ENCODE_TEST_SHARD`` is set.
+
+    See ``tests/ci_shards.py``. Without the variable the suite runs whole.
+    """
+    # Taken out of the environment so a pytest that a test starts runs whole.
+    spec = os.environ.pop(ci_shards.SHARD_ENV, None)
+    report_path = os.environ.pop(ci_shards.REPORT_ENV, None)
+    if spec is None:
+        return
+    try:
+        shard, shards = ci_shards.parse_shard(spec)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from error
+    units = [
+        ci_shards.unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
+        for item in items
+    ]
+    keep, report = ci_shards.select(units, shard, shards, ci_shards.load_file_seconds())
+    deselected = [item for item, kept in zip(items, keep, strict=True) if not kept]
+    items[:] = [item for item, kept in zip(items, keep, strict=True) if kept]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    if report_path:
+        with open(report_path, "a", encoding="utf-8") as handle:
+            handle.write(f"shard_{shard}={report}\n")
 
 
 @pytest.fixture(autouse=True)

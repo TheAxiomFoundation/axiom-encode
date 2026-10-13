@@ -10,11 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  # The suite, split across parallel shards. tests/ci_shards.py assigns every
+  # test function to exactly one shard; the test-gate job below checks it.
   test:
+    name: test shard ${{ matrix.shard }} of 8 (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.13"]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    outputs:
+      shard_1: ${{ steps.tests.outputs.shard_1 }}
+      shard_2: ${{ steps.tests.outputs.shard_2 }}
+      shard_3: ${{ steps.tests.outputs.shard_3 }}
+      shard_4: ${{ steps.tests.outputs.shard_4 }}
+      shard_5: ${{ steps.tests.outputs.shard_5 }}
+      shard_6: ${{ steps.tests.outputs.shard_6 }}
+      shard_7: ${{ steps.tests.outputs.shard_7 }}
+      shard_8: ${{ steps.tests.outputs.shard_8 }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -43,7 +57,45 @@ jobs:
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
       - name: Run tests
-        run: .venv/bin/pytest tests/
+        id: tests
+        env:
+          AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
+        run: |
+          export AXIOM_ENCODE_TEST_SHARD_REPORT="$GITHUB_OUTPUT"
+          .venv/bin/pytest --durations=25 tests/
+
+  # Branch protection requires the check named "test (3.13)". It passes only
+  # when every shard passed and their reports show that together they ran the
+  # whole suite: all shards collected the same tests, and the tests they kept
+  # add up to the tests collected. `always()` keeps a failed or cancelled shard
+  # from turning this job into a skipped (and so passing) check.
+  test-gate:
+    name: test (3.13)
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check every shard passed and the shards cover the suite
+        env:
+          SHARDS_RESULT: ${{ needs.test.result }}
+          SHARD_1: ${{ needs.test.outputs.shard_1 }}
+          SHARD_2: ${{ needs.test.outputs.shard_2 }}
+          SHARD_3: ${{ needs.test.outputs.shard_3 }}
+          SHARD_4: ${{ needs.test.outputs.shard_4 }}
+          SHARD_5: ${{ needs.test.outputs.shard_5 }}
+          SHARD_6: ${{ needs.test.outputs.shard_6 }}
+          SHARD_7: ${{ needs.test.outputs.shard_7 }}
+          SHARD_8: ${{ needs.test.outputs.shard_8 }}
+        run: |
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "error: the test shards finished as '$SHARDS_RESULT'" >&2
+            exit 1
+          fi
+          python3 -I tests/ci_shards.py check \
+            "$SHARD_1" "$SHARD_2" "$SHARD_3" "$SHARD_4" \
+            "$SHARD_5" "$SHARD_6" "$SHARD_7" "$SHARD_8"
 
   lint:
     runs-on: ubuntu-latest
