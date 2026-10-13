@@ -1,3 +1,7 @@
+## 0.2.2179
+
+- Match worksheet formula proofs to independently recognized chart headings without treating a printed chart identifier as a formula operand. Preserve exact source coordinates, unique excerpt ownership and numeric proof boundaries.
+
 ## 0.2.2177
 
 - Bind formula proof excerpts to their unique authoritative source locations. Keep repeated worksheet instructions attached to their own context, preserve proof boundaries and raw coordinates, and reject ambiguous overlapping excerpts.
