@@ -220,9 +220,11 @@ from .harness.evals import (
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
     _git_checkout_execution_identity,
+    _github_repository_identity,
     _load_eval_suite_resume_state,
     _open_secure_eval_parent,
     _preserves_companion_test_cases,
+    _read_only_git_environment,
     _render_eval_result_verdict_evidence,
     _resolve_eval_output_path,
     _rulespec_root_execution_identity,
@@ -932,8 +934,8 @@ def _add_expected_encoder_checkout_argument(
         type=Path,
         default=None,
         help=(
-            "Clean axiom-encode checkout whose HEAD identity must match manifests "
-            "and the running package version"
+            "Clean pinned axiom-encode checkout matching the running package version; "
+            "its complete main history proves admission of newer signed producers"
         ),
     )
 
@@ -23047,14 +23049,11 @@ def _model_apply_validation_execution_issues(
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
     encoder = execution.get("axiom_encode")
-    # identity_source is informational and may differ between the writing mode
-    # and the verifying mode, so bind on repository + commit + version only.
-    if _encoder_identity_binding_core(encoder) != _encoder_identity_binding_core(
-        dict(expected_encoder_identity)
-    ):
-        issues.append(
-            f"{prefix}.axiom_encode does not match the running pinned encoder"
-        )
+    producer_issue = _encoder_producer_admission_issue(
+        encoder, expected_encoder_identity
+    )
+    if producer_issue:
+        issues.append(f"{prefix}.axiom_encode {producer_issue}")
     payload_encoder = payload.get("axiom_encode_git")
     if isinstance(encoder, dict) and isinstance(payload_encoder, dict):
         if encoder.get("commit") != payload_encoder.get("commit"):
@@ -23194,6 +23193,29 @@ def _applied_manifest_tool_execution_issues(
     backend = payload.get("backend")
     tool = payload.get("tool")
     issues: list[str] = []
+
+    def check_producer(contract: str) -> None:
+        provenance = payload.get("axiom_encode_git")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("dirty_tracked") is not False
+        ):
+            issues.append(
+                f"{manifest_label} {contract} does not match the running pinned encoder: "
+                "producer provenance must be clean"
+            )
+            return
+        producer_issue = _encoder_producer_admission_issue(
+            {
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": provenance.get("commit"),
+                "version": provenance.get("version"),
+            },
+            expected_encoder_identity,
+        )
+        if producer_issue:
+            issues.append(f"{manifest_label} {contract} {producer_issue}")
+
     if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         if tool != APPLIED_ENCODING_MODEL_TOOL:
             issues.append(
@@ -23212,16 +23234,7 @@ def _applied_manifest_tool_execution_issues(
             or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
         ):
             issues.append(f"{manifest_label} reviewed RuleSpec ref is invalid")
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} reviewed candidate promotion does not match "
-                "the running pinned encoder"
-            )
+        check_producer("reviewed candidate promotion")
         if "deterministic_execution" in payload:
             issues.append(
                 f"{manifest_label} reviewed candidate promotion must carry "
@@ -23248,16 +23261,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} exact dependent migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} exact dependent migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("exact dependent migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -23290,16 +23294,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} retained successor migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} retained successor migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("retained successor migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL:
             replacement_manifest = payload.get("replacement_manifest")
@@ -23323,16 +23318,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} legacy replacement must preserve nested model "
                     "provenance instead of claiming deterministic generation"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} legacy replacement does not match the "
-                    "running pinned encoder"
-                )
+            check_producer("legacy replacement")
             return issues
         if tool == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -23365,16 +23351,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} path migration must preserve prior provenance "
                     "instead of claiming new execution"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} path migration does not match the running "
-                    "pinned encoder"
-                )
+            check_producer("path migration")
             return issues
         if tool != APPLIED_ENCODING_RETIRE_TOOL or not isinstance(applied_files, list):
             issues.append(f"{manifest_label} has no allowlisted tool/backend contract")
@@ -23399,15 +23376,7 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} retire tool must preserve prior provenance instead "
                 "of claiming new execution"
             )
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} retirement does not match the running pinned encoder"
-            )
+        check_producer("retirement")
         return issues
     issues.append(f"{manifest_label} backend is not canonical")
     return issues
@@ -27382,12 +27351,14 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
 def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            [shutil.which("git") or "git", "-C", str(repo), "show", f"{ref}:{path}"],
             capture_output=True,
             check=True,
             text=True,
+            timeout=30,
+            env=_read_only_git_environment(),
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
 
 
@@ -27496,12 +27467,228 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
     return provenance
 
 
+class _GuardEncoderIdentity(dict[str, str]):
+    """Portable pin identity with verifier-owned, out-of-band Git context.
+
+    The mapping remains the existing repository/commit/version record. Keeping
+    the checkout out of its keys prevents paths from entering signed records or
+    census reports, and prevents a manifest from choosing its own history. Each
+    resolver creates a fresh instance for one guard operation. Historical nested
+    identities remain plain mappings and retain their existing exact binding.
+    """
+
+    def __init__(
+        self,
+        identity: Mapping[str, str],
+        *,
+        history_checkout: Path | None,
+    ) -> None:
+        super().__init__(identity)
+        self.history_checkout = history_checkout
+        self.producer_admission_cache: dict[tuple[str, str], str | None] = {}
+
+
+def _encoder_producer_admission_issue(
+    producer: object,
+    expected_encoder_identity: Mapping[str, str],
+) -> str | None:
+    """Admit an exact pin or a signed producer on newer first-parent main.
+
+    Called only after production-signature verification by the manifest loader.
+    Versions still bind the exact identity and the manifest's internal blocks;
+    they never establish ordering between different commits.
+    """
+
+    mismatch = "does not match the running pinned encoder"
+    core = _encoder_identity_binding_core(producer)
+    expected = _encoder_identity_binding_core(dict(expected_encoder_identity))
+    if core == expected:
+        return None
+    if (
+        not isinstance(core, dict)
+        or set(core) != {"repository", "commit", "version"}
+        or core.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or expected.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or not isinstance(core.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", core["commit"]) is None
+        or not isinstance(expected.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", expected["commit"]) is None
+        or not isinstance(core.get("version"), str)
+        or not core["version"]
+    ):
+        return f"{mismatch}: producer identity is malformed"
+    if core["commit"] == expected["commit"]:
+        return f"{mismatch}: the pinned commit's version disagrees"
+    if (
+        not isinstance(expected_encoder_identity, _GuardEncoderIdentity)
+        or expected_encoder_identity.history_checkout is None
+    ):
+        return f"{mismatch}: encoder history is unavailable to prove producer ancestry"
+
+    cache_key = (expected["commit"], core["commit"])
+    cache = expected_encoder_identity.producer_admission_cache
+    if cache_key not in cache:
+        cache[cache_key] = _encoder_git_history_admission_issue(
+            expected_encoder_identity.history_checkout,
+            pin=expected["commit"],
+            producer=core["commit"],
+        )
+    history_issue = cache[cache_key]
+    return f"{mismatch}: {history_issue}" if history_issue else None
+
+
+def _guard_encoder_git_run(
+    checkout: Path, *args: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            shutil.which("git") or "git",
+            "--no-replace-objects",
+            "-c",
+            "core.commitGraph=false",
+            "-C",
+            str(checkout),
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_read_only_git_environment(),
+    )
+
+
+def _guard_encoder_git_metadata_issue(checkout: Path) -> str | None:
+    """Refuse graph-rewriting metadata, including shared worktree metadata."""
+
+    try:
+        graft_path = _guard_encoder_git_run(
+            checkout, "rev-parse", "--path-format=absolute", "--git-common-dir"
+        )
+        if graft_path.returncode != 0 or not graft_path.stdout.strip():
+            return "encoder Git metadata is unavailable: git rev-parse failed"
+        # --git-path info/grafts follows GIT_GRAFT_FILE=/dev/null; inspect the
+        # common directory directly so the neutralizer cannot hide metadata.
+        grafts = Path(graft_path.stdout.strip()) / "info/grafts"
+        if grafts.exists() or grafts.is_symlink():
+            return "encoder history contains forbidden graft metadata"
+        replacements = _guard_encoder_git_run(
+            checkout, "for-each-ref", "--format=%(refname)", "refs/replace/"
+        )
+        if replacements.returncode != 0:
+            return "encoder Git metadata is unavailable: git for-each-ref failed"
+        if replacements.stdout.strip():
+            return "encoder history contains forbidden replacement refs"
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        return f"cannot verify encoder Git metadata: {exc}"
+    return None
+
+
+def _encoder_git_history_admission_issue(
+    checkout: Path,
+    *,
+    pin: str,
+    producer: str,
+) -> str | None:
+    """Prove ancestry using complete, already fetched canonical main history."""
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return _guard_encoder_git_run(checkout, *args)
+
+    def require_success(*args: str) -> str:
+        result = run(*args)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"encoder history is unavailable: git {args[0]} exited {result.returncode}"
+            )
+        return result.stdout.strip()
+
+    try:
+        metadata_issue = _guard_encoder_git_metadata_issue(checkout)
+        if metadata_issue:
+            return metadata_issue
+        shallow = require_success("rev-parse", "--is-shallow-repository")
+        if shallow != "false":
+            return (
+                "encoder history is shallow or unavailable; fetch complete main history"
+            )
+        for label, commit in (("pin", pin), ("producer", producer)):
+            if (
+                require_success("rev-parse", "--verify", f"{commit}^{{commit}}")
+                != commit
+            ):
+                return f"encoder history does not contain the {label} commit"
+
+        # FETCH_HEAD is a Git-written fetch record, not a ref that can redirect
+        # to another branch. Callers authenticate its source and freshness.
+        # Keep Git paths lexical: absolute path formatting resolves filesystem
+        # symlinks before the no-follow checks can inspect them.
+        fetch_head = checkout / require_success("rev-parse", "--git-path", "FETCH_HEAD")
+        if fetch_head.is_symlink():
+            return "encoder fetched main record must not be symbolic"
+        try:
+            fetch_head.lstat()
+        except FileNotFoundError:
+            fetched = None
+        else:
+            raw, _metadata = _read_bounded_nofollow_regular_file(
+                fetch_head,
+                label="encoder fetched main record",
+                max_bytes=4096,
+                require_private=False,
+            )
+            fetched = raw.decode("utf-8")
+        if fetched is not None:
+            record = re.fullmatch(
+                r"([0-9a-f]{40})\t(?:not-for-merge)?\tbranch 'main' of ([^\n]+)\n?",
+                fetched,
+            )
+            if (
+                record is None
+                or _github_repository_identity(record[2])
+                != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+            ):
+                return (
+                    "encoder fetched main record is ambiguous or is not official main"
+                )
+            main_ref, main_commit = "FETCH_HEAD", record[1]
+        else:
+            main_ref = "refs/heads/main"
+            main_path = checkout / require_success("rev-parse", "--git-path", main_ref)
+            if main_path.is_symlink():
+                return "encoder canonical main ref must not be a filesystem symlink"
+            symbolic = run("symbolic-ref", "--quiet", main_ref)
+            if symbolic.returncode == 0:
+                return "encoder canonical main ref must not be symbolic"
+            if symbolic.returncode != 1:
+                return "encoder history is unavailable: git symbolic-ref failed"
+            main_commit = require_success("show-ref", "--verify", "--hash", main_ref)
+        if (
+            require_success("rev-parse", "--verify", f"{main_commit}^{{commit}}")
+            != main_commit
+        ):
+            return "encoder main history does not identify a direct commit"
+        first_parent_main = require_success("rev-list", "--first-parent", main_commit)
+        if producer not in first_parent_main.splitlines():
+            return f"producer is not on the first-parent history of {main_ref}"
+        ancestry = run("merge-base", "--is-ancestor", pin, producer)
+        if ancestry.returncode == 1:
+            return "the pinned encoder commit is not an ancestor of the producer"
+        if ancestry.returncode != 0:
+            return (
+                "encoder history is unavailable: git merge-base exited "
+                f"{ancestry.returncode}"
+            )
+    except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
+        return f"cannot prove encoder producer ancestry: {exc}"
+    return None
+
+
 def _current_guard_encoder_execution_identity() -> dict[str, str]:
     """Return the clean official encoder identity executing this guard/writer.
 
     This is deliberately derived from the running checkout rather than from a
-    manifest claim.  It makes every accepted apply manifest specific to the
-    exact encoder commit and version pinned by the consumer workflow.
+    manifest claim. Git-backed identities also carry the checkout needed to
+    prove whether a signed producer descends from the consumer workflow's pin.
     """
 
     try:
@@ -27538,6 +27725,9 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     repo_root = checkout_identity.get("path")
     if not isinstance(repo_root, str):
         raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    metadata_issue = _guard_encoder_git_metadata_issue(Path(repo_root))
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
@@ -27546,11 +27736,14 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             "running axiom-encode version does not match pyproject.toml, "
             "src/axiom_encode/__init__.py, and uv.lock at HEAD"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": __version__,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": __version__,
+        },
+        history_checkout=Path(repo_root),
+    )
 
 
 def _read_only_guard_encoder_execution_identity(
@@ -27578,6 +27771,9 @@ def _read_only_guard_encoder_execution_identity(
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
+    metadata_issue = _guard_encoder_git_metadata_issue(repo_root)
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
     checkout_version = versions.get("pyproject")
     if not checkout_version or any(
@@ -27592,11 +27788,14 @@ def _read_only_guard_encoder_execution_identity(
             f"provisioned runtime version {__version__} does not match expected "
             f"encoder checkout version {checkout_version}"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": checkout_version,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": checkout_version,
+        },
+        history_checkout=repo_root,
+    )
 
 
 # =========================================================================

@@ -3779,6 +3779,29 @@ def _deterministic_tree_identity(
     }
 
 
+def _read_only_git_environment() -> dict[str, str]:
+    """Keep private child isolation and use only the checkout's real Git graph."""
+
+    environment = {
+        key: value
+        for key, value in scrub_attestation_signing_keys().items()
+        if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return environment
+
+
 def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
     """Return git stdout for one read-only identity query, if available."""
 
@@ -3790,9 +3813,10 @@ def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
             [git_executable, "-C", str(checkout), *args],
             check=False,
             capture_output=True,
-            env=scrub_attestation_signing_keys(),
+            env=_read_only_git_environment(),
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:
         return None
