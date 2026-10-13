@@ -453,6 +453,37 @@ def test_finite_but_preserves_both_identification_exception_requirements(source)
         )
         == 50
     )
+    inputs = [
+        {"name": name, "dtype": "Boolean", "description": name.replace("_", " ")}
+        for name in names
+    ] + [{"name": "credit_amount", "dtype": "Money"}]
+    complete_rule = _rule("conditional_credit", formula, source)
+    assert not _condition_issues(source, [complete_rule], inputs)
+    for omitted_formula in (
+        f"if {names[1]}: credit_amount else: 0",
+        f"if not {names[0]}: credit_amount else: 0",
+    ):
+        omitted_rule = _rule("conditional_credit", omitted_formula, source)
+        assert _condition_issues(source, [omitted_rule], inputs)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "If the taxpayer is resident, the credit applies but the spouse is blind.",
+        "A credit applies if the taxpayer is resident, the refund is paid but the spouse is blind.",
+        "A credit applies if the taxpayer is guardian of a child who is resident but is blind.",
+        "A credit applies if the taxpayer is aware that the spouse is resident but is blind.",
+        'A credit applies if the taxpayer is told "the spouse is resident but is blind".',
+        "A credit applies if representative of taxpayer is blind but is resident.",
+        "A credit applies if the taxpayer is resident or the spouse is blind but is disabled.",
+        "A credit applies if the taxpayer is resident but is blind or disabled.",
+        "A credit applies if the taxpayer is resident but for the spouse's blindness.",
+        "A credit applies if the taxpayer is resident but may elect to receive cash.",
+    ],
+)
+def test_finite_but_does_not_promote_results_alternatives_or_nested_referents(source):
+    assert sc._source_conjunctive_fact_gates(source) == ()
 
 
 @settings(max_examples=30, deadline=None)

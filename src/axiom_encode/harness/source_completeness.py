@@ -14628,6 +14628,12 @@ def _source_gate_split_conjunctive_conditions(
             (match, "and")
             for match in _source_gate_restrictive_human_relative_boundaries(line)
         )
+        boundaries.extend(
+            (match, "and")
+            for match in _source_gate_finite_but_boundaries(
+                line, has_preposed_result=has_preposed_result
+            )
+        )
         for match, next_connector in sorted(
             boundaries, key=lambda boundary: boundary[0].start()
         ):
@@ -14636,6 +14642,89 @@ def _source_gate_split_conjunctive_conditions(
             prior_end = match.end()
         segments.append((connector, line[prior_end:]))
     return segments
+
+
+def _source_gate_finite_but_boundaries(
+    text: str,
+    *,
+    has_preposed_result: bool,
+) -> tuple[re.Match[str], ...]:
+    """Preserve two finite antecedent facts joined by contrastive ``but``."""
+
+    if re.search(r"\bbut\b", text, re.IGNORECASE) is None:
+        return ()
+    modifiers = (
+        r"(?:[A-Za-z]+ly|ever|never|always|still|already|also|yet|just|even|not)"
+    )
+    finite = (
+        r"(?:is|are|was|were|has|have|had|does|do|did|"
+        r"elects?|elected|files?|filed|owns?|owned|works?|worked|"
+        r"lives?|lived|resides?|resided|receives?|received|earns?|earned|"
+        r"supports?|supported|qualifies|qualify|qualified|meets?|"
+        r"exceeds?|exceeded|attains?|attained)"
+    )
+    subject = (
+        r"(?:(?:the|an?|each|any|such|same|this|that)\s+)?"
+        r"(?:(?!(?:of|for|with|from|to|by|under|in|on|at|or)\b)"
+        r"[A-Za-z]+\s+){0,2}"
+        rf"(?:{_SOURCE_GATE_ENTITY_PATTERN}|he|she|they|it)\s+"
+    )
+    head = re.compile(
+        rf"^\s*(?P<subject>{subject})(?:{modifiers}\s+)*{finite}\b",
+        re.IGNORECASE,
+    )
+    continuation = re.compile(
+        rf"^\s*(?:{subject})?(?:{modifiers}\s+)*{finite}\b", re.IGNORECASE
+    )
+    masked = _source_gate_mask_citation_punctuation(text)
+    boundaries: list[re.Match[str]] = []
+    for match in re.finditer(r"\bbut\b", text, re.IGNORECASE):
+        prefix = re.split(
+            r"[;.!?:]|\b(?:and|nor)\b", masked[: match.start()], flags=re.I
+        )[-1]
+        # A prior comma may introduce the result rather than another fact.
+        # Admit a punctuation comma directly before ``but`` only when the
+        # operative result already precedes the conditional cue.
+        if "," in prefix:
+            if not has_preposed_result or not re.fullmatch(r"[^,]+,\s*", prefix):
+                continue
+            prefix = prefix.rstrip(" ,")
+        owning_head = head.match(prefix)
+        if owning_head is None or re.search(
+            r"[\"“”]|\b(?:or|who|whose|which|that|where|when|except|unless|but)\b",
+            prefix[owning_head.end() :],
+            re.I,
+        ):
+            continue
+        suffix = re.split(r"[,;.!?:]", masked[match.end() :], maxsplit=1)[0]
+        # ``he or she`` denotes the same individual, rather than alternative
+        # eligibility facts. Other choices need their existing conservative
+        # treatment, including choices inside a nested predicate.
+        choices = re.sub(
+            r"\b(?:he\s+or\s+she|she\s+or\s+he)\b", "they", suffix, flags=re.I
+        )
+        if continuation.match(suffix) is None or re.search(r"\bor\b", choices, re.I):
+            continue
+        parts = (prefix, suffix)
+        if all(
+            (
+                predicates := _source_gate_semantic_tokens(part)
+                - _SOURCE_GATE_ENTITIES
+                - _SOURCE_GATE_SUBJECT_PRONOUNS
+            )
+            and (
+                _SOURCE_GATE_PREDICATE_LANGUAGE.search(part)
+                or predicates
+                & (
+                    _SOURCE_GATE_NOMINAL_PREDICATES
+                    | _SOURCE_GATE_POLARITY_PREDICATES
+                    | _SOURCE_GATE_UNKNOWN_POLARITY_PREDICATES
+                )
+            )
+            for part in parts
+        ):
+            boundaries.append(match)
+    return tuple(boundaries)
 
 
 def _source_gate_restrictive_human_relative_boundaries(
