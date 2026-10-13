@@ -132,7 +132,8 @@ Python. The scripts cover:
   retains the receipt for a verified-pin build. The original checkout is never
   built in or modified.
 - **Dependency layout.** Before `92ccb0f2`, CI checks the dependencies out
-  under `_axiom/` in the rules checkout, and `ci` links them there. From
+  under `_axiom/` in the rules checkout; `ci` leaves `_axiom/` absent (see
+  "Writes" under "Trust boundary") and links only the siblings. From
   `92ccb0f2` on, "Reserve isolated dependency directories" makes an exclusive
   `.axiom-dependency-stage.XXXXXXXX` directory in the workspace, which stays
   there empty once every checkout is moved out, and an exclusive

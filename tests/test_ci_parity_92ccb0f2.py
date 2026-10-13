@@ -1862,3 +1862,48 @@ def test_pinned_scripts_refuse_entries_ci_would_materialize_differently(
 
     with pytest.raises(ValueError, match="non-regular scripts/ entry .* 120000"):
         ci_parity._write_pinned_tree(encode, pin, "scripts", tmp_path / "out")
+
+
+def test_isolated_layout_leaves_no_symlink_in_the_active_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 92ccb0f2 counterpart of #1709's attempt-10 regression: the pinned
+    encoder refuses an active RuleSpec checkout that holds any symlink, so
+    the stage directory, the dependency-root entries, the sibling links and
+    the classifier must all leave the rules checkout link-free."""
+
+    from axiom_encode.harness.validator_pipeline import (
+        _reject_rulespec_checkout_symlinks,
+    )
+
+    repo = gates._repo(
+        tmp_path, {"us/statutes/a.yaml": gates.PLAIN}, name="rulespec-us-tn"
+    )
+    run = gates._run(repo, tmp_path, sha=PIN_92CCB0F2, plan=gates._plan("us"))
+    run.mode = "changed"
+    run.paths = _dependency_paths(tmp_path)
+    (run.paths["encode"] / "pyproject.toml").write_text("[project]\nname='x'\n")
+    runner_temp = (tmp_path / "runner-temp-root").resolve()
+    runner_temp.mkdir()
+    run.layout = isolated_dependency_layout(run.workflow, repo, runner_temp)
+    ci_parity._link_workflow_checkouts(repo, run.paths, run.layout)
+
+    def fake_run(command, **_kwargs):
+        if command[:2] == ["uv", "venv"]:
+            (Path(command[-1]) / "bin").mkdir(parents=True)
+            (Path(command[-1]) / "bin" / "python").write_text("")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(ci_parity.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        ci_parity,
+        "_python_build_of",
+        lambda python, environment: run.caller.inputs["python-version"],
+        raising=False,
+    )
+    ci_parity._repository_test_python(run)
+
+    _reject_rulespec_checkout_symlinks(repo, label="active RuleSpec checkout")
+    assert (repo / run.layout.stage).is_dir()
+    assert not (repo / "_axiom").exists()
+    assert (run.layout.root / "axiom-encode-oracle-coverage").is_symlink()
