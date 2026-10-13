@@ -21677,6 +21677,87 @@ rules: []
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_repairs_source_verification_values_reported_by_overlay(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.metrics = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[],
+            ci_pass=False,
+            ci_issues=[],
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            embedded_source_present=True,
+            grounding=[],
+            numeric_occurrence_issues=[],
+            generalist_review_pass=None,
+            generalist_review_score=None,
+            generalist_review_issues=[],
+            policyengine_pass=None,
+            policyengine_score=None,
+            policyengine_issues=[],
+        )
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+    source_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    values:
+      earned_income_deduction_rate: 0.2
+  summary: SNAP earned income deduction.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        issue = (
+            "regulations/7-cfr/273/10.yaml: compile: Axiom rules engine compile "
+            "failed: yaml parse error: module.source_verification: unknown field "
+            "`values`, expected one of `corpus_citation_path`, `source_sha256`, "
+            "`upstream_source_check` at line 21 column 5"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert (
+            "values"
+            not in yaml.safe_load(output_file.read_text())["module"][
+                "source_verification"
+            ]
+        )
+        assert (
+            "apply=auto_repaired_invalid_source_verification_values:"
+            "module.source_verification.values" in capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
     def test_source_verification_values_repair_requires_exact_engine_schema_error(
         self, tmp_path
     ):

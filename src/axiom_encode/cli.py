@@ -32332,6 +32332,34 @@ def _run_encode_attempt(
             )
             outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_invalid_source_verification_values = (
+                    _try_repair_generated_invalid_source_verification_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_invalid_source_verification_values:
+                    outcome["auto_repaired_invalid_source_verification_values"] = (
+                        repaired_invalid_source_verification_values
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_source_verification_values:"
+                        + ",".join(repaired_invalid_source_verification_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_source_relation_types = (
                     _try_repair_generated_invalid_source_relation_types_for_apply(
                         result,

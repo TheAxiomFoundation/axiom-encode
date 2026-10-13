@@ -12590,7 +12590,7 @@ def _reason_names_source_bound_runtime_gap(
     path: tuple[str, ...],
     corpus_citation_path: str,
 ) -> bool:
-    """Accept a concrete runtime gap anchored to the exact current statute branch."""
+    """Accept a concrete runtime gap anchored to the exact current legal branch."""
 
     if (
         not path
@@ -12605,7 +12605,9 @@ def _reason_names_source_bound_runtime_gap(
     citation_parts = [
         part for part in corpus_citation_path.strip("/").split("/") if part
     ]
-    if len(citation_parts) < 3 or citation_parts[1] != "statute":
+    if len(citation_parts) < 3 or not (
+        citation_parts[1] == "statute" or citation_parts[:2] == ["us", "regulation"]
+    ):
         return False
     if not _reason_cites_exact_current_statute_branch(
         reason,

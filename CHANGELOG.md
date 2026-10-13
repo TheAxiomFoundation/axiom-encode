@@ -1,3 +1,11 @@
+## 0.2.2183
+
+- Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
+
+## 0.2.2182
+
+- Clarify source-bound canonical CFR branch citations for complete-source deferrals and record this encoder behavior after the SNAP source-check parent merge.
+
 ## 0.2.2181
 
 - Record the completed SNAP table source-check changes behind a fresh encoder version and align version-locked oracle tests with that provenance.
