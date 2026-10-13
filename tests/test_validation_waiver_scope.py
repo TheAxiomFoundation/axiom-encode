@@ -104,10 +104,12 @@ def test_inert_docs_and_empty_changes_select_nothing(tmp_path: Path, changed: se
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/one.yaml"
     _module(root, path)
+    for relative in changed:
+        document = root / relative
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text("# Documentation\n", encoding="utf-8")
 
-    selection = select_validation_waiver_scope(
-        [path], root=root, changed_paths=changed
-    )
+    selection = select_validation_waiver_scope([path], root=root, changed_paths=changed)
 
     assert selection.scope == "incremental"
     assert selection.paths == ()
@@ -198,6 +200,9 @@ def test_disjoint_and_absent_execution_inputs_preserve_inert_document_selection(
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/waived.yaml"
     _module(root, path)
+    document = root / "docs/guide.md"
+    document.parent.mkdir()
+    document.write_text("# Documentation\n", encoding="utf-8")
 
     selection = select_validation_waiver_scope(
         [path],
@@ -262,7 +267,9 @@ def test_markdown_hardlink_to_external_execution_input_falls_back(tmp_path: Path
 
     assert selection.scope == "full"
     assert selection.paths == (path,)
-    assert selection.fallback_reason == f"changed path has multiple hard links: {changed}"
+    assert (
+        selection.fallback_reason == f"changed path has multiple hard links: {changed}"
+    )
 
 
 def test_changed_module_selects_its_jurisdiction_but_not_sibling(tmp_path: Path):
@@ -285,7 +292,7 @@ def test_changed_module_selects_its_jurisdiction_but_not_sibling(tmp_path: Path)
 
 
 @pytest.mark.parametrize("present", [True, False])
-def test_companion_presence_and_deletion_select_its_module_only(
+def test_companion_presence_selects_its_module_and_deletion_falls_back(
     tmp_path: Path, present: bool
 ):
     root = tmp_path / "rulespec-us"
@@ -294,17 +301,24 @@ def test_companion_presence_and_deletion_select_its_module_only(
     _module(root, path)
     _module(root, peer)
     companion = "us-ca/statutes/one.test.yaml"
-    if present:
-        (root / companion).write_text("cases: []\n", encoding="utf-8")
+    (root / companion).write_text("cases: []\n", encoding="utf-8")
+    if not present:
+        (root / companion).unlink()
 
     assert companion in validation_waiver_read_set(path, root=root)
     selection = select_validation_waiver_scope(
         [path, peer], root=root, changed_paths={companion}
     )
 
-    assert selection.scope == "incremental"
-    assert selection.paths == (path,)
-    assert companion in "; ".join(selection.reasons[path])
+    if present:
+        assert selection.scope == "incremental"
+        assert selection.paths == (path,)
+        assert companion in "; ".join(selection.reasons[path])
+    else:
+        assert selection.scope == "full"
+        assert selection.paths == (path, peer)
+        assert companion in selection.fallback_reason
+        assert set(selection.reasons) == {path, peer}
 
 
 @pytest.mark.parametrize(
@@ -329,8 +343,7 @@ def test_companion_references_include_unimported_module_candidates(
         "input": f"  input:\n    {target}#input.amount: 1\n",
         "relation": f"  input:\n    {target}#relation.members: []\n",
         "nested_table": (
-            "  tables:\n    Household:\n      - "
-            f"{target}#input.amount: 1\n"
+            f"  tables:\n    Household:\n      - {target}#input.amount: 1\n"
         ),
     }
     companion = root / path.removesuffix(".yaml")
@@ -345,17 +358,21 @@ def test_companion_references_include_unimported_module_candidates(
         [path, peer], root=root, changed_paths={referenced}
     )
 
-    assert selection.scope == "incremental"
-    assert selection.paths == (path,)
-    assert selection.reasons[path] == [
-        f"validation reads changed path: {referenced}"
-    ]
+    if target_present:
+        assert selection.scope == "incremental"
+        assert selection.paths == (path,)
+        assert selection.reasons[path] == [
+            f"validation reads changed path: {referenced}"
+        ]
+    else:
+        assert selection.scope == "full"
+        assert selection.paths == tuple(sorted((path, peer)))
+        assert referenced in selection.fallback_reason
+        assert set(selection.reasons) == {path, peer}
 
 
 @pytest.mark.parametrize("companion_present", [True, False])
-def test_orphan_companion_change_falls_back(
-    tmp_path: Path, companion_present: bool
-):
+def test_orphan_companion_change_falls_back(tmp_path: Path, companion_present: bool):
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/waived.yaml"
     _module(root, path)
@@ -393,18 +410,21 @@ def test_companion_next_to_non_rulespec_sidecar_falls_back(tmp_path: Path):
     assert changed in selection.fallback_reason
 
 
-def test_deleted_waived_module_remains_selected(tmp_path: Path):
+def test_deleted_waived_module_falls_back_to_all_waivers(tmp_path: Path):
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/deleted.yaml"
     sibling = "us-ny/statutes/sibling.yaml"
+    _module(root, path).unlink()
     _module(root, sibling)
 
     selection = select_validation_waiver_scope(
         [path, sibling], root=root, changed_paths={path}
     )
 
-    assert selection.scope == "incremental"
-    assert selection.paths == (path,)
+    assert selection.scope == "full"
+    assert selection.paths == (path, sibling)
+    assert path in selection.fallback_reason
+    assert set(selection.reasons) == {path, sibling}
 
 
 def test_transitive_imports_are_resolved_across_jurisdictions(tmp_path: Path):
@@ -452,9 +472,15 @@ def test_transitive_unprefixed_import_uses_imported_module_jurisdiction(
         [importer], root=root, changed_paths={terminal}
     )
 
-    assert selection.scope == "incremental"
-    assert selection.paths == (importer,)
-    assert terminal in "; ".join(selection.reasons[importer])
+    if terminal_present:
+        assert selection.scope == "incremental"
+        assert selection.paths == (importer,)
+        assert terminal in "; ".join(selection.reasons[importer])
+    else:
+        assert selection.scope == "full"
+        assert selection.paths == (importer,)
+        assert terminal in selection.fallback_reason
+        assert set(selection.reasons) == {importer}
 
 
 @pytest.mark.parametrize("reference_kind", ["proof", "source_relation"])
@@ -525,8 +551,10 @@ def test_missing_import_target_remains_in_head_read_set(tmp_path: Path, rename: 
         [importer], root=root, changed_paths=changed
     )
 
-    assert selection.scope == "incremental"
+    assert selection.scope == "full"
     assert selection.paths == (importer,)
+    assert deleted in selection.fallback_reason
+    assert set(selection.reasons) == {importer}
 
 
 def test_upstream_placement_reads_include_unimported_ancestor_and_local_module(
@@ -552,17 +580,21 @@ def test_upstream_placement_reads_include_unimported_ancestor_and_local_module(
         assert selection.paths == (path,)
 
 
-def test_deleted_unimported_ancestor_still_selects_descendants(tmp_path: Path):
+def test_deleted_unimported_ancestor_falls_back_to_all_waivers(tmp_path: Path):
     root = tmp_path / "rulespec-us"
     path = "us-ca/statutes/waived.yaml"
     _module(root, path)
+    changed = "us/policies/deleted.yaml"
+    _module(root, changed).unlink()
 
     selection = select_validation_waiver_scope(
-        [path], root=root, changed_paths={"us/policies/deleted.yaml"}
+        [path], root=root, changed_paths={changed}
     )
 
-    assert selection.scope == "incremental"
+    assert selection.scope == "full"
     assert selection.paths == (path,)
+    assert changed in selection.fallback_reason
+    assert set(selection.reasons) == {path}
 
 
 @pytest.mark.parametrize("changed", ["docs/guide.md", "us-ca/statutes/alias.yaml"])
@@ -725,8 +757,7 @@ def test_markdown_git_config_include_is_a_shared_validation_input(
     config = root / ".git/config"
     section = '[includeIf "gitdir:/never-matches/"]' if conditional else "[include]"
     config.write_text(
-        config.read_text(encoding="utf-8")
-        + f"\n{section}\n  path = ../{changed}\n",
+        config.read_text(encoding="utf-8") + f"\n{section}\n  path = ../{changed}\n",
         encoding="utf-8",
     )
 
@@ -738,3 +769,119 @@ def test_markdown_git_config_include_is_a_shared_validation_input(
     assert selection.scope == "full"
     assert selection.paths == (path,)
     assert changed in selection.fallback_reason
+
+
+@pytest.mark.parametrize("configured_directory", [False, True])
+@pytest.mark.parametrize("input_present", [False, True])
+def test_execution_input_case_alias_falls_back(
+    tmp_path: Path, configured_directory: bool, input_present: bool
+):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/waived.yaml"
+    _module(root, path)
+    changed = "docs/execution/compose.md"
+    actual = root / changed
+    actual.parent.mkdir(parents=True)
+    if input_present:
+        actual.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    configured = root / "docs/EXECUTION"
+    if not configured_directory:
+        configured /= "COMPOSE.md"
+
+    selection = select_validation_waiver_scope(
+        [path],
+        root=root,
+        changed_paths={changed},
+        shared_execution_inputs=(configured,),
+    )
+
+    assert selection.scope == "full"
+    assert selection.paths == (path,)
+    assert changed in selection.fallback_reason
+
+
+def test_import_case_alias_is_selected_outside_search_jurisdiction(tmp_path: Path):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/waived.yaml"
+    changed = "us-ny/statutes/case1.yaml"
+    _module(root, path, imports=("us-ny:statutes/Case1#value",))
+    _module(root, changed)
+
+    selection = select_validation_waiver_scope(
+        [path], root=root, changed_paths={changed}
+    )
+
+    assert selection.scope == "incremental"
+    assert selection.paths == (path,)
+    assert selection.reasons[path] == [f"validation reads changed path: {changed}"]
+
+
+@pytest.mark.parametrize("kind", ["module", "companion"])
+def test_existing_module_and_companion_case_alias_reasons(tmp_path: Path, kind: str):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/Case1.yaml"
+    module = _module(root, path)
+    if not module.with_name("case1.yaml").exists():
+        pytest.skip("filesystem does not resolve case aliases")
+    changed = "us-ca/statutes/case1.yaml"
+    if kind == "companion":
+        changed = "us-ca/statutes/case1.test.yaml"
+        (root / changed).write_text("cases: []\n", encoding="utf-8")
+
+    selection = select_validation_waiver_scope(
+        [path], root=root, changed_paths={changed}
+    )
+
+    assert selection.scope == "incremental"
+    assert selection.paths == (path,)
+    assert selection.reasons[path] == [f"{kind} changed: {changed}"]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "docs/deleted.md",
+        "us-ny/statutes/deleted.yaml",
+        "us-ca/statutes/deleted.test.yaml",
+    ],
+)
+def test_changed_path_without_filesystem_identity_falls_back(
+    tmp_path: Path, changed: str
+):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/waived.yaml"
+    _module(root, path)
+    _module(root, "us-ca/statutes/deleted.yaml")
+
+    selection = select_validation_waiver_scope(
+        [path], root=root, changed_paths={changed}
+    )
+
+    assert selection.scope == "full"
+    assert selection.paths == (path,)
+    assert changed in selection.fallback_reason
+
+
+def test_changed_path_stat_failure_falls_back(tmp_path: Path, monkeypatch):
+    root = tmp_path / "rulespec-us"
+    path = "us-ca/statutes/waived.yaml"
+    _module(root, path)
+    changed = "docs/guide.md"
+    document = root / changed
+    document.parent.mkdir()
+    document.write_text("# Documentation\n", encoding="utf-8")
+    original_stat = Path.stat
+
+    def inaccessible(candidate, *args, **kwargs):
+        if candidate == document:
+            raise PermissionError("identity unavailable")
+        return original_stat(candidate, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", inaccessible)
+    selection = select_validation_waiver_scope(
+        [path], root=root, changed_paths={changed}
+    )
+
+    assert selection.scope == "full"
+    assert selection.paths == (path,)
+    assert "identity unavailable" in selection.fallback_reason

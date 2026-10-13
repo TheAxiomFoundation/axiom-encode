@@ -15,9 +15,9 @@ from axiom_encode.repo_routing import _rulespec_routing_cache_scope
 from axiom_encode.validation_waiver_scope import _ReadSets
 
 _SAMPLE = json.loads(
-    (Path(__file__).parent / "fixtures/validation_waiver_read_set_modules.json").read_text(
-        encoding="utf-8"
-    )
+    (
+        Path(__file__).parent / "fixtures/validation_waiver_read_set_modules.json"
+    ).read_text(encoding="utf-8")
 )
 _TRACE_ROOT_ENV = "AXIOM_VALIDATION_WAIVER_TRACE_ROOT"
 _TRACE_DIR_ENV = "AXIOM_VALIDATION_WAIVER_TRACE_DIR"
@@ -87,9 +87,9 @@ def test_recorded_module_reads_are_subset_of_computed_read_set(
         )
         bindings = chunk.get("trace_artifacts")
         assert isinstance(bindings, dict)
-        assert bindings.get(artifact.name) == hashlib.sha256(artifact_bytes).hexdigest(), (
-            f"trace artifact is not bound to its completed chunk for {module}"
-        )
+        assert (
+            bindings.get(artifact.name) == hashlib.sha256(artifact_bytes).hexdigest()
+        ), f"trace artifact is not bound to its completed chunk for {module}"
     result = trace.get("result")
     assert isinstance(result, dict), f"missing fingerprint result for {module}"
     assert result["path"] == module
@@ -125,4 +125,6 @@ def test_recorded_module_reads_are_subset_of_computed_read_set(
         assert native_evidence["limitation"], (
             f"missing composition engine tracing limitation for {module}"
         )
-    assert observed <= computed, f"uncovered reads for {module}: {sorted(observed - computed)}"
+    assert observed <= computed, (
+        f"uncovered reads for {module}: {sorted(observed - computed)}"
+    )

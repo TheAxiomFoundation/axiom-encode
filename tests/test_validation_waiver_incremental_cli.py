@@ -118,9 +118,7 @@ def test_default_full_report_keeps_existing_payload_and_audits_every_path(
         "select_validation_waiver_scope",
         side_effect=AssertionError("full mode must not select incrementally"),
     ):
-        code, report, executed = _run_audit(
-            audit_repo, capsys, changed=["README.md"]
-        )
+        code, report, executed = _run_audit(audit_repo, capsys, changed=["README.md"])
 
     assert code == 0
     assert executed == list(audit_repo.paths)
@@ -161,6 +159,10 @@ def test_incremental_inert_changes_report_zero_without_fingerprinting(
     capsys,
     changed,
 ):
+    for relative in changed:
+        document = audit_repo.root / relative
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text("# Documentation\n", encoding="utf-8")
     code, report, executed = _run_audit(
         audit_repo, capsys, changed=changed, scope="incremental"
     )
@@ -185,7 +187,40 @@ def test_incremental_configured_execution_input_change_reports_full_fallback(
     candidate.parent.mkdir(parents=True)
     candidate.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     candidate.chmod(0o700)
-    configured = candidate if input_argument == "axiom_compose_path" else candidate.parent
+    configured = (
+        candidate if input_argument == "axiom_compose_path" else candidate.parent
+    )
+
+    code, report, executed = _run_audit(
+        audit_repo,
+        capsys,
+        changed=[changed],
+        scope="incremental",
+        execution_inputs={input_argument: str(configured)},
+    )
+
+    assert code == 0
+    assert executed == list(audit_repo.paths)
+    assert report["scope"] == "full"
+    assert report["selected"] == report["checked"] == report["total_waivers"] == 4
+    assert report["fallback_reason"] == f"configured execution input changed: {changed}"
+    assert set(report["selection_reasons"]) == set(audit_repo.paths)
+
+
+@pytest.mark.parametrize(
+    "input_argument", ["corpus_path", "axiom_rules_path", "axiom_compose_path"]
+)
+def test_incremental_execution_input_case_alias_reports_full_fallback(
+    audit_repo, capsys, input_argument
+):
+    changed = "docs/execution/compose.md"
+    actual = audit_repo.root / changed
+    actual.parent.mkdir(parents=True)
+    actual.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    actual.chmod(0o700)
+    configured = audit_repo.root / "docs/EXECUTION"
+    if input_argument == "axiom_compose_path":
+        configured /= "COMPOSE.md"
 
     code, report, executed = _run_audit(
         audit_repo,
@@ -206,6 +241,9 @@ def test_incremental_configured_execution_input_change_reports_full_fallback(
 def test_incremental_ignores_mock_execution_arguments_and_does_not_admit_unused_inputs(
     audit_repo, capsys
 ):
+    document = audit_repo.root / "docs/guide.md"
+    document.parent.mkdir()
+    document.write_text("# Documentation\n", encoding="utf-8")
     with patch.object(
         cli,
         "_resolve_optional_axiom_compose_path",
@@ -232,6 +270,7 @@ def test_incremental_ignores_mock_execution_arguments_and_does_not_admit_unused_
 
 def test_incremental_companion_change_reports_selection_reason(audit_repo, capsys):
     companion = audit_repo.paths[0].removesuffix(".yaml") + ".test.yaml"
+    (audit_repo.root / companion).write_text("cases: []\n", encoding="utf-8")
     code, report, executed = _run_audit(
         audit_repo, capsys, changed=[companion], scope="incremental"
     )
@@ -335,7 +374,11 @@ def test_deleted_removed_waiver_is_reported_without_fingerprinting(audit_repo, c
     deleted = audit_repo.paths[0]
     (audit_repo.root / deleted).unlink()
     remaining = _waiver_set(
-        {path: entry for path, entry in audit_repo.waivers.entries.items() if path != deleted}
+        {
+            path: entry
+            for path, entry in audit_repo.waivers.entries.items()
+            if path != deleted
+        }
     )
 
     code, report, executed = _run_audit(
@@ -347,6 +390,11 @@ def test_deleted_removed_waiver_is_reported_without_fingerprinting(audit_repo, c
     )
 
     assert code == 0
+    assert report["scope"] == "full"
+    assert report["selected"] == report["total_waivers"] == 4
+    assert report["checked"] == 4
+    assert executed == list(audit_repo.paths[1:])
+    assert deleted in report["fallback_reason"]
     assert report["total_waivers"] == 4
     assert deleted not in executed
     assert deleted in report["selection_reasons"]
@@ -532,7 +580,10 @@ def test_cli_registers_scope_and_preserves_full_default(tmp_path: Path, scope):
     ]
     if scope is not None:
         argv.extend(["--scope", scope])
-    with patch("sys.argv", argv), patch.object(cli, "cmd_validation_waivers") as command:
+    with (
+        patch("sys.argv", argv),
+        patch.object(cli, "cmd_validation_waivers") as command,
+    ):
         cli.main()
 
     assert command.call_args.args[0].scope == (scope or "full")

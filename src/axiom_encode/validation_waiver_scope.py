@@ -62,6 +62,39 @@ class WaiverAuditScope:
     fallback_reason: str | None = None
 
 
+class _PathAliases:
+    """Compare paths in one fixed tree without losing filesystem aliases."""
+
+    def __init__(self):
+        self.identities: dict[Path, tuple[int, int] | None] = {}
+
+    def identity(self, path: Path) -> tuple[int, int] | None:
+        path = Path(os.path.abspath(path))
+        if path not in self.identities:
+            try:
+                info = path.stat()
+            except (FileNotFoundError, NotADirectoryError):
+                identity = None
+            else:
+                if not info.st_ino:
+                    raise ValueError("filesystem did not provide a path identity")
+                identity = (info.st_dev, info.st_ino)
+            self.identities[path] = identity
+        return self.identities[path]
+
+    def same(self, left: Path, right: Path) -> bool:
+        left_identity = self.identity(left)
+        right_identity = self.identity(right)
+        if left_identity is not None and right_identity is not None:
+            return left_identity == right_identity
+        # An absent resolver candidate can use a different spelling from an
+        # existing changed file. Over-selection on case-sensitive trees is safe.
+        return os.path.abspath(left).casefold() == os.path.abspath(right).casefold()
+
+    def within(self, path: Path, parent: Path) -> bool:
+        return any(self.same(ancestor, parent) for ancestor in (path, *path.parents))
+
+
 def _changed_path_kind(path: str) -> str | None:
     """Recognize only the repository's module contract and inert Markdown."""
 
@@ -79,8 +112,7 @@ def _changed_path_kind(path: str) -> str | None:
     # These surfaces can change toolchain, audit, runtime or composition
     # behavior. Their documentation is deliberately not an inert exception.
     if path == DEFAULT_WAIVER_PATH or any(
-        part in {".axiom", ".github", RULESPEC_COMPOSITION_SPEC_ROOT}
-        for part in parts
+        part in {".axiom", ".github", RULESPEC_COMPOSITION_SPEC_ROOT} for part in parts
     ):
         return None
     candidate = path
@@ -94,7 +126,9 @@ def _changed_path_kind(path: str) -> str | None:
         # Documentation in a jurisdiction could create an otherwise absent
         # content directory and change missing-target resolution diagnostics.
         inert_location = len(parts) == 1 or parts[0] == "docs"
-        return "inert" if inert_location and PurePosixPath(path).suffix == ".md" else None
+        return (
+            "inert" if inert_location and PurePosixPath(path).suffix == ".md" else None
+        )
     return kind
 
 
@@ -108,7 +142,9 @@ def _require_plain_changed_path(root: Path, relative: str) -> None:
         if current.is_symlink():
             raise ValueError(f"changed path contains a symlink: {relative}")
         if current.exists():
-            expected = current.is_file() if index == len(parts) - 1 else current.is_dir()
+            expected = (
+                current.is_file() if index == len(parts) - 1 else current.is_dir()
+            )
             if not expected:
                 raise ValueError(f"changed path has an unsafe file type: {relative}")
             if index == len(parts) - 1 and current.stat().st_nlink > 1:
@@ -165,6 +201,7 @@ class _ReadSets:
         )
         self.atomic_files: dict[Path, set[Path]] = {}
         self.closures: dict[tuple[Path, Path], set[Path]] = {}
+        self.aliases = _PathAliases()
 
     def relative(self, path: Path) -> str | None:
         # Do not resolve an absent target through a different path. The same
@@ -173,6 +210,11 @@ class _ReadSets:
         try:
             return lexical.relative_to(self.root).as_posix()
         except ValueError:
+            # Resolvers can retain the case spelling of an import or Git
+            # include rather than the spelling used for the checkout root.
+            for ancestor in lexical.parents:
+                if self.aliases.same(ancestor, self.root):
+                    return lexical.relative_to(ancestor).as_posix()
             return None
 
     def modules(self, content_root: Path) -> set[Path]:
@@ -206,7 +248,9 @@ class _ReadSets:
             # the original caller root. Cover both with the shared resolver.
             resolution_roots = tuple(dict.fromkeys((content_root, current_root)))
             imports = _extract_import_items_from_content(content)
-            declared_imports = payload.get("imports") if isinstance(payload, dict) else None
+            declared_imports = (
+                payload.get("imports") if isinstance(payload, dict) else None
+            )
             if declared_imports is not None and not isinstance(declared_imports, list):
                 raise ValueError(
                     f"unclassifiable imports in {self.relative(current) or current.name}"
@@ -220,12 +264,14 @@ class _ReadSets:
             if isinstance(declared_imports, list):
                 # The engine accepts inline YAML sequences too, while the
                 # static line extractor intentionally handles block syntax.
-                imports.extend(item for item in declared_imports if isinstance(item, str))
+                imports.extend(
+                    item for item in declared_imports if isinstance(item, str)
+                )
             for imported in dict.fromkeys(imports):
                 import_base = imported.split("#", 1)[0].strip().strip("\"'")
-                if not _rulespec_import_prefix_static(imported) and import_base.endswith(
-                    (".yaml", ".yml")
-                ):
+                if not _rulespec_import_prefix_static(
+                    imported
+                ) and import_base.endswith((".yaml", ".yml")):
                     raise ValueError(
                         f"ambiguous import {imported!r} in "
                         f"{self.relative(current) or current.name}"
@@ -337,7 +383,8 @@ class _ReadSets:
             payload = _safe_load_unique_keys(module.read_text(encoding="utf-8"))
             module_data = payload.get("module") if isinstance(payload, dict) else None
             composition = (
-                isinstance(module_data, dict) and module_data.get("kind") == "composition"
+                isinstance(module_data, dict)
+                and module_data.get("kind") == "composition"
             )
         if composition:
             # Program ownership scans every ProgramSpec and its transitive
@@ -409,21 +456,27 @@ def select_validation_waiver_scope(
         return full(f"could not establish configured execution input paths: {exc}")
 
     changed_kinds: dict[str, str] = {}
+    aliases = _PathAliases()
     for changed in sorted(changed_paths):
         kind = _changed_path_kind(changed)
         if kind is None:
             return full(f"unclassified or shared validation input changed: {changed}")
-        if any(
-            (root / changed).is_relative_to(candidate)
-            for candidate in shared_input_candidates
+        if (
+            kind in {"module", "companion"}
+            and monorepo_checkout_name(PurePosixPath(changed).parts[0]) != root.name
         ):
-            return full(f"configured execution input changed: {changed}")
-        if kind in {"module", "companion"} and monorepo_checkout_name(
-            PurePosixPath(changed).parts[0]
-        ) != root.name:
             return full(f"changed path belongs to another country: {changed}")
         try:
             _require_plain_changed_path(root, changed)
+            if any(
+                aliases.within(root / changed, candidate)
+                for candidate in shared_input_candidates
+            ):
+                return full(f"configured execution input changed: {changed}")
+            if aliases.identity(root / changed) is None:
+                # A deleted path no longer proves which physical file its
+                # spelling denoted. Its old aliases may affect any waiver.
+                return full(f"could not establish changed path identity: {changed}")
             module_relative = (
                 changed.removesuffix(".test.yaml") + ".yaml"
                 if kind == "companion"
@@ -432,21 +485,24 @@ def select_validation_waiver_scope(
             if kind == "companion":
                 _require_plain_changed_path(root, module_relative)
                 if not (root / module_relative).is_file():
-                    return full(f"changed path is not an adjacent RuleSpec companion: {changed}")
+                    return full(
+                        f"changed path is not an adjacent RuleSpec companion: {changed}"
+                    )
             if kind in {"module", "companion"} and (root / module_relative).is_file():
                 payload = _safe_load_unique_keys(
                     (root / module_relative).read_text(encoding="utf-8")
                 )
-                if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("format") != "rulespec/v1"
+                ):
                     return full(f"changed path has no valid RuleSpec module: {changed}")
         except (OSError, ValueError, yaml.YAMLError) as exc:
             if kind in {"module", "companion"}:
                 return full(f"could not classify changed {kind} {changed}: {exc}")
             return full(str(exc))
         changed_kinds[changed] = kind
-    meaningful = {
-        path: kind for path, kind in changed_kinds.items() if kind != "inert"
-    }
+    meaningful = {path: kind for path, kind in changed_kinds.items() if kind != "inert"}
     reasons: dict[str, list[str]] = {}
     try:
         with _rulespec_routing_cache_scope(), _rulespec_resolution_cache_scope():
@@ -455,10 +511,11 @@ def select_validation_waiver_scope(
             _reject_rulespec_checkout_symlinks(root, label="waiver audit checkout")
             reader = _ReadSets(root, rulespec_dependency_roots)
             config_changes = sorted(
-                changed_paths.intersection(
-                    relative
+                changed
+                for changed in changed_paths
+                if any(
+                    aliases.same(root / changed, config)
                     for config in reader.git_config_inputs
-                    if (relative := reader.relative(config)) is not None
                 )
             )
             if config_changes:
@@ -477,20 +534,27 @@ def select_validation_waiver_scope(
                 selected_reasons: list[str] = []
                 companion = path.removesuffix(".yaml") + ".test.yaml"
                 for changed, kind in sorted(meaningful.items()):
-                    if changed == path:
+                    if aliases.same(root / changed, root / path):
                         selected_reasons.append(f"module changed: {changed}")
-                    elif changed == companion:
+                    elif aliases.same(root / changed, root / companion):
                         selected_reasons.append(f"companion changed: {changed}")
-                    elif changed in read_set:
-                        selected_reasons.append(f"validation reads changed path: {changed}")
+                    elif any(
+                        aliases.same(root / changed, root / dependency)
+                        for dependency in read_set
+                    ):
+                        selected_reasons.append(
+                            f"validation reads changed path: {changed}"
+                        )
                     elif kind == "module" and (
                         composition
                         or any(
-                            (root / changed).is_relative_to(search_root)
+                            aliases.within(root / changed, search_root)
                             for search_root in upstream_roots
                         )
                     ):
-                        selected_reasons.append(f"validation searches changed module: {changed}")
+                        selected_reasons.append(
+                            f"validation searches changed module: {changed}"
+                        )
                 if selected_reasons:
                     reasons[path] = selected_reasons
     except (OSError, ValueError, yaml.YAMLError, _GitProbeError) as exc:

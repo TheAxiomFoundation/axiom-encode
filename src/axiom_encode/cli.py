@@ -4770,7 +4770,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             report.update(
                 selected=0,
                 total_waivers=len(
-                    set(head.active_paths) | set(head.pending_paths) | set(base.active_paths)
+                    set(head.active_paths)
+                    | set(head.pending_paths)
+                    | set(base.active_paths)
                 ),
                 selection_reasons={},
                 fallback_reason="protected base transition checks failed",
@@ -4843,7 +4845,9 @@ def _cmd_validation_waivers_audit(args) -> int:
         if requested_scope == "incremental":
             args._validation_waiver_audit_selection.update(
                 selected=len(classified),
-                selection_reasons={path: selection_reasons[path] for path in classified},
+                selection_reasons={
+                    path: selection_reasons[path] for path in classified
+                },
             )
 
     deleted_removed: set[str] = set()
