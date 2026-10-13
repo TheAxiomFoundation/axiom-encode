@@ -157,6 +157,8 @@ from .proof_validator import (
 )
 from .source_completeness import (
     _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
+    _nested_outline_marker_spans,
+    _qualified_parenthesized_legal_outline_markers,
     _us_manual_prose_scope,
     analyze_complete_source_unit,
     collect_artifact_numeric_bindings,
@@ -24506,7 +24508,16 @@ def find_source_subparagraph_coverage_issues(
     ) or extract_embedded_source_text(content)
     if not source_text:
         return []
-    if _empty_deferred_editorial_source_slice(payload, content):
+    if _empty_deferred_editorial_source_slice(
+        payload, content
+    ) and _authoritative_deferred_editorial_source_slice(
+        source_text,
+        extract_embedded_source_text(content),
+        _scope_prefix_from_requested_source(citation_path, requested_source)
+        or _source_subparagraph_coverage_scope_prefix(
+            citation_path, rules_file=rules_file
+        ),
+    ):
         return []
 
     source_children = _high_signal_top_level_subparagraphs(source_text)
@@ -24662,6 +24673,316 @@ def _top_level_source_subparagraph_segments(
         text = source_text[start:end].strip()
         children.append((label, text))
     return children
+
+
+def _authoritative_deferred_editorial_source_slice(
+    source_text: str, summary: str, scope: tuple[str, ...]
+) -> bool:
+    """Add authoritative-source evidence to the existing summary waiver."""
+    if len(scope) <= 1:
+        return False
+    notice_label = re.search(
+        r"\(([A-Za-z0-9]+)\)", _normalized_editorial_source_presentation(summary)
+    )
+    return bool(
+        notice_label
+        and notice_label[1].lower() == scope[-1]
+        and _authoritative_source_slice_is_editorial_omission(summary)
+        and _source_scope_is_editorial_omission(source_text, scope)
+    )
+
+
+def _normalized_editorial_source_presentation(source_text: str) -> str:
+    """Normalize notice typography while preserving physical line breaks."""
+    normalized = re.sub(r"<sup>\s*\d+\s*</sup>|[⁰¹²³⁴⁵⁶⁷⁸⁹]+", "", source_text)
+    normalized = unicodedata.normalize("NFKC", normalized)
+    normalized = "".join(
+        char for char in normalized if unicodedata.category(char) != "Cf"
+    )
+    normalized = re.sub(r"</?(?:i|em|b|strong)>", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"[\[\]*_]", "", normalized)
+    return normalized
+
+
+def _source_scope_is_editorial_omission(
+    source_text: str, scope: tuple[str, ...]
+) -> bool:
+    """Authenticate one exact requested tombstone in a proven source outline."""
+    # Preserve digits inside authoritative headings before removing notice
+    # footnotes. A superscript label is still a label, not an annotation.
+    heading_text = re.sub(
+        r"\([^()\r\n]*\)",
+        lambda match: unicodedata.normalize(
+            "NFKC",
+            re.sub(r"</?(?:i|em|b|strong|sup)>", "", match[0], flags=re.IGNORECASE),
+        ),
+        source_text,
+    )
+    normalized = _normalized_editorial_source_presentation(heading_text)
+    # Repeated labels, including references, cannot establish unique identity.
+    # Compare after presentation normalization so formatted operative headings
+    # cannot disappear from the proof or conflict with an apparent tombstone.
+    candidates = list(
+        re.finditer(rf"\({re.escape(scope[-1])}\)", normalized, flags=re.IGNORECASE)
+    )
+    if len(candidates) != 1:
+        return False
+    markers = _qualified_parenthesized_legal_outline_markers(normalized)
+    matching = [
+        (marker, end)
+        for marker, end in _nested_outline_marker_spans(
+            markers, outer_end=len(normalized)
+        )
+        if marker.path == scope and marker.start == candidates[0].start()
+    ]
+    if len(matching) != 1:
+        return False
+    marker, end = matching[0]
+    ancestor_starts = []
+    for depth in range(1, len(scope)):
+        start = max(
+            (
+                item.start
+                for item in markers
+                if item.start <= marker.start and item.path == scope[:depth]
+            ),
+            default=-1,
+        )
+        if start < 0:
+            return False
+        ancestor_starts.append(start)
+    # Notice normalization can erase footnotes or turn symbols into letters.
+    # Prove continuity from the original presentation, then align its physical
+    # offsets with the normalized outline used for exact heading identity.
+    normalized_positions = {}
+
+    def normalized_position(position: int) -> int:
+        if position not in normalized_positions:
+            normalized_positions[position] = len(
+                _normalized_editorial_source_presentation(heading_text[:position])
+            )
+        return normalized_positions[position]
+
+    marker_starts = {item.start for item in markers}
+    original_marker_starts = {
+        opening.start()
+        for opening in re.finditer(r"\(", heading_text)
+        if normalized_position(opening.start()) in marker_starts
+    }
+    possible_boundaries = _coverage_unproven_prose_starts(
+        heading_text, recognized_marker_starts=original_marker_starts
+    )
+    if any(
+        min(ancestor_starts) < normalized_position(start) <= marker.start
+        for start in possible_boundaries
+    ):
+        return False
+    return _authoritative_source_slice_is_editorial_omission(
+        normalized[marker.start : end]
+    )
+
+
+def _authoritative_source_slice_is_editorial_omission(source_text: str) -> bool:
+    # Authenticate the whole slice, not a repeal prefix that could swallow a
+    # different following label. Formatting and editorial dates do not change
+    # the notice's identity; unfamiliar trailing prose remains mandatory.
+    normalized = _normalized_editorial_source_presentation(source_text)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return False
+    if re.fullmatch(
+        r"\([A-Za-z0-9]+\)\s*(?:Repealed|Omitted)\.?"
+        r"(?:\s*[.—–-]?\s*(?:Effective|Eff\.)\s+"
+        r"(?:[A-Za-z]+\s+)?\d{1,4}(?:[\s,/-]+\d{1,4})*\.?)?"
+        r"(?:\s+Pub\.\s*L\.\s*\d+-\d+,\s*title\s+[IVXLCDM\d]+,\s*"
+        r"section\s+\d+(?:\([A-Za-z0-9]+\))*\.?)?",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if re.fullmatch(r"\(?[A-Za-z0-9]+\)?\s*(?:\[?\s*)?\.{3,}(?:\s*\]?)?", normalized):
+        return True
+    return False
+
+
+def _coverage_unproven_prose_starts(
+    source_text: str,
+    *,
+    recognized_marker_starts: set[int],
+    numeric_outline: bool = False,
+) -> set[int]:
+    """Require positive prose evidence between authenticated physical markers.
+
+    A recognizer's silence cannot prove continuity. Classify each presentation
+    token as ordinary prose or an already authenticated marker; everything else
+    interrupts ancestry. Positions remain physical so uncertainty after a cue
+    cannot invalidate that cue's earlier owner.
+    """
+    starts: set[int] = set()
+    prose_punctuation = frozenset(".,;:!?\"'“”‘’%/\\—–-")
+    label_delimiters = frozenset(".):—–-")
+    ordinary_clause = re.compile(
+        r"[^\W\d_]+(?:\s+[^\W\d_]+){0,12}[\"'”’]?\s+"
+        r"(?:means|is|are|was|were|has|have|must|shall|will|can|may|does|do|did|"
+        r"continues|provides|follows|applies|contains|includes|requires|specifies)\s+\S",
+        flags=re.IGNORECASE,
+    )
+    for line in re.finditer(r"(?m)^.*$", source_text):
+        characters: list[str] = []
+        offsets: list[int] = []
+        emphasis_positions: set[int] = set()
+        for emphasis in re.finditer(r"(\*{1,2}|_|`)(?=\S).*?\S\1", line[0]):
+            emphasis_positions.update(range(emphasis.start(), emphasis.end(1)))
+            emphasis_positions.update(
+                range(emphasis.end() - len(emphasis[1]), emphasis.end())
+            )
+        for token in re.finditer(
+            r"</?(?:i|em|b|strong|sup)>|.", line[0], flags=re.IGNORECASE
+        ):
+            if token[0].startswith("<") and token[0].endswith(">"):
+                continue
+            if token.start() in emphasis_positions:
+                continue
+            if token[0].isspace() and not _is_horizontal_space(token[0]):
+                if token[0] != "\r" or token.end() != len(line[0]):
+                    starts.add(line.start() + token.start())
+            # Compatibility normalization can turn an unfamiliar symbol into
+            # ordinary letters. Its original presentation still lacks prose
+            # proof (e.g. a square unit symbol flattened into a word).
+            if unicodedata.category(token[0]).startswith("S"):
+                starts.add(line.start() + token.start())
+            for char in unicodedata.normalize("NFKC", token[0]):
+                if unicodedata.category(char) == "Cf":
+                    continue
+                characters.append(char)
+                offsets.append(line.start() + token.start())
+        presentation = "".join(characters)
+        authenticated: set[int] = set()
+        raw_physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", line[0])
+        if raw_physical and (
+            line.start() in recognized_marker_starts
+            or line.start() + raw_physical.start(1) in recognized_marker_starts
+        ):
+            authenticated.update(
+                range(
+                    line.start() + raw_physical.start(1),
+                    line.start() + raw_physical.end(1),
+                )
+            )
+        physical = re.match(r"[^\S\r\n]*((?:\([A-Za-z0-9]+\)[ \t]*)+)", presentation)
+        if physical:
+            # Stripping a wrapper must not attach an unknown inline marker to
+            # a recognized prefix. Formatted markers need their own identity.
+            for marker in re.finditer(r"\([A-Za-z0-9]+\)", physical[1]):
+                start = physical.start(1) + marker.start()
+                end = physical.start(1) + marker.end()
+                if offsets[start] in recognized_marker_starts:
+                    authenticated.update(offsets[start:end])
+        if numeric_outline:
+            # This exception is positive whole-notice proof, not a guessed
+            # heading shape. It preserves established numbered-outline behavior.
+            for opening in re.finditer(r"\(", presentation):
+                remainder = presentation[opening.start() :]
+                if re.match(
+                    r"\([a-z]\)", remainder
+                ) and _authoritative_source_slice_is_editorial_omission(remainder):
+                    authenticated.update(
+                        offsets[index]
+                        for index in range(opening.start(), len(offsets))
+                        if presentation[index] not in "[]"
+                    )
+                    bracket_stack: list[int] = []
+                    for index, char in enumerate(presentation):
+                        if char == "[":
+                            bracket_stack.append(index)
+                        elif char == "]" and bracket_stack:
+                            bracket_start = bracket_stack.pop()
+                            content = presentation[bracket_start + 1 : index].strip()
+                            notice_wrapper = (
+                                _authoritative_source_slice_is_editorial_omission(
+                                    content
+                                )
+                            )
+                            date_wrapper = re.match(
+                                r"(?:Effective|Eff\.)\s", content, flags=re.IGNORECASE
+                            ) and _authoritative_source_slice_is_editorial_omission(
+                                "(b) Repealed. " + content
+                            )
+                            if notice_wrapper or date_wrapper:
+                                authenticated.update(
+                                    (offsets[bracket_start], offsets[index])
+                                )
+                    break
+        leading = len(presentation) - len(presentation.lstrip())
+        label_leading = re.match(r"[\s\"'“”‘’]*", presentation).end()
+        if leading < len(presentation) and offsets[leading] not in authenticated:
+            # A punctuated title is still uncertain. A plain continuation
+            # needs an ordinary subject/predicate clause and its sentence end.
+            clause = ordinary_clause.match(presentation, label_leading)
+            sentence_end = (
+                re.search(r"[.!?](?=[\s\"'”’]|$)", presentation[clause.end() :])
+                if clause
+                else None
+            )
+            if not sentence_end:
+                starts.add(offsets[leading])
+            else:
+                end = clause.end() + sentence_end.end()
+                remainder = presentation[end:].strip(" \t\"'“”‘’")
+                if remainder:
+                    # A later fragment cannot invalidate an earlier cue.
+                    starts.add(offsets[end])
+        for token in re.finditer(r"\w+|[^\w\s]", presentation):
+            position = offsets[token.start()]
+            if position in authenticated:
+                continue
+            word = token[0]
+            if word.isalnum():
+                following = presentation[token.end() :].lstrip()
+                original_word = line[0][
+                    offsets[token.start()] - line.start() : offsets[token.end() - 1]
+                    - line.start()
+                    + 1
+                ]
+                section_word = word.lower().startswith("sec")
+                line_leading = token.start() == label_leading
+                label_word = (
+                    len(word) == 1
+                    or len(original_word) == 1
+                    or any(char.isdigit() for char in word)
+                    or word.isupper()
+                    or all(char.upper() in "IVXLCDM" for char in word)
+                )
+                if (
+                    section_word
+                    or (following and following[0] == ")")
+                    or (
+                        (label_word or line_leading)
+                        and (
+                            (label_word and line_leading)
+                            or (following and following[0] in label_delimiters)
+                        )
+                    )
+                ):
+                    starts.add(position)
+                # Other alphabetic words and undelimited inline numbers are
+                # ordinary prose. Nonalphabetic/nondecimal word tokens have no
+                # positive prose interpretation (e.g. unusual numeric symbols).
+                elif not (word.isalpha() or word.isdecimal()):
+                    starts.add(position)
+            elif word in prose_punctuation:
+                if word in "—–-" and not (
+                    token.start() > leading
+                    and presentation[token.start() - 1].isalpha()
+                    and token.end() < len(presentation)
+                    and presentation[token.end()].isalpha()
+                ):
+                    starts.add(position)
+            else:
+                # Opening delimiters, section signs, bullets, and unfamiliar
+                # symbols are not affirmative ordinary-prose evidence.
+                starts.add(position)
+    return starts
 
 
 def _rule_source_covered_subparagraphs(

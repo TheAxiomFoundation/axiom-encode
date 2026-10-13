@@ -37940,7 +37940,7 @@ rules: []
         ]
         assert payload["rules"] == []
 
-    def test_mixed_missing_deferred_output_repair_keeps_encoded_rules(self, tmp_path):
+    def test_mixed_missing_deferred_output_repair_requires_source(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = (
             output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
@@ -37988,24 +37988,8 @@ rules:
         )
 
         payload = yaml.safe_load(rules_file.read_text())
-        assert repaired == [
-            "us-wa:regulations/388/388-450/388-450-0162/a#basic_food_income_eligible"
-        ]
-        assert payload["module"]["deferred_outputs"] == [
-            {
-                "output": (
-                    "us-wa:regulations/388/388-450/388-450-0162/a"
-                    "#basic_food_income_eligible"
-                ),
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
-        ]
+        assert repaired == []
+        assert "deferred_outputs" not in payload["module"]
         assert [rule["name"] for rule in payload["rules"]] == [
             "cash_assistance_income_requirement_satisfied"
         ]

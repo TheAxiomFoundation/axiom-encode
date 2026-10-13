@@ -10344,6 +10344,11 @@ companion test file required by the task and deterministic validation.
             "it as an input. A same-named derived or parameter rule is not an "
             "input reference, but companion `#input.<name>` assignments must "
             "still be replaced with factual inputs. "
+            "To remove an obsolete deferred output, emit an exact YAML item "
+            "containing only `output: <existing output>` and "
+            "`repair_remove: true`. Other deferred-output records may contain "
+            "only `output`, `reason`, `blocked_by`, and `source_values`. "
+            "Source completeness still applies after removal. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -17740,7 +17745,9 @@ def _overlay_validation_retry_candidate(
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
-    if isinstance(generated_module, dict) and isinstance(preserved_module, dict):
+    if isinstance(generated_module, dict):
+        if not isinstance(preserved_module, dict):
+            preserved_module = {}
         preserved_source_verification = preserved_module.get("source_verification")
         corpus_citation_path = (
             preserved_source_verification.get("corpus_citation_path")
@@ -17773,6 +17780,8 @@ def _overlay_validation_retry_candidate(
         ):
             raise ValueError("repair overlay deferred outputs must be lists")
         generated_outputs: set[str] = set()
+        removed_outputs: set[str] = set()
+        deferred: list[dict[str, object]] = []
         for item in generated_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("generated deferred outputs must name an output")
@@ -17782,11 +17791,26 @@ def _overlay_validation_retry_candidate(
                     f"generated deferred outputs contains duplicate output `{output}`"
                 )
             generated_outputs.add(output)
-        deferred = list(generated_deferred)
+            if "repair_remove" in item:
+                if (
+                    set(item) != {"output", "repair_remove"}
+                    or item.get("repair_remove") is not True
+                ):
+                    raise ValueError(
+                        f"generated deferred outputs removal marker for `{output}` "
+                        "must contain only output and repair_remove: true"
+                    )
+                removed_outputs.add(output)
+                continue
+            deferred.append(item)
+        preserved_outputs: set[str] = set()
         for item in preserved_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("preserved deferred outputs must name an output")
             output = item["output"]
+            preserved_outputs.add(output)
+            if output in removed_outputs:
+                continue
             output_name = output.rsplit("#", 1)[-1]
             if output_name in generated_rule_names:
                 repairs.append(f"resolved_deferred_output:{output}")
@@ -17795,8 +17819,31 @@ def _overlay_validation_retry_candidate(
                 deferred.append(item)
                 generated_outputs.add(output)
                 repairs.append(f"deferred_output:{output}")
+        unknown_removals = sorted(removed_outputs - preserved_outputs)
+        if unknown_removals:
+            raise ValueError(
+                "generated deferred outputs removal marker names no preserved item: "
+                + ", ".join(f"`{output}`" for output in unknown_removals)
+            )
+        for item in deferred:
+            unsupported_keys = set(item) - {
+                "output",
+                "reason",
+                "blocked_by",
+                "source_values",
+            }
+            if unsupported_keys:
+                raise ValueError(
+                    f"repair overlay deferred outputs for `{item['output']}` contains "
+                    "unsupported keys: " + ", ".join(sorted(map(str, unsupported_keys)))
+                )
+        repairs.extend(
+            f"removed_deferred_output:{output}" for output in sorted(removed_outputs)
+        )
         if deferred:
             generated_module["deferred_outputs"] = deferred
+        else:
+            generated_module.pop("deferred_outputs", None)
 
     test_file = _rulespec_test_path(rulespec_file)
     merged_test_payload: object | None = None

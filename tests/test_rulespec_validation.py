@@ -44969,6 +44969,16 @@ rules: []
 """
     rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "3121" / "a" / "3.yaml"
 
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
+    )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
+
+    # A generated repeal needs a matching source notice in a proven outline.
+    source_text += "(3) Repealed.\n(b) Employment details.\n"
     assert (
         find_source_subparagraph_coverage_issues(
             content,
