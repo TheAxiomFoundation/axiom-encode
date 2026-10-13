@@ -63,6 +63,10 @@ shows $1,739.33 gross earnings, a $347.87 earned-income deduction, and $386.46
 net income, retaining cents through those steps. The Memento response preserves
 the DES origin and 2025-12-19 last-modified header; the decompressed HTML has
 SHA-256 `0a6b5ca9d952a3d2b9a7b748d16a3927f4ba6ff0b454fe0c1ef4f9779342e896`.
+The same archived public FAQ says the FY 2026 one- or two-person minimum
+allotment is $23, conflicting with [USDA FNS's FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf),
+which specifies $24 for the 48 states and D.C. Treat the FAQ as a worked
+example of cent handling, not as controlling authority for the minimum amount.
 The [live DES FAQ](https://des.az.gov/node/4875) now displays FFY 2027 values
 and again keeps cents through the earned-income deduction and net income:
 $1,739.33 gross earnings yield a $347.87 deduction and $354.46 net income.
