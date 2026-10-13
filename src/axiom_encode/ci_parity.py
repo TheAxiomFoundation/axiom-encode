@@ -39,7 +39,7 @@ import tomllib
 import unicodedata
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
@@ -5595,33 +5595,35 @@ def _build_workflow_composer(
     # cache-dir. "Install uv for composer runtime" (setup-uv v8.1.0, 92ccb0f2
     # L1630-1634) exports UV_CACHE_DIR=$RUNNER_TEMP/setup-uv-cache to the
     # step, which outranks a cache-dir in any configuration file, the
-    # composer project's included. The exception is a cache-dir in the rules
-    # checkout's own uv.toml or pyproject.toml: setup-uv then leaves the
-    # variable unset and uv writes wherever the pull request says, on a
-    # disposable runner. Locally that write would leave ci's temporary
-    # directories, so it fails resolution. uv itself reports the directory it
-    # would use; the probes create nothing.
-    default_cache = _uv_cache_directory(empty_config, environment, ("--no-config",))
-    if default_cache is None:
+    # composer project's included. The exception is a cache-dir setup-uv
+    # itself finds in the rules checkout's own uv.toml or pyproject.toml:
+    # it then leaves the variable unset and uv writes wherever the pull
+    # request says, on a disposable runner. Locally that write would leave
+    # ci's temporary directories, so it fails resolution. Any other committed
+    # cache setting, no-cache included, applies as it does in CI.
+    committed_cache = _setup_uv_cache_dir(workspace)
+    if committed_cache is not None:
         raise ValueError(
-            "Build protected axiom-compose runtime failed: uv could not "
-            "report its cache directory"
+            "Cannot reproduce CI with a committed uv cache directory: the rules "
+            f"checkout's uv configuration moves uv's cache to {committed_cache}. "
+            "CI writes it on a disposable runner; locally that write would "
+            "leave ci's temporary directories"
         )
-    configured = _uv_cache_directory(workspace, environment)
-    if configured is None or configured == default_cache:
-        # What setup-uv itself reads, should it and uv ever disagree.
-        configured = _setup_uv_cache_dir(workspace)
-    if configured is not None:
-        raise ValueError(
-            "Cannot reproduce CI with a committed uv cache directory: uv "
-            "configuration in (or above) the rules checkout moves its cache "
-            f"to {configured}. CI writes it on a disposable runner; locally "
-            "that write would leave ci's temporary directories"
-        )
+    # uv's temporary files, and the temporary cache a committed no-cache
+    # selects, stay in the run's RUNNER_TEMP rather than the host's.
+    uv_temp = temp / "uv-tmp"
+    uv_temp.mkdir()
+    environment["TMPDIR"] = str(uv_temp)
     if offline:
         # Nothing can be downloaded, so uv's own default cache has to supply
         # the composer's requirements. Naming it keeps the composer
         # project's configuration from moving it, as CI's variable does.
+        default_cache = _uv_cache_directory(empty_config, environment, ("--no-config",))
+        if default_cache is None:
+            raise ValueError(
+                "Build protected axiom-compose runtime failed: uv could not "
+                "report its cache directory"
+            )
         environment["UV_CACHE_DIR"] = default_cache
     else:
         cache = temp / "setup-uv-cache"
@@ -5754,9 +5756,9 @@ def _uv_cache_directory(
 ) -> str | None:
     """The cache directory uv would use from ``cwd``, or None if uv cannot say.
 
-    ``uv cache dir`` only reports the path; it creates nothing. A committed
-    configuration uv cannot read makes the step's own commands fail the same
-    way, as CI's would, so that case is left to them.
+    ``uv cache dir`` only reports the path. Without configuration (the only
+    way ci calls it) it creates nothing; under a no-cache setting it would
+    create a temporary cache.
     """
 
     result = _run_build_command(
@@ -6158,6 +6160,165 @@ def _link_dependency_entries(
                 raise ValueError(f"CI dependency entry already exists: {entry}")
             continue
         entry.symlink_to(path, target_is_directory=True)
+
+
+_COMPOSER_SIBLINGS = ("encode", "engine", "corpus")
+_LOCAL_SOURCE_KEYS = ("directory", "editable", "path", "virtual")
+
+
+def _composer_local_references(compose_checkout: Path) -> list[str]:
+    """Local paths the composer build's uv may read or build from.
+
+    These are the lock's local sources (packages and their recorded
+    requirements, dev groups included) and the composer project's own path
+    sources and workspace member patterns. ``uv export --locked`` reads, and
+    for dynamic metadata builds, every local package the lock records, and
+    ``uv pip install`` builds the non-dev ones.
+    """
+
+    def local(entry: object) -> list[str]:
+        if not isinstance(entry, dict):
+            return []
+        return [
+            str(entry[key])
+            for key in _LOCAL_SOURCE_KEYS
+            if isinstance(entry.get(key), str)
+        ]
+
+    def table(path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {}
+        try:
+            return tomllib.loads(path.read_text())
+        except (OSError, ValueError) as error:
+            raise ValueError(
+                f"Cannot read the composer's {path.name}, so ci cannot tell "
+                f"which dependency checkouts its uv build reaches: {error}"
+            ) from error
+
+    references: list[str] = []
+    for package in table(compose_checkout / "uv.lock").get("package", []):
+        if not isinstance(package, dict):
+            continue
+        references.extend(local(package.get("source")))
+        metadata = package.get("metadata")
+        if isinstance(metadata, dict):
+            requirements = list(metadata.get("requires-dist", []) or [])
+            groups = metadata.get("requires-dev")
+            if isinstance(groups, dict):
+                for group in groups.values():
+                    requirements.extend(group or [])
+            for requirement in requirements:
+                references.extend(local(requirement))
+    tool = table(compose_checkout / "pyproject.toml").get("tool")
+    uv = tool.get("uv") if isinstance(tool, dict) else None
+    if isinstance(uv, dict):
+        sources = uv.get("sources")
+        if isinstance(sources, dict):
+            for source in sources.values():
+                for entry in source if isinstance(source, list) else [source]:
+                    if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+                        references.append(entry["path"])
+        workspace = uv.get("workspace")
+        if isinstance(workspace, dict):
+            # Exclusions only narrow the members, so they reach nothing.
+            references.extend(
+                pattern
+                for pattern in workspace.get("members", []) or []
+                if isinstance(pattern, str)
+            )
+    return references
+
+
+def _composer_sibling_entries(
+    compose_checkout: Path, layout: DependencyLayout
+) -> set[str]:
+    """The sibling dependency entries the composer build reaches by path.
+
+    In CI every dependency-root entry is a disposable checkout, so a build
+    backend that writes into its source tree (setuptools' .egg-info, say)
+    writes there. ci's encoder, engine and corpus entries are links to the
+    developer's checkouts, so the entries a reference reaches get fresh
+    clones for the build. A reference outside the dependency root names a
+    path no runner has, so it fails resolution rather than reaching a
+    directory on this machine.
+    """
+
+    compose = compose_checkout
+    reached: set[str] = set()
+    for reference in _composer_local_references(compose):
+        # Only a member pattern's part before its first glob is a path.
+        literal = reference
+        if glob := re.search(r"[*?\[]", reference):
+            literal = reference[: glob.start()].rpartition("/")[0]
+        target = Path(os.path.normpath(compose / literal))
+        if target == compose or target.is_relative_to(compose):
+            if not target.resolve().is_relative_to(compose.resolve()):
+                raise ValueError(
+                    f"Composer path source {reference!r} leaves the composer "
+                    "checkout through a symlink"
+                )
+            continue
+        if target == layout.root:
+            # A member pattern over the whole root reaches every entry.
+            reached.update(_COMPOSER_SIBLINGS)
+            continue
+        for name in (*_COMPOSER_SIBLINGS, "rulespec_us"):
+            entry = layout.entry(_CHECKOUT_NAMES[name])
+            if target == entry or target.is_relative_to(entry):
+                if name != "rulespec_us":
+                    reached.add(name)
+                break
+        else:
+            raise ValueError(
+                f"Cannot reproduce CI: composer path source {reference!r} "
+                f"resolves to {target}, outside the dependency root, where no "
+                "runner has a checkout"
+            )
+    return reached
+
+
+@contextlib.contextmanager
+def _fresh_composer_siblings(
+    layout: DependencyLayout,
+    names: Iterable[str],
+    checkouts: Mapping[str, tuple[Path, str]],
+) -> Iterator[None]:
+    """Swap the named sibling links for fresh clones while the composer builds.
+
+    ``checkouts`` maps each name to its verified checkout and the commit CI
+    checks out. Afterwards each clone is removed and the link restored, so
+    later steps see the layout they saw before; a writing build's products
+    go with the clone.
+    """
+
+    with contextlib.ExitStack() as clones:
+        swapped: list[str] = []
+        try:
+            for name in sorted(names):
+                entry = layout.entry(_CHECKOUT_NAMES[name])
+                source, commit = checkouts[name]
+                swapped.append(name)
+                if entry.is_symlink():
+                    entry.unlink()
+                _fresh_dependency_entry(
+                    clones,
+                    layout,
+                    name,
+                    source,
+                    commit,
+                    f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}",
+                )
+            yield
+        finally:
+            for name in swapped:
+                entry = layout.entry(_CHECKOUT_NAMES[name])
+                if entry.is_symlink():
+                    entry.unlink()
+                elif entry.exists():
+                    shutil.rmtree(entry, ignore_errors=True)
+                if not entry.exists():
+                    entry.symlink_to(checkouts[name][0], target_is_directory=True)
 
 
 def _dependency_commit(
@@ -6681,21 +6842,51 @@ def _run_ci_in_checkout(
                             repository=COMPOSE_REPOSITORY,
                         )
                     )
-                composer = _build_workflow_composer(
-                    compose_checkout,
-                    compose_commit,
-                    paths["encode"],
-                    caller.refs["encode"],
-                    runner_temp
-                    or Path(
-                        run_resources.enter_context(
-                            tempfile.TemporaryDirectory(prefix="axiom-ci-composer-")
-                        )
-                    ).resolve(),
-                    workspace=repo,
-                    offline=args.offline,
-                    notes=notes,
+                siblings = (
+                    _composer_sibling_entries(compose_checkout, layout)
+                    if layout is not None
+                    else set()
                 )
+                if siblings:
+                    assert layout is not None
+                    notes.append(
+                        "the composer build reaches "
+                        + ", ".join(_CHECKOUT_NAMES[name] for name in sorted(siblings))
+                        + " by path; it built against fresh clones, as CI's "
+                        "disposable checkouts"
+                    )
+                with (
+                    _fresh_composer_siblings(
+                        layout,
+                        siblings,
+                        {
+                            name: (
+                                paths[name],
+                                _dependency_commit(
+                                    paths[name], caller.refs[name], name, mismatches
+                                ),
+                            )
+                            for name in siblings
+                        },
+                    )
+                    if layout is not None
+                    else contextlib.nullcontext()
+                ):
+                    composer = _build_workflow_composer(
+                        compose_checkout,
+                        compose_commit,
+                        paths["encode"],
+                        caller.refs["encode"],
+                        runner_temp
+                        or Path(
+                            run_resources.enter_context(
+                                tempfile.TemporaryDirectory(prefix="axiom-ci-composer-")
+                            )
+                        ).resolve(),
+                        workspace=repo,
+                        offline=args.offline,
+                        notes=notes,
+                    )
                 paths = {**paths, "compose": compose_checkout}
             engine_temp = Path(
                 run_resources.enter_context(
