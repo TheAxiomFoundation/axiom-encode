@@ -117,7 +117,9 @@ def test_real_candidates_no_longer_demand_locator_scalars(
 
 @pytest.mark.parametrize(
     ("run_id", "current_count"),
-    (("37936331759", 0), ("37936338132", 51), ("37936341740", 117)),
+    # Arizona (2) and Virginia (19) no longer repeat each unbound computation
+    # as a tests finding; the same-branch formula-output finding remains.
+    (("37936331759", 0), ("37936338132", 49), ("37936341740", 98)),
 )
 def test_replay_diagnostic_totals(run_id, current_count):
     _recorded, _source, issues = _replay(run_id)
