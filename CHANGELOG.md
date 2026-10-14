@@ -1,3 +1,8 @@
+## 0.2.2192
+
+- Recognize the flattened U.S. Code run-in outline (subsection, paragraph, subparagraph, clause, subclause) so complete-source structure findings name real designations, keep cross references and bracketed repeal notes out of the branch list, and stop reading German sentence markers in U.S. sources.
+- Label U.S. and other non-German branches in English (`us/regulation/7/273/4(a)(4) [paragraph (a)(4)]`) and read listed and ranged U.S. citations such as `7 CFR 273.4(a)(3)-(5)`; German labels are unchanged.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
