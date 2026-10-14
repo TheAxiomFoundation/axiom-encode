@@ -219,7 +219,7 @@ def report(
 
 
 def check_reports(reports: Sequence[str]) -> list[str]:
-    """Why these shard reports do not prove the whole suite ran; empty if they do.
+    """Why these reports do not prove the shards ran all their tests; empty if they do.
 
     ``reports[k - 1]`` must be the report of shard ``k`` of ``len(reports)``;
     pass ``""`` for a shard that published none.
@@ -324,7 +324,9 @@ def main(argv: Sequence[str]) -> int:
         for problem in problems:
             print(f"error: {problem}", file=sys.stderr)
         if not problems:
-            print(f"all {len(argv) - 1} shards agree and together ran the whole suite")
+            print(
+                f"all {len(argv) - 1} shards agree and together ran every test they select"
+            )
         return 1 if problems else 0
     print(
         "usage: python -m tests.ci_shards (seconds LOG... | check REPORT...)",

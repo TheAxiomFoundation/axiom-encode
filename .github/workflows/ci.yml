@@ -71,7 +71,8 @@ jobs:
 
   # Branch protection requires the check named "test (3.13)". It passes only
   # when every shard published a report and the reports show that together they
-  # ran the whole suite: all shards collected the same tests and split them the
+  # ran every test the shards select (all but the real_engine tests, which the
+  # real-engine job runs): all shards collected the same tests and split them the
   # same way, and the tests they kept add up to the tests collected. A shard
   # publishes its report only when its pytest run exits 0 having run every
   # test it kept, so a failed, cancelled or never-started shard leaves its
@@ -85,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Check every shard passed and the shards cover the suite
+      - name: Check every shard passed and the shards ran every selected test
         env:
           SHARDS_RESULT: ${{ needs.test.result }}
           SHARD_1: ${{ needs.test.outputs.shard_1 }}
