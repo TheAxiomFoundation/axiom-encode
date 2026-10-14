@@ -6436,12 +6436,6 @@ def _deferred_coverage(
                     path=candidate_path,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
                 )
-                or _federal_regulation_dependency_blocks_branch(
-                    reason,
-                    path=candidate_path,
-                    branches=branches,
-                    corpus_citation_path=corpus_citation_path,
-                )
                 or (
                     _reason_names_source_bound_runtime_gap(
                         reason,
@@ -6530,12 +6524,6 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
-                )
-                or _federal_regulation_dependency_blocks_branch(
-                    reason,
-                    path=candidate,
-                    branches=branches,
-                    corpus_citation_path=corpus_citation_path,
                 )
                 for candidate, candidate_scope_text in most_specific_source_scopes.items()
             )
@@ -9182,239 +9170,6 @@ def _reason_dependency_is_source_bound(
         if normalized_dependency and normalized_dependency in normalized_source:
             return True
     return False
-
-
-# Dependencies a federal regulation branch cites: another CFR section, written
-# `42 CFR 457.618(a)(2)` or, within the same title, `§ 457.618(a)(2)`, and a
-# section of the statute the regulation implements, `section 1905(b) of the
-# Act`.
-_FEDERAL_REGULATION_DEPENDENCY = re.compile(
-    r"(?P<cfr>(?<![A-Za-z0-9])(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?"
-    r"(?:(?:§{1,2}|sections?|sec\.)\s*)?"
-    r"|§{1,2}\s*)"
-    r"(?P<section>\d+\.\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?)"
-    r"(?P<tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)"
-    r"(?![A-Za-z0-9]|\.\d|\s*\()"
-    r"|(?<![A-Za-z0-9])section\s+(?P<act_section>\d+[A-Z]?(?:-\d+)?)"
-    r"(?P<act_tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)"
-    r"\s+of\s+the\s+(?:Social\s+Security\s+)?Act\b",
-    flags=re.IGNORECASE,
-)
-_VALUE_NOUN = (
-    r"(?:amounts?|rates?|percentages?|percent|income|resources?|values?|basis|"
-    r"allotments?|FMAPs?|limits?|thresholds?|payments?|levels?|costs?|premiums?|"
-    r"deductions?|credits?|wages?|base|ratios?|sizes?|sums?|totals?|prices?|"
-    r"benefits?|shares?|charges?|fees?|ceilings?|caps?)"
-)
-# Only syntax that makes the cited provision supply a value: a computed,
-# calculated, adjusted, reduced, or increased quantity, a value noun that is
-# `determined` there, or an amount, rate, percentage, limit, cap, FMAP,
-# allotment, or threshold set under or in the cited provision. `Determined
-# under` after a category (`separate line of business (as determined under
-# § 1.414(r)-3)`, `in person, as determined under § 423.2020`) and a program
-# label (`benefits under part A`, `services under § 98.50`) are not values.
-_VALUE_SUPPLYING_DEPENDENCY_LINK = re.compile(
-    r"(?:"
-    r"\b(?:computed|calculated|adjusted|reduced|increased)\s+"
-    r"(?:under|in\s+accordance\s+with|pursuant\s+to|as\s+provided\s+in)"
-    rf"|\b{_VALUE_NOUN}\b[^.;,()]{{0,60}}?\b(?:is\s+|are\s+|be\s+|as\s+)?"
-    r"determined\s+(?:under|in\s+accordance\s+with|pursuant\s+to)"
-    r"|(?<!\btime\s)\b(?:amounts?|rates?|percentages?|limits?|ceilings?|caps?|"
-    r"FMAPs?|allotments?|thresholds?)\s+(?:(?:provisions?|requirements?)\s+)?"
-    r"(?:under|in|in\s+accordance\s+with|pursuant\s+to|specified\s+in|"
-    r"described\s+in|set\s+(?:forth|out)\s+in)"
-    r")\s*$",
-    flags=re.IGNORECASE,
-)
-_FEDERAL_REGULATION_DEPENDENCY_MISSING_STATE = re.compile(
-    r"\b(?:is|are)\s+not\s+(?:yet\s+)?"
-    r"(?:supplied|provided|available|encoded|implemented)\b|"
-    r"\b(?:is|are)\s+(?:missing|unavailable)\b|"
-    r"\bno\s+executable\s+(?:RuleSpec\s+)?(?:outputs?|exports?|rules?)\b"
-    r"[^.;]{0,160}?\b(?:is|are)\s+supplied\b",
-    flags=re.IGNORECASE,
-)
-
-
-def _federal_regulation_dependency_identity(
-    match: re.Match[str],
-    *,
-    current_title: str,
-) -> tuple[str, str, str, tuple[str, ...]]:
-    fragments = tuple(
-        fragment.lower()
-        for fragment in re.findall(
-            r"\(\s*([A-Za-z0-9]+)\s*\)",
-            match.group("tail") or match.group("act_tail") or "",
-        )
-    )
-    if match.group("act_section"):
-        return ("act", "", match.group("act_section").lower(), fragments)
-    title = match.group("title") or current_title
-    return ("cfr", title, match.group("section").lower(), fragments)
-
-
-def _period_masked(text: str, spans: Iterable[re.Match[str]]) -> str:
-    masked = list(text)
-    for span in spans:
-        for position in range(span.start(), span.end()):
-            if masked[position] in {".", ";"}:
-                masked[position] = " "
-    return "".join(masked)
-
-
-def _reason_names_missing_federal_regulation_dependency(
-    reason: str,
-    source_scope_text: str,
-    *,
-    corpus_citation_path: str,
-    path: tuple[str, ...] | None,
-) -> bool:
-    """Accept an exact CFR branch blocked by a CFR or Act section it cites.
-
-    The reason must open with the exact current branch citation, name another
-    regulation section or a section of the Act, and state that it is missing in
-    the same or the next clause. The exact source branch must cite the same
-    provision through dependency syntax (`determined under section 1905(b) of
-    the Act`, `limit provisions under § 457.618(a)(2)`).
-    """
-
-    identity = _cfr_current_section_identity(corpus_citation_path)
-    if identity is None or not path or not source_scope_text.strip():
-        return False
-    current_title, current_section, _scope = identity
-    if not _reason_cites_exact_current_statute_branch(
-        reason,
-        corpus_citation_path=corpus_citation_path,
-        path=path,
-        strict_terminal=True,
-        citation_must_start=True,
-    ):
-        return False
-    source_references = tuple(
-        _FEDERAL_REGULATION_DEPENDENCY.finditer(source_scope_text)
-    )
-    masked_source = _period_masked(source_scope_text, source_references)
-    linked_identities: set[tuple[str, str, str, tuple[str, ...]]] = set()
-    for reference in source_references:
-        # Only syntax that makes the cited provision supply a value links it:
-        # `FMAP determined under`, `as reduced in accordance with`,
-        # `limit provisions under`. A label (`services under`, `as defined
-        # under`, `eligible under`, `demonstration project under`, `meets the
-        # requirements of`) names a category or a boundary predicate and is
-        # never linked here.
-        clause_start = (
-            max(masked_source.rfind(stop, 0, reference.start()) for stop in ".;\n") + 1
-        )
-        if _VALUE_SUPPLYING_DEPENDENCY_LINK.search(
-            masked_source[clause_start : reference.start()]
-        ):
-            linked_identities.add(
-                _federal_regulation_dependency_identity(
-                    reference, current_title=current_title
-                )
-            )
-    if not linked_identities:
-        return False
-    reason_references = tuple(_FEDERAL_REGULATION_DEPENDENCY.finditer(reason))
-    masked_reason = _period_masked(
-        reason,
-        (*reason_references, *_PERIOD_BEARING_CITATION.finditer(reason)),
-    )
-    for reference in reason_references:
-        dependency = _federal_regulation_dependency_identity(
-            reference, current_title=current_title
-        )
-        if dependency[:3] == ("cfr", current_title, current_section.lower()):
-            continue
-        if dependency not in linked_identities:
-            continue
-        # The missing state must follow in this clause or the next one, with
-        # no qualification between the dependency and its missing state and
-        # no retraction afterwards.
-        stops = [
-            match.start()
-            for match in re.finditer(r"[.;\n]", masked_reason[reference.end() :])
-        ]
-        window_end = reference.end() + (stops[1] if len(stops) > 1 else len(reason))
-        missing = _FEDERAL_REGULATION_DEPENDENCY_MISSING_STATE.search(
-            masked_reason, reference.end(), window_end
-        )
-        if missing is None:
-            continue
-        if _has_adversative_language(
-            reason[reference.end() : missing.start()]
-        ) or _has_adversative_language(reason[missing.end() :]):
-            continue
-        return True
-    return False
-
-
-def _federal_regulation_dependency_blocks_branch(
-    reason: str,
-    *,
-    path: tuple[str, ...],
-    branches: Sequence[SourceStructureBranch],
-    corpus_citation_path: str,
-) -> bool:
-    """Accept a CFR/Act dependency deferral only where it blocks the branch.
-
-    A leaf is blocked by a value-supplying dependency its text cites. A parent
-    is blocked only when its own chapeau cites the dependency or every leaf
-    below it cites the dependency; otherwise the deferral must name the child
-    that cites it, so an independent sibling category is not deferred with it.
-    No covered leaf may state its own amount, percentage, explicit computation,
-    or consequence: those stay encoded with the dependency as a declared input
-    or are rejected, so `7 CFR 273.4(c)(2)(iv)` ("must deem ... as determined in
-    accordance with § 273.8, reduced by $1,500") is not deferred this way.
-    """
-
-    if not path or _cfr_current_section_identity(corpus_citation_path) is None:
-        return False
-    owners = [branch for branch in branches if branch.path == path]
-    if not owners:
-        return False
-    owner = max(owners, key=lambda branch: len(branch.text))
-
-    def cited_in(text: str) -> bool:
-        return _reason_names_missing_federal_regulation_dependency(
-            reason,
-            text,
-            corpus_citation_path=corpus_citation_path,
-            path=path,
-        )
-
-    descendants = [
-        branch
-        for branch in branches
-        if len(branch.path) > len(path) and branch.path[: len(path)] == path
-    ]
-    if not descendants:
-        return cited_in(owner.text) and not _regulation_leaf_states_operative_rule(
-            owner.text
-        )
-    if not cited_in(owner.text):
-        return False
-    leaves = [
-        branch
-        for branch in descendants
-        if not any(
-            len(other.path) > len(branch.path)
-            and other.path[: len(branch.path)] == branch.path
-            for other in descendants
-        )
-    ]
-    if any(_regulation_leaf_states_operative_rule(leaf.text) for leaf in leaves):
-        return False
-    direct_text = _source_branch_direct_text(owner, branches=branches)
-    # The chapeau may name the limiting dependency (`Subject to the 10 percent
-    # limit provisions under § 457.618(a)(2), the following expenditures:`) but
-    # must not itself compute or mandate a consequence.
-    if _regulation_text_states_computation(
-        direct_text
-    ) or _regulation_text_states_consequence(direct_text):
-        return False
-    return cited_in(direct_text) or all(cited_in(leaf.text) for leaf in leaves)
 
 
 def _reason_names_missing_same_act_dependency(
@@ -13055,10 +12810,20 @@ def _regulation_runtime_gap_descendants_are_administrative(
     )
 
 
+# An administrative act on an administrative artifact or recipient, stated
+# with a finite verb: after a modal or `is required to`, or as the imperative
+# that opens a list item (`(iv) Provide for a combined eligibility notice`). A
+# participle such as `approved AFDC plan` is not an act.
+_REGULATION_ADMINISTRATIVE_VERB = (
+    r"(?:submit|file|notify|inform|report|publish|send|transmit|mail|issue|"
+    r"maintain|retain|document|record|review|request|develop|post|provide|"
+    r"furnish|forward|conduct|hold|schedule|explain|advise)"
+)
 _REGULATION_ADMINISTRATIVE_ACT = re.compile(
-    r"\b(?:submit|file|notif|inform|report|publish|send|transmit|mail|issu|"
-    r"maintain|retain|document|record|certif|review|approv|request|develop|"
-    r"post|provid|furnish|forward|conduct|hold|schedul|explain|advis)[a-z]*\s+"
+    r"(?:\b(?:must|shall|will|may|should|(?:is|are)\s+required\s+to)\s+"
+    r"(?:not\s+)?(?:also\s+)?(?:[a-z]+ly\s+)?"
+    r"|^\s*(?:\(\s*[A-Za-z0-9]+\s*\)\s*)*)"
+    rf"{_REGULATION_ADMINISTRATIVE_VERB}\s+"
     r"(?:[\w'-]+\s+){0,8}?"
     r"(?:reports?|notices?|records?|plans?|data|documentation|documents?|"
     r"forms?|requests?|information|applications?|waivers?|certifications?|"
@@ -13070,9 +12835,9 @@ _REGULATION_ADMINISTRATIVE_ACT = re.compile(
 
 
 # A stated eligibility, classification, benefit, or income/resource
-# consequence. This is a lexical screen over a closed phrase list; a branch
-# that matches it states an operative rule, not only an administrative
-# workflow.
+# consequence. This is a lexical screen over a closed phrase list, with and
+# without a modal; a branch that matches it states an operative rule, not only
+# an administrative workflow.
 _REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
     r"\b(?:must|shall|will|may)\b[^.;:]{0,60}?\b(?:not\s+)?(?:be\s+)?"
     r"(?:attribut|classif|consider|count|deduct|deem|den(?:y|ied)|disqualif|"
@@ -13087,13 +12852,27 @@ _REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
     r"(?:standards?|limits?|deductions?|rates?)\b|"
     r"\b(?:is|are)\s+(?:not\s+)?(?:included|excluded|counted|disregarded)\s+"
     r"(?:in|from|as)\b|"
-    r"\b(?:is|are|was|were|be|becomes?|remains?)\s+(?:not\s+)?(?:in)?eligible\b|"
+    r"\b(?:is|are|was|were|be|been|becomes?|remains?)\s+(?:not\s+)?"
+    r"(?:in)?(?:eligible|entitled|barred|disqualified|suspended|terminated|"
+    r"denied|excluded)\b|"
+    r"\b(?:lose|loses|losing|lost)\s+(?:[\w-]+\s+){0,2}?"
+    r"(?:eligibility|benefits?|entitlement|coverage|allotments?)\b|"
+    r"\bqualif(?:y|ies)\s+for\b|"
     r"\b(?:continu|ceas|stop)[a-z]*\s+(?:to\s+)?"
     r"(?:consider|deem|count|pay|provid|issu|receiv|includ|exclud)[a-z]*\b|"
-    r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?)\s+"
-    r"(?:will|shall|must|may)\s+(?:not\s+)?"
-    r"(?:cease|stop|end|terminate|continue|be\s+(?:reduced|terminated|denied|"
-    r"suspended|withheld))\b",
+    r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?|"
+    r"coverage|participation)\b[^.;:]{0,60}?\b(?:(?:will|shall|must|may)\s+)?"
+    r"(?:not\s+)?(?:stops?|ceases?|ends?|terminates?|continues?|begins?|"
+    r"resumes?|starts?|restarts?)\b|"
+    r"\b(?:must|shall|will|may)\s+(?:not\s+)?(?:start|begin|resume|reinstate|"
+    r"restart)\b[^.;:]{0,40}?\b(?:benefits?|payments?|assistance|allotments?|"
+    r"coverage)\b|"
+    r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?|"
+    r"coverage)\s+(?:is|are|(?:will|shall|must|may)\s+(?:not\s+)?be)\s+"
+    r"(?:reduced|terminated|denied|suspended|stopped|withheld|discontinued)\b|"
+    r"\bclos(?:e|es|ing)\s+(?:the|its|a)\s+case\b|"
+    r"\bcertif(?:y|ies|ying)\s+(?:the|a|each)\s+household\b|"
+    r"\breceives?\s+no\s+(?:allotment|benefits?|payments?)\b",
     flags=re.IGNORECASE,
 )
 _SPELLED_AMOUNT = re.compile(
@@ -13107,19 +12886,27 @@ _SPELLED_AMOUNT = re.compile(
 
 
 def _regulation_text_states_consequence(text: str) -> bool:
-    """Find a consequence phrase that is not the trigger of a determination.
+    """Find a consequence phrase outside the clause of a determination.
 
-    `... personnel determine that any member of a household is ineligible ...`
-    describes when an administrative duty arises; the duty is the operative
-    text. Any other match states the consequence itself.
+    In `... personnel determine that any member of a household is ineligible
+    ...` the phrase is the object of the determination that triggers an
+    administrative duty. Once a comma, semicolon, or colon closes that clause
+    (`If the State agency determines that ..., the household is ineligible`),
+    the phrase is the consequence itself.
     """
 
     for match in _REGULATION_OPERATIVE_CONSEQUENCE.finditer(text):
         sentence_start = max(text.rfind(stop, 0, match.start()) for stop in ".;\n") + 1
-        if re.search(
-            r"\bdetermin[a-z]*\s+(?:that|whether)\b",
-            text[sentence_start : match.start()],
-            flags=re.IGNORECASE,
+        determinations = list(
+            re.finditer(
+                r"\bdetermin[a-z]*\s+(?:that|whether)\b",
+                text[sentence_start : match.start()],
+                flags=re.IGNORECASE,
+            )
+        )
+        if determinations and not re.search(
+            r"[,;:]",
+            text[sentence_start + determinations[-1].end() : match.start()],
         ):
             continue
         return True

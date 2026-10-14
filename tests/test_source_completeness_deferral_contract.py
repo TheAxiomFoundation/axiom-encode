@@ -500,7 +500,9 @@ def test_cfr_runtime_gap_still_rejects_explicit_computation_and_vague_reason():
     )
     assert not covered and issues
 
-    # The replayed precise administrative reason is accepted.
+    # The replayed reason is precise, but "The State has an approved title XXI
+    # plan" states a condition with a participle, not an administrative act,
+    # so the leaf stays encodable as a boolean input.
     covered, issues = _covered(
         "us/regulation/42/457/622",
         CONDITION_457_622,
@@ -509,7 +511,7 @@ def test_cfr_runtime_gap_still_rejects_explicit_computation_and_vague_reason():
         "plan; the approval determination is not supplied in the available "
         "context.",
     )
-    assert ("c", "1") in covered and not issues
+    assert ("c", "1") not in covered and issues
 
 
 def test_cfr_reader_identity():
@@ -542,7 +544,10 @@ def test_cfr_reader_identity():
         assert sc._cfr_current_section_identity(citation) is None
 
 
-# CFR and Act dependencies named by a regulation branch.
+# CFR and Act dependencies named by a regulation branch. Accepting them was
+# removed from this PR after review (category labels and operative leaves
+# slipped through a lexical link test); every case below stays rejected, as on
+# main, and guards the follow-up.
 
 FMAP_457_622 = (
     "(a) Basis. Sections 1905(b), 2105(a) and 2105(b) of the Act provides for "
@@ -568,8 +573,7 @@ FMAP_457_622 = (
 @pytest.mark.parametrize(
     ("path", "reason"),
     [
-        # Reasons copied verbatim from replayed rejected candidates; the
-        # paragraph chapeau cites the limit, and its leaves state no amount.
+        # Reasons copied verbatim from replayed rejected candidates.
         (
             ("c", "2"),
             "42 CFR 457.622(c)(2) subjects its listed expenditures to the 10 "
@@ -589,7 +593,7 @@ FMAP_457_622 = (
         ),
     ],
 )
-def test_cfr_branch_deferral_names_source_cited_regulation_dependency(path, reason):
+def test_cfr_dependency_deferral_is_not_accepted_in_this_change(path, reason):
     covered, issues = _covered(
         "us/regulation/42/457/622",
         FMAP_457_622,
@@ -597,8 +601,8 @@ def test_cfr_branch_deferral_names_source_cited_regulation_dependency(path, reas
         reason,
     )
 
-    assert path in covered
-    assert not issues
+    assert path not in covered
+    assert issues
 
 
 @pytest.mark.parametrize(
@@ -699,19 +703,6 @@ def test_cfr_branch_dependency_rejects_unbound_or_unstated_dependency(path, reas
 
     assert path not in covered
     assert issues
-
-
-def test_cfr_dependency_form_is_limited_to_numbered_federal_regulations():
-    reason = (
-        "us-ca/regulation/mpp/63-300(a) requires the limit under § 457.618(a)(2), "
-        "which is not supplied."
-    )
-    assert not sc._reason_names_missing_federal_regulation_dependency(
-        reason,
-        "(a) Subject to the limit under § 457.618(a)(2), outreach.",
-        corpus_citation_path="us-ca/regulation/mpp/63-300",
-        path=("a",),
-    )
 
 
 REPORTING_273_4_B = (
@@ -1059,14 +1050,59 @@ def _regulation_leaf_source(leaf: str) -> str:
         "application.",
         # An administrative word with no administrative act on an artifact.
         "The State agency is responsible for the program in each project area.",
+        # Round-2 review shapes: consequences stated without a modal, and a
+        # consequence in the main clause after a determination.
+        "A household that does not submit the quarterly report loses "
+        "eligibility for the following month.",
+        "A recipient who does not submit the quarterly report is not entitled "
+        "to benefits for the following month.",
+        "A household that does not submit the quarterly report is barred from "
+        "participation until it submits the report.",
+        "A household that does not submit the quarterly report is disqualified "
+        "for one month.",
+        "If the State agency determines that the household did not submit the "
+        "quarterly report, the household is ineligible for the following month.",
+        "When the State agency determines that the household did not submit the "
+        "quarterly report, the State agency must terminate the household's "
+        "certification.",
+        "Payments to a recipient who does not submit the quarterly report will "
+        "stop with the following month.",
+        "If the recipient does not submit the quarterly report, payments are "
+        "suspended until we receive the report.",
+        "The State agency must close the case of a household that does not "
+        "submit the quarterly report.",
+        "A household that does not submit the quarterly report receives no "
+        "allotment for the following month.",
+        "The State agency must certify the household when it submits the "
+        "quarterly report.",
+        "A household that submits the quarterly report qualifies for expedited "
+        "service.",
+        # Round-2 corpus acceptances the review sampled as operative.
+        "They meet the income and resource requirements of the State's approved "
+        "AFDC plan.",
+        "Continued benefits under this section will stop effective with the "
+        "earlier of the month before the decision or the month the request is "
+        "withdrawn.",
+        "After we verify that you meet all the nonmedical requirements to "
+        "receive benefits, we will start continued benefits again. We will send "
+        "you a notice telling you this.",
+        "Individuals who request coverage for long-term care services and "
+        "supports for the purpose of being evaluated for an eligibility group "
+        "under which those services are covered.",
     ],
 )
-def test_regulation_runtime_gap_rejects_operative_or_non_administrative_leaf(leaf):
+@pytest.mark.parametrize(
+    "citation",
+    ("7 CFR 273.94(a)(1)", "us/regulation/7/273/94(a)(1)"),
+)
+def test_regulation_runtime_gap_rejects_operative_or_non_administrative_leaf(
+    leaf, citation
+):
     covered, issues = _covered(
         "us/regulation/7/273/94",
         _regulation_leaf_source(leaf),
         "us:regulations/7-cfr/273/94/a/1",
-        "7 CFR 273.94(a)(1) requires the State agency report, notice, and "
+        f"{citation} requires the State agency report, notice, and "
         "certification records for this paragraph, which are not available at "
         "runtime.",
     )
@@ -1145,22 +1181,6 @@ def test_cfr_dependency_rejects_label_links_and_computing_leaves(leaf, reason):
 
     assert ("a", "1") not in covered
     assert issues
-
-
-def test_cfr_dependency_accepts_value_link_in_the_same_harness():
-    """The positive twin of the label controls above."""
-
-    covered, issues = _covered(
-        "us/regulation/26/1.414r-94",
-        _regulation_leaf_source(
-            "The home is excluded to the extent its value does not exceed the "
-            "amount set forth in § 416.1212."
-        ),
-        "us:regulations/26-cfr/1/414r-94/a/1",
-        "26 CFR 1.414r-94(a)(1) depends on § 416.1212, which is not supplied.",
-    )
-
-    assert ("a", "1") in covered and not issues
 
 
 def test_cfr_dependency_parent_chapeau_must_not_compute():
