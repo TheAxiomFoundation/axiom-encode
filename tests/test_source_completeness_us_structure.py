@@ -356,3 +356,94 @@ rules:
     structure = _structure_issues(_analyze(derived, source, CFR_273_4))
     for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
         assert not any(branch in issue for issue in structure), (branch, structure)
+
+
+def test_descending_roman_continuation_never_reaches_a_top_level_letter():
+    # `(i)` after `(ii)` is a roman sibling listed out of order, not the
+    # letter subsection (i): the list stops instead of citing (i).
+    assert _listed("7 CFR 273.4(a)(1)(ii), (i)") == {("a", "1", "ii")}
+    assert _listed("7 CFR 273.4(c)(3)(vi), (v)") == {("c", "3", "vi")}
+    assert _listed("26 USC 32(c)(1)(F)(ii), (i)", "us/statute/26/32") == {
+        ("c", "1", "f", "ii")
+    }
+    assert _listed("7 CFR 273.4(a)(6)(ii)(B), (i)") == {("a", "6", "ii", "b")}
+    # Positive controls: ascending romans and a letter after a letter-shaped
+    # roman still read.
+    assert _listed("7 CFR 273.4(a)(1)(i), (ii)") == {
+        ("a", "1", "i"),
+        ("a", "1", "ii"),
+    }
+    assert _listed("7 CFR 273.4(c)(3)(v), and (c)(3)(vi)") == {
+        ("c", "3", "v"),
+        ("c", "3", "vi"),
+    }
+    assert _listed("7 CFR 273.4(a)(1)(i), (c)") == {("a", "1", "i"), ("c",)}
+
+
+def test_us_citation_list_counts_only_when_nothing_qualifies_it():
+    for tail in (
+        " in 7 CFR 273.9",
+        " under 7 CFR 273.9",
+        " as defined in 7 CFR 273.9",
+        ", 7 CFR 273.9",
+        " (7 CFR 273.9)",
+        ", of 7 CFR 273.9",
+        "of 7 CFR 273.9",
+        " (relating to aliens) of 7 CFR 273.9",
+        " are not implemented",
+        " and 7 CFR 273.41(b)",
+    ):
+        assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {("a", "1")}, tail
+    assert _listed(
+        "26 USC 32(c)(1)(A) and (B), both of section 152", "us/statute/26/32"
+    ) == {("c", "1", "a")}
+    # Positive controls: the list ends the citation, says `of this section`,
+    # or is followed by another citation of this unit.
+    for tail in ("", ".", "; 7 CFR 273.9", "\nNext line", " of this section"):
+        assert _listed(f"7 CFR 273.4(a)(1) and (c)(1){tail}") == {
+            ("a", "1"),
+            ("c", "1"),
+        }, tail
+    assert _listed("7 CFR 273.4(a)(1) and (c)(1), and 7 CFR 273.4(b)") == {
+        ("a", "1"),
+        ("c", "1"),
+        ("b",),
+    }
+    assert _listed(
+        "26 USC 32(c)(1)(A) and (B), and 26 U.S.C. 32(d)", "us/statute/26/32"
+    ) == {("c", "1", "a"), ("c", "1", "b"), ("d",)}
+
+
+_LETTER_I_SOURCE = """\
+(a) Eligibility. A household is eligible only if:
+(1) The household meets both tests:
+(i) The household lives in the State; and
+(ii) The household applies for benefits.
+(2) The household cooperates with the State agency.
+(b) Applications. The State agency must accept applications.
+(c) Interviews. The State agency must interview households.
+(d) Verification. The State agency must verify income.
+(e) Notices. The State agency must send notices.
+(f) Hearings. The State agency must hold hearings.
+(g) Records. The State agency must keep records.
+(h) Reports. The State agency must file reports.
+(i) Penalties. The State agency must apply penalties.
+"""
+
+
+def test_list_shapes_that_name_no_branch_here_leave_it_reported():
+    def structure(rule_source: str) -> list[str]:
+        return _structure_issues(
+            _analyze(_module(CFR_273_4, rule_source), _LETTER_I_SOURCE, CFR_273_4)
+        )
+
+    top_level_i = "Source branch (i) at us/regulation/7/273/4(i) [paragraph (i)]"
+    roman_ii = "273/4(a)(1)(ii) [paragraph (a)(1)(ii)]"
+    issues = structure("7 CFR 273.4(a)(1)(ii), (i)")
+    assert any(top_level_i in issue for issue in issues), issues
+    issues = structure("7 CFR 273.4(a)(1)(i), (ii) in 7 CFR 273.9")
+    assert any(roman_ii in issue for issue in issues), issues
+    # Positive control: the plain list covers both romans.
+    issues = structure("7 CFR 273.4(a)(1)(i), (ii)")
+    assert not any(roman_ii in issue for issue in issues), issues
+    assert not any("273/4(a)(1)(i) [" in issue for issue in issues), issues

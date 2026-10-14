@@ -6106,6 +6106,25 @@ def _paths_from_source_reference(
         and _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
     )
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
+    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
+    # Another citation of this unit after a designation list (`(a)(1), (2),
+    # and 7 CFR 273.4(b)`) keeps the list on this unit.
+    same_unit_reference = (
+        re.compile(
+            "|".join(
+                (
+                    *(
+                        rf"{re.escape(reference)}(?![A-Za-z0-9_])(?!\.\d)"
+                        for reference in reference_aliases
+                    ),
+                    rf"§{{1,2}}\s*{re.escape(current_section)}(?![A-Za-z0-9_-])(?!\.\d)",
+                )
+            ),
+            flags=re.IGNORECASE,
+        )
+        if us_source
+        else None
+    )
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
         for match in re.finditer(
@@ -6136,7 +6155,10 @@ def _paths_from_source_reference(
                 if not suffix.startswith("/") and us_source:
                     paths.update(
                         _us_designation_list_continuations(
-                            value, match.end(), components
+                            value,
+                            match.end(),
+                            components,
+                            same_unit_reference=same_unit_reference,
                         )
                     )
 
@@ -6144,7 +6166,6 @@ def _paths_from_source_reference(
     if keyword_components:
         paths.add(tuple(keyword_components))
 
-    current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
     for match in re.finditer(
         rf"§\s*{re.escape(current_section)}"
         r"(?P<suffix>(?:\([A-Za-z0-9-]+\))+)",
@@ -6164,7 +6185,12 @@ def _paths_from_source_reference(
             )
             if us_source:
                 paths.update(
-                    _us_designation_list_continuations(value, match.end(), components)
+                    _us_designation_list_continuations(
+                        value,
+                        match.end(),
+                        components,
+                        same_unit_reference=same_unit_reference,
+                    )
                 )
     if not paths:
         paths.add(())
@@ -6177,13 +6203,20 @@ _US_DESIGNATION_LIST_CONTINUATION = re.compile(
     r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)",
     flags=re.IGNORECASE,
 )
-# `... and (c)(1) of 7 CFR 273.9`, `(B) of § 152`, `of Pub. L. ...`, `of
-# paragraph (b)`: a list whose items are qualified by another source names
-# that source's branches. Only `of this section` (or another `this` unit)
-# keeps the list on the cited unit.
-_US_DESIGNATION_FOREIGN_QUALIFIER = re.compile(
-    r"\s+of\b(?!\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
-    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b)",
+# A list stays on the cited unit only when it ends the citation (end, `;`,
+# `.`, a line break), says `of this section` (or another `this` unit), or is
+# followed by another citation of the same unit. Anything else (`of 7 CFR
+# 273.9`, `in 7 CFR 273.9`, `under ...`, `as defined in ...`, `, 7 CFR
+# 273.9`, `(relating to ...) of ...`, `are not implemented`) may qualify the
+# listed items, so the list is not read.
+_US_DESIGNATION_LIST_TERMINAL = re.compile(
+    r"[ \t]*(?:$|[;.\r\n])|"
+    r"\s+of\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
+    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_LIST_JOINER = re.compile(
+    r"[ \t]*(?:[,;][ \t]*)?(?:(?:and/or|and|or)[ \t]+)?",
     flags=re.IGNORECASE,
 )
 _US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
@@ -6261,10 +6294,55 @@ def _us_designation_range(
     return tuple(labels)
 
 
+def _us_designation_depth(previous: Sequence[str], label: str) -> int | None:
+    """Find the level that a continuation designation restates or advances.
+
+    The deepest level of the same class whose designation is not after the
+    label wins: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
+    letter-shaped `(v)`. A label before a roman level of its class stops the
+    list: `(a)(1)(ii), (i)` does not reach subsection (i).
+    """
+
+    classes = _us_designation_classes(label)
+    for index in range(len(previous) - 1, -1, -1):
+        shared = _us_designation_classes(previous[index]) & classes
+        if not shared:
+            continue
+        if any(
+            _us_designation_ordinal(label, label_class)
+            >= _us_designation_ordinal(previous[index], label_class)
+            for label_class in shared
+        ):
+            return index
+        if any(label_class.endswith("roman") for label_class in shared):
+            return None
+    return None
+
+
+def _us_designation_list_ends_on_unit(
+    source: str,
+    position: int,
+    same_unit_reference: re.Pattern[str] | None,
+) -> bool:
+    """Tell whether a designation list ends without naming another source."""
+
+    if _US_DESIGNATION_LIST_TERMINAL.match(source, position):
+        return True
+    if same_unit_reference is None:
+        return False
+    joiner = _US_DESIGNATION_LIST_JOINER.match(source, position)
+    return bool(
+        joiner.group(0).strip()
+        and same_unit_reference.match(source, joiner.end()) is not None
+    )
+
+
 def _us_designation_list_continuations(
     source: str,
     position: int,
     components: Sequence[str],
+    *,
+    same_unit_reference: re.Pattern[str] | None = None,
 ) -> set[tuple[str, ...]]:
     """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
 
@@ -6276,10 +6354,11 @@ def _us_designation_list_continuations(
     `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
     Reading stops at the first continuation that is not a designation of a
     level already cited and at a gloss (`(a) (citizenship)`). A range that
-    crosses levels names only its endpoints. When the list ends in `of`
-    another source (`and (c)(1) of 7 CFR 273.9`, `(B) of § 152`, `of Pub.
-    L. ...`), no continuation is read: which items that qualifier governs is
-    ambiguous, so only the first designation counts.
+    crosses levels names only its endpoints. The list counts only when it
+    ends the citation, says `of this section`, or is followed by another
+    citation of this unit (`same_unit_reference`). After `of 7 CFR 273.9`,
+    `in ...`, `under ...`, `as defined in ...` or prose, which items the
+    qualifier governs is ambiguous, so only the first designation counts.
     """
 
     paths: set[tuple[str, ...]] = set()
@@ -6293,22 +6372,7 @@ def _us_designation_list_continuations(
         if not all(_is_parenthesized_outline_label(label) for label in labels):
             break
         classes = _us_designation_classes(labels[0])
-        # The deepest level whose designation the continuation restates or
-        # advances: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
-        # letter-shaped `(v)`.
-        depth = next(
-            (
-                index
-                for index in range(len(previous) - 1, -1, -1)
-                if any(
-                    _us_designation_ordinal(labels[0], label_class)
-                    >= _us_designation_ordinal(previous[index], label_class)
-                    for label_class in _us_designation_classes(previous[index])
-                    & classes
-                )
-            ),
-            None,
-        )
+        depth = _us_designation_depth(previous, labels[0])
         if depth is None:
             break
         current = [*previous[:depth], *labels]
@@ -6330,7 +6394,9 @@ def _us_designation_list_continuations(
         previous = current
         position = continuation.end()
         read_any = True
-    if read_any and _US_DESIGNATION_FOREIGN_QUALIFIER.match(source, position):
+    if read_any and not _us_designation_list_ends_on_unit(
+        source, position, same_unit_reference
+    ):
         return set()
     return paths
 
