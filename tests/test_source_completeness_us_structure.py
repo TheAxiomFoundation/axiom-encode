@@ -409,3 +409,84 @@ def test_cited_range_covers_only_its_own_branches():
         for issue in structure
     ), structure
     assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)
+
+
+# Modeled on 8 U.S.C. 1612(a)(2) and 42 U.S.C. 416(e)(3) in the local corpus:
+# items `(aa)`/`(bb)`/`(cc)` (where `(cc)` is also a roman 200) and a flush
+# enumeration after the last clause. Before the restoration guard, `(cc)`
+# landed at the clause level and the outline collapsed (8 U.S.C. 1612 fell
+# back to 39 garbled branches and lost (b)(2)(B)(i)); the flush `(i)`/`(ii)`
+# opened fake subsections.
+ITEMS_AND_FLUSH_SOURCE = (
+    "(a) Limited eligibility (1) In general An alien is not eligible. (2) "
+    "Exceptions (A) Time-limited exception The alien is— (i) a refugee; (ii) "
+    "an asylee; or (iii) a person who— (I) is a victim, (II) is a survivor, or "
+    "(III) is described in item (aa), (bb), or (cc) of this subclause, or (cc) "
+    "is a dependent; (IV) is a parolee; or (V) is an entrant. (B) Certain "
+    "permanent resident aliens An alien who— (i) is lawfully admitted for "
+    "permanent residence; and (ii) has worked 40 qualifying quarters. For "
+    "purposes of clause (ii), a quarter is credited only if (A) the alien "
+    "worked in the quarter, or (B) the alien was adopted after (i) the day the "
+    "parent died or (ii) the end of the year.\n\n"
+    "(b) Limited eligibility for designated programs (1) In general A State "
+    "may determine eligibility. (2) Exceptions A qualified alien remains "
+    "eligible."
+)
+
+
+def test_us_code_items_and_flush_enumerations_keep_the_outline():
+    citation = "us/statute/8/1612"
+    branches = recognize_source_structure(
+        ITEMS_AND_FLUSH_SOURCE, corpus_citation_path=citation
+    )
+    paths = [branch.path for branch in branches]
+
+    assert len(paths) == len(set(paths))
+    assert [path for path in paths if len(path) == 1] == [("a",), ("b",)]
+    assert {
+        ("a", "2", "a", "iii", "iv"),
+        ("a", "2", "a", "iii", "v"),
+        ("a", "2", "b"),
+        ("a", "2", "b", "i"),
+        ("a", "2", "b", "ii"),
+        ("b", "1"),
+        ("b", "2"),
+    } <= set(paths)
+    # The flush enumeration stays text of (a)(2)(B)(ii), not new branches.
+    clause = next(b for b in branches if b.path == ("a", "2", "b", "ii"))
+    assert clause.text.endswith("(ii) the end of the year.")
+
+    # Negative control: the real clause after the items is still required.
+    structure = _structure_issues(
+        _analyze(
+            _module(citation, "8 USC 1612(a)(2)(A)", "8 USC 1612(a)(2)(B)(ii)"),
+            ITEMS_AND_FLUSH_SOURCE,
+            citation,
+        )
+    )
+    assert any(
+        "us/statute/8/1612(a)(2)(B)(i) [clause (a)(2)(B)(i)]" in issue
+        for issue in structure
+    ), structure
+    assert any(
+        "us/statute/8/1612(b)(1) [paragraph (b)(1)]" in issue for issue in structure
+    )
+
+
+def test_us_code_without_a_restored_outline_keeps_the_legacy_recognizer():
+    # Roots do not start a sequence, so nothing is restored: recognition is
+    # exactly the legacy recognizer (U.S. sources only drop German sentences).
+    source = (
+        "(c) Second rule (1) In general The rate is 5 percent. (2) Limit No "
+        "credit exceeds $100.\n\n(d) Third rule; (1) The amount is $20."
+    )
+    restored = recognize_source_structure(source, corpus_citation_path=USC_32)
+    legacy = completeness._recognize_source_structure(
+        source,
+        sentence_markers=False,
+        outline_levels=None,
+        inline_outline_markers=True,
+    )
+    assert [(b.path, b.start, b.end) for b in restored] == [
+        (b.path, b.start, b.end) for b in legacy
+    ]

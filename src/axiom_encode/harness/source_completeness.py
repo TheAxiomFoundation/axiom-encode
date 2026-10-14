@@ -2749,7 +2749,18 @@ def _restore_flattened_us_code_outline(
             continue
         chain_start, chain_end = match.span("chain")
         labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("chain"))
-        if not all(_is_parenthesized_outline_label(label) for label in labels):
+        # A U.S. Code designation is a number, one letter, or an i/v/x roman
+        # numeral. An item such as `(cc)` (a valid roman 200 to the legacy
+        # outline) stays inline instead of landing at the clause level.
+        if not all(
+            _is_parenthesized_outline_label(label)
+            and (
+                len(label) == 1
+                or label[0].isdigit()
+                or re.fullmatch(r"[ivx]+", label, flags=re.IGNORECASE)
+            )
+            for label in labels
+        ):
             continue
         # Only the same line's last few words decide a marker's role.
         line_start = source_text.rfind("\n", max(0, chain_start - 256), chain_start)
@@ -2893,11 +2904,13 @@ def recognize_source_structure(
                 )
                 if branch.start not in editorial_starts
             )
+    # Without a restored outline, recognition is exactly the legacy one (apart
+    # from German sentence markers), including its level table.
     return _with_display_paths(
         _recognize_source_structure(
             source_text,
             sentence_markers=not us_source,
-            outline_levels=us_code_levels,
+            outline_levels=None,
             inline_outline_markers=True,
         )
     )
@@ -3383,9 +3396,12 @@ def _qualified_parenthesized_legal_outline_markers(
     ``outline_levels`` names a known hierarchy (the U.S. Code's subsection,
     paragraph, subparagraph, clause, subclause) when the root markers fit it.
     ``inline_markers=False`` reads line-leading markers only, for a source
-    whose run-in markers were already restored to line starts.
+    whose run-in markers were already restored to line starts; a restored
+    marker then opens a new root only when it continues the root sequence.
     """
 
+    strict_roots = not inline_markers
+    last_root: str | None = None
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
     all_inline_matches = (
         tuple(_INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
@@ -3454,6 +3470,25 @@ def _qualified_parenthesized_legal_outline_markers(
                 and level == 0
             ):
                 break
+            if strict_roots and attached_parent_level is None:
+                # A restored run-in marker must continue the outline: advance
+                # an open sibling of its level (small gaps allowed), open the
+                # first child one level down, or continue the roots. A flush
+                # enumeration such as `... only if (A) ..., or (B) ... after
+                # (i) the day ... or (ii) August 28, 1958` inside 42 U.S.C.
+                # 416(e)(3)(B) otherwise opened subsections "(i)" and "(ii)".
+                # Such a marker tries the first-child level, else stays text.
+                level, category = _restored_outline_level(
+                    raw_label,
+                    level=level,
+                    active=active,
+                    last_root=last_root,
+                    outline_levels=outline_levels,
+                )
+                if level is None:
+                    break
+            if level == 0:
+                last_root = raw_label
             active = [entry for entry in active if entry[0] < level]
             normalized = raw_label.lower()
             active.append((level, raw_label, normalized, category))
@@ -3487,6 +3522,72 @@ def _qualified_parenthesized_legal_outline_markers(
         for first, second in itertools.pairwise(root_labels)
     )
     return tuple(markers) if has_sequential_roots else ()
+
+
+def _restored_label_advances(previous: str, label: str, category: str) -> bool:
+    """Accept the next sibling of a restored outline, allowing small gaps."""
+
+    if category == "numeric":
+        current = re.fullmatch(r"(\d+)([a-z]?)", label, flags=re.IGNORECASE)
+        before = re.fullmatch(r"(\d+)([a-z]?)", previous, flags=re.IGNORECASE)
+        if current is None or before is None:
+            return False
+        current_key = (int(current.group(1)), current.group(2).lower())
+        previous_key = (int(before.group(1)), before.group(2).lower())
+        return previous_key < current_key and current_key[0] - previous_key[0] <= 3
+    if category in {"roman", "upper-roman"}:
+        current_value = _roman_outline_value(label)
+        previous_value = _roman_outline_value(previous)
+        return (
+            current_value is not None
+            and previous_value is not None
+            and label.isupper() == previous.isupper()
+            and 0 < current_value - previous_value <= 3
+        )
+    return (
+        len(label) == 1
+        and len(previous) == 1
+        and label.isupper() == previous.isupper()
+        and 0 < ord(label.lower()) - ord(previous.lower()) <= 3
+    )
+
+
+def _restored_outline_level(
+    raw_label: str,
+    *,
+    level: int,
+    active: Sequence[tuple[int, str, str, str]],
+    last_root: str | None,
+    outline_levels: Sequence[str],
+) -> tuple[int | None, str]:
+    """Keep a restored marker only where it continues the outline."""
+
+    parent_level = active[-1][0] if active else -1
+    categories = _parenthesized_legal_outline_categories(raw_label)
+
+    def continues(candidate: int) -> bool:
+        candidate_category = outline_levels[candidate]
+        if candidate_category not in categories:
+            return False
+        if candidate == 0 and last_root is None:
+            return True
+        sibling = next((entry for entry in active if entry[0] == candidate), None)
+        if candidate == 0 and sibling is None:
+            sibling = (0, last_root, "", candidate_category)
+        if sibling is not None:
+            return _restored_label_advances(sibling[1], raw_label, candidate_category)
+        return candidate == parent_level + 1 and _parenthesized_outline_label_is_first(
+            raw_label, candidate_category
+        )
+
+    if continues(level):
+        return level, outline_levels[level]
+    for candidate in sorted(
+        range(len(outline_levels)), key=lambda item: (abs(item - level), -item)
+    ):
+        if continues(candidate):
+            return candidate, outline_levels[candidate]
+    return None, ""
 
 
 def _flattened_inline_numeric_root_starts(
