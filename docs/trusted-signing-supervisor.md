@@ -208,6 +208,10 @@ The targeted workflow selects this mode with an exact
 `reviewed_candidate_promotion` member is `true`. All source, refresh, import,
 repair, dependency, migration, and queue inputs must be empty. Pull-request
 publication remains limited to an allowlisted reviewed-head/base-branch pair.
+The workflow rejects mixed promotion inputs before checkout or any network or
+model operation in the signing job. Promotion copies the reviewed primary and
+companion, runs deterministic overlay validation with model reviewers disabled,
+and signs only a new manifest; it does not call a model.
 
 ## Platform hardening
 
@@ -395,6 +399,57 @@ PR-modified workflow text can never see the secret. The signer's own event-name
 binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
 allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
 of the YAML.
+
+### Targeted workflow approval
+
+In `.github/workflows/targeted-signed-reencode.yml`, the secret-free
+`classify_run` job recognizes a promotion only when `source_bundle_json` parses
+to an object with the boolean `reviewed_candidate_promotion: true`. Generation
+runs must complete `approve_generation` in the `generation-approval`
+environment. That job has no checkout and no secrets. It fails unless the
+`generation-approval` environment has at least one required reviewer, because
+GitHub creates a missing environment without protection rules. It then records
+the run attempt it approved. Reviewed-candidate promotions skip it.
+
+The `encode` job retains the `production-signing` environment and signing key.
+It requires successful generation approval recorded in the same run attempt, or
+a classified promotion with approval skipped. "Re-run failed jobs" keeps the
+earlier approval job and its outputs, so a re-run generation attempt skips
+signing; use "Re-run all jobs" to request a new approval. Cancellation,
+failed-attempt budget, main-branch dispatch, and queue-actor restrictions still
+apply. Its first step refuses any promotion that includes review findings,
+repair replay, dependents, legacy paths, source or refresh bundles, signed
+import inputs, or any queue input.
+
+After the workflow change merges and the environment settings below are applied,
+**anyone who can dispatch this workflow on main can sign allowlisted, reviewed
+candidates without human approval**. The exact reviewed-head and publication
+base allowlists (`REVIEWED_RULESPEC_REFS` and `REVIEWED_RULESPEC_PR_BASES` in
+`src/axiom_encode/prepare_signed_backfill.py`) change only through a reviewed PR.
+Generation continues to require a human approval.
+
+An administrator applies these settings, creating the generation gate before
+removing the signing gate. Steps 1 and 2 can be done before the workflow change
+merges, and doing so avoids an interruption: once it merges, generation runs fail
+the reviewer check until `generation-approval` has a required reviewer. Step 3
+must wait until the workflow change is on main.
+
+1. Open `TheAxiomFoundation/axiom-encode` → **Settings** → **Environments** →
+   **New environment**. Enter `generation-approval`, then click **Configure
+   environment**. If a generation run already created it, open it instead.
+2. Select **Required reviewers**, add `@MaxGhenis` and `@PavelMakarchuk`, then
+   click **Save protection rules**. Leave **Environment secrets** empty.
+3. Return to **Environments** and open `production-signing`. Clear **Required
+   reviewers**, deselect **Allow administrators to bypass configured protection
+   rules**, then click **Save protection rules**. Keep its existing signing secret.
+4. Under **Deployment branches**, retain **Selected branches and tags** with
+   only a **Branch** rule named `main`. If absent, click **Add deployment branch
+   or tag rule**, choose **Branch**, enter `main`, then click **Add rule**. Remove
+   any other branch or tag rules.
+
+These controls and labels are documented in GitHub's
+[environment configuration instructions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+The workflow change does not modify environment settings or secrets.
 
 ### Threat model
 

@@ -1,0 +1,1 @@
+Let allowlisted reviewed-candidate promotions in the targeted signed workflow run without a per-run human approval. Generation runs now wait on the secret-free `generation-approval` environment, the signing key stays in `production-signing`, and the signing job rejects promotion inputs that could select generation before checkout or network access.

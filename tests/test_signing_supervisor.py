@@ -2708,7 +2708,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
             if step.get("name") == "Upload signed re-encode artifact"
         )
     ) + 1 == steps.index(failure_package_step)
-    assert failure_package_step["if"] == "${{ failure() && !cancelled() }}"
+    assert failure_package_step["if"] == (
+        "${{ failure() && !cancelled() "
+        "&& steps.promotion_input_guard.outcome == 'success' }}"
+    )
     assert set(failure_package_step["env"]) == {
         "ATOMIC_SOURCE_JSON",
         "CITATION",
@@ -2819,6 +2822,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(failure_package_step) + 1 == steps.index(failure_upload_step)
     assert "failure() && !cancelled()" in failure_upload_step["if"]
+    assert (
+        "steps.promotion_input_guard.outcome == 'success'" in failure_upload_step["if"]
+    )
     assert (
         "steps.package_failed_reencode_diagnostics.outcome == 'success'"
         in (failure_upload_step["if"])
@@ -3079,6 +3085,12 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
         if step.get("name") == "Encode, review, validate, and apply"
     )
 
+    job = workflow["jobs"]["encode"]
+    assert "approve_generation" in job["needs"]
+    assert job["environment"] == "production-signing"
+    assert job["steps"][0]["name"] == "Reject mixed promotion inputs"
+    assert "IS_PROMOTION" in job["steps"][0]["env"]
+
     assert "reviewed_candidate_promotion" in command
     assert "promote-reviewed-candidate" in command
     assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
@@ -3087,6 +3099,12 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
     assert command.index("promote-reviewed-candidate") < command.index(
         'elif [ "$canonical_refresh_enabled" = "true" ]'
     )
+    promotion_branch = command.split(
+        'if [ "$reviewed_candidate_promotion" = "true" ]; then', 1
+    )[1].split('elif [ "$canonical_refresh_enabled" = "true" ]', 1)[0]
+    assert "promote-reviewed-candidate" in promotion_branch
+    assert "run_signed_encode" not in promotion_branch
+    assert " encode " not in promotion_branch
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:
