@@ -5747,6 +5747,10 @@ def _rule_coverage(
         paths = _paths_from_source_reference(
             str(rule.get("source") or ""),
             corpus_citation_path=corpus_citation_path,
+            # Only a principal output encodes every branch its citation
+            # lists; a parameter citing `(c)(3)(vi)-(vii)` for an age of 18
+            # does not encode those deeming exemptions.
+            list_continuations=kind in {"derived", "derived_relation"},
         )
         for excerpt_citation_path, excerpt in _rule_source_excerpts(rule):
             if (
@@ -6088,6 +6092,7 @@ def _paths_from_source_reference(
     source: str,
     *,
     corpus_citation_path: str,
+    list_continuations: bool = False,
 ) -> set[tuple[str, ...]]:
     value = source.strip()
     if not value or not _source_reference_targets_authoritative_unit(
@@ -6096,7 +6101,10 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
-    us_source = _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    us_source = (
+        list_continuations
+        and _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    )
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
@@ -6166,13 +6174,20 @@ def _paths_from_source_reference(
 _US_DESIGNATION_LIST_CONTINUATION = re.compile(
     r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
     r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
-    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)"
-    # `(c)(1)(A) and (B) of section 152` cites another section's (B).
-    r"(?![ \t]+of[ \t]+(?:section|title|subtitle|chapter|subchapter|part|"
-    r"subpart|such|the|that|said|Public)\b)",
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)",
+    flags=re.IGNORECASE,
+)
+# `... and (c)(1) of 7 CFR 273.9`, `(B) of § 152`, `of Pub. L. ...`, `of
+# paragraph (b)`: a list whose items are qualified by another source names
+# that source's branches. Only `of this section` (or another `this` unit)
+# keeps the list on the cited unit.
+_US_DESIGNATION_FOREIGN_QUALIFIER = re.compile(
+    r"\s+of\b(?!\s+this\s+(?:section|subsection|paragraph|subparagraph|clause|"
+    r"subclause|part|subpart|chapter|subchapter|title|rule|regulation)\b)",
     flags=re.IGNORECASE,
 )
 _US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
+_US_DESIGNATION_RANGE_LIMIT = 25
 
 
 def _is_outline_roman_designation(label: str) -> bool:
@@ -6197,27 +6212,42 @@ def _us_designation_classes(label: str) -> frozenset[str]:
     return frozenset(classes)
 
 
+def _us_designation_ordinal(label: str, label_class: str) -> int:
+    """Order designations of one class: 2 < 10, b < c, iv < vi."""
+
+    if label_class == "numeric":
+        return int(re.match(r"\d+", label).group(0))
+    if label_class.endswith("letter"):
+        return ord(label.lower())
+    return _roman_outline_value(label) or 0
+
+
 def _us_designation_range(
     first: str, last: str, label_class: str
 ) -> tuple[str, ...] | None:
-    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations."""
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations.
+
+    At most 25 siblings are expanded. `(v)-(x)` reads as roman numerals (v
+    to x), so a letter range `(v)-(x)` misses `(w)`: an under-claim that can
+    only leave a branch flagged, never cover one the citation did not name.
+    """
 
     if label_class == "numeric":
         if not (first.isdigit() and last.isdigit()):
             return None
         low, high = int(first), int(last)
-        if not 0 < high - low < 26:
+        if not 0 < high - low < _US_DESIGNATION_RANGE_LIMIT:
             return None
         return tuple(str(value) for value in range(low, high + 1))
     if label_class.endswith("letter"):
-        if not 0 < ord(last.lower()) - ord(first.lower()) < 26:
+        if not 0 < ord(last.lower()) - ord(first.lower()) < _US_DESIGNATION_RANGE_LIMIT:
             return None
         return tuple(chr(code) for code in range(ord(first), ord(last) + 1))
     first_value = _roman_outline_value(first)
     last_value = _roman_outline_value(last)
     if first_value is None or last_value is None:
         return None
-    if not 0 < last_value - first_value < 26:
+    if not 0 < last_value - first_value < _US_DESIGNATION_RANGE_LIMIT:
         return None
     numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
     labels = []
@@ -6245,12 +6275,16 @@ def _us_designation_list_continuations(
     root). A range spans siblings only when it replaces the last designation;
     `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
     Reading stops at the first continuation that is not a designation of a
-    level already cited, at a gloss (`(a) (citizenship)`), and at a
-    designation of another section (`and (B) of section 152`).
+    level already cited and at a gloss (`(a) (citizenship)`). A range that
+    crosses levels names only its endpoints. When the list ends in `of`
+    another source (`and (c)(1) of 7 CFR 273.9`, `(B) of § 152`, `of Pub.
+    L. ...`), no continuation is read: which items that qualifier governs is
+    ambiguous, so only the first designation counts.
     """
 
     paths: set[tuple[str, ...]] = set()
     previous = list(components)
+    read_any = False
     while True:
         continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
         if continuation is None:
@@ -6259,11 +6293,19 @@ def _us_designation_list_continuations(
         if not all(_is_parenthesized_outline_label(label) for label in labels):
             break
         classes = _us_designation_classes(labels[0])
+        # The deepest level whose designation the continuation restates or
+        # advances: `(c)(3)(v), and (c)(3)(vi)` restarts at (c), not at the
+        # letter-shaped `(v)`.
         depth = next(
             (
                 index
                 for index in range(len(previous) - 1, -1, -1)
-                if _us_designation_classes(previous[index]) & classes
+                if any(
+                    _us_designation_ordinal(labels[0], label_class)
+                    >= _us_designation_ordinal(previous[index], label_class)
+                    for label_class in _us_designation_classes(previous[index])
+                    & classes
+                )
             ),
             None,
         )
@@ -6287,6 +6329,9 @@ def _us_designation_list_continuations(
         paths.add(tuple(part.lower() for part in current))
         previous = current
         position = continuation.end()
+        read_any = True
+    if read_any and _US_DESIGNATION_FOREIGN_QUALIFIER.match(source, position):
+        return set()
     return paths
 
 
@@ -13460,10 +13505,13 @@ def _english_branch_citation(
     """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
 
     Repair feedback for a non-German source names the branch with its full
-    parenthesized designation, the literal citation a deferral `reason` must
-    use, instead of German Absatz/Nummer/Buchstabe labels. Only the wording
-    differs; the branch is the same. The CFR calls every level a paragraph;
-    elsewhere the level nouns vary, so the label says `provision`.
+    parenthesized designation instead of German Absatz/Nummer/Buchstabe
+    labels. Only the wording differs; the branch is the same. This is a
+    locator, not the citation form a deferral `reason` must use (a U.S. Code
+    reason cites `42 U.S.C. 415(i)(5)(B)`, see
+    `_reason_cites_exact_current_statute_branch`). The CFR calls every level
+    a paragraph; elsewhere the level nouns vary, so the label says
+    `provision`.
     """
 
     display = branch.display_path

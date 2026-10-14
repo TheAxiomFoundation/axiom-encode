@@ -232,50 +232,69 @@ def test_english_structure_and_formula_locators_still_pair_for_retry():
     )
 
 
-def test_us_citation_lists_and_ranges_name_each_listed_branch():
-    paths = completeness._paths_from_source_reference(
-        "7 CFR 273.4(a)(4)(iii), (a)(5)(ii), and (c)(3)(vi)-(vii)",
-        corpus_citation_path=CFR_273_4,
+def _listed(source: str, citation: str = CFR_273_4) -> set[tuple[str, ...]]:
+    return completeness._paths_from_source_reference(
+        source, corpus_citation_path=citation, list_continuations=True
     )
-    assert paths == {
+
+
+def test_us_citation_lists_and_ranges_name_each_listed_branch():
+    assert _listed("7 CFR 273.4(a)(4)(iii), (a)(5)(ii), and (c)(3)(vi)-(vii)") == {
         ("a", "4", "iii"),
         ("a", "5", "ii"),
         ("c", "3", "vi"),
         ("c", "3", "vii"),
     }
+    assert _listed("26 USC 2(a)(1)(A)-(C)", "us/statute/26/2/a") == {
+        ("1", "a"),
+        ("1", "b"),
+        ("1", "c"),
+    }
+    assert _listed("42 USC 416(l)(1), (3)", "us/statute/42/416/l") == {
+        ("1",),
+        ("3",),
+    }
+    assert _listed("7 CFR 273.4(a)(1) and (c)(1) of this section") == {
+        ("a", "1"),
+        ("c", "1"),
+    }
+    # Without list reading (the default, and every non-principal rule), only
+    # the first designation counts, as on main.
     assert completeness._paths_from_source_reference(
-        "26 USC 2(a)(1)(A)-(C)", corpus_citation_path="us/statute/26/2/a"
-    ) == {("1", "a"), ("1", "b"), ("1", "c")}
-    assert completeness._paths_from_source_reference(
-        "42 USC 416(l)(1), (3)", corpus_citation_path="us/statute/42/416/l"
-    ) == {("1",), ("3",)}
+        "7 CFR 273.4(a)(3)-(5)", corpus_citation_path=CFR_273_4
+    ) == {("a", "3")}
 
 
 def test_us_citation_lists_never_claim_more_than_they_name():
     # A gloss, a different section, and German citations are not continued.
-    assert completeness._paths_from_source_reference(
-        "7 CFR 273.4(a) (citizenship) and 7 CFR 273.10(c)",
-        corpus_citation_path=CFR_273_4,
-    ) == {("a",)}
-    assert completeness._paths_from_source_reference(
-        "26 USC 32(c)(1)(A) and (B) of section 152",
-        corpus_citation_path="us/statute/26/32",
-    ) == {("c", "1", "a")}
-    assert completeness._paths_from_source_reference(
-        "de/statute/estg/32a(1), (2)", corpus_citation_path="de/statute/estg/32a"
-    ) == {("1",)}
+    assert _listed("7 CFR 273.4(a) (citizenship) and 7 CFR 273.10(c)") == {("a",)}
+    assert _listed("de/statute/estg/32a(1), (2)", "de/statute/estg/32a") == {("1",)}
+    # A list qualified by another source names that source's branches, so
+    # only the first designation counts.
+    for source in (
+        "7 CFR 273.4(a)(1) and (c)(1) of 7 CFR 273.9",
+        "7 CFR 273.4(a)(1), (c)(1)-(2) of 7 CFR 273.9",
+        "7 CFR 273.4(a)(1), (c)(1), and (2) of section 273.9",
+        "7 CFR 273.4(a)(1) and (c)(1) of paragraph (b)",
+        "7 CFR 273.4(a)(1) and (c)(1) of Pub. L. 104-193",
+        "7 CFR 273.4(a)(1) and (c)(1) of INA",
+    ):
+        assert _listed(source) == {("a", "1")}, source
+    for qualifier in ("of section 152", "of § 152", "of sec. 152", "of 26 USC 152"):
+        assert _listed(
+            f"26 USC 32(c)(1)(A) and (B) {qualifier}", "us/statute/26/32"
+        ) == {("c", "1", "a")}, qualifier
     # A range that replaces a non-final designation names only its endpoints:
     # neither all of (a)(4) nor subsection (b).
-    assert completeness._paths_from_source_reference(
-        "7 CFR 273.4(a)(4)(iii)-(5)", corpus_citation_path=CFR_273_4
-    ) == {("a", "4", "iii"), ("a", "5")}
-    assert completeness._paths_from_source_reference(
-        "26 USC 32(a)(1)(A)-(c)", corpus_citation_path="us/statute/26/32"
-    ) == {("a", "1", "a"), ("c",)}
-    # An absurd range expands nothing.
-    assert completeness._paths_from_source_reference(
-        "7 CFR 273.4(a)(1)-(999999)", corpus_citation_path=CFR_273_4
-    ) == {("a", "1"), ("a", "999999")}
+    assert _listed("7 CFR 273.4(a)(4)(iii)-(5)") == {("a", "4", "iii"), ("a", "5")}
+    assert _listed("26 USC 32(a)(1)(A)-(c)", "us/statute/26/32") == {
+        ("a", "1", "a"),
+        ("c",),
+    }
+    # At most 25 siblings are expanded; a longer range names its endpoints.
+    assert len(_listed("7 CFR 273.4(a)(1)-(25)")) == 25
+    assert _listed("7 CFR 273.4(a)(1)-(26)") == {("a", "1"), ("a", "26")}
+    assert _listed("7 CFR 273.4(a)(1)-(999999)") == {("a", "1"), ("a", "999999")}
 
 
 def test_cited_range_covers_only_its_own_branches():
@@ -293,3 +312,47 @@ def test_cited_range_covers_only_its_own_branches():
     ), structure
     assert any("273/4(a)(6) [paragraph (a)(6)]" in issue for issue in structure)
     assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)
+
+
+def test_parameter_citation_list_does_not_encode_the_branches_it_lists():
+    # Replay shape (7 CFR 273.4 runs 35606543223 and 35611151132): a parameter
+    # for the age 18 lists the deeming exemptions (c)(3)(vi)-(vii). It does not
+    # encode them, so they must still be reported.
+    source = """\
+(a) Household members meeting citizenship or alien status requirements.
+(b) Reporting illegal aliens.
+(c) Households containing sponsored alien members.
+(3) Exempt aliens. The provisions of paragraph (c)(2) do not apply to:
+(i) An alien who is a member of the sponsor's household;
+(ii) An alien who is sponsored by an organization;
+(iii) An alien who is not required to have a sponsor;
+(iv) An indigent alien;
+(v) A battered alien spouse.
+(vi) A sponsored alien child under 18 years of age of a sponsored alien.
+(vii) A citizen child under age 18 of a sponsored alien.
+"""
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {CFR_273_4}
+rules:
+  - name: under_eighteen_age_limit
+    kind: parameter
+    dtype: Integer
+    source: 7 CFR 273.4(c)(3)(v), and (c)(3)(vi)-(vii)
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '18'
+"""
+    structure = _structure_issues(_analyze(content, source, CFR_273_4))
+    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+        assert any(branch in issue for issue in structure), (branch, structure)
+
+    # The same citation on a principal derived output does encode them.
+    derived = content.replace("kind: parameter", "kind: derived").replace(
+        "dtype: Integer", "dtype: Judgment"
+    )
+    structure = _structure_issues(_analyze(derived, source, CFR_273_4))
+    for branch in ("(c)(3)(vi) [paragraph", "(c)(3)(vii) [paragraph"):
+        assert not any(branch in issue for issue in structure), (branch, structure)
