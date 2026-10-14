@@ -155,6 +155,15 @@ def _blob(repo: Path, commit: str, path: str) -> str | None:
     return result.stdout.strip() or None
 
 
+def _commit_message_bytes(repo: Path, commit: str) -> bytes:
+    raw = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "commit", commit],
+        capture_output=True,
+        check=True,
+    ).stdout
+    return raw.partition(b"\n\n")[2]
+
+
 def _toolchain(**overrides: str) -> str:
     return WORKFLOW_TOOLCHAIN.format(**{**PINS, **overrides})
 
@@ -438,6 +447,7 @@ def test_lane_is_replayed_onto_plumbing_advance_with_signed_bytes_intact(
         == evidence["base_advance_paths"]
     )
     assert _git(repo, "log", "-1", "--format=%B", published) == original_message
+    assert _commit_message_bytes(repo, published) == _commit_message_bytes(repo, head)
     assert (
         _git(repo, "log", "-1", "--format=%an <%ae> %at %ai", published)
         == original_author
@@ -485,6 +495,31 @@ def test_multi_commit_lane_and_deletions_are_replayed_in_order(
         "us/statutes/7/2015/f.yaml",
     ]
     assert not (repo / "us/statutes/7/2014/old.yaml").exists()
+
+
+def test_replay_preserves_verbatim_commit_messages(tmp_path: Path) -> None:
+    repo, base = _rulespec_repo(tmp_path)
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "switch", "-q", "-c", LANE_BRANCH)
+    _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [f]\n")
+    _git(repo, "add", "-A")
+    _git(
+        repo,
+        "commit",
+        "-q",
+        "--cleanup=verbatim",
+        "-m",
+        "Subject with trailing space \n\n# not a comment\n\n\n",
+    )
+    head = _git(repo, "rev-parse", "HEAD")
+    _advance_main(repo, {"README.md": "docs\n"}, "docs")
+
+    advance_publication_base(repo, base)
+
+    assert _commit_message_bytes(repo, "HEAD") == _commit_message_bytes(repo, head)
+    assert _commit_message_bytes(repo, head) == (
+        b"Subject with trailing space \n\n# not a comment\n\n\n"
+    )
 
 
 def test_binding_advance_fails_closed_without_moving_the_lane(tmp_path: Path) -> None:
