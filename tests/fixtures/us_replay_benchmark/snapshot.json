@@ -1,18 +1,17 @@
 {
  "schema": "axiom-encode/us-replay-snapshot/v1",
- "encoder_version": "0.2.2188",
- "imports": "context",
+ "context": "workspace",
  "totals": {
   "cases": 32,
-  "clean": 7,
-  "issues": 506,
+  "clean": 8,
+  "issues": 503,
   "rules": {
    "complete-source-unit:deferral": 139,
-   "complete-source-unit:formula-output": 45,
+   "complete-source-unit:formula-output": 44,
    "complete-source-unit:numeric-recall": 141,
    "complete-source-unit:source-explicit-conditions": 4,
-   "complete-source-unit:structure": 113,
-   "complete-source-unit:tests": 64
+   "complete-source-unit:structure": 112,
+   "complete-source-unit:tests": 63
   }
  },
  "cases": {
@@ -110,12 +109,8 @@
   },
   "36174590343": {
    "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
-   "issues": 3,
-   "rules": {
-    "complete-source-unit:formula-output": 1,
-    "complete-source-unit:structure": 1,
-    "complete-source-unit:tests": 1
-   },
+   "issues": 0,
+   "rules": {},
    "error": null
   },
   "36550604743": {

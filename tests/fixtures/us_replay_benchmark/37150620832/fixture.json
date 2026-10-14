@@ -12,6 +12,7 @@
   "encoder_version": "0.2.2086",
   "attempt_count": 4,
   "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "9f38330fb43ffc693c6295b9a17c8d5d96520ad2",
   "failed_steps": [
     "encode_apply"
   ],
@@ -30,6 +31,11 @@
     "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount": "context/policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml",
     "us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility": "context/policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.yaml",
     "us-az:policies/des/faa6/utility-allowance-current-amount": "context/policies/des/faa6/utility-allowance-current-amount.yaml"
+  },
+  "context_origins": {
+    "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount": "workspace",
+    "us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility": "workspace",
+    "us-az:policies/des/faa6/utility-allowance-current-amount": "workspace"
   },
   "files": {
     "candidate.test.yaml": "f4dc838d083277c6d194376c40a03c1865951e076707cf79d0336e085ab806ca",
