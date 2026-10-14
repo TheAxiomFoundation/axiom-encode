@@ -22,6 +22,7 @@ import re
 import textwrap
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -127,6 +128,12 @@ class SourceStructureBranch:
     start: int
     end: int
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
+    # Printed-case designations for `path` (`("a", "6", "i", "A")` for the
+    # lowercased `("a", "6", "i", "a")`). Display only: excluded from equality
+    # and hashing, and ignored unless it still spells `path`.
+    display_path: tuple[str, ...] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -2548,14 +2555,348 @@ def _irs_revenue_procedure_structure(
     return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
 
+# U.S. Code hierarchy below a section: subsection (a), paragraph (1),
+# subparagraph (A), clause (i), subclause (I), item, subitem. Items are
+# printed `(aa)` (not an outline label here) or, in older text such as 42
+# U.S.C. 415(a)(1)(C)(ii)(I), `(a)`.
+_US_CODE_OUTLINE_LEVELS = (
+    "lower-alpha",
+    "numeric",
+    "upper-alpha",
+    "roman",
+    "upper-roman",
+    "lower-alpha",
+    "upper-alpha",
+)
+_US_CODE_LEVEL_NOUNS = (
+    "subsection",
+    "paragraph",
+    "subparagraph",
+    "clause",
+    "subclause",
+    "item",
+    "subitem",
+)
+_US_CODE_CITATION = re.compile(
+    r"us/statute/(?P<title>\d+)/(?P<section>[A-Za-z0-9.-]+)"
+    r"(?P<scope>(?:/[A-Za-z0-9]+)*)/?"
+)
+# A run-in marker chain that the uscode.house.gov flattening left mid-line:
+# `(c) Definitions For purposes of this section— (1) Eligible individual (A)
+# In general The term ... means— (i) any individual ..., or (ii) ...`.
+_US_CODE_RUN_IN_MARKER = re.compile(
+    r"(?<=[ \t])(?P<chain>\([A-Za-z0-9]{1,6}\)(?:\([A-Za-z0-9]{1,6}\))*)"
+    r"(?![A-Za-z0-9(])"
+)
+# A marker that a structural noun or section sign introduces is a cross
+# reference (`subsection (a)`, `paragraphs (1)`, `clause (i)`, `§ 2 (a)`).
+_US_CODE_REFERENCE_NOUN_TAIL = re.compile(
+    r"(?:\b(?:sub)*(?:sections?|paragraphs?|clauses?|items?|divisions?|parts?|"
+    r"chapters?|titles?|articles?)|\b(?:sub)*(?:secs?|pars?|cls?)\.|§{1,2})"
+    r"[ \t]*$",
+    flags=re.IGNORECASE,
+)
+# The previous marker of a reference list: `clauses (ii), (iii), and (iv)`,
+# `section 6013(g) or (h)`, `paragraphs (1)(A)(ii)(I) and (3)(C)`.
+_US_CODE_REFERENCE_LIST_TAIL = re.compile(
+    r"\((?P<label>[A-Za-z0-9]{1,6})\)[ \t]*(?:,[ \t]*)?"
+    r"(?:(?:and/or|and|or|nor|through|thru|to)[ \t]+)?$",
+    flags=re.IGNORECASE,
+)
+_US_CODE_REFERENCE_CONTINUATION_FOLLOWER = re.compile(
+    r"[ \t]+(?:of|and|or|nor|through|to|shall|applies|apply|does|do|is|are|"
+    r"was|were|has|have|thereof|hereof|above|below|as)\b",
+    flags=re.IGNORECASE,
+)
+_US_CODE_LABEL_CLASS_CATEGORY = {
+    "numeric": "numeric",
+    "lower-letter": "lower-alpha",
+    "upper-letter": "upper-alpha",
+    "lower-roman": "roman",
+    "upper-roman": "upper-roman",
+}
+_US_CODE_EDITORIAL_TOMBSTONE = re.compile(
+    r"(?P<bracket>\[)(?P<marker>\([A-Za-z0-9]{1,6}\)(?:\([A-Za-z0-9]{1,6}\))*)"
+    r"(?:[ \t]*(?:,|to|and|through)[ \t]*\([A-Za-z0-9]{1,6}\))*[ \t]+"
+    r"(?i:repealed|omitted|transferred|redesignated|renumbered|struck|"
+    r"terminated|reserved)\b"
+)
+_US_CODE_REFERENCE_FOLLOWER = re.compile(
+    r"[ \t]+(?:of[ \t]+(?:this|such|that)[ \t]+"
+    r"(?:section|subsection|paragraph|subparagraph|clause|subclause|title)\b|"
+    r"thereof\b|hereof\b)",
+    flags=re.IGNORECASE,
+)
+
+
+def _us_code_outline_levels(corpus_citation_path: str) -> tuple[str, ...] | None:
+    """Return the U.S. Code levels that begin at this source unit's children."""
+
+    match = _US_CODE_CITATION.fullmatch(corpus_citation_path.strip())
+    if match is None:
+        return None
+    depth = len([part for part in match.group("scope").split("/") if part])
+    if depth >= len(_US_CODE_OUTLINE_LEVELS):
+        return None
+    return _US_CODE_OUTLINE_LEVELS[depth:]
+
+
+def _us_code_reference_label_classes(label: str) -> frozenset[str]:
+    """Classify one designation for reference-list continuation only."""
+
+    if label[0].isdigit():
+        return frozenset({"numeric"})
+    case = "upper" if label.isupper() else "lower"
+    classes = set()
+    if len(label) == 1:
+        classes.add(f"{case}-letter")
+    if _is_roman_outline_label(label):
+        classes.add(f"{case}-roman")
+    return frozenset(classes)
+
+
+def _restore_flattened_us_code_outline(
+    source_text: str,
+) -> tuple[str, frozenset[int]]:
+    """Put each structural run-in U.S. Code marker at the start of a line.
+
+    The U.S. Code text flattens every subsection to one line, so the inline
+    recognizer (which needs sentence punctuation before a marker) misses
+    markers after a heading (`(1) Eligible individual (A) In general`) or a
+    list joiner (`..., or (ii)`), and the remaining markers then land at the
+    wrong depth: (c)(1)(B) was reported as `(c)(i)(b)`. Only the single
+    character before a structural marker becomes a newline, so offsets are
+    unchanged.
+
+    A cross reference stays inline: a marker introduced by a structural noun
+    or section sign, one attached to a word or number (`6013(g)`), a list
+    continuation of such a reference sharing its designation class
+    (`clauses (ii), (iii), and (iv)`, `section 6013(g) or (h)`,
+    `subsections (b)(2) and (i)(1)`), and a marker followed by `of this
+    section`, `thereof` and the like. A marker after a restored marker
+    (`(3) (A)`) stays with it as one chain.
+
+    An editorial tombstone such as `[(h) Repealed. Pub. L. ...]` keeps its
+    place in the sequence, so the next `(i)` is subsection (i), not a clause.
+    Its start is returned so that the caller emits no branch for it: the
+    bracketed note was never a branch, and it is not one now.
+    """
+
+    characters = list(source_text)
+    editorial_starts: set[int] = set()
+    for tombstone in _US_CODE_EDITORIAL_TOMBSTONE.finditer(source_text):
+        bracket = tombstone.start("bracket")
+        line_start = source_text.rfind("\n", 0, bracket) + 1
+        if not source_text[line_start:bracket].strip():
+            characters[bracket] = " "
+        elif source_text[bracket - 1] in " \t":
+            characters[bracket] = "\n"
+        else:
+            continue
+        editorial_starts.add(tombstone.start("marker"))
+    outlined_tombstones = "".join(characters)
+
+    reference_ends: set[int] = set()
+    structural_ends: set[int] = set()
+    # The last structural designation of each class (`upper-letter`: "D"), so
+    # that `under paragraph (5)(D), (E) in the case of` opens item (E).
+    last_structural: dict[str, str] = {}
+
+    def record_structural(chain_end: int, labels: Sequence[str]) -> None:
+        structural_ends.add(chain_end)
+        for label in labels:
+            for label_class in _us_code_reference_label_classes(label):
+                last_structural[label_class] = label
+
+    line_chains = {
+        line_match.start("marker"): line_match
+        for line_match in _PARENTHESIZED_OUTLINE_MARKER.finditer(outlined_tombstones)
+    }
+    line_chain_starts = {
+        start + token.start()
+        for start, line_match in line_chains.items()
+        for token in re.finditer(r"\(", line_match.group("marker"))
+    }
+    candidates = sorted(
+        [
+            *((start, None) for start in line_chains),
+            *(
+                (match.start("chain"), match)
+                for match in _US_CODE_RUN_IN_MARKER.finditer(source_text)
+                if match.start("chain") not in line_chain_starts
+            ),
+        ],
+        key=lambda item: item[0],
+    )
+    for start, match in candidates:
+        if match is None:
+            line_match = line_chains[start]
+            record_structural(
+                line_match.end("marker"),
+                re.findall(r"\(([A-Za-z0-9]+)\)", line_match.group("marker")),
+            )
+            continue
+        chain_start, chain_end = match.span("chain")
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            continue
+        line_start = source_text.rfind("\n", 0, chain_start) + 1
+        prefix = source_text[line_start:chain_start]
+        # A designation followed by punctuation (`(I), (II), and`) is cited,
+        # not opened; it still anchors a following list continuation.
+        is_reference = bool(
+            not source_text[chain_end : chain_end + 1].isspace()
+            or _US_CODE_REFERENCE_NOUN_TAIL.search(prefix[-64:])
+            or _US_CODE_REFERENCE_FOLLOWER.match(source_text, chain_end)
+        )
+        previous = _US_CODE_REFERENCE_LIST_TAIL.search(prefix)
+        if not is_reference and previous is not None:
+            previous_end = (
+                line_start + previous.start() + len(previous.group("label")) + 2
+            )
+            if (
+                previous_end in structural_ends
+                and not source_text[previous_end:chain_start].strip()
+            ):
+                # `(3) (A)`: a spaced chain under a structural marker.
+                record_structural(chain_end, labels)
+                continue
+            previous_chain = re.search(
+                r"(?:\([A-Za-z0-9]{1,6}\))+\Z", source_text[:previous_end]
+            )
+            assert previous_chain is not None
+            attached = (
+                previous_chain.start() > 0
+                and source_text[previous_chain.start() - 1].isalnum()
+            )
+            previous_classes = frozenset().union(
+                *(
+                    _us_code_reference_label_classes(label)
+                    for label in re.findall(
+                        r"\(([A-Za-z0-9]+)\)", previous_chain.group(0)
+                    )
+                )
+            )
+            continues_reference = bool(
+                (previous_end in reference_ends or attached)
+                and previous_classes & _us_code_reference_label_classes(labels[0])
+            )
+            # An enumerated item may itself end in a citation: the next item
+            # is the open sibling's successor and starts item text.
+            opens_next_item = any(
+                label_class in last_structural
+                and _parenthesized_outline_label_follows(
+                    last_structural[label_class],
+                    labels[0],
+                    _US_CODE_LABEL_CLASS_CATEGORY[label_class],
+                )
+                for label_class in _us_code_reference_label_classes(labels[0])
+            ) and not _US_CODE_REFERENCE_CONTINUATION_FOLLOWER.match(
+                source_text, chain_end
+            )
+            if continues_reference and not opens_next_item:
+                is_reference = True
+        if is_reference:
+            reference_ends.add(chain_end)
+            continue
+        record_structural(chain_end, labels)
+        if characters[chain_start - 1] in " \t":
+            characters[chain_start - 1] = "\n"
+    return "".join(characters), frozenset(editorial_starts)
+
+
+def _with_display_paths(
+    branches: Iterable[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """Attach printed-case designations (`(A)`, `(I)`) to lowercased paths."""
+
+    branches = tuple(branches)
+    printed: dict[tuple[str, ...], str] = {}
+    for branch in branches:
+        if not branch.path:
+            continue
+        label = re.fullmatch(
+            r"\s*\(?(?P<designation>[A-Za-z0-9]+)[.)]?\s*", branch.label
+        )
+        if label is not None and label.group("designation").lower() == branch.path[-1]:
+            printed.setdefault(branch.path, label.group("designation"))
+    return tuple(
+        replace(
+            branch,
+            display_path=tuple(
+                printed.get(branch.path[: index + 1], component)
+                for index, component in enumerate(branch.path)
+            ),
+        )
+        if branch.path
+        else branch
+        for branch in branches
+    )
+
+
 def recognize_source_structure(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> tuple[SourceStructureBranch, ...]:
-    """Recognize paragraph, list, letter, and glued German sentence markers."""
+    """Recognize paragraph, list, letter, and glued German sentence markers.
+
+    German glued (`1Das`) and explicit (`Satz 2`) sentence markers are German
+    drafting conventions; a U.S. source never numbers its sentences that way,
+    so U.S. corpus paths do not recognize them (a form number such as
+    `K-40ES` is not "Satz 40"). A U.S. Code source restores its flattened
+    run-in outline before recognition; see `_restore_flattened_us_code_outline`.
+    """
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
-        return _irs_revenue_procedure_structure(source_text)
+        return _with_display_paths(_irs_revenue_procedure_structure(source_text))
 
+    us_source = _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
+    us_code_levels = _us_code_outline_levels(corpus_citation_path)
+    if us_code_levels is not None:
+        outlined_source, editorial_starts = _restore_flattened_us_code_outline(
+            source_text
+        )
+        if outlined_source != source_text and (
+            _qualified_parenthesized_legal_outline_markers(
+                outlined_source,
+                outline_levels=us_code_levels,
+                inline_markers=False,
+            )
+        ):
+            # Only the character before a restored marker changed (same
+            # offsets); every branch text is re-read from the source.
+            return _with_display_paths(
+                replace(
+                    branch,
+                    text=source_text[
+                        branch.start : branch.end
+                        - (1 if branch.end in editorial_starts else 0)
+                    ].strip(),
+                )
+                for branch in _recognize_source_structure(
+                    outlined_source,
+                    sentence_markers=False,
+                    outline_levels=us_code_levels,
+                    inline_outline_markers=False,
+                )
+                if branch.start not in editorial_starts
+            )
+    return _with_display_paths(
+        _recognize_source_structure(
+            source_text,
+            sentence_markers=not us_source,
+            outline_levels=us_code_levels,
+            inline_outline_markers=True,
+        )
+    )
+
+
+def _recognize_source_structure(
+    source_text: str,
+    *,
+    sentence_markers: bool,
+    outline_levels: Sequence[str] | None,
+    inline_outline_markers: bool,
+) -> tuple[SourceStructureBranch, ...]:
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -2643,7 +2984,11 @@ def recognize_source_structure(
                 )
                 paragraph_segments.append((marker.path, marker.start, end, text))
     else:
-        nested_markers = _qualified_parenthesized_legal_outline_markers(source_text)
+        nested_markers = _qualified_parenthesized_legal_outline_markers(
+            source_text,
+            outline_levels=outline_levels,
+            inline_markers=inline_outline_markers,
+        )
         if nested_markers:
             for marker, end in _nested_outline_marker_spans(
                 nested_markers,
@@ -2690,13 +3035,24 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-        ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
     }
+    if sentence_markers:
+        legacy_marker_offsets.update(
+            (
+                *(
+                    match.start()
+                    for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+                ),
+            )
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -2757,18 +3113,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
+            if sentence_markers
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -2996,6 +3356,9 @@ _NUMERIC_ROOT_PARENTHESIZED_LEGAL_OUTLINE_LEVELS = (
 
 def _qualified_parenthesized_legal_outline_markers(
     source_text: str,
+    *,
+    outline_levels: Sequence[str] | None = None,
+    inline_markers: bool = True,
 ) -> tuple[_OutlineMarker, ...]:
     """Resolve a proven all-parenthesized U.S. legal outline.
 
@@ -3003,11 +3366,18 @@ def _qualified_parenthesized_legal_outline_markers(
     ``(a)(3)``, ``(a)(6)(ii)(G)(3)``, and ``(c)(3)``.  Use the conventional
     U.S. legal hierarchy only when sequential root subsections prove that the
     source is an outline; otherwise retain the legacy flat recognizer.
+
+    ``outline_levels`` names a known hierarchy (the U.S. Code's subsection,
+    paragraph, subparagraph, clause, subclause) when the root markers fit it.
+    ``inline_markers=False`` reads line-leading markers only, for a source
+    whose run-in markers were already restored to line starts.
     """
 
     line_matches = tuple(_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
-    all_inline_matches = tuple(
-        _INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text)
+    all_inline_matches = (
+        tuple(_INLINE_PARENTHESIZED_OUTLINE_MARKER.finditer(source_text))
+        if inline_markers
+        else ()
     )
     flattened_root_starts = _flattened_inline_numeric_root_starts(
         source_text,
@@ -3034,11 +3404,17 @@ def _qualified_parenthesized_legal_outline_markers(
         return ()
 
     first_labels = tuple(re.findall(r"\(([A-Za-z0-9]+)\)", matches[0].group("marker")))
-    outline_levels = (
-        _NUMERIC_ROOT_PARENTHESIZED_LEGAL_OUTLINE_LEVELS
-        if first_labels and first_labels[0][0].isdigit()
-        else _PARENTHESIZED_LEGAL_OUTLINE_LEVELS
-    )
+    if not (
+        outline_levels
+        and first_labels
+        and outline_levels[0]
+        in _parenthesized_legal_outline_categories(first_labels[0])
+    ):
+        outline_levels = (
+            _NUMERIC_ROOT_PARENTHESIZED_LEGAL_OUTLINE_LEVELS
+            if first_labels and first_labels[0][0].isdigit()
+            else _PARENTHESIZED_LEGAL_OUTLINE_LEVELS
+        )
 
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
@@ -3355,6 +3731,10 @@ def _parenthesized_legal_outline_categories(raw_label: str) -> tuple[str, ...]:
     if raw_label[0].isdigit():
         return ("numeric",)
     if raw_label.isupper():
+        # Only the U.S. Code hierarchy has an upper-roman (subclause) level;
+        # the other level tables never select it.
+        if _is_roman_outline_label(raw_label):
+            return ("upper-alpha", "upper-roman")
         return ("upper-alpha",)
     categories = ["lower-alpha"]
     if _is_roman_outline_label(raw_label):
@@ -3392,7 +3772,7 @@ def _parenthesized_outline_label_follows(
             len(previous) == len(current) == 1
             and ord(current.lower()) == ord(previous.lower()) + 1
         )
-    if category == "roman":
+    if category in {"roman", "upper-roman"}:
         previous_value = _roman_outline_value(previous)
         current_value = _roman_outline_value(current)
         return previous_value is not None and current_value == previous_value + 1
@@ -3405,7 +3785,7 @@ def _parenthesized_outline_label_is_first(label: str, category: str) -> bool:
         return match is not None and int(match.group(1)) == 1 and not match.group(2)
     if category in {"lower-alpha", "upper-alpha"}:
         return label.lower() == "a"
-    if category == "roman":
+    if category in {"roman", "upper-roman"}:
         return _roman_outline_value(label) == 1
     return False
 
@@ -13176,6 +13556,8 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    if not _uses_german_branch_labels(corpus_citation_path):
+        return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -13188,6 +13570,83 @@ def _branch_citation(
         else:
             components.append(f"Nummer {component}")
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
+
+
+_GERMAN_CORPUS_CITATION_PATH = re.compile(r"de(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+
+
+def _uses_german_branch_labels(corpus_citation_path: str) -> bool:
+    """German (and unscoped legacy) sources keep Absatz/Nummer/Buchstabe."""
+
+    path = corpus_citation_path.strip()
+    return not path or _GERMAN_CORPUS_CITATION_PATH.match(path) is not None
+
+
+def _english_branch_citation(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+
+    Repair feedback for a non-German source names the branch the way that
+    jurisdiction cites it, with the full parenthesized designation the
+    deferral `reason` must cite literally, instead of German Absatz/Nummer/
+    Buchstabe labels. Only the wording differs; the branch is the same.
+    """
+
+    display = branch.display_path
+    if not (
+        display is not None
+        and len(display) == len(branch.path)
+        and all(
+            printed.lower() == component
+            for printed, component in zip(display, branch.path, strict=True)
+        )
+    ):
+        display = branch.path
+    designations = [
+        printed
+        for printed, component in zip(display, branch.path, strict=True)
+        if not component.startswith("satz-")
+    ]
+    sentences = [
+        component.removeprefix("satz-")
+        for component in branch.path
+        if component.startswith("satz-")
+    ]
+    fragment = "".join(f"({designation})" for designation in designations)
+    components = [
+        *(
+            (
+                f"{_english_branch_noun(corpus_citation_path, len(designations))} "
+                f"{fragment}",
+            )
+            if fragment
+            else ()
+        ),
+        *(f"sentence {sentence}" for sentence in sentences),
+    ]
+    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
+
+
+def _english_branch_noun(corpus_citation_path: str, depth: int) -> str:
+    """Name a branch by the U.S. Code level, `paragraph` in the CFR."""
+
+    us_code = _US_CODE_CITATION.fullmatch(corpus_citation_path.strip())
+    if us_code is not None:
+        level = (
+            len([part for part in us_code.group("scope").split("/") if part])
+            + depth
+            - 1
+        )
+        return (
+            _US_CODE_LEVEL_NOUNS[level]
+            if 0 <= level < len(_US_CODE_LEVEL_NOUNS)
+            else "subdivision"
+        )
+    if corpus_citation_path.strip().startswith("us/regulation/"):
+        return "paragraph"
+    return "provision"
 
 
 def _validated_session_law_history_entries(
