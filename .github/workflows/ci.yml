@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Check every shard passed and the shards cover the suite
+      - name: Check every shard passed and the shards ran every selected test
         env:
           SHARDS_RESULT: ${{ needs.test.result }}
           SHARD_1: ${{ needs.test.outputs.shard_1 }}

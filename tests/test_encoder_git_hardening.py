@@ -662,10 +662,16 @@ def test_wrapper_neutralizes_a_graft_even_without_the_guard_file_check(
     monkeypatch.setattr(cli, "_guard_encoder_git_metadata_issue", lambda checkout: None)
     monkeypatch.setenv("PATH", str(trusted_wrapper_tools))
 
-    assert _issue(history, feature)
+    assert _issue(history, main) is None
+    assert "producer is not on the first-parent history" in (
+        _issue(history, feature) or ""
+    )
 
 
-def test_shallow_encoder_history_cannot_admit_a_newer_producer(tmp_path):
+@pytest.mark.parametrize("depth", [1, 2])
+def test_shallow_encoder_history_cannot_admit_a_newer_producer(tmp_path, depth):
+    # At depth 2 the pin and the producer are both present, so only the
+    # shallow check stands between this clone and admission.
     history, main, _feature = _forked_graph(tmp_path / "full-history")
     shallow = tmp_path / "shallow"
     subprocess.run(
@@ -674,13 +680,14 @@ def test_shallow_encoder_history_cannot_admit_a_newer_producer(tmp_path):
             "clone",
             "--quiet",
             "--depth",
-            "1",
+            str(depth),
             "--branch",
             "main",
             f"file://{history.root}",
             str(shallow),
         ],
         check=True,
+        timeout=60,
     )
 
     assert cli._encoder_git_history_admission_issue(
