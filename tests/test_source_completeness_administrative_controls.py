@@ -52,8 +52,12 @@ FEDERAL_PATHS = (
     "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
     "us/statute/42/415/i",
 )
-# State sources are not measured yet, so they keep every condition sentence.
+# Federal forms, policies and rulemaking and every state source are not
+# measured yet, so they keep every condition sentence.
 OTHER_PATHS = (
+    "us/form/irs/ty2025/i8962/block-95",
+    "us/policy/irs/pub-15/2026/block-38",
+    "us/rulemaking/fr/2026-12345/block-7",
     "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
     "us-oh/regulation/agency-5101-4/chapter-5101-4-8/rule-5101-4-8-17",
     "uk/guidance/dwp/adm/chapter-1",
@@ -256,6 +260,66 @@ OPERATIVE = (
     "If any tax paid is refunded in whole or in part, the taxpayer shall notify "
     "the Secretary, who shall redetermine the amount of the tax for the year or "
     "years affected.",
+    # Review round 3 (uncapped federal probe and adversarial cases): an `until`
+    # tail, a `, then` after the main verb, a second predicate after the
+    # administrative verb, and an operative tail after a `;`.
+    "(vi) The individual must sign the election form, and the Part D sponsor "
+    "will inform the individual when their participation in the program is "
+    "active, and, until the individual receives that notification, they are not "
+    "a participant in the program.",
+    "If a Board member vacates his or her seat prior to the completion of his or "
+    "her term, the Administrator will notify the Wireline Competition Bureau of "
+    "such vacancy, and a successor will be chosen pursuant to the nomination and "
+    "appointment process described in paragraph (c) of this section.",
+    "If the household fails to provide the requested verification, the State "
+    "agency shall terminate the household's participation, then send a notice "
+    "to the household.",
+    "If the household does not respond, the State agency shall close the case, "
+    "then notify the household in writing.",
+    "If the household does not return the form, deny the application, then send "
+    "the household a notice.",
+    "If the enrollee does not pay the premium by the end of the grace period, "
+    "the agency must provide the enrollee with a notice and disenroll the "
+    "enrollee.",
+    "If the individual fails to comply without good cause, the State agency "
+    "shall notify the individual and the individual shall be removed from the "
+    "household.",
+    "If the sponsor's income cannot be documented, the State agency shall send "
+    "a notice of denial and the application shall be rejected.",
+    "If the taxpayer fails to file a return, the Secretary shall notify the "
+    "taxpayer and assess the tax shown on the return.",
+    "If the corporation ceases to meet the requirements, the Secretary shall "
+    "notify the corporation and the election shall be revoked.",
+    "If an overissuance occurred, the State agency shall notify the household "
+    "and the household must repay the overissuance.",
+    "The State agency shall verify the household's gross income and shall not "
+    "issue an allotment until verification is received, unless the household is "
+    "a migrant household.",
+    "When the household reports a change in income, the State agency must act "
+    "on the change and recompute the household's allotment.",
+    "If the household does not submit an application for recertification, the "
+    "State agency shall send a notice of expiration and the certification "
+    "lapses.",
+    "If the debtor does not respond, the agency will notify the Secretary and "
+    "offset the debt against any Federal payment to the debtor.",
+    "If the application is approved, the agency shall provide the individual "
+    "with a written notice and shall enroll the individual in a managed care "
+    "plan.",
+    "If the household fails to appear for the interview, the State agency shall "
+    "send a notice of missed interview and the household must reapply.",
+    "If the household fails to repay, the State agency shall notify the "
+    "household and collect the claim by allotment reduction.",
+    "If the household refuses to cooperate, the State agency shall notify the "
+    "household and the household's participation shall stop.",
+    "If the State agency finds a violation, it shall notify the vendor, "
+    "terminating its participation in the program.",
+    "If the household fails to appear for the interview, the State agency shall "
+    "send a notice of missed interview; the household's application is then "
+    "void.",
+    "If the household's income, resources, or household size change, the State "
+    "agency shall notify the household; and benefits are adjusted.",
+    "If the State agency determines that the household is ineli- gible, the "
+    "State agency shall send a notice.",
     "(3) The agency must inform beneficiaries and providers of the "
     "beneficiaries aggregate limit and notify beneficiaries and providers when "
     "a beneficiary has incurred out-of-pocket expenses up to the aggregate "
@@ -343,14 +407,19 @@ def test_source_condition_is_administrative(source: str, expected: bool):
     (
         ("us/regulation/7/273/10", True),
         ("us/guidance/irs/rev-proc-2025-32/page-14", True),
+        ("us/statute/42/415/i", True),
+        ("us/form/irs/ty2025/i8962/block-95", False),
+        ("us/policy/irs/pub-15/2026/block-38", False),
+        ("us/rulemaking/fr/2026-12345/block-7", False),
+        ("us/manual/fns/snap-quality-control", False),
         ("us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1", False),
         ("us-co/statute/39/39-22-2003", False),
         ("uk/guidance/dwp/adm/chapter-1", False),
         ("", False),
     ),
 )
-def test_is_us_federal_citation_path(citation: str, expected: bool):
-    assert completeness_module._is_us_federal_citation_path(citation) is expected
+def test_is_us_federal_rule_citation_path(citation: str, expected: bool):
+    assert completeness_module._is_us_federal_rule_citation_path(citation) is expected
 
 
 MANUAL_PAGE = "us-or/manual/odhs/open/page-644"
@@ -484,3 +553,37 @@ def test_federal_administrative_sentence_still_competes_for_case_pairs(monkeypat
 
     assert not _paired_case_issues(notice, regulation)
     assert any(notice in text for text in allocated)
+
+
+@pytest.mark.parametrize(
+    ("citation", "source"),
+    (
+        # Line logic on federal forms and publications (review round 3): the
+        # scope leaves them controls, and `enter your` is not an instruction.
+        (
+            "us/form/irs/ty2025/i8962/block-95",
+            "Line 3. If you are not required to complete line 2b, enter your "
+            "modified AGI from line 2a on line 3.",
+        ),
+        (
+            "us/form/irs/ty2025/i1040gi/block-83",
+            "If Exception 1 applies, enter your total capital gain distributions "
+            "(from box 2a of Form(s) 1099-DIV) on line 7a and check the box "
+            "Schedule D not required on line 7b.",
+        ),
+        (
+            "us/form/irs/ty2026/p15/block-38",
+            "If the employee later begins to work for another employer for wages "
+            "subject to withholding, the employee must notify you within 10 days. "
+            "You then figure withholding based on the daily or miscellaneous "
+            "period.",
+        ),
+        (
+            "us/guidance/irs/pub-590-a/2025/worksheet-1",
+            "If married filing jointly, enter your modified AGI (that of both "
+            "spouses) on line 2.",
+        ),
+    ),
+)
+def test_federal_form_line_logic_stays_a_control(citation: str, source: str):
+    assert _controls(source, citation)
