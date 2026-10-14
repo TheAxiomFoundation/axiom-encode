@@ -12,6 +12,7 @@
   "encoder_version": "0.2.2084",
   "attempt_count": 4,
   "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "c5d80c8919c8b671c0fbfa39b43589fdc7897e5d",
   "failed_steps": [
     "encode_apply"
   ],
@@ -22,6 +23,7 @@
     "complete-source-unit:tests": 4
   },
   "context_imports": {},
+  "context_origins": {},
   "files": {
     "candidate.test.yaml": "1f9679c35d9e0c8d0ebe0a249f0b5e45ebb05f9f11ea41fc172585b0c73f718f",
     "candidate.yaml": "9c2edcb964598ee8cf33b6ad4609938432a7ea3bc1287fccfc4f2ea4a75c8ba5",

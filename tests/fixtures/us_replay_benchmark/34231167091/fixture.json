@@ -12,6 +12,7 @@
   "encoder_version": "0.2.1764",
   "attempt_count": 4,
   "corpus_ref": "620527d7ad55adc19e05aa71cecea1d5bd0a6b2f",
+  "rulespec_ref": "38d5c8c516f9243cedf8e07a22f96dde9ac66fe3",
   "failed_steps": [
     "encode_apply"
   ],
@@ -31,6 +32,14 @@
     "us:regulations/7-cfr/273/5": "context/regulations/7-cfr/273/5.yaml",
     "us:regulations/7-cfr/273/6": "context/regulations/7-cfr/273/6.yaml",
     "us:regulations/7-cfr/273/7": "context/regulations/7-cfr/273/7.yaml"
+  },
+  "context_origins": {
+    "us:regulations/7-cfr/273/10": "workspace",
+    "us:regulations/7-cfr/273/3": "workspace",
+    "us:regulations/7-cfr/273/4": "workspace",
+    "us:regulations/7-cfr/273/5": "workspace",
+    "us:regulations/7-cfr/273/6": "workspace",
+    "us:regulations/7-cfr/273/7": "workspace"
   },
   "files": {
     "candidate.test.yaml": "93ccbeab5fa4a1e45507da48dd088a138e3bffb7678050c36b90bbfc4ce5a905",

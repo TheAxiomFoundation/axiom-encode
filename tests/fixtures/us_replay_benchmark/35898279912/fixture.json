@@ -12,6 +12,7 @@
   "encoder_version": "0.2.2025",
   "attempt_count": 4,
   "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "cf03a17948e69cfd4e029f06b16444c308c76060",
   "failed_steps": [
     "encode_apply"
   ],
@@ -25,6 +26,10 @@
   "context_imports": {
     "us:policies/usda/snap/fy-2026-cola/maximum-allotments": "context/policies/usda/snap/fy-2026-cola/maximum-allotments.yaml",
     "us:statutes/7/2014/e/6/A": "context/statutes/7/2014/e/6/A.yaml"
+  },
+  "context_origins": {
+    "us:policies/usda/snap/fy-2026-cola/maximum-allotments": "workspace",
+    "us:statutes/7/2014/e/6/A": "workspace"
   },
   "files": {
     "candidate.test.yaml": "f3fd50dc895c502943064dcbd7575d3ec047b9255e0f6096c2fb9f4bf7cc399d",

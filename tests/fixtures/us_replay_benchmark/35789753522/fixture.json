@@ -12,6 +12,7 @@
   "encoder_version": "0.2.2014",
   "attempt_count": 4,
   "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "c654250f07c39c35ca7f3e79975368b019d0e4ca",
   "failed_steps": [
     "encode_apply"
   ],
@@ -26,6 +27,9 @@
   },
   "context_imports": {
     "us:statutes/42/416/l": "context/statutes/42/416/l.yaml"
+  },
+  "context_origins": {
+    "us:statutes/42/416/l": "workspace"
   },
   "files": {
     "candidate.test.yaml": "4eda4652c5fa55797cf2d800b6dd01f3a22c412a23bb3404814178db59c83e56",

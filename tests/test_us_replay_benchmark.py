@@ -28,6 +28,7 @@ from scripts.replay_us_failure_bundles import (
     DEFAULT_FIXTURE_ROOT,
     FIXTURE_FILE,
     SNAPSHOT_FILE,
+    SnapshotDeviations,
     UnsafeBundlePath,
     _read_inside,
     build_report,
@@ -35,6 +36,8 @@ from scripts.replay_us_failure_bundles import (
     discover_bundle_modules,
     extract_fixture,
     fixture_directories,
+    format_comparison,
+    load_bundle_cases,
     load_fixture,
     load_fixtures,
     main,
@@ -70,21 +73,28 @@ def test_replay_matches_snapshot_ratchet():
     # One test replays every fixture, so CI shards never repeat the replay.
     report = build_report(load_fixtures(FIXTURES))
     snapshot = json.loads(SNAPSHOT.read_text())
-    increases, decreases = snapshot_deviations(snapshot, report)
+    deviations = snapshot_deviations(snapshot, report)
 
     assert report["summary"]["errors"] == 0
     assert report["summary"]["imports_resolved"] > 0
-    assert all(not case["imports_unresolved"] for case in report["cases"])
+    assert report["summary"]["imports_unresolved"] == 0
+    assert report["summary"]["deferral_providers_unresolved"] == 0
 
-    assert not increases, (
+    assert not deviations.increases, (
         "US replay benchmark regressed (pinned counts rose):\n  "
-        + "\n  ".join(increases)
+        + "\n  ".join(deviations.increases)
     )
-    assert not decreases, (
+    assert not deviations.decreases, (
         "US replay benchmark improved; "
         + UPDATE_HINT
         + ":\n  "
-        + "\n  ".join(decreases)
+        + "\n  ".join(deviations.decreases)
+    )
+    assert not deviations.unpinned, (
+        "new US replay fixtures; "
+        + UPDATE_HINT
+        + ":\n  "
+        + "\n  ".join(deviations.unpinned)
     )
 
 
@@ -92,7 +102,7 @@ def test_snapshot_totals_match_cases():
     snapshot = json.loads(SNAPSHOT.read_text())
     cases = snapshot["cases"].values()
 
-    assert snapshot["imports"] == "context"
+    assert snapshot["context"] == "workspace"
     assert snapshot["totals"]["cases"] == len(snapshot["cases"])
     assert snapshot["totals"]["issues"] == sum(case["issues"] for case in cases)
     assert snapshot["totals"]["clean"] == sum(
@@ -135,11 +145,20 @@ def test_fixtures_carry_provenance_and_stay_small():
         assert provenance["candidate_matches_bundle_inventory"] is True
         assert provenance["candidate_matches_recorded_issues"] is True
         assert provenance["source_matches_attestation"] is True
+        assert set(provenance["context_origins"]) == set(provenance["context_imports"])
+        assert set(provenance["context_origins"].values()) <= {
+            "workspace",
+            "rulespec_ref",
+        }
+        if "rulespec_ref" in provenance["context_origins"].values():
+            assert re.fullmatch(r"[0-9a-f]{40}", provenance["rulespec_ref"])
         assert {"candidate.yaml", "source.txt", "issues.json"} <= set(
             provenance["files"]
         )
         assert case.citation in case.candidate
-        total += sum(path.stat().st_size for path in directory.rglob("*"))
+        total += sum(
+            path.stat().st_size for path in directory.rglob("*") if path.is_file()
+        )
 
     assert total <= MAX_FIXTURE_BYTES
 
@@ -179,7 +198,7 @@ def _report(cases):
     return {
         "schema": "axiom-encode/us-replay-report/v1",
         "encoder_version": "0.0.0",
-        "imports": "context",
+        "context": "workspace",
         "summary": {"cases": len(cases), "clean": 0, "issues": 0, "rules": {}},
         "cases": cases,
     }
@@ -210,29 +229,27 @@ def test_ratchet_separates_regressions_from_improvements():
     better = _report([_case("a", [TESTS])])
     same = _report([_case("a", [TESTS, NUMERIC])])
 
-    assert snapshot_deviations(pinned, worse) == (
-        ["a (us/statute/26/32) complete-source-unit:numeric-recall: 1 -> 2"],
-        [],
+    assert snapshot_deviations(pinned, worse) == SnapshotDeviations(
+        ["a (us/statute/26/32) complete-source-unit:numeric-recall: 1 -> 2"], [], []
     )
-    assert snapshot_deviations(pinned, better) == (
-        [],
-        ["a (us/statute/26/32) complete-source-unit:numeric-recall: 1 -> 0"],
+    assert snapshot_deviations(pinned, better) == SnapshotDeviations(
+        [], ["a (us/statute/26/32) complete-source-unit:numeric-recall: 1 -> 0"], []
     )
-    assert snapshot_deviations(pinned, same) == ([], [])
+    assert not snapshot_deviations(pinned, same)
 
 
 def test_ratchet_rejects_missing_unpinned_and_erroring_fixtures():
     pinned = snapshot_from_report(_report([_case("a", [TESTS])]))
 
-    increases, _ = snapshot_deviations(pinned, _report([_case("b", [TESTS])]))
-    assert increases == [
-        "a: pinned fixture is missing from the replay",
-        "b: fixture is not pinned in the snapshot",
-    ]
-    increases, _ = snapshot_deviations(
+    deviations = snapshot_deviations(pinned, _report([_case("b", [TESTS])]))
+    assert deviations.increases == ["a: pinned fixture is missing from the replay"]
+    assert deviations.unpinned == ["b: fixture is not pinned in the snapshot"]
+    deviations = snapshot_deviations(
         pinned, _report([_case("a", [], error="ValueError: boom")])
     )
-    assert increases[0] == "a: replay error changed to 'ValueError: boom'"
+    assert deviations.increases[0] == "a: replay error changed to 'ValueError: boom'"
+    with pytest.raises(ValueError, match="not a US replay snapshot"):
+        snapshot_deviations({}, _report([_case("a", [TESTS])]))
 
 
 def test_compare_counts_issue_level_changes_by_rule():
@@ -248,6 +265,20 @@ def test_compare_counts_issue_level_changes_by_rule():
     assert diff["added_by_rule"] == {"complete-source-unit:numeric-recall": 1}
     assert diff["newly_clean"] == ["a"]
     assert (diff["issues_before"], diff["issues_after"]) == (3, 2)
+
+
+def test_compare_never_counts_a_crash_as_removed_issues():
+    before = _report([_case("a", [NUMERIC, TESTS]), _case("b", [], error="E: x")])
+    after = _report([_case("a", [], error="E: boom"), _case("b", [TESTS])])
+
+    diff = compare_reports(before, after)
+
+    assert diff["compared"] == 0
+    assert [item["id"] for item in diff["errored"]] == ["a", "b"]
+    assert diff["removed_by_rule"] == {} and diff["added_by_rule"] == {}
+    assert diff["newly_clean"] == [] and diff["newly_failing"] == []
+    assert (diff["clean_before"], diff["clean_after"]) == (0, 0)
+    assert "ERRORED (not compared): 2" in format_comparison(diff)
 
 
 def test_recorded_issue_classification():
@@ -270,6 +301,10 @@ def test_bundle_reads_refuse_symlinks_and_traversal(tmp_path):
         _read_inside(root, "link.txt")
     with pytest.raises(UnsafeBundlePath, match="unsafe relative path"):
         _read_inside(root, "../outside.txt")
+    (tmp_path / "linked-root").symlink_to(root)
+    (root / "plain.txt").write_text("ok")
+    with pytest.raises(UnsafeBundlePath, match="symlinked root"):
+        _read_inside(tmp_path / "linked-root", "plain.txt")
 
 
 IMPORTING_CANDIDATE = """\
@@ -390,11 +425,11 @@ def test_imports_resolve_from_context_and_can_be_disabled(tmp_path):
     case = load_fixture(extract_fixture(module, tmp_path / "fixtures"))
 
     with_context = build_report([case])
-    without_context = build_report([case], resolve_imports=False)
+    without_context = build_report([case], use_context=False)
 
     assert with_context["cases"][0]["imports_resolved"] == 1
     assert without_context["cases"][0]["imports_resolved"] == 0
-    assert without_context["imports"] == "none"
+    assert without_context["context"] == "none"
     assert not any(
         RECALL_15_PERCENT in issue for issue in with_context["cases"][0]["issues"]
     )
@@ -441,3 +476,74 @@ def test_snapshot_cli_writes_checks_and_refuses_unflagged_increases(tmp_path):
     assert json.loads(snapshot_path.read_text())["cases"][case_id]["issues"] == (
         current
     )
+
+
+def test_snapshot_cli_adds_new_fixtures_without_the_increase_flag(tmp_path):
+    root = tmp_path / "fixtures"
+    first = _synthetic_bundle(tmp_path / "first")
+    second = _synthetic_bundle(tmp_path / "second")
+    extract_fixture(discover_bundle_modules(first.parent)[0], root, name="first")
+    assert main(["snapshot", "--fixtures", str(root)]) == 0
+    extract_fixture(discover_bundle_modules(second.parent)[0], root, name="second")
+
+    assert main(["snapshot", "--fixtures", str(root), "--check"]) == 1
+    assert main(["snapshot", "--fixtures", str(root)]) == 0
+    assert set(json.loads((root / SNAPSHOT_FILE).read_text())["cases"]) == {
+        "first",
+        "second",
+    }
+
+
+def test_rulespec_root_fills_deferral_providers_missing_from_context(tmp_path):
+    bundle = _synthetic_bundle(tmp_path)
+    candidate = bundle / "generated/target/final-rejected-candidate/statutes/26/2.yaml"
+    candidate.write_text(
+        IMPORTING_CANDIDATE.replace(
+            "rules:\n",
+            "  deferred_outputs:\n"
+            "  - output: us:statutes/26/2#surtax\n"
+            "    reason: Needs the base defined in section 32.\n"
+            "    blocked_by:\n"
+            "    - us:statutes/26/32#surtax_base\n"
+            "rules:\n",
+            1,
+        )
+    )
+    (module,) = discover_bundle_modules(bundle.parent)
+    rulespec = tmp_path / "rulespec-us"
+    (rulespec / "us/statutes/26").mkdir(parents=True)
+    (rulespec / "us/statutes/26/32.yaml").write_text(
+        "format: rulespec/v1\nrules:\n- name: surtax_base\n  kind: derived\n"
+    )
+
+    without_root = load_fixture(extract_fixture(module, tmp_path / "a"))
+    with_root = load_fixture(
+        extract_fixture(module, tmp_path / "b", rulespec_root=rulespec)
+    )
+    gap = build_report([without_root])["cases"][0]
+    filled = build_report([with_root])["cases"][0]
+
+    assert gap["deferral_providers_unresolved"] == ["us:statutes/26/32#surtax_base"]
+    assert filled["deferral_providers_unresolved"] == []
+    assert filled["deferral_providers_resolved"] == ["us:statutes/26/32#surtax_base"]
+    assert with_root.provenance["context_origins"] == {
+        "us:statutes/26/1": "workspace",
+        "us:statutes/26/32": "rulespec_ref",
+    }
+    assert with_root.provenance["context_imports"]["us:statutes/26/32"] == (
+        "providers/us/statutes/26/32.yaml"
+    )
+
+
+def test_malformed_bundles_are_reported_not_fatal(tmp_path):
+    _synthetic_bundle(tmp_path / "bundles")
+    bad = tmp_path / "bundles" / "999" / "x"
+    bad.mkdir(parents=True)
+    (bad / "metadata.json").write_text("[]")
+
+    cases, errors = load_bundle_cases(tmp_path / "bundles")
+
+    assert [case.run_id for case in cases] == ["12345"]
+    assert errors == [
+        {"bundle": "999", "error": "ValueError: metadata.json is not a JSON object"}
+    ]

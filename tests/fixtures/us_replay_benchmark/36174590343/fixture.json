@@ -12,6 +12,7 @@
   "encoder_version": "0.2.2049",
   "attempt_count": 4,
   "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "rulespec_ref": "dcb2e47e0af964be6d59f80688f519d0a6a96a71",
   "failed_steps": [
     "encode_apply"
   ],
@@ -22,13 +23,19 @@
     "complete-source-unit:tests": 1
   },
   "context_imports": {
-    "us:policies/irs/rev-proc-2025-32/page-15": "context/policies/irs/rev-proc-2025-32/page-15.yaml"
+    "us:policies/irs/rev-proc-2025-32/page-15": "context/policies/irs/rev-proc-2025-32/page-15.yaml",
+    "us:statutes/26/32": "providers/us/statutes/26/32.yaml"
+  },
+  "context_origins": {
+    "us:policies/irs/rev-proc-2025-32/page-15": "workspace",
+    "us:statutes/26/32": "rulespec_ref"
   },
   "files": {
     "candidate.test.yaml": "25f48526967a3d9db2d4c7bb6ac320b210f5481a82bc59085e4af84fd73a2151",
     "candidate.yaml": "cd2a236092a8c4356b90ead8b053614d2921ecd527acf99b6a01794327843cf1",
     "context/policies/irs/rev-proc-2025-32/page-15.yaml": "b032822be996093985f5d04fb64477d613fefd239c133e4c3c45192cc281f58e",
     "issues.json": "0a1ea9661771d73639f4f23276124fdf6a323d18926d2aabecf9d4f242a972fe",
+    "providers/us/statutes/26/32.yaml": "979e101eb20ac9f43fd37884e7241f3afc1abb7f3eea5abc93cc1b67067d8179",
     "source-metadata.json": "cc6443dfc6df0244d8c14f95fdb72f6a637b455f0f2b05fcd480ac8c27d56463",
     "source.txt": "4837f08e036c830b44f43b0bbb064929b060efcc6349427fbc503ac13fd0b903"
   }

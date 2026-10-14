@@ -5,20 +5,20 @@ The committed benchmark (``tests/fixtures/us_replay_benchmark``) holds real
 rejected US candidates from ``targeted-reencode-failure`` artifacts: the
 candidate RuleSpec, its companion tests, the exact workspace ``source.txt``,
 the workspace ``source-metadata.json``, the recorded pipeline ``issues.json``
-and the context modules the candidate imports. Replaying them needs no model,
-network, rules engine or corpus checkout, so every validator or prompt PR can
-report a before/after number.
+and the context modules the candidate imports or names as deferral providers.
+Replaying them needs no model, network, rules engine or corpus checkout, so
+every validator or prompt PR can report a before/after number.
 
 Commands::
 
-    # Replay the committed fixtures (imports resolved from fixture context).
+    # Replay the committed fixtures with their context (the default).
     python scripts/replay_us_failure_bundles.py replay --out after.json
 
-    # Measure the effect of import resolution on the same fixtures.
-    python scripts/replay_us_failure_bundles.py replay --no-imports --out raw.json
+    # Replay without context: no imports, deferral providers or same-act aliases.
+    python scripts/replay_us_failure_bundles.py replay --no-context --out raw.json
 
     # Replay extracted failure bundles (``<dir>/<run_id>/x`` or ``<dir>/<run_id>``).
-    python scripts/replay_us_failure_bundles.py replay --bundles bundles/ \
+    python -I scripts/replay_us_failure_bundles.py replay --bundles bundles/ \
         [--latest-per-citation] --out all.json
 
     # Compare two replay reports (for example main versus a PR branch).
@@ -29,7 +29,8 @@ Commands::
     python scripts/replay_us_failure_bundles.py snapshot [--allow-increase]
 
     # Add one extracted failure bundle as a committed fixture.
-    python scripts/replay_us_failure_bundles.py extract bundles/<run_id>/x
+    python -I scripts/replay_us_failure_bundles.py extract bundles/<run_id>/x \
+        [--rulespec-root <rulespec checkout at the bundle's rulespec_ref>]
 
 Bundles are untrusted data. This script only parses them (JSON, safe YAML and
 text); it never executes anything they contain, refuses symlinks, and keeps
@@ -70,8 +71,12 @@ RULE_PATTERN = re.compile(r"\[([a-z][a-z0-9-]*:[a-z0-9-]+)\]")
 DEFERRAL_TARGET_PATTERN = re.compile(
     r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*"
 )
+PREFIX_PATTERN = re.compile(r"[a-z]{2}(?:-[a-z0-9-]+)?")
 RUN_ID_PATTERN = re.compile(r"[0-9]{1,20}")
 SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+CONTEXT_WORKSPACE = "workspace"
+CONTEXT_NONE = "none"
+ORIGIN_RULESPEC_REF = "rulespec_ref"
 
 
 class UnsafeBundlePath(ValueError):
@@ -136,6 +141,8 @@ def _read_inside(root: Path, relative: str | PurePosixPath) -> bytes:
         or any(part in {"", ".", ".."} for part in relative_path.parts)
     ):
         raise UnsafeBundlePath(f"unsafe relative path: {relative}")
+    if root.is_symlink():
+        raise UnsafeBundlePath(f"symlinked root: {root}")
     current = root
     for part in relative_path.parts:
         current = current / part
@@ -146,6 +153,19 @@ def _read_inside(root: Path, relative: str | PurePosixPath) -> bytes:
     if current.stat().st_size > MAX_FILE_BYTES:
         raise UnsafeBundlePath(f"file exceeds {MAX_FILE_BYTES} bytes: {current}")
     return current.read_bytes()
+
+
+def _json_object(data: bytes, label: str) -> dict[str, Any]:
+    payload = json.loads(data)
+    if not isinstance(payload, dict):
+        raise ValueError(f"{label} is not a JSON object")
+    return payload
+
+
+def _rulespec_text(data: bytes) -> str:
+    """Decode RuleSpec bytes as ``Path.read_text`` does in the CI validator."""
+
+    return data.decode().replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _sha256(data: bytes | str) -> str:
@@ -170,7 +190,9 @@ def _declared_citations(content: str) -> list[str]:
     )
     if isinstance(paths, str):
         return [paths]
-    return [path for path in paths or [] if isinstance(path, str)]
+    if not isinstance(paths, list):
+        return []
+    return [path for path in paths if isinstance(path, str)]
 
 
 def _dashed(citation: str) -> str:
@@ -208,9 +230,13 @@ def _import_items(content: str) -> list[str]:
 
 
 def _deferral_targets(content: str) -> list[str]:
+    """``blocked_by`` targets, parsed the way the CI validator parses them."""
+
+    from axiom_encode.harness.validator_pipeline import _safe_load_unique_keys
+
     try:
-        payload = yaml.safe_load(content)
-    except yaml.YAMLError:
+        payload = _safe_load_unique_keys(content)
+    except (ValueError, yaml.YAMLError):
         return []
     module = payload.get("module", {}) if isinstance(payload, dict) else {}
     records = module.get("deferred_outputs", []) if isinstance(module, dict) else []
@@ -227,31 +253,39 @@ def _deferral_targets(content: str) -> list[str]:
     )
 
 
-def _context_key(target: str, policy_prefix: str | None) -> str:
-    """Canonical ``prefix:path`` key for an import or deferral target."""
+def _context_key(target: str, policy_prefix: str | None) -> str | None:
+    """Canonical ``prefix:path`` key for an import or deferral target.
 
-    target = target.split("#", 1)[0].strip().strip("\"'").strip("/")
-    if ":" not in target and policy_prefix:
+    Returns ``None`` where the CI resolver would not resolve the target: an
+    unsafe path, or a path outside the atomic RuleSpec module roots.
+    """
+
+    from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+
+    target = target.split("#", 1)[0].strip().strip("\"'")
+    if ":" not in target:
+        if not policy_prefix:
+            return None
         target = f"{policy_prefix}:{target}"
     prefix, _, path = target.partition(":")
-    path = path.strip("/")
-    if path.endswith(".yaml"):
-        path = path[: -len(".yaml")]
-    return f"{prefix}:{path}"
+    parts = PurePosixPath(path.strip("/")).parts
+    if (
+        not PREFIX_PATTERN.fullmatch(prefix)
+        or not parts
+        or any(part in {"", ".", ".."} for part in parts)
+        or parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return None
+    return f"{prefix}:{'/'.join(parts)}"
 
 
 def referenced_context_keys(content: str, policy_prefix: str | None) -> list[str]:
     """Context modules a candidate needs: its imports and deferral providers."""
 
-    keys = [
-        _context_key(item.rpartition("#")[0], policy_prefix)
-        for item in _import_items(content)
-        if item.rpartition("#")[0].strip()
-    ]
-    keys.extend(
-        _context_key(target, policy_prefix) for target in _deferral_targets(content)
-    )
-    return sorted(dict.fromkeys(keys))
+    targets = [item.rpartition("#")[0] for item in _import_items(content)]
+    targets.extend(_deferral_targets(content))
+    keys = [_context_key(target, policy_prefix) for target in targets if target]
+    return sorted({key for key in keys if key is not None})
 
 
 def import_symbol_contents(case: ReplayCase) -> tuple[list[tuple[str, str]], list[str]]:
@@ -271,6 +305,8 @@ def import_symbol_contents(case: ReplayCase) -> tuple[list[tuple[str, str]], lis
         if not separator or not symbol:
             continue
         key = _context_key(target, case.policy_prefix)
+        if key is None:
+            continue
         content = case.context.get(key)
         if content is None:
             unresolved.append(item)
@@ -282,18 +318,27 @@ def import_symbol_contents(case: ReplayCase) -> tuple[list[tuple[str, str]], lis
     return bindings, unresolved
 
 
-def resolved_deferral_outputs(case: ReplayCase) -> tuple[str, ...]:
-    """Mirror ``ValidatorPipeline._complete_source_unit_deferred_outputs``."""
+def resolved_deferral_outputs(case: ReplayCase) -> tuple[tuple[str, ...], list[str]]:
+    """Mirror ``ValidatorPipeline._complete_source_unit_deferred_outputs``.
+
+    Returns the resolved targets and the targets whose provider module is not
+    in the case context (production may have resolved those).
+    """
 
     from axiom_encode.harness.source_completeness import (
         _IRS_REV_PROC_2025_32_BEHAVIOR_EXPORTS,
     )
     from axiom_encode.harness.validator_pipeline import _safe_load_unique_keys
 
-    resolved = []
+    resolved: list[str] = []
+    unresolved: list[str] = []
     for target in _deferral_targets(case.candidate):
-        content = case.context.get(_context_key(target, case.policy_prefix))
+        key = _context_key(target, case.policy_prefix)
+        if key is None:
+            continue
+        content = case.context.get(key)
         if content is None:
+            unresolved.append(target)
             continue
         try:
             provider = _safe_load_unique_keys(content)
@@ -317,7 +362,7 @@ def resolved_deferral_outputs(case: ReplayCase) -> tuple[str, ...]:
         )
         if len(exports) == 1 and exports[0].get("kind") in allowed_kinds:
             resolved.append(target)
-    return tuple(resolved)
+    return tuple(resolved), unresolved
 
 
 def _companion_cases(tests: str | None) -> list[object] | None:
@@ -336,8 +381,12 @@ def _companion_cases(tests: str | None) -> list[object] | None:
     return payload if isinstance(payload, list) else None
 
 
-def replay_case(case: ReplayCase, *, resolve_imports: bool = True) -> dict[str, Any]:
-    """Run ``analyze_complete_source_unit`` on one case as production would."""
+def replay_case(case: ReplayCase, *, use_context: bool = True) -> dict[str, Any]:
+    """Run ``analyze_complete_source_unit`` on one case as the CI validator does.
+
+    ``use_context=False`` leaves out imported symbol contents, resolved
+    deferral providers and same-act aliases from the source metadata.
+    """
 
     from axiom_encode.harness.source_completeness import (
         analyze_complete_source_unit,
@@ -352,19 +401,25 @@ def replay_case(case: ReplayCase, *, resolve_imports: bool = True) -> dict[str, 
         numeric_value_is_grounded,
     )
 
-    if resolve_imports:
-        bindings, unresolved = import_symbol_contents(case)
-        deferral_outputs = resolved_deferral_outputs(case)
+    if use_context:
+        bindings, unresolved_imports = import_symbol_contents(case)
+        deferral_outputs, unresolved_deferrals = resolved_deferral_outputs(case)
+        aliases = _authenticated_same_act_aliases_from_metadata(
+            dict(case.source_metadata) if case.source_metadata else None
+        )
     else:
-        bindings, unresolved, deferral_outputs = [], [], ()
+        bindings, unresolved_imports = [], []
+        deferral_outputs, unresolved_deferrals = (), []
+        aliases = ()
     result: dict[str, Any] = {
         "id": case.case_id,
         "run_id": case.run_id,
         "citation": case.citation,
         "module": case.module_path,
         "imports_resolved": len(bindings),
-        "imports_unresolved": unresolved,
-        "deferral_outputs_resolved": list(deferral_outputs),
+        "imports_unresolved": unresolved_imports,
+        "deferral_providers_resolved": list(deferral_outputs),
+        "deferral_providers_unresolved": unresolved_deferrals,
     }
     try:
         profile = _numeric_profile_for_citation_path(case.citation)
@@ -390,13 +445,7 @@ def replay_case(case: ReplayCase, *, resolve_imports: bool = True) -> dict[str, 
             artifact_numeric_bindings=numeric_bindings,
             imported_symbol_contents=bindings,
             resolved_dependency_outputs=deferral_outputs,
-            authenticated_same_act_aliases=(
-                _authenticated_same_act_aliases_from_metadata(
-                    dict(case.source_metadata) if case.source_metadata else None
-                )
-                if resolve_imports
-                else ()
-            ),
+            authenticated_same_act_aliases=aliases,
         )
     except Exception as exc:  # report, never hide
         result.update(issues=[], rules={}, error=f"{type(exc).__name__}: {exc}"[:500])
@@ -414,20 +463,21 @@ def replay_case(case: ReplayCase, *, resolve_imports: bool = True) -> dict[str, 
 def load_fixture(directory: Path) -> ReplayCase:
     """Load and authenticate one committed fixture directory."""
 
-    metadata = json.loads(_read_inside(directory, FIXTURE_FILE))
+    metadata = _json_object(_read_inside(directory, FIXTURE_FILE), FIXTURE_FILE)
     if metadata.get("schema") != FIXTURE_SCHEMA:
         raise ValueError(f"{directory}: unexpected fixture schema")
     files: Mapping[str, str] = metadata["files"]
-    texts: dict[str, str] = {}
+    raw: dict[str, bytes] = {}
     for relative, digest in files.items():
         data = _read_inside(directory, relative)
         if _sha256(data) != digest:
             raise ValueError(f"{directory}/{relative}: sha256 mismatch")
-        texts[relative] = data.decode()
+        raw[relative] = data
     on_disk = sorted(
-        path.relative_to(directory).as_posix()
+        relative
         for path in directory.rglob("*")
-        if path.is_file() and path.name != FIXTURE_FILE
+        if path.is_file()
+        and (relative := path.relative_to(directory).as_posix()) != FIXTURE_FILE
     )
     if on_disk != sorted(files):
         raise ValueError(
@@ -435,21 +485,26 @@ def load_fixture(directory: Path) -> ReplayCase:
             f"{sorted(set(on_disk) ^ set(files))}"
         )
     source_metadata = (
-        json.loads(texts["source-metadata.json"])
-        if "source-metadata.json" in texts
+        _json_object(raw["source-metadata.json"], "source-metadata.json")
+        if "source-metadata.json" in raw
         else None
     )
     context = {
-        key: texts[relative] for key, relative in metadata["context_imports"].items()
+        key: _rulespec_text(raw[relative])
+        for key, relative in metadata["context_imports"].items()
     }
     return ReplayCase(
         case_id=directory.name,
         run_id=metadata["run_id"],
         citation=metadata["citation"],
         module_path=metadata["module_path"],
-        candidate=texts["candidate.yaml"],
-        tests=texts.get("candidate.test.yaml"),
-        source=texts["source.txt"],
+        candidate=_rulespec_text(raw["candidate.yaml"]),
+        tests=(
+            _rulespec_text(raw["candidate.test.yaml"])
+            if "candidate.test.yaml" in raw
+            else None
+        ),
+        source=raw["source.txt"].decode(),
         source_metadata=source_metadata,
         policy_prefix=metadata.get("policy_prefix"),
         context=context,
@@ -485,11 +540,16 @@ class BundleModule:
     metadata: Mapping[str, Any]
     recorded: Mapping[str, Any]
 
+    @property
+    def candidate_dir(self) -> str:
+        return f"generated/{self.lane}/final-rejected-candidate"
+
 
 def _bundle_root(path: Path) -> Path:
-    if (path / "x" / "metadata.json").is_file():
-        return path / "x"
-    return path
+    root = path / "x" if (path / "x" / "metadata.json").is_file() else path
+    if path.is_symlink() or root.is_symlink():
+        raise UnsafeBundlePath(f"symlinked bundle root: {root}")
+    return root
 
 
 def _bundle_run_id(root: Path, metadata: Mapping[str, Any]) -> str:
@@ -506,7 +566,7 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
     """Find every rejected candidate module and its workspace in one bundle."""
 
     root = _bundle_root(path)
-    metadata = json.loads(_read_inside(root, "metadata.json"))
+    metadata = _json_object(_read_inside(root, "metadata.json"), "metadata.json")
     run_id = _bundle_run_id(root, metadata)
     bundle_citation = str(metadata.get("citation") or "")
     found: list[BundleModule] = []
@@ -517,24 +577,26 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
         if lane_dir.is_symlink() or not SAFE_SEGMENT.fullmatch(lane_dir.name):
             continue
         candidate_dir = lane_dir / "final-rejected-candidate"
-        if not (candidate_dir / "issues.json").is_file():
+        if candidate_dir.is_symlink() or not (candidate_dir / "issues.json").is_file():
             continue
-        recorded = json.loads(
-            _read_inside(
-                root, f"generated/{lane_dir.name}/final-rejected-candidate/issues.json"
-            )
+        recorded = _json_object(
+            _read_inside(candidate_dir, "issues.json"), "issues.json"
         )
         workspaces_root = lane_dir / "_eval_workspaces"
         for module in sorted(candidate_dir.rglob("*.yaml")):
             if module.name.endswith(".test.yaml") or module.is_symlink():
                 continue
             module_path = module.relative_to(candidate_dir).as_posix()
-            content = _read_inside(candidate_dir, module_path).decode()
+            content = _rulespec_text(_read_inside(candidate_dir, module_path))
             declared = _declared_citations(content)
 
             def workspace_for(citation: str) -> list[Path]:
                 dashed = _dashed(citation)
-                if not SAFE_SEGMENT.fullmatch(dashed) or not workspaces_root.is_dir():
+                if (
+                    not SAFE_SEGMENT.fullmatch(dashed)
+                    or workspaces_root.is_symlink()
+                    or not workspaces_root.is_dir()
+                ):
                     return []
                 return sorted(
                     runner_dir / dashed / "workspace"
@@ -552,6 +614,7 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
                 continue
             workspaces = workspace_for(citation)
             runner = None
+            candidate_bytes = _read_inside(candidate_dir, module_path)
             for workspace in workspaces:
                 runner_name = workspace.parent.parent.name
                 try:
@@ -560,7 +623,7 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
                     )
                 except UnsafeBundlePath:
                     continue
-                if generated_copy == content.encode():
+                if generated_copy == candidate_bytes:
                     runner = runner_name
                     break
             chosen = next(
@@ -585,16 +648,23 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
 
 
 def _bundle_context_map(module: BundleModule) -> tuple[dict[str, str], str | None]:
-    """Map ``prefix:path`` import keys to workspace-relative context files."""
+    """Map ``prefix:path`` keys to workspace-relative context files."""
 
     root = module.bundle_root
     manifest_path = f"{module.workspace}/context-manifest.json"
     if not (root / manifest_path).is_file():
         return {}, None
-    manifest = json.loads(_read_inside(root, manifest_path))
+    manifest = _json_object(_read_inside(root, manifest_path), "context-manifest.json")
     policy_prefix = manifest.get("policy_prefix")
+    if not isinstance(policy_prefix, str) or not PREFIX_PATTERN.fullmatch(
+        policy_prefix
+    ):
+        policy_prefix = None
+    context_files = manifest.get("context_files", [])
+    if not isinstance(context_files, list):
+        raise ValueError("context-manifest.json context_files is not a list")
     mapping: dict[str, str] = {}
-    for item in manifest.get("context_files", []):
+    for item in context_files:
         if not isinstance(item, dict):
             continue
         import_path = item.get("import_path")
@@ -605,37 +675,70 @@ def _bundle_context_map(module: BundleModule) -> tuple[dict[str, str], str | Non
             ".yaml"
         ):
             continue
-        mapping.setdefault(
-            _context_key(import_path, policy_prefix),
-            f"{module.workspace}/{workspace_path}",
-        )
-    return mapping, policy_prefix if isinstance(policy_prefix, str) else None
+        key = _context_key(import_path, policy_prefix)
+        if key is not None:
+            mapping.setdefault(key, f"{module.workspace}/{workspace_path}")
+    return mapping, policy_prefix
 
 
-def bundle_case(module: BundleModule) -> ReplayCase:
+def _bundle_context_bytes(
+    module: BundleModule, candidate: str, rulespec_root: Path | None
+) -> tuple[dict[str, tuple[str, bytes]], str | None]:
+    """Referenced context modules as ``key -> (fixture path, bytes)``.
+
+    The workspace context comes first. ``rulespec_root`` (a RuleSpec checkout
+    at the bundle's ``rulespec_ref``, laid out as ``<prefix>/<path>.yaml``)
+    fills only keys that the workspace context lacks.
+    """
+
+    mapping, policy_prefix = _bundle_context_map(module)
+    found: dict[str, tuple[str, bytes]] = {}
+    for key in referenced_context_keys(candidate, policy_prefix):
+        relative = mapping.get(key)
+        if relative is not None:
+            found[key] = (
+                relative[len(module.workspace) + 1 :],
+                _read_inside(module.bundle_root, relative),
+            )
+            continue
+        if rulespec_root is None:
+            continue
+        prefix, _, path = key.partition(":")
+        try:
+            data = _read_inside(rulespec_root, f"{prefix}/{path}.yaml")
+        except UnsafeBundlePath:
+            continue
+        found[key] = (f"providers/{prefix}/{path}.yaml", data)
+    return found, policy_prefix
+
+
+def bundle_case(
+    module: BundleModule, *, rulespec_root: Path | None = None
+) -> ReplayCase:
     """Build a replay case straight from an extracted bundle."""
 
     root = module.bundle_root
-    candidate_dir = f"generated/{module.lane}/final-rejected-candidate"
-    candidate = _read_inside(root, f"{candidate_dir}/{module.module_path}").decode()
-    tests_path = module.module_path[: -len(".yaml")] + ".test.yaml"
+    candidate = _rulespec_text(
+        _read_inside(root, f"{module.candidate_dir}/{module.module_path}")
+    )
+    tests_path = (
+        f"{module.candidate_dir}/{module.module_path[: -len('.yaml')]}.test.yaml"
+    )
     tests = (
-        _read_inside(root, f"{candidate_dir}/{tests_path}").decode()
-        if (root / candidate_dir / tests_path).is_file()
+        _rulespec_text(_read_inside(root, tests_path))
+        if (root / tests_path).is_file()
         else None
     )
     source = _read_inside(root, f"{module.workspace}/source.txt").decode()
     source_metadata = (
-        json.loads(_read_inside(root, f"{module.workspace}/source-metadata.json"))
+        _json_object(
+            _read_inside(root, f"{module.workspace}/source-metadata.json"),
+            "source-metadata.json",
+        )
         if (root / module.workspace / "source-metadata.json").is_file()
         else None
     )
-    mapping, policy_prefix = _bundle_context_map(module)
-    context: dict[str, str] = {}
-    for key in referenced_context_keys(candidate, policy_prefix):
-        relative = mapping.get(key)
-        if relative is not None:
-            context[key] = _read_inside(root, relative).decode()
+    context, policy_prefix = _bundle_context_bytes(module, candidate, rulespec_root)
     return ReplayCase(
         case_id=f"{module.run_id}:{module.lane}:{module.module_path}",
         run_id=module.run_id,
@@ -646,20 +749,23 @@ def bundle_case(module: BundleModule) -> ReplayCase:
         source=source,
         source_metadata=source_metadata,
         policy_prefix=policy_prefix,
-        context=context,
+        context={key: _rulespec_text(data) for key, (_p, data) in context.items()},
     )
 
 
 def bundle_paths(directory: Path) -> list[Path]:
     paths = []
     for child in sorted(directory.iterdir()):
-        if child.is_symlink() or not child.is_dir():
+        if child.is_symlink() or not child.is_dir() or (child / "x").is_symlink():
             continue
         if (child / "x" / "metadata.json").is_file() or (
             child / "metadata.json"
         ).is_file():
             paths.append(child)
     return paths
+
+
+BUNDLE_ERRORS = (OSError, ValueError, UnicodeDecodeError, TypeError, AttributeError)
 
 
 def load_bundle_cases(
@@ -670,7 +776,7 @@ def load_bundle_cases(
     for path in bundle_paths(directory):
         try:
             modules.extend(discover_bundle_modules(path))
-        except (OSError, ValueError, UnicodeDecodeError) as exc:
+        except BUNDLE_ERRORS as exc:
             errors.append(
                 {"bundle": path.name, "error": f"{type(exc).__name__}: {exc}"}
             )
@@ -684,7 +790,7 @@ def load_bundle_cases(
     for module in modules:
         try:
             cases.append(bundle_case(module))
-        except (OSError, ValueError, UnicodeDecodeError) as exc:
+        except BUNDLE_ERRORS as exc:
             errors.append(
                 {
                     "bundle": module.run_id,
@@ -696,55 +802,73 @@ def load_bundle_cases(
 
 
 def extract_fixture(
-    module: BundleModule, fixture_root: Path, *, name: str | None = None
+    module: BundleModule,
+    fixture_root: Path,
+    *,
+    name: str | None = None,
+    rulespec_root: Path | None = None,
 ) -> Path:
     """Copy one bundle module into a self-authenticating committed fixture."""
 
-    case = bundle_case(module)
     root = module.bundle_root
     target = fixture_root / (name or module.run_id)
     if target.exists():
         raise FileExistsError(f"fixture already exists: {target}")
-    mapping, _policy_prefix = _bundle_context_map(module)
+    candidate_bytes = _read_inside(root, f"{module.candidate_dir}/{module.module_path}")
+    candidate = _rulespec_text(candidate_bytes)
     files: dict[str, bytes] = {
-        "candidate.yaml": case.candidate.encode(),
-        "source.txt": case.source.encode(),
-        "issues.json": _read_inside(
-            root, f"generated/{module.lane}/final-rejected-candidate/issues.json"
-        ),
+        "candidate.yaml": candidate_bytes,
+        "source.txt": _read_inside(root, f"{module.workspace}/source.txt"),
+        "issues.json": _read_inside(root, f"{module.candidate_dir}/issues.json"),
     }
-    if case.tests is not None:
-        files["candidate.test.yaml"] = case.tests.encode()
-    if case.source_metadata is not None:
+    tests_path = (
+        f"{module.candidate_dir}/{module.module_path[: -len('.yaml')]}.test.yaml"
+    )
+    if (root / tests_path).is_file():
+        files["candidate.test.yaml"] = _read_inside(root, tests_path)
+    if (root / module.workspace / "source-metadata.json").is_file():
         files["source-metadata.json"] = _read_inside(
             root, f"{module.workspace}/source-metadata.json"
         )
+    context, policy_prefix = _bundle_context_bytes(module, candidate, rulespec_root)
     context_imports: dict[str, str] = {}
-    for key in sorted(case.context):
-        relative = mapping[key][len(module.workspace) + 1 :]
-        files[relative] = case.context[key].encode()
+    context_origins: dict[str, str] = {}
+    for key, (relative, data) in sorted(context.items()):
+        files[relative] = data
         context_imports[key] = relative
+        context_origins[key] = (
+            ORIGIN_RULESPEC_REF
+            if relative.startswith("providers/")
+            else CONTEXT_WORKSPACE
+        )
     inventory = {
         item["path"]: item["sha256"]
         for item in module.metadata.get("files", [])
         if isinstance(item, dict) and isinstance(item.get("path"), str)
     }
-    bundle_prefix = f"{module.lane}/final-rejected-candidate/"
-    candidate_inventory_sha = inventory.get(bundle_prefix + module.module_path)
+    candidate_inventory_sha = inventory.get(
+        f"{module.lane}/final-rejected-candidate/{module.module_path}"
+    )
     recorded_issues = [
         issue for issue in module.recorded.get("issues", []) if isinstance(issue, str)
     ]
     module_issues = [
         issue for issue in recorded_issues if issue.startswith(f"{module.module_path}:")
     ] or recorded_issues
-    attestation = (
-        case.source_metadata.get("source_attestation")
-        if isinstance(case.source_metadata, Mapping)
-        else None
+    source_metadata = (
+        _json_object(files["source-metadata.json"], "source-metadata.json")
+        if "source-metadata.json" in files
+        else {}
     )
+    attestation = source_metadata.get("source_attestation")
     resolved_text_sha = (
         attestation.get("resolved_text_sha256")
         if isinstance(attestation, dict)
+        else None
+    )
+    tests_sha = (
+        _sha256(files["candidate.test.yaml"])
+        if "candidate.test.yaml" in files
         else None
     )
     provenance = {
@@ -756,28 +880,31 @@ def extract_fixture(
         "lane": module.lane,
         "runner": module.runner,
         "module_path": module.module_path,
-        "policy_prefix": case.policy_prefix,
+        "policy_prefix": policy_prefix,
         "encoder_commit": module.metadata.get("encoder_commit"),
         "encoder_version": module.recorded.get("encoder_version"),
         "attempt_count": module.recorded.get("attempt_count"),
         "corpus_ref": module.metadata.get("corpus_ref"),
+        "rulespec_ref": module.metadata.get("rulespec_ref"),
         "failed_steps": module.metadata.get("failed_steps"),
         "candidate_matches_bundle_inventory": (
-            candidate_inventory_sha == _sha256(case.candidate)
+            candidate_inventory_sha == _sha256(candidate_bytes)
             if candidate_inventory_sha
             else None
         ),
         "candidate_matches_recorded_issues": (
             module.recorded.get("path") == module.module_path
-            and module.recorded.get("rulespec_sha256") == _sha256(case.candidate)
-            and module.recorded.get("tests_sha256")
-            == (_sha256(case.tests) if case.tests is not None else None)
+            and module.recorded.get("rulespec_sha256") == _sha256(candidate_bytes)
+            and module.recorded.get("tests_sha256") == tests_sha
         ),
         "source_matches_attestation": (
-            resolved_text_sha == _sha256(case.source) if resolved_text_sha else None
+            resolved_text_sha == _sha256(files["source.txt"])
+            if resolved_text_sha
+            else None
         ),
         "recorded_rules": rule_counts(module_issues, classify=recorded_issue_rule),
         "context_imports": context_imports,
+        "context_origins": context_origins,
         "files": {path: _sha256(data) for path, data in sorted(files.items())},
     }
     for relative, data in files.items():
@@ -796,7 +923,7 @@ def extract_fixture(
 def build_report(
     cases: Sequence[ReplayCase],
     *,
-    resolve_imports: bool = True,
+    use_context: bool = True,
     errors: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     from axiom_encode import __version__
@@ -804,7 +931,7 @@ def build_report(
     results = []
     for case in cases:
         started = time.perf_counter()
-        result = replay_case(case, resolve_imports=resolve_imports)
+        result = replay_case(case, use_context=use_context)
         result["seconds"] = round(time.perf_counter() - started, 3)
         results.append(result)
     rule_totals: collections.Counter[str] = collections.Counter()
@@ -819,13 +946,16 @@ def build_report(
         "issues": sum(len(r["issues"]) for r in results),
         "imports_resolved": sum(r["imports_resolved"] for r in results),
         "imports_unresolved": sum(len(r["imports_unresolved"]) for r in results),
+        "deferral_providers_unresolved": sum(
+            len(r["deferral_providers_unresolved"]) for r in results
+        ),
         "rules": dict(sorted(rule_totals.items())),
         "cases_with_rule": dict(sorted(cases_with_rule.items())),
     }
     return {
         "schema": REPORT_SCHEMA,
         "encoder_version": __version__,
-        "imports": "context" if resolve_imports else "none",
+        "context": CONTEXT_WORKSPACE if use_context else CONTEXT_NONE,
         "summary": summary,
         "cases": results,
         "load_errors": list(errors),
@@ -835,35 +965,55 @@ def build_report(
 def format_summary(report: Mapping[str, Any]) -> str:
     summary = report["summary"]
     lines = [
-        f"replayed {summary['cases']} modules (imports: {report['imports']}): "
+        f"replayed {summary['cases']} modules (context: {report['context']}): "
         f"{summary['clean']} clean, {summary['issues']} issues, "
-        f"{summary['errors']} errors; imports resolved "
-        f"{summary['imports_resolved']}, unresolved {summary['imports_unresolved']}",
-        f"  {'rule':45} {'issues':>7} {'modules':>8}",
+        f"{summary['errors']} errors",
+        f"imports resolved {summary['imports_resolved']}, unresolved "
+        f"{summary['imports_unresolved']}; deferral providers unresolved "
+        f"{summary['deferral_providers_unresolved']}",
+        f"  {'rule':48} {'issues':>7} {'modules':>8}",
     ]
     for rule, count in sorted(summary["rules"].items(), key=lambda kv: (-kv[1], kv[0])):
-        lines.append(f"  {rule:45} {count:7} {summary['cases_with_rule'][rule]:8}")
+        lines.append(f"  {rule:48} {count:7} {summary['cases_with_rule'][rule]:8}")
     return "\n".join(lines)
 
 
 def compare_reports(
     before: Mapping[str, Any], after: Mapping[str, Any]
 ) -> dict[str, Any]:
-    """Issue-level difference between two replay reports of the same cases."""
+    """Issue-level difference between two replay reports of the same cases.
+
+    A case that errors on either side is listed under ``errored`` and left out
+    of every count, so a crash never reads as removed issues.
+    """
 
     before_cases = {r["id"]: r for r in before["cases"]}
     after_cases = {r["id"]: r for r in after["cases"]}
     shared = sorted(before_cases.keys() & after_cases.keys())
+    errored = [
+        {
+            "id": case_id,
+            "before": before_cases[case_id]["error"],
+            "after": after_cases[case_id]["error"],
+        }
+        for case_id in shared
+        if before_cases[case_id]["error"] or after_cases[case_id]["error"]
+    ]
+    compared = [
+        case_id
+        for case_id in shared
+        if not before_cases[case_id]["error"] and not after_cases[case_id]["error"]
+    ]
     removed: collections.Counter[str] = collections.Counter()
     added: collections.Counter[str] = collections.Counter()
     newly_clean, newly_failing, changed = [], [], []
-    for case_id in shared:
+    for case_id in compared:
         old = collections.Counter(before_cases[case_id]["issues"])
         new = collections.Counter(after_cases[case_id]["issues"])
         gone, came = old - new, new - old
         removed.update(issue_rule(issue) for issue in gone.elements())
         added.update(issue_rule(issue) for issue in came.elements())
-        if old and not new and not after_cases[case_id]["error"]:
+        if old and not new:
             newly_clean.append(case_id)
         if new and not old:
             newly_failing.append(case_id)
@@ -879,13 +1029,14 @@ def compare_reports(
                 }
             )
     return {
-        "compared": len(shared),
+        "compared": len(compared),
+        "errored": errored,
         "only_before": sorted(before_cases.keys() - after_cases.keys()),
         "only_after": sorted(after_cases.keys() - before_cases.keys()),
-        "issues_before": sum(len(before_cases[c]["issues"]) for c in shared),
-        "issues_after": sum(len(after_cases[c]["issues"]) for c in shared),
-        "clean_before": sum(1 for c in shared if not before_cases[c]["issues"]),
-        "clean_after": sum(1 for c in shared if not after_cases[c]["issues"]),
+        "issues_before": sum(len(before_cases[c]["issues"]) for c in compared),
+        "issues_after": sum(len(after_cases[c]["issues"]) for c in compared),
+        "clean_before": sum(1 for c in compared if not before_cases[c]["issues"]),
+        "clean_after": sum(1 for c in compared if not after_cases[c]["issues"]),
         "removed_by_rule": dict(removed.most_common()),
         "added_by_rule": dict(added.most_common()),
         "newly_clean": newly_clean,
@@ -904,6 +1055,12 @@ def format_comparison(diff: Mapping[str, Any]) -> str:
         f"newly clean: {len(diff['newly_clean'])}  newly failing: "
         f"{len(diff['newly_failing'])}",
     ]
+    if diff["errored"]:
+        lines.append(f"ERRORED (not compared): {len(diff['errored'])}")
+        lines.extend(
+            f"  {item['id']}: before={item['before']!r} after={item['after']!r}"
+            for item in diff["errored"]
+        )
     if diff["only_before"] or diff["only_after"]:
         lines.append(
             f"not compared: {len(diff['only_before'])} only before, "
@@ -918,12 +1075,11 @@ def format_comparison(diff: Mapping[str, Any]) -> str:
 
 
 def snapshot_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
-    if report["imports"] != "context":
-        raise ValueError("the snapshot pins the import-resolving replay")
+    if report["context"] != CONTEXT_WORKSPACE:
+        raise ValueError("the snapshot pins the replay with workspace context")
     return {
         "schema": SNAPSHOT_SCHEMA,
-        "encoder_version": report["encoder_version"],
-        "imports": report["imports"],
+        "context": report["context"],
         "totals": {
             "cases": report["summary"]["cases"],
             "clean": report["summary"]["clean"],
@@ -942,13 +1098,34 @@ def snapshot_from_report(report: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class SnapshotDeviations:
+    """How a replay differs from the pinned snapshot."""
+
+    increases: list[str]
+    decreases: list[str]
+    unpinned: list[str]
+
+    def __bool__(self) -> bool:
+        return bool(self.increases or self.decreases or self.unpinned)
+
+
 def snapshot_deviations(
     snapshot: Mapping[str, Any], report: Mapping[str, Any]
-) -> tuple[list[str], list[str]]:
-    """Return (increases, decreases) of per-case, per-rule counts."""
+) -> SnapshotDeviations:
+    """Compare per-case, per-rule counts with the pinned snapshot.
 
+    Increases are rises, new replay errors and pinned fixtures that are gone.
+    Unpinned fixtures are new fixtures that the snapshot does not list yet.
+    """
+
+    if snapshot.get("schema") != SNAPSHOT_SCHEMA or not isinstance(
+        snapshot.get("cases"), dict
+    ):
+        raise ValueError("not a US replay snapshot")
     increases: list[str] = []
     decreases: list[str] = []
+    unpinned: list[str] = []
     pinned = snapshot["cases"]
     current = snapshot_from_report(report)["cases"]
     for case_id in sorted(pinned.keys() | current.keys()):
@@ -956,7 +1133,7 @@ def snapshot_deviations(
             increases.append(f"{case_id}: pinned fixture is missing from the replay")
             continue
         if case_id not in pinned:
-            increases.append(f"{case_id}: fixture is not pinned in the snapshot")
+            unpinned.append(f"{case_id}: fixture is not pinned in the snapshot")
             continue
         old, new = pinned[case_id], current[case_id]
         if new["error"] != old["error"]:
@@ -969,7 +1146,7 @@ def snapshot_deviations(
                 increases.append(message)
             elif after < before:
                 decreases.append(message)
-    return increases, decreases
+    return SnapshotDeviations(increases, decreases, unpinned)
 
 
 # --------------------------------------------------------------------------
@@ -989,7 +1166,7 @@ def _cmd_replay(args: argparse.Namespace) -> int:
         )
     else:
         cases, errors = load_fixtures(Path(args.fixtures)), []
-    report = build_report(cases, resolve_imports=not args.no_imports, errors=errors)
+    report = build_report(cases, use_context=not args.no_context, errors=errors)
     _write_json(args.out, report)
     print(format_summary(report))
     for error in errors:
@@ -1015,19 +1192,23 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     snapshot = (
         json.loads(snapshot_path.read_text()) if snapshot_path.is_file() else None
     )
-    increases, decreases = (
-        snapshot_deviations(snapshot, report) if snapshot else ([], [])
+    deviations = (
+        snapshot_deviations(snapshot, report)
+        if snapshot is not None
+        else SnapshotDeviations([], [], [])
     )
-    for line in increases:
+    for line in deviations.increases:
         print(f"INCREASE {line}")
-    for line in decreases:
+    for line in deviations.decreases:
         print(f"decrease {line}")
+    for line in deviations.unpinned:
+        print(f"new      {line}")
     if args.check:
         if snapshot is None:
             print(f"no snapshot at {snapshot_path}", file=sys.stderr)
             return 1
-        return 1 if increases or decreases else 0
-    if increases and not args.allow_increase:
+        return 1 if deviations else 0
+    if deviations.increases and not args.allow_increase:
         print(
             "refusing to raise pinned counts; rerun with --allow-increase and "
             "justify each increase in the PR",
@@ -1054,7 +1235,12 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    target = extract_fixture(modules[0], Path(args.fixtures), name=args.name)
+    target = extract_fixture(
+        modules[0],
+        Path(args.fixtures),
+        name=args.name,
+        rulespec_root=Path(args.rulespec_root) if args.rulespec_root else None,
+    )
     size = sum(p.stat().st_size for p in target.rglob("*") if p.is_file())
     print(f"wrote {target} ({size} bytes)")
     return 0
@@ -1072,9 +1258,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay.add_argument("--bundles", help="directory of extracted failure bundles")
     replay.add_argument("--latest-per-citation", action="store_true")
     replay.add_argument(
-        "--no-imports",
+        "--no-context",
         action="store_true",
-        help="do not resolve imports, deferral providers or same-act aliases",
+        help="leave out imports, deferral providers and same-act aliases",
     )
     replay.add_argument("--out", help="write the full JSON report here")
     replay.set_defaults(func=_cmd_replay)
@@ -1088,7 +1274,11 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot = commands.add_parser("snapshot", help="check or rewrite the snapshot")
     snapshot.add_argument("--fixtures", default=str(DEFAULT_FIXTURE_ROOT))
     snapshot.add_argument("--check", action="store_true")
-    snapshot.add_argument("--allow-increase", action="store_true")
+    snapshot.add_argument(
+        "--allow-increase",
+        action="store_true",
+        help="also record rises, new errors and removed fixtures",
+    )
     snapshot.set_defaults(func=_cmd_snapshot)
 
     extract = commands.add_parser("extract", help="add a bundle as a fixture")
@@ -1096,6 +1286,13 @@ def build_parser() -> argparse.ArgumentParser:
     extract.add_argument("--fixtures", default=str(DEFAULT_FIXTURE_ROOT))
     extract.add_argument("--module", help="candidate module path to extract")
     extract.add_argument("--name", help="fixture directory name (default: run id)")
+    extract.add_argument(
+        "--rulespec-root",
+        help=(
+            "RuleSpec checkout at the bundle's rulespec_ref (<prefix>/<path>.yaml); "
+            "fills imports and deferral providers missing from the workspace context"
+        ),
+    )
     extract.set_defaults(func=_cmd_extract)
     return parser
 
