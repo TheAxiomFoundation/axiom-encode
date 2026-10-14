@@ -1439,7 +1439,7 @@ _RELATIVE_USC_DEFERRAL_DEPENDENCY = re.compile(
 )
 # A title-qualified federal regulation citation such as `42 C.F.R. § 457.622(a)`
 # or a canonical corpus path such as `us-mo/statute/143.011(2)`. Their internal
-# periods are part of the citation, never a clause boundary.
+# periods are not clause boundaries for the repeal subject reader.
 _PERIOD_BEARING_CITATION = re.compile(
     r"\b\d+\s+C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?(?:(?:§{1,2}|sections?|sec\.)\s*)?"
     r"\d+[A-Za-z]?(?:\.\d+[A-Za-z0-9]*(?:-\d+[A-Za-z0-9]*)*)?"
@@ -9184,11 +9184,15 @@ def _reason_names_missing_same_act_dependency(
 
     if not path:
         return False
+    # The conventional CFR form does not open this session-law dependency
+    # reader to `section N of the Act` references in federal regulations; CFR
+    # and Act dependency deferrals are out of scope for the CFR reader.
     exact_current_branch = _reason_cites_exact_current_statute_branch(
         reason,
         corpus_citation_path=corpus_citation_path,
         path=path,
         strict_terminal=True,
+        read_cfr_form=False,
     )
     if not exact_current_branch:
         current_section = corpus_citation_path.rstrip("/").rsplit("/", 1)[-1]
@@ -11814,12 +11818,16 @@ def _usc_dependency_occurrences_match(
 def _reason_clause_bounds(
     reason: str,
     match: re.Match[str],
+    *,
+    mask_current_citations: bool = False,
 ) -> tuple[int, int]:
+    # Only the repeal subject reader masks CFR and canonical corpus-path
+    # citations; dependency readers keep their existing clause boundaries.
     masked = list(reason)
     for dependency in (
         *_qualified_usc_dependencies(reason),
         *_qualified_louisiana_rs_dependencies(reason),
-        *_PERIOD_BEARING_CITATION.finditer(reason),
+        *(_PERIOD_BEARING_CITATION.finditer(reason) if mask_current_citations else ()),
     ):
         for position in range(dependency.start(), dependency.end()):
             if masked[position] in {".", ";"}:
@@ -12956,7 +12964,9 @@ def _reason_covers_source_authenticated_repeal(
         reason,
         flags=re.IGNORECASE,
     ):
-        clause_start, _clause_end = _reason_clause_bounds(reason, affirmative)
+        clause_start, _clause_end = _reason_clause_bounds(
+            reason, affirmative, mask_current_citations=True
+        )
         citation_subject = reason[clause_start : affirmative.start()]
         if not _reason_cites_exact_current_statute_branch(
             citation_subject,
@@ -13499,8 +13509,13 @@ def _reason_cites_exact_current_statute_branch(
     strict_terminal: bool = False,
     citation_must_end: bool = False,
     citation_must_start: bool = False,
+    read_cfr_form: bool = True,
 ) -> bool:
-    """Bind a runtime-gap reason to one complete current-source branch."""
+    """Bind a runtime-gap reason to one complete current-source branch.
+
+    `read_cfr_form=False` keeps a caller on the corpus-path form only, as
+    before the conventional `42 CFR 457.622(c)(1)` reader existed.
+    """
 
     dash_pattern = (
         "[-\\u2010\\u2011\\u2012\\u2013\\u2014\\u2015\\u2212\\ufe58\\ufe63\\uff0d]"
@@ -13563,7 +13578,9 @@ def _reason_cites_exact_current_statute_branch(
     if canonical_pattern.search(reason):
         return True
 
-    cfr_identity = _cfr_current_section_identity(corpus_citation_path)
+    cfr_identity = (
+        _cfr_current_section_identity(corpus_citation_path) if read_cfr_form else None
+    )
     if cfr_identity is not None:
         # A federal regulation branch is conventionally cited as
         # `42 CFR 457.622(c)(1)`; it names exactly the branch that the literal

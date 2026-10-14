@@ -1198,3 +1198,41 @@ def test_cfr_dependency_parent_chapeau_must_not_compute():
     )
 
     assert ("a",) not in covered and issues
+
+
+@pytest.mark.parametrize(
+    ("citation", "path", "reason"),
+    [
+        # Round-2 corpus probe: the CFR reader had opened the session-law
+        # `section N of this act` reader to `section N of the Act` exceptions.
+        (
+            "us/regulation/42/447/522",
+            ("e",),
+            "42 CFR 447.522(e) depends on section 1927 of the Act, which is not "
+            "supplied.",
+        ),
+        (
+            "us/regulation/42/447/504",
+            ("d", "4"),
+            "42 CFR 447.504(d)(4) depends on section 1927 of the Act, which is not "
+            "supplied.",
+        ),
+    ],
+)
+def test_cfr_form_does_not_open_act_section_dependency_reader(citation, path, reason):
+    source = (
+        "(d) Excluded sales.\n\n(1) Other sales.\n\n(2) Other.\n\n(3) Other.\n\n"
+        "(4) Sales to insurers (except for rebates under section 1927 of the Act "
+        "and this subpart).\n\n"
+        "(e) Investigational drugs and other drugs are not subject to the rebate "
+        "requirements of section 1927 of the Act provided they do not meet the "
+        "definition of a covered outpatient drug.\n\n(f) Other."
+    )
+    source = "(a) Scope.\n\n(b) Other.\n\n(c) Other.\n\n" + source
+    output_root = sc._deferral_anchor_bases(citation)[-1]
+    covered, issues = _covered(
+        citation, source, f"{output_root}/{'/'.join(path)}", reason
+    )
+
+    assert path not in covered
+    assert issues
