@@ -268,3 +268,78 @@ def test_principal_output_and_clamp_obligations_name_their_targets():
         )
         in result.companion_test_obligations
     )
+
+
+def test_unbound_computation_is_one_finding_that_keeps_the_binding_hint():
+    """The tests finding for an unbound computation folds into formula-output."""
+
+    source = (
+        "(a) The credit is equal to 10 percent of the earned income of the taxpayer.\n"
+    )
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {CITATION}
+inputs:
+  - name: earned_income
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+rules:
+  - name: credit_rate
+    kind: parameter
+    dtype: Rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: 10 percent
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.1
+  - name: credit
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    versions:
+      - effective_from: '2026-01-01'
+        formula: earned_income * credit_rate
+"""
+    result = analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=CITATION,
+        test_cases=[
+            {
+                "name": "credit",
+                "period": "2026",
+                "input": {"earned_income": 1000},
+                "output": {"credit": 100},
+            }
+        ],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+    [formula_output] = [
+        issue
+        for issue in result.issues
+        if issue.startswith("[complete-source-unit:formula-output]")
+    ]
+    assert "Explicit source computation (a) formula clause 1" in formula_output
+    assert (
+        "Asserted principal formula(s) already execute this computation but are "
+        "excluded from source-bound evidence: `credit`." in formula_output
+    )
+    assert not any("do not demonstrate formula branch" in i for i in result.issues)

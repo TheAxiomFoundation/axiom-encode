@@ -962,7 +962,10 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    return dataclasses.asdict(result)
+    # Companion-case synthesis hints are not findings and postdate the baseline.
+    payload = dataclasses.asdict(result)
+    payload.pop("companion_test_obligations", None)
+    return payload
 
 
 @given(outline=constructed_outlines())

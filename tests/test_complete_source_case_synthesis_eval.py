@@ -113,6 +113,40 @@ def test_other_repairs_take_precedence_in_a_round(tmp_path):
     synthesize.assert_called_once()
 
 
+def test_synthesis_rounds_are_bounded(tmp_path):
+    rulespec_file = tmp_path / "artifact.yaml"
+    rulespec_file.write_text("initial\n")
+    test_file = tmp_path / "artifact.test.yaml"
+    metrics = SimpleNamespace(ci_issues=[BOUNDARY_ISSUE])
+    appended = []
+
+    def append(**_kwargs):
+        appended.append(f"auto_source_{len(appended)}")
+        test_file.write_text(yaml.safe_dump(appended))
+        return [appended[-1]]
+
+    with (
+        patch.object(evals_module, "evaluate_artifact", return_value=metrics) as ev,
+        patch.object(evals_module, "_apply_generated_eval_repairs", return_value=[]),
+        patch.object(
+            evals_module,
+            "_append_synthesized_complete_source_companion_cases",
+            side_effect=append,
+        ) as synthesize,
+    ):
+        evals_module._evaluate_generated_artifact_with_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us" / "us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            source_text="Source body",
+            local_corpus_release=object(),
+            require_complete_source_unit=True,
+        )
+
+    assert synthesize.call_count == evals_module._COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS
+    assert ev.call_count == synthesize.call_count + 1
+
+
 @pytest.fixture
 def staged(tmp_path: Path):
     rulespec_file = tmp_path / "statutes" / "7" / "9999.yaml"
