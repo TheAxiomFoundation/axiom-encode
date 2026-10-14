@@ -674,3 +674,11 @@ def test_hooks_fail_a_module_skipped_for_a_missing_engine(tmp_path):
         not in completed.stdout.split("short test summary")[-1]
     )
     assert "test_never_collected" not in outcomes
+
+
+def test_conftest_registers_the_real_engine_plugin(pytestconfig):
+    # tests/conftest.py registers tests/real_engine.py as a plugin (it cannot
+    # import the hooks: the shard split defines pytest_collection_modifyitems
+    # too). Without it the real_engine fixture is missing, so every engine test
+    # errors in the shards instead of running in the real-engine job.
+    assert pytestconfig.pluginmanager.is_registered(real_engine)

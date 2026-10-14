@@ -1,4 +1,4 @@
-"""The CI shards together run every test exactly once, or the gate job fails."""
+"""The CI shards together run every test they select exactly once, or the gate job fails."""
 
 from __future__ import annotations
 
@@ -338,7 +338,9 @@ def test_nests_a_pytest_run_when_asked(tmp_path):
     if os.environ.get("GENERATED_TEST_NESTS"):
         inner = tmp_path / "test_inner.py"
         inner.write_text("def test_inner():\\n    pass\\n")
-        arguments = ["-q", "-p", "no:cacheprovider", "-p", "tests.conftest", str(inner)]
+        arguments = [
+            "-q", "-o", "addopts=", "-p", "no:cacheprovider", "-p", "tests.conftest", str(inner)
+        ]
         assert pytest.main(arguments) == 0
 
 
@@ -449,11 +451,16 @@ def test_a_shard_whose_tests_fail_publishes_no_report(tmp_path):
 
 
 def test_a_test_that_stops_the_session_leaves_no_report(tmp_path):
-    # The shard's last kept test stops the session with exit status 0.
+    # The shard's last kept test stops the session with exit status 0. If it
+    # were not last, the tests after it would be missing from the count anyway
+    # and the test could not tell a count taken at start from one taken at end.
+    _, whole, _, _ = _run(tmp_path, "1/1")
+    assert list(whole)[-1] == "test_stops_the_session_when_asked"
+
     code, results, line, stderr = _run(tmp_path, "1/1", ask="GENERATED_TEST_EXITS")
 
     assert code == 0
-    assert "test_stops_the_session_when_asked" not in results
+    assert list(results) == list(whole)[:-1]
     assert line == ""
     assert "not publishing its report" in stderr
 
