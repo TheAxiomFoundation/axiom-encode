@@ -28,8 +28,10 @@ from scripts.replay_us_failure_bundles import (
     DEFAULT_FIXTURE_ROOT,
     FIXTURE_FILE,
     SNAPSHOT_FILE,
+    ReplayCase,
     SnapshotDeviations,
     UnsafeBundlePath,
+    _context_key,
     _read_inside,
     build_report,
     compare_reports,
@@ -37,6 +39,7 @@ from scripts.replay_us_failure_bundles import (
     extract_fixture,
     fixture_directories,
     format_comparison,
+    import_symbol_contents,
     load_bundle_cases,
     load_fixture,
     load_fixtures,
@@ -150,7 +153,13 @@ def test_fixtures_carry_provenance_and_stay_small():
             "workspace",
             "rulespec_ref",
         }
-        if "rulespec_ref" in provenance["context_origins"].values():
+        providers = {
+            relative
+            for key, relative in provenance["context_imports"].items()
+            if provenance["context_origins"][key] == "rulespec_ref"
+        }
+        assert set(provenance["provider_git_blob_sha1"]) == providers
+        if providers:
             assert re.fullmatch(r"[0-9a-f]{40}", provenance["rulespec_ref"])
         assert {"candidate.yaml", "source.txt", "issues.json"} <= set(
             provenance["files"]
@@ -533,6 +542,69 @@ def test_rulespec_root_fills_deferral_providers_missing_from_context(tmp_path):
     assert with_root.provenance["context_imports"]["us:statutes/26/32"] == (
         "providers/us/statutes/26/32.yaml"
     )
+    provider_bytes = (rulespec / "us/statutes/26/32.yaml").read_bytes()
+    assert with_root.provenance["provider_git_blob_sha1"] == {
+        "providers/us/statutes/26/32.yaml": hashlib.sha1(
+            b"blob %d\0" % len(provider_bytes) + provider_bytes
+        ).hexdigest()
+    }
+
+    (rulespec / "us/statutes/26/32.yaml").unlink()
+    (rulespec / "us/statutes/26/32.yaml").symlink_to(tmp_path / "elsewhere.yaml")
+    (tmp_path / "elsewhere.yaml").write_bytes(provider_bytes)
+    with pytest.raises(UnsafeBundlePath, match="symlink"):
+        extract_fixture(module, tmp_path / "c", rulespec_root=rulespec)
+
+
+@pytest.mark.parametrize(
+    ("target", "key"),
+    (
+        ("us:statutes/26/32", "us:statutes/26/32"),
+        ("us:statutes/26/32.yaml", "us:statutes/26/32"),
+        ("us-az:policies/des/faa5/x", "us-az:policies/des/faa5/x"),
+        ("statutes/26/32", "us-ok:statutes/26/32"),
+        ("/statutes/26/32/", "us-ok:statutes/26/32"),
+        ("us:/statutes/26/32", None),
+        ("us:statutes/26/32/", None),
+        ("us:statutes//26/32", None),
+        ("us:statutes/../26/32", None),
+        ("us:sources/26/32", None),
+        ("US:statutes/26/32", None),
+    ),
+)
+def test_context_keys_follow_the_ci_resolver(target, key):
+    assert _context_key(target, "us-ok") == key
+
+
+def test_unprefixed_imports_without_a_policy_prefix_count_as_unresolved():
+    case = ReplayCase(
+        case_id="x",
+        run_id="1",
+        citation="us/statute/26/2",
+        module_path="statutes/26/2.yaml",
+        candidate=IMPORTING_CANDIDATE.replace(
+            "us:statutes/26/1#tax_rate", "statutes/26/1#tax_rate"
+        ),
+        tests=None,
+        source="The tax is 15 percent of income.",
+        source_metadata=None,
+        policy_prefix=None,
+    )
+
+    assert import_symbol_contents(case) == ([], ["statutes/26/1#tax_rate"])
+
+
+def test_symlinked_bundle_roots_are_load_errors(tmp_path):
+    real = _synthetic_bundle(tmp_path / "real")
+    linked = tmp_path / "bundles" / "777"
+    linked.mkdir(parents=True)
+    (linked / "x").symlink_to(real)
+
+    cases, errors = load_bundle_cases(tmp_path / "bundles")
+
+    assert cases == []
+    assert len(errors) == 1 and errors[0]["bundle"] == "777"
+    assert "symlinked bundle root" in errors[0]["error"]
 
 
 def test_malformed_bundles_are_reported_not_fatal(tmp_path):

@@ -37,6 +37,7 @@
     "us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility": "workspace",
     "us-az:policies/des/faa6/utility-allowance-current-amount": "workspace"
   },
+  "provider_git_blob_sha1": {},
   "files": {
     "candidate.test.yaml": "f4dc838d083277c6d194376c40a03c1865951e076707cf79d0336e085ab806ca",
     "candidate.yaml": "fad3d824f24fe1b246b1056ecaaae1cfbe38fd6f948555c6a2f73b9911cd0629",

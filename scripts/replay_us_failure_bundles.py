@@ -71,7 +71,7 @@ RULE_PATTERN = re.compile(r"\[([a-z][a-z0-9-]*:[a-z0-9-]+)\]")
 DEFERRAL_TARGET_PATTERN = re.compile(
     r"[a-z]{2}(?:-[a-z0-9-]+)?:[A-Za-z0-9_./-]+#[A-Za-z_][A-Za-z0-9_]*"
 )
-PREFIX_PATTERN = re.compile(r"[a-z]{2}(?:-[a-z0-9-]+)?")
+PREFIX_PATTERN = re.compile(r"[a-z]{2}(?:-[a-z0-9]+)*")
 RUN_ID_PATTERN = re.compile(r"[0-9]{1,20}")
 SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 CONTEXT_WORKSPACE = "workspace"
@@ -174,6 +174,10 @@ def _sha256(data: bytes | str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _git_blob_sha1(data: bytes) -> str:
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
 def _declared_citations(content: str) -> list[str]:
     try:
         payload = yaml.safe_load(content)
@@ -264,19 +268,32 @@ def _context_key(target: str, policy_prefix: str | None) -> str | None:
 
     target = target.split("#", 1)[0].strip().strip("\"'")
     if ":" not in target:
+        # Unprefixed imports resolve inside the active checkout.
         if not policy_prefix:
             return None
-        target = f"{policy_prefix}:{target}"
-    prefix, _, path = target.partition(":")
-    parts = PurePosixPath(path.strip("/")).parts
+        prefix, path = policy_prefix, target.strip().strip("/")
+    else:
+        # Prefixed targets follow ``_parse_rulespec_target``.
+        prefix, _, path = target.partition(":")
+        if path != path.strip() or path.startswith("/") or path.endswith("/"):
+            return None
+    if path.endswith(".yaml"):
+        path = path[: -len(".yaml")]
+    parts = path.split("/")
     if (
         not PREFIX_PATTERN.fullmatch(prefix)
-        or not parts
+        or not path
         or any(part in {"", ".", ".."} for part in parts)
         or parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
     ):
         return None
-    return f"{prefix}:{'/'.join(parts)}"
+    return f"{prefix}:{path}"
+
+
+def _lacks_policy_prefix(target: str, policy_prefix: str | None) -> bool:
+    """An unprefixed target the replay cannot place without a policy prefix."""
+
+    return not policy_prefix and ":" not in target.split("#", 1)[0]
 
 
 def referenced_context_keys(content: str, policy_prefix: str | None) -> list[str]:
@@ -303,6 +320,9 @@ def import_symbol_contents(case: ReplayCase) -> tuple[list[tuple[str, str]], lis
         target, separator, symbol = item.rpartition("#")
         symbol = symbol.strip()
         if not separator or not symbol:
+            continue
+        if _lacks_policy_prefix(target, case.policy_prefix):
+            unresolved.append(item)
             continue
         key = _context_key(target, case.policy_prefix)
         if key is None:
@@ -704,10 +724,11 @@ def _bundle_context_bytes(
         if rulespec_root is None:
             continue
         prefix, _, path = key.partition(":")
-        try:
-            data = _read_inside(rulespec_root, f"{prefix}/{path}.yaml")
-        except UnsafeBundlePath:
+        provider = rulespec_root / prefix / f"{path}.yaml"
+        if not provider.exists() and not provider.is_symlink():
             continue
+        # Raises on symlinks or non-files instead of silently skipping them.
+        data = _read_inside(rulespec_root, f"{prefix}/{path}.yaml")
         found[key] = (f"providers/{prefix}/{path}.yaml", data)
     return found, policy_prefix
 
@@ -756,7 +777,8 @@ def bundle_case(
 def bundle_paths(directory: Path) -> list[Path]:
     paths = []
     for child in sorted(directory.iterdir()):
-        if child.is_symlink() or not child.is_dir() or (child / "x").is_symlink():
+        # A symlinked ``x`` is kept so that discovery reports it as a load error.
+        if child.is_symlink() or not child.is_dir():
             continue
         if (child / "x" / "metadata.json").is_file() or (
             child / "metadata.json"
@@ -905,6 +927,13 @@ def extract_fixture(
         "recorded_rules": rule_counts(module_issues, classify=recorded_issue_rule),
         "context_imports": context_imports,
         "context_origins": context_origins,
+        # Git blob ids let a reviewer check provider bytes against rulespec_ref
+        # (``gh api .../contents/<path>?ref=<rulespec_ref>`` returns ``sha``).
+        "provider_git_blob_sha1": {
+            relative: _git_blob_sha1(files[relative])
+            for key, relative in context_imports.items()
+            if context_origins[key] == ORIGIN_RULESPEC_REF
+        },
         "files": {path: _sha256(data) for path, data in sorted(files.items())},
     }
     for relative, data in files.items():
@@ -1235,14 +1264,29 @@ def _cmd_extract(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    rulespec_root = Path(args.rulespec_root) if args.rulespec_root else None
+    if rulespec_root is not None and (
+        rulespec_root.is_symlink() or not rulespec_root.is_dir()
+    ):
+        print(
+            f"--rulespec-root is not a real directory: {rulespec_root}", file=sys.stderr
+        )
+        return 1
     target = extract_fixture(
-        modules[0],
-        Path(args.fixtures),
-        name=args.name,
-        rulespec_root=Path(args.rulespec_root) if args.rulespec_root else None,
+        modules[0], Path(args.fixtures), name=args.name, rulespec_root=rulespec_root
     )
     size = sum(p.stat().st_size for p in target.rglob("*") if p.is_file())
     print(f"wrote {target} ({size} bytes)")
+    case = load_fixture(target)
+    unresolved = import_symbol_contents(case)[1] + resolved_deferral_outputs(case)[1]
+    for item in unresolved:
+        print(f"WARNING unresolved import or deferral provider: {item}")
+    if unresolved:
+        print(
+            "delete the fixture and rerun extract with --rulespec-root <RuleSpec "
+            "checkout at the run's rulespec_ref>",
+            file=sys.stderr,
+        )
     return 0
 
 

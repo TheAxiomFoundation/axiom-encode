@@ -34,6 +34,7 @@
     "us:statutes/26/911/a": "workspace",
     "us:statutes/26/911/d/6": "workspace"
   },
+  "provider_git_blob_sha1": {},
   "files": {
     "candidate.test.yaml": "fb1f5cd60cfaa6c0bf00c627d77ad5ef499aa3ca5465157b7b42fcf5f365b3fb",
     "candidate.yaml": "9e6441dc4db3713c7a3ed44b86f6420b62ec8ae90d7bced28859970d4cd7293c",

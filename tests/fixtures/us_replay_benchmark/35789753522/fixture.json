@@ -31,6 +31,7 @@
   "context_origins": {
     "us:statutes/42/416/l": "workspace"
   },
+  "provider_git_blob_sha1": {},
   "files": {
     "candidate.test.yaml": "4eda4652c5fa55797cf2d800b6dd01f3a22c412a23bb3404814178db59c83e56",
     "candidate.yaml": "4e77e34cfeb9cd6a3c0c6edf555b1b54e0962d296b40a9a49a37a1983201d679",
