@@ -2652,6 +2652,7 @@ class _CiHarness:
             "encoder_version_at_pin",
             "verify_ambient_encoder",
             "committed_checkout",
+            "_ci_dependency_refs",
             "resolve_commit",
             "resolve_github_repository",
             "base_branch_name",
@@ -2745,6 +2746,10 @@ class _CiHarness:
         # The harness validates the source path itself.
         self._record("committed_checkout", source, head)
         yield source
+
+    def _ci_dependency_refs(self, checkout, source):
+        # The checkout stand-in is the source itself, whose refs stay.
+        self._record("_ci_dependency_refs", checkout, source)
 
     def resolve_github_repository(self, source, base_ref, explicit):
         self._record("resolve_github_repository", source, base_ref, explicit)

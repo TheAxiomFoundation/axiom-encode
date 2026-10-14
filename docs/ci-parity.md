@@ -162,9 +162,19 @@ Python. The scripts cover:
   another dependency. So while the composer builds, the encoder, engine and
   corpus entries are disposable copies too, byte for byte what a fresh
   checkout at the pin writes. Git objects are shared read-only through
-  alternates, and HEAD is detached at the pin. Only the paths tracked at the
-  pin are placed, cloned copy-on-write (APFS `clonefile`, Linux `FICLONE`,
-  else copied) from the verified checkout. A file whose committed attributes
+  alternates, and HEAD is detached at the pin. As in CI's checkouts, there
+  are no tags or local branches, only the default branch's remote-tracking
+  ref, so `git describe --tags` and the version schemes built on it
+  (setuptools-scm, hatch-vcs) see what they see on the runner; the
+  `rulespec-us` entry is reduced the same way, while the composer keeps its
+  tags, since "Checkout axiom-compose" fetches with `fetch-depth: 0`. Only
+  the paths tracked at the pin are placed, and paths this filesystem would
+  merge (case or Unicode normalization) fail resolution. A path that is a
+  regular file in the verified checkout is cloned copy-on-write from it
+  (APFS `clonefile`, Linux `FICLONE`, else copied); a link, directory or
+  missing path there (under a recorded ref mismatch) is written from the
+  commit instead, so nothing in the copy leads back into the developer's
+  files. A file whose committed attributes
   make a checkout convert it (line endings, filters, `ident`, encodings) is
   written by `git checkout-index`, because Git calls the developer's file
   clean even when its bytes differ. Every other file's raw bytes are hashed
@@ -197,12 +207,13 @@ Python. The scripts cover:
   user and system configuration directories point at an empty directory, as
   a fresh runner has none, and ambient `UV_*`, `PIP_*`, `PYTHON*`,
   `AXIOM_*`, `GITHUB_*` and `RUNNER_*` values and `CI` are removed. The
-  commands see what the step sees on a runner: `CI`, `GITHUB_ACTIONS` and the
-  simulated run's `GITHUB_*` values (`GITHUB_WORKSPACE` is the temporary
-  checkout), the run's `RUNNER_TEMP`, `AXIOM_DEPENDENCY_ROOT` and
+  commands see what the step sees on a hosted ubuntu-latest runner: GitHub's
+  default variables that `ci` can derive (see "Runner variables" under
+  "Known differences"), the run's `RUNNER_TEMP`, `AXIOM_DEPENDENCY_ROOT` and
   `AXIOM_DEPENDENCY_STAGE` for its dependency root, and `AXIOM_COMPOSE_REF`.
-  So committed configuration that names `${GITHUB_WORKSPACE}` or
-  `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner. uv still reads `/etc/uv/uv.toml` when no system configuration
+  So committed configuration that names `${GITHUB_WORKSPACE}`,
+  `${RUNNER_OS}` or `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner.
+  Repository pytest gets the same runner variables. uv still reads `/etc/uv/uv.toml` when no system configuration
   is found there, and from a directory with no uv configuration of its own it
   reads a `uv.toml` or `[tool.uv]` table above it. So that file, or
   either of those in any directory above `ci`'s temporary checkout or
@@ -586,6 +597,27 @@ named:
   setuptools `.egg-info`) stay in that disposable checkout for later steps;
   `ci` builds in a disposable copy and removes it afterwards, so later steps see
   the link to the developer's checkout instead.
+- **Runner variables.** The composer build and repository pytest get the
+  variables a hosted ubuntu-latest runner gives every step that `ci` can
+  derive: `CI`, `GITHUB_ACTIONS`, `GITHUB_SERVER_URL`, `GITHUB_API_URL`,
+  `GITHUB_GRAPHQL_URL`, `GITHUB_JOB` (`validate`), `GITHUB_EVENT_NAME`,
+  `GITHUB_REF`, `GITHUB_REF_NAME`, `GITHUB_REF_TYPE`, `GITHUB_BASE_REF`,
+  `GITHUB_REPOSITORY`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_SHA`,
+  `GITHUB_WORKSPACE`, `RUNNER_OS` (`Linux`), `RUNNER_ARCH` (`X64`),
+  `RUNNER_ENVIRONMENT` (`github-hosted`) and `RUNNER_TEMP`. Values tied to
+  one run are not set: `GITHUB_RUN_ID`, `GITHUB_RUN_NUMBER`,
+  `GITHUB_RUN_ATTEMPT`, the actor and id values, `GITHUB_WORKFLOW` and its
+  ref and sha, the runner's files (`GITHUB_ENV`, `GITHUB_PATH`,
+  `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, `GITHUB_EVENT_PATH`),
+  `GITHUB_HEAD_REF` (a branch name the head commit does not carry),
+  `RUNNER_NAME`, `RUNNER_DEBUG` and `RUNNER_TOOL_CACHE`. Committed content
+  that names one of them resolves differently than in CI.
+- **The composer build's platform.** uv resolves and installs the composer's
+  requirements for the host: environment markers such as
+  `sys_platform == "linux"` and the wheels it picks follow this machine's
+  operating system and architecture, where CI's follow Linux x86-64. A
+  composer that needs a Linux-only package, or a wheel with no build for
+  this host, can pass in CI and fail here, or the reverse.
 - **The composer build's home directory.** The composer build keeps the
   developer's `HOME`, which `--offline` needs for uv's default cache. So
   uv's managed Pythons (`uv python install 3.14` installs there, where CI's
