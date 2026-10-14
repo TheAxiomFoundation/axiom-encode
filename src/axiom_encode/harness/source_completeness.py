@@ -28953,7 +28953,9 @@ _ADMINISTRATIVE_MAIN_CLAUSE = re.compile(
     r"(?:also\s+|then\s+|promptly\s+|first\s+)?(?:attempt\s+to\s+)?"
     rf"(?:{_ADMINISTRATIVE_ACTION})"
     r"|(?:[\w'’-]+\s+){0,10}?(?:is|are)\s+(?:also\s+)?responsible\s+for\s+"
-    r"(?:obtaining|providing|submitting|reporting)\b"
+    r"(?:obtaining|providing|submitting|reporting)\s+(?:the\s+|any\s+|all\s+)?"
+    r"(?:needed\s+|required\s+)?(?:information|verification|documentation|"
+    r"proof|cooperation|reports?)\b"
     r"|(?:the\s+|this\s+|such\s+|each\s+)?(?:written\s+|adequate\s+)?notices?\s+"
     r"(?:shall|must|will|should)\s+(?:also\s+)?"
     r"(?:explain|advise|indicate|include|specify|contain|state|inform|list|tell)\b"
@@ -28996,6 +28998,10 @@ _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"|\bin\s+lieu\s+of\b|\bpenalt(?:y|ies)\b"
     r"|\b(?:shall|must|may|will)\s+not\s+use\b|\ballowances?\b|\bdeductions?\b"
     r"|\bcoverage\b|\breasonable\s+opportunity\s+period\b|\brecalculat|\brevert"
+    r"|\bredetermin|\bno\s+longer\s+(?:subject|required|eligible)\b"
+    r"|\bpay\b|\bmake\s+payments?\b|\bceas(?:e|es|ed)\b|\bdisburs\w*"
+    r"|\bvoid(?:ed)?\b|\bnullif\w*|\bwithh(?:old|eld|olding)\b"
+    r"|\b\d+[- ](?:calendar[- ]|business[- ])?(?:days?[- ])?period\b"
     r"|[$%€£]|\bpercent\b",
     flags=re.IGNORECASE,
 )

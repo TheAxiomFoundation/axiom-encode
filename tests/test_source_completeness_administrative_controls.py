@@ -233,6 +233,35 @@ OPERATIVE = (
     "If the individual, or payer institution, verifies by writing the "
     "information on a separate document, the information is not tax "
     "information.",
+    # Review round 2 (federal corpus re-probe): an operative tail after the
+    # administrative verb, or a responsibility for services, not information.
+    "If funds revert to a State, the State is responsible for providing "
+    "low-income home energy assistance program services to the service "
+    "population of the tribe.",
+    "(ii) Except as provided in paragraph (g) of this section, notify the payee "
+    "and backup withhold on reportable payments made to the account or "
+    "accounts under the rules of paragraphs (d), (e), and (f) of this section.",
+    "If there is a determination by the Secretary that the social security "
+    "number provided to an eligible institution by a student is incorrect, and "
+    "a loan has been guaranteed for such student, the institution shall notify "
+    "and instruct the lender and guaranty agency to cease further disbursements "
+    "of the loan, but such guaranty shall not be voided.",
+    "If the beneficiary does not respond to this request for information, the "
+    "State must send the notice of noncompliance to the beneficiary and provide "
+    "the associated 30-calendar period for the beneficiary to make a "
+    "satisfactory showing.",
+    "When a party makes a request for payment, the Part D plan sponsor must "
+    "notify the enrollee of its determination and make payment (when "
+    "applicable) no later than 14 calendar days after receipt of the request.",
+    "If any tax paid is refunded in whole or in part, the taxpayer shall notify "
+    "the Secretary, who shall redetermine the amount of the tax for the year or "
+    "years affected.",
+    "(3) The agency must inform beneficiaries and providers of the "
+    "beneficiaries aggregate limit and notify beneficiaries and providers when "
+    "a beneficiary has incurred out-of-pocket expenses up to the aggregate "
+    "family limit and individual family members are no longer subject to cost "
+    "sharing for the remainder of the family's current monthly or quarterly "
+    "cap period.",
 )
 
 
