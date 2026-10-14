@@ -77,11 +77,12 @@ jobs:
   # publishes its report only when its pytest run exits 0 having run every
   # test it kept, so a failed, cancelled or never-started shard leaves its
   # report empty. `always()` keeps such a shard from turning this job into a
-  # skipped (and so passing) check.
+  # skipped (and so passing) check. It also requires the locked-builds job
+  # below, so a lock whose `build` group misses a backend cannot merge.
   test-gate:
     name: test (3.13)
     if: always()
-    needs: test
+    needs: [test, locked-builds]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -89,6 +90,7 @@ jobs:
       - name: Check every shard passed and the shards ran every selected test
         env:
           SHARDS_RESULT: ${{ needs.test.result }}
+          LOCKED_BUILDS_RESULT: ${{ needs.locked-builds.result }}
           SHARD_1: ${{ needs.test.outputs.shard_1 }}
           SHARD_2: ${{ needs.test.outputs.shard_2 }}
           SHARD_3: ${{ needs.test.outputs.shard_3 }}
@@ -100,6 +102,10 @@ jobs:
         run: |
           if [ "$SHARDS_RESULT" != "success" ]; then
             echo "error: the test shards finished as '$SHARDS_RESULT'" >&2
+            exit 1
+          fi
+          if [ "$LOCKED_BUILDS_RESULT" != "success" ]; then
+            echo "error: the locked builds finished as '$LOCKED_BUILDS_RESULT'" >&2
             exit 1
           fi
           python3 -I tests/ci_shards.py check \
@@ -178,6 +184,39 @@ jobs:
           AXIOM_REQUIRE_REAL_ENGINE: "1"
           AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
         run: .venv/bin/pytest tests/ -m real_engine
+
+  # The verification staging steps build the locked sdists that have no wheel
+  # for the interpreter, the axiom-oracles git dependency and the project with
+  # `uv pip install --build-constraints`, using the hash-pinned export of
+  # uv.lock's `build` group. uv verifies each build dependency that export
+  # lists, but builds one it omits unpinned. This job builds every one of
+  # those sources with `uv build --require-hashes`, which fails on an omitted
+  # or unhashed build dependency, on 3.13 (bulk-encode, golden-regeneration,
+  # targeted-signed-reencode) and 3.14 (signed-apply-reusable.yml, which adds
+  # pyroaring 1.0.3 and takes the group once its AXIOM_ENCODE_REF has it).
+  locked-builds:
+    name: locked builds (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }} --extra dev
+
+      - name: Build every locked source against the locked build backends
+        run: .venv/bin/python scripts/check_locked_builds.py
 
   lint:
     runs-on: ubuntu-latest

@@ -25,8 +25,8 @@ built the environment.
 
 Out of scope:
 - what ``uv pip install --target`` stages for the verification and
-  axiom-compose runtimes (the verification tree is locked by
-  ``test_verification_site_packages_lock.py`` once #1712 lands);
+  axiom-compose runtimes, which ``test_verification_site_packages_lock.py``
+  holds to their locks;
 - ``uv version --bump``, which re-locks without ``--frozen`` (#1730);
 - programs named by a variable, such as ``"$PYBIN" -m pip``.
 """
@@ -88,6 +88,18 @@ LOCK_OVERRIDES = frozenset(
         "--with-executables-from",
         "--with-requirements",
     }
+)
+# The one --build-constraints a workflow may pass: the hash-pinned export of
+# uv.lock's `build` group, which the same step writes first (the staging steps
+# that tests/test_verification_site_packages_lock.py pins). It holds builds to
+# the locked backends rather than overriding the lock.
+LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT = (
+    "build_constraints=$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+)
+LOCKED_BUILD_CONSTRAINTS_EXPORT = (
+    *("uv", "export", "--no-config", "--locked", "--only-group", "build"),
+    *("--no-emit-project", "--format", "requirements-txt"),
+    *("--output-file", "$build_constraints"),
 )
 # The exact run: of the step every test job dedicates to the runtime check.
 RUNTIME_CHECK_RUN = (
@@ -732,12 +744,92 @@ def test_every_setup_uv_step_pins_the_same_exact_uv_release():
     assert len(set(versions.values())) == 1, versions
 
 
+def _takes_the_locked_build_constraints(
+    invocation: workflow_shell.UvInvocation, step: tuple[Command, ...]
+) -> bool:
+    """Whether ``invocation``'s one lock override is the locked build export.
+
+    That is: a `uv pip install` whose only --build-constraints is spelled out
+    as `--build-constraints "$build_constraints"`, in a step that assigns
+    `build_constraints` once, to the staging path, and writes it with the
+    `build` group export before the install. Nothing else in the step may
+    mention it, by variable or by literal path, and neither the export nor an
+    install that reads it may redirect, so no redirect, copy or second
+    assignment can swap or truncate the file.
+    """
+    words = invocation.command.words
+    if invocation.subcommand != "pip install":
+        return False
+    if invocation.options.count("--build-constraints") != 1:
+        return False
+    if words.count("--build-constraints") != 1:
+        return False  # spelled -b or --build-constraints=FILE
+    index = words.index("--build-constraints")
+    if words[index + 1 : index + 2] != ("$build_constraints",):
+        return False
+    positions = {id(command): position for position, command in enumerate(step)}
+    install = positions[id(invocation.command)]
+    assignments = [
+        position
+        for position, command in enumerate(step)
+        if any(
+            assignment.partition("=")[0] == "build_constraints"
+            for assignment in command.assignments
+        )
+    ]
+    exports = [
+        position
+        for position, command in enumerate(step)
+        if command.words == LOCKED_BUILD_CONSTRAINTS_EXPORT
+    ]
+    if len(assignments) != 1 or len(exports) != 1:
+        return False
+    [assigned] = assignments
+    if step[assigned].words or step[assigned].assignments != (
+        LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT,
+    ):
+        return False
+    if not assigned < exports[0] < install:
+        return False
+    literal = LOCKED_BUILD_CONSTRAINTS_ASSIGNMENT.rpartition("/")[2]
+    for command in step:
+        if "build_constraints" not in command.line and literal not in command.line:
+            continue
+        if command is step[assigned]:
+            continue
+        # `> "$RUNNER_TEMP/axiom-verification-build-constraints.txt"` on any
+        # command, this one included, would empty the file before uv reads it.
+        if re.search(r"[<>]", command.line) or literal in command.line:
+            return False
+        if command.words == LOCKED_BUILD_CONSTRAINTS_EXPORT:
+            continue
+        uv = workflow_shell.uv_invocation(command, UV_OPTIONS)
+        if uv is None or uv.subcommand != "pip install":
+            return False
+        if command.line.count("build_constraints") != 1:
+            return False
+        if command.words.count("--build-constraints") != 1:
+            return False
+        at = command.words.index("--build-constraints")
+        if command.words[at + 1 : at + 2] != ("$build_constraints",):
+            return False
+    return True
+
+
 def test_every_uv_sync_run_export_and_lock_stays_on_the_lock():
+    step_commands: dict[str, tuple[Command, ...]] = {}
+    for name, job, index, step in _steps():
+        step_commands[f"{name}:{job}[{index}]"] = _script_commands(step.get("run", ""))
     offenders = []
     for where, invocation in _uv_invocations():
         options = set(invocation.options)
         text = f"{where} {invocation.command.line}"
-        if options & LOCK_OVERRIDES:
+        overrides = options & LOCK_OVERRIDES
+        if overrides == {"--build-constraints"} and (
+            _takes_the_locked_build_constraints(invocation, step_commands[where])
+        ):
+            overrides = set()
+        if overrides:
             offenders.append(text)
         elif invocation.subcommand in {"sync", "run", "export"}:
             if not options & {"--locked", "--frozen"}:
@@ -747,6 +839,140 @@ def test_every_uv_sync_run_export_and_lock_stays_on_the_lock():
             if not options & {"--check", "--dry-run", "--offline"}:
                 offenders.append(text)
     assert offenders == []
+
+
+LOCKED_BUILD_STEP = """\
+build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"
+uv export --no-config --locked --only-group build --no-emit-project \\
+  --format requirements-txt --output-file "$build_constraints"
+uv pip install --no-config --python .venv/bin/python --target "$site_packages" \\
+  --no-cache --build-constraints "$build_constraints" --no-deps .
+"""
+_INSTALL = (
+    'uv pip install --no-config --python .venv/bin/python --target "$site_packages"'
+)
+_EXPORT = (
+    "uv export --no-config --locked --only-group build --no-emit-project"
+    ' --format requirements-txt --output-file "$build_constraints"'
+)
+
+
+@pytest.mark.parametrize(
+    "script",
+    [
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '"$build_constraints" --no-deps', '"$o" --no-deps'
+            ),
+            id="another-file",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--only-group build", "--only-group dev"),
+            id="another-group",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--no-config --locked", "--no-config --frozen"),
+            id="unchecked-export",
+        ),
+        pytest.param(
+            'build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+            f'{_INSTALL} --build-constraints "$build_constraints" --no-deps .\n'
+            f"{_EXPORT}\n",
+            id="export-after-install",
+        ),
+        pytest.param(
+            'build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+            f'{_INSTALL} --build-constraints "$build_constraints" --no-deps .\n',
+            id="no-export",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace("--build-constraints", "-b"),
+            id="short-option",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '--build-constraints "$build_constraints"',
+                '--build-constraints="$build_constraints"',
+            ),
+            id="attached-value",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                f"{_INSTALL}",
+                'echo "hatchling" > "$build_constraints"\n' + _INSTALL,
+            ),
+            id="overwritten",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                f"{_INSTALL}",
+                'build_constraints="$RUNNER_TEMP/other.txt"\n' + _INSTALL,
+            ),
+            id="reassigned",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '"$RUNNER_TEMP/axiom-verification-build-constraints.txt"',
+                '"$GITHUB_WORKSPACE/build-constraints.txt"',
+            ),
+            id="checked-in-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP
+            + 'uv pip compile --build-constraints "$build_constraints" r.in\n',
+            id="not-an-install",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                "--no-deps .",
+                '--no-deps . > "$RUNNER_TEMP/axiom-verification-build-constraints.txt"',
+            ),
+            id="install-truncates-the-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                _INSTALL,
+                ': > "$RUNNER_TEMP/axiom-verification-build-constraints.txt"\n'
+                + _INSTALL,
+            ),
+            id="truncated-by-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                _INSTALL,
+                "cp /tmp/hatchling.txt "
+                "$RUNNER_TEMP/axiom-verification-build-constraints.txt\n" + _INSTALL,
+            ),
+            id="copied-over-by-literal-path",
+        ),
+        pytest.param(
+            LOCKED_BUILD_STEP.replace(
+                '--output-file "$build_constraints"',
+                '--output-file "$build_constraints" > "$build_constraints"',
+            ),
+            id="export-redirects",
+        ),
+    ],
+)
+def test_only_the_locked_build_export_may_constrain_builds(monkeypatch, script):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append({"run": script})
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_every_uv_sync_run_export_and_lock_stays_on_the_lock()
+
+
+def test_the_locked_build_export_constrains_builds(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append(
+        {"run": LOCKED_BUILD_STEP}
+    )
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    test_every_uv_sync_run_export_and_lock_stays_on_the_lock()
 
 
 def test_no_workflow_runs_an_unpinned_uv_tool_or_edits_the_dependencies():

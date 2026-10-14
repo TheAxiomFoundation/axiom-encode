@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2187"
+version = "0.2.2188"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -68,6 +68,31 @@ all = [
     "axiom-encode[api,dev,observability]",
 ]
 
+# Neither group is installed by `uv sync`; workflows export them from uv.lock.
+[dependency-groups]
+# The build backends of every build that a locked install performs: hatchling
+# (this project, editable via editables, and the axiom-oracles git dependency)
+# and the backends of the pinned sdists with no wheel for the interpreter:
+# pyiceberg 0.10.0 (poetry-core, cython, setuptools, wheel) and, on 3.14,
+# pyroaring 1.0.3 (setuptools, cython via setup_requires). uv.lock pins them
+# with hashes. The verification staging steps pass the locked export to
+# `uv pip install --build-constraints` (signed-apply-reusable.yml once its
+# pinned AXIOM_ENCODE_REF has this group). [tool.uv] below holds the same
+# versions for `uv sync`, which takes no constraints file.
+# scripts/check_locked_builds.py proves in CI that this set is complete.
+build = [
+    "cython",
+    "editables",
+    "hatchling",
+    "poetry-core",
+    "setuptools",
+    "wheel",
+]
+# What provision-selftest.yml stages beside its hostile startup-hook fixtures.
+provision-selftest = [
+    "pyyaml",
+]
+
 [project.scripts]
 # entrypoint.main dispatches source-staleness and core candidate export commands;
 # all other invocations delegate to axiom_encode.cli:main unchanged.
@@ -90,6 +115,27 @@ include = [
 
 [tool.hatch.build]
 sources = ["src"]
+
+[tool.uv]
+# Exact versions of the `build` group's locked closure. uv records them in
+# uv.lock (`[manifest] build-constraints`), so `uv sync --locked` and `uv lock
+# --check` fail if they drift from this list. They apply to every build that
+# `uv sync`, `uv lock` and, from this directory, `uv pip install` run.
+# Versions only: hashes come from the locked `build` group export.
+# tests/test_build_dependency_pins.py keeps the two equal.
+build-constraint-dependencies = [
+    "cython==3.3.0",
+    "editables==0.6",
+    "hatchling==1.32.4",
+    "packaging==25.0",
+    "pathspec==1.1.1",
+    "pluggy==1.6.0",
+    "poetry-core==2.5.0",
+    "setuptools==84.0.0",
+    "tomlkit==0.15.1",
+    "trove-classifiers==2026.9.21.13",
+    "wheel==0.48.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
