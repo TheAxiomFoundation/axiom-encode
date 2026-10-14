@@ -1,4 +1,5 @@
 """Companion batches share routing, never resolution state between modules."""
+
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +17,9 @@ def companion_command(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "_resolve_explicit_existing_directory", lambda p, **kw: p)
     monkeypatch.setattr(cli, "canonical_rulespec_root_identity", lambda p: "us")
     monkeypatch.setattr(cli, "_discover_rulespec_test_files", lambda paths, **kw: paths)
-    monkeypatch.setattr(cli, "_canonical_validation_checkout_root", lambda p: root.parent)
+    monkeypatch.setattr(
+        cli, "_canonical_validation_checkout_root", lambda p: root.parent
+    )
     monkeypatch.setattr(cli, "find_policy_repo_root", lambda p: root)
     monkeypatch.setattr(cli, "_resolve_optional_axiom_compose_path", lambda p: None)
     monkeypatch.setattr(cli, "_rulespec_dependency_roots_from_args", lambda a: ())
