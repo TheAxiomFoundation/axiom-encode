@@ -7,13 +7,17 @@ import argparse
 import copy
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from axiom_encode.corpus_release import VerifiedCorpusReleaseObject
 
 SCHEMA = "axiom-encode/signed-encoding-queue/v1"
 ACTIVATION_CHANGED_FILES = (
@@ -296,6 +300,109 @@ def _json_sha256(payload: object) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _manual_source_paths(corpus_root: Path, jurisdiction: str) -> list[Path]:
+    """The provisions files a corpus checkout holds in one state's manual directory.
+
+    A checkout that tracks its corpus bytes lists the directory. A checkout
+    that keeps them in lock files (``.axiom/corpus-locks/``) also lists every
+    file its locks pin there, so a scope not yet fetched counts as it would
+    once fetched, and a file the release omits fails the build as it does in
+    a pre-switch checkout.
+    """
+
+    from axiom_encode.corpus_materialize import (
+        corpus_uses_lock_files,
+        locked_directory_listing,
+    )
+
+    directory = corpus_root / "data/corpus/provisions" / jurisdiction / "manual"
+    if not corpus_uses_lock_files(corpus_root):
+        return sorted(directory.glob("*.jsonl"))
+    locked = locked_directory_listing(corpus_root, "provisions", jurisdiction, "manual")
+    return sorted(
+        {*directory.glob("*.jsonl"), *(corpus_root / path for path in locked)}
+    )
+
+
+def _place_release_sources(
+    corpus_root: Path,
+    release: VerifiedCorpusReleaseObject,
+    source_paths: list[Path],
+) -> None:
+    """Place a lock-file checkout's queue sources from the signed release's bytes.
+
+    Each file comes from the first source whose bytes hash to the release's
+    sha256 and byte count (``axiom_encode.corpus_materialize``), and only
+    where the checkout's own lock pins those bytes. Any source that is not in
+    place afterwards fails the build before a byte is hashed or read.
+    """
+
+    from axiom_encode.corpus_materialize import (
+        NO_FETCH_ENV,
+        CorpusMaterializationError,
+        destination_state,
+        fetch_disabled,
+        materialize_release_artifacts,
+        release_sources,
+    )
+
+    artifacts = {artifact.path: artifact for artifact in release.artifacts}
+    by_path = {}
+    for source_path in source_paths:
+        relative = source_path.relative_to(corpus_root).as_posix()
+        if relative not in artifacts:
+            raise ValueError(f"signed release omits queue source artifact: {relative}")
+        by_path[relative] = artifacts[relative]
+    selected = list(by_path.values())
+    root = Path(os.path.abspath(corpus_root))
+    if fetch_disabled():
+        unplaced: dict[str, str] = {}
+        for artifact in selected:
+            try:
+                if destination_state(root, artifact) != "present":
+                    unplaced[artifact.path] = "missing"
+            except CorpusMaterializationError as exc:
+                unplaced[artifact.path] = str(exc)
+        action = f"{NO_FETCH_ENV} is set, and {len(unplaced)} of"
+    else:
+        try:
+            report = materialize_release_artifacts(
+                root,
+                selected,
+                sources=lambda: release_sources(
+                    root, git_commit=release.git_commit, r2_bucket=release.r2_bucket
+                ),
+                release_commit=release.git_commit,
+                note_present=False,
+            )
+        except CorpusMaterializationError as exc:
+            raise ValueError(f"cannot place queue sources: {exc}") from exc
+        if report.materialized:
+            counts = ", ".join(f"{k} {v}" for k, v in report.source_counts().items())
+            print(
+                f"prepare_signed_queue: placed {len(report.materialized)} corpus "
+                f"release artifact(s) ({report.bytes_materialized:,} bytes) from "
+                f"{counts}",
+                file=sys.stderr,
+            )
+        unplaced = {**report.failed, **report.skipped, **report.modified}
+        action = f"cannot place {len(unplaced)} of"
+    if unplaced:
+        reasons = [f"{path}: {reason}" for path, reason in sorted(unplaced.items())]
+        if len(reasons) > 10:
+            reasons[10:] = [f"... and {len(reasons) - 10} more"]
+        raise ValueError(
+            f"{action} {len(selected)} queue source artifact(s) of corpus release "
+            f"{release.name} in the lock-file corpus checkout {root}:\n"
+            + "\n".join(reasons)
+            + "\nWhere no source had the bytes, place them first "
+            "(`axiom-encode corpus-fetch` with R2 read credentials, or "
+            "`axiom-corpus-ingest corpus fetch`), or check the corpus out with "
+            "full history so git objects can supply files committed before "
+            "the switch."
+        )
+
+
 def _git(corpus_root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(corpus_root), *args],
@@ -428,6 +535,10 @@ def _verify_signed_release_binding(
     if not isinstance(git, dict) or git.get("commit") != corpus_ref:
         raise ValueError("signed release Git provenance does not match corpus_ref")
 
+    from axiom_encode.corpus_materialize import corpus_uses_lock_files
+
+    if corpus_uses_lock_files(corpus_root):
+        _place_release_sources(corpus_root, verified, source_paths)
     artifacts = {artifact.path: artifact for artifact in verified.artifacts}
     for source_path in source_paths:
         relative = source_path.relative_to(corpus_root).as_posix()
@@ -462,9 +573,8 @@ def build_snap_queue(
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
     _require_approved_pr_base_branch(pr_base_branch)
-    provisions = corpus_root / "data/corpus/provisions"
-    or_paths = sorted((provisions / "us-or/manual").glob("*.jsonl"))
-    ut_paths = sorted((provisions / "us-ut/manual").glob("*.jsonl"))
+    or_paths = _manual_source_paths(corpus_root, "us-or")
+    ut_paths = _manual_source_paths(corpus_root, "us-ut")
     source_paths = or_paths + ut_paths
     release_manifest_sha256 = _verify_corpus_provenance(
         corpus_root,

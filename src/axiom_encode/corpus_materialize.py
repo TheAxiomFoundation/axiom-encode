@@ -1354,6 +1354,69 @@ def _read_scope_lock(
     return _parse_lock_or_reason(raw, lock_path)
 
 
+def locked_directory_listing(
+    root: Path, artifact_class: str, jurisdiction: str, document_class: str
+) -> dict[str, LockEntry]:
+    """The files a checkout's locks pin directly in one corpus directory.
+
+    The lock-file counterpart of listing
+    ``data/corpus/<artifact_class>/<jurisdiction>/<document_class>/`` in a
+    checkout that tracks its corpus bytes. Each scope lock under
+    ``.axiom/corpus-locks/<jurisdiction>/<document_class>/`` names at most one
+    file of a single-file class there, ``<version>.jsonl`` or
+    ``<version>.json``; a lock that names none adds nothing. The listing does
+    not depend on which files are on disk. A lock directory that is missing
+    lists nothing. One that is indirect or unreadable, or holds a lock that
+    is, or that is not valid, raises :class:`CorpusMaterializationError`, so
+    a listing is never silently short.
+    """
+
+    if artifact_class not in PLACEABLE_ARTIFACT_CLASSES:
+        raise CorpusMaterializationError(
+            f"{artifact_class} is not a single-file artifact class"
+        )
+    for component in (jurisdiction, document_class):
+        if _SCOPE_COMPONENT_RE.fullmatch(component) is None:
+            raise CorpusMaterializationError(f"invalid scope component: {component!r}")
+    root = Path(root)
+    lock_directory = LOCK_ROOT / jurisdiction / document_class
+    cursor = root
+    for part in lock_directory.parts:
+        cursor = cursor / part
+        try:
+            mode = os.lstat(cursor).st_mode
+        except FileNotFoundError:
+            return {}
+        except OSError as exc:
+            raise CorpusMaterializationError(
+                f"cannot inspect {cursor}: {exc.strerror}"
+            ) from exc
+        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
+            raise CorpusMaterializationError(
+                f"lock directory component is not a real directory: {cursor}"
+            )
+    try:
+        names = sorted(os.listdir(cursor))
+    except OSError as exc:
+        raise CorpusMaterializationError(
+            f"cannot list {cursor}: {exc.strerror}"
+        ) from exc
+    suffix = ".jsonl" if artifact_class == "provisions" else ".json"
+    prefix = f"data/corpus/{artifact_class}/{jurisdiction}/{document_class}"
+    listing: dict[str, LockEntry] = {}
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        entries = _read_scope_lock(root, lock_directory / name)
+        if isinstance(entries, str):
+            raise CorpusMaterializationError(entries)
+        path = f"{prefix}/{name.removesuffix('.json')}{suffix}"
+        entry = entries.get(path)
+        if entry is not None:
+            listing[path] = entry
+    return listing
+
+
 def _parse_lock_or_reason(
     raw: bytes, lock_path: PurePosixPath
 ) -> dict[str, LockEntry] | str:
