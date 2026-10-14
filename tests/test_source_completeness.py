@@ -45403,6 +45403,86 @@ def test_exact_fns_fy2026_one_line_table_caption_is_not_a_computation():
     assert {165, 2152, 2474, 8567, 871} <= {item.value for item in recalled}
 
 
+def test_exact_fns_fy2026_composed_income_tables_are_published_values():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_composed.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards"
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "4145775814ee480173e064c402eb67fc270c05227073b93f23a3e200ddda23e7"
+    )
+    assert source_states_explicit_computation(source)
+    assert not source_states_explicit_computation(
+        source, corpus_citation_path=citation_path
+    )
+    assert not completeness_module._source_formula_branches(
+        source,
+        corpus_citation_path=citation_path,
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+    )
+    result = _analyze(
+        "format: rulespec/v1\nmodule: {}\nrules: []\n",
+        source,
+        corpus_citation_path=citation_path,
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    assert not _has_issue(result, "formula-output"), result.issues
+    assert not _has_issue(result, "formula branch"), result.issues
+    assert _has_issue(result, "numeric"), result.issues
+    recall_text = authoritative_numeric_recall_text(
+        source, corpus_citation_path=citation_path
+    )
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(recall_text)
+    assert (
+        sum(item.start > 0 and recall_text[item.start - 1] == "$" for item in recalled)
+        == 81
+    )
+    assert {1305, 4513, 459, 1696, 5867, 596, 2152, 8567, 871} <= {
+        item.value for item in recalled
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("$8,567", ""),
+        lambda source: source + " The limit is computed as 165% of poverty.",
+    ],
+)
+def test_fns_fy2026_composed_income_table_mask_fails_closed(mutation):
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_income_standards_composed.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    citation_path = "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards"
+    assert source_states_explicit_computation(
+        mutation(source), corpus_citation_path=citation_path
+    )
+    assert source_states_explicit_computation(
+        source, corpus_citation_path="us/guidance/example/income-table"
+    )
+    assert completeness_module._source_formula_branches(
+        source,
+        corpus_citation_path="us/guidance/example/income-table",
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+    )
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
