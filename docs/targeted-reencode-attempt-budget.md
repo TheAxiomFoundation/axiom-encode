@@ -86,3 +86,25 @@ Known gap: the check mirrors the admission rule, not every CI defect. Draft
 axiom-encode #1879 reports that pins from #1859 up to that fix cannot run the
 ancestry proof under the supervised Git wrapper, so their CI rejects every
 changed signed manifest. The check does not model that window.
+
+## Superseded encoder PRs
+
+Each run opens one draft RuleSpec PR on `axiom/signed-backfill-<country>-<run>-<attempt>`
+titled `Add signed encoding manifest for <citation>`. Retries leave the older
+drafts open. `scripts/close_superseded_encoder_prs.py` lists them and plans to
+close a draft when a newer open encoder PR names the same citation on the same
+base branch, or when the default branch holds a signed manifest for the
+citation that was generated after the draft's own. It keeps a PR that is ready
+for review, that has a commit not made by `axiom-encode-bot`, or whose branch is
+the base of an open PR that stays open (a stacked repair).
+
+The script is a dry run by default. Read the plan first:
+
+```bash
+uv run python scripts/close_superseded_encoder_prs.py --country us
+```
+
+Then run it again with `--apply` to comment on and close each planned PR. It
+never deletes branches, so a closed PR can be reopened. The encode workflow does
+not run it: closing other PRs from the signing workflow would need a decision
+about which of two drafts to keep before RuleSpec CI has judged either.

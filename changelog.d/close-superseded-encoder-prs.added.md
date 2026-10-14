@@ -1,0 +1,1 @@
+Add `scripts/close_superseded_encoder_prs.py`, a dry-run-by-default tool that closes draft signed-encoding PRs superseded by a newer open PR for the same citation and base, or by a newer signed encoding of the citation on the default branch. It keeps ready-for-review PRs, PRs with human commits and bases of open stacked PRs.
