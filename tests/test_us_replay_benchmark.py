@@ -66,14 +66,15 @@ UPDATE_HINT = (
 )
 
 
-@pytest.fixture(scope="module")
-def report():
-    return build_report(load_fixtures(FIXTURES))
-
-
-def test_replay_matches_snapshot_ratchet(report):
+def test_replay_matches_snapshot_ratchet():
+    # One test replays every fixture, so CI shards never repeat the replay.
+    report = build_report(load_fixtures(FIXTURES))
     snapshot = json.loads(SNAPSHOT.read_text())
     increases, decreases = snapshot_deviations(snapshot, report)
+
+    assert report["summary"]["errors"] == 0
+    assert report["summary"]["imports_resolved"] > 0
+    assert all(not case["imports_unresolved"] for case in report["cases"])
 
     assert not increases, (
         "US replay benchmark regressed (pinned counts rose):\n  "
@@ -97,14 +98,12 @@ def test_snapshot_totals_match_cases():
     assert snapshot["totals"]["clean"] == sum(
         1 for case in cases if not case["issues"] and not case["error"]
     )
+    rule_totals: dict[str, int] = {}
     for case in cases:
         assert case["issues"] == sum(case["rules"].values())
-
-
-def test_replay_resolves_every_fixture_import(report):
-    assert report["summary"]["errors"] == 0
-    assert all(not case["imports_unresolved"] for case in report["cases"])
-    assert report["summary"]["imports_resolved"] > 0
+        for rule, count in case["rules"].items():
+            rule_totals[rule] = rule_totals.get(rule, 0) + count
+    assert snapshot["totals"]["rules"] == rule_totals
 
 
 def test_fixture_set_covers_failing_rule_classes():
