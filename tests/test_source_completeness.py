@@ -22337,6 +22337,97 @@ def test_guidance_boilerplate_and_history_do_not_require_paired_cases(source: st
     assert not completeness_module._source_exception_requires_paired_witness(source)
 
 
+def test_flattened_fns_income_table_captions_are_not_computations():
+    rows = " ".join(f"{size} $1,305 $1,630 $1,500" for size in range(1, 9))
+    table = (
+        "Household Size 48 States, D.C., Guam, Virgin Islands Alaska Hawaii "
+        f"{rows} Each additional member $459 $574 $528"
+    )
+    source = " ".join(
+        f"{heading} ({rate} Percent of Poverty Level) {table}"
+        for heading, rate in (
+            ("Net Monthly Income Eligibility Standards", 100),
+            ("Gross Monthly Income Eligibility Standards", 130),
+            (
+                "Gross Monthly Income Eligibility Standards for Households "
+                "Where Elderly Disabled Are a Separate Household",
+                165,
+            ),
+        )
+    )
+
+    masked = completeness_module._without_precomputed_income_table_percentage_captions(
+        source
+    )
+
+    assert "Percent of Poverty Level" not in masked
+    assert masked.count("Each additional member $459 $574 $528") == 3
+    assert len(masked) == len(source)
+    assert not source_states_explicit_computation(source)
+    assert source_states_explicit_computation(
+        source + " The limit is computed as 130 percent of the poverty level."
+    )
+    assert source_states_explicit_computation(
+        source.replace("8 $1,305 $1,630 $1,500", "8 $1,305 $1,630", 1)
+    )
+
+
+def test_signed_fns_cola_page_three_keeps_tables_without_footer_case_pairs():
+    source = (
+        (
+            Path(__file__).parent
+            / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+        )
+        .read_text()
+        .strip()
+    )
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "114f27400c106a83d67fc98d79c7a7f5351ecbb9ffb79bdcd448d46c955392b4"
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_exception_requires_paired_witness(source)
+    recalled = EN_NUMERIC_OCCURRENCE_EXTRACTOR(
+        authoritative_numeric_recall_text(source)
+    )
+    assert {459, 596, 757, 871, 8567, 9311} <= {item.value for item in recalled}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "Each additional member $757 $946 $871 through their guidance "
+            "portal, except to establish historical facts."
+        ),
+        (
+            "Guidance documents lack the force and effect of law, unless "
+            "expressly authorized by statute or"
+        ),
+    ],
+)
+def test_split_fns_guidance_footer_requires_no_claimant_case_pair(source: str):
+    assert not completeness_module._source_exception_requires_paired_witness(source)
+
+
+def test_split_guidance_footer_does_not_hide_joined_eligibility_condition():
+    source = (
+        "Guidance documents lack the force and effect of law, unless expressly "
+        "authorized by statute or applicants are eligible if citizens."
+    )
+
+    assert completeness_module._source_exception_requires_paired_witness(source)
+
+
+def test_split_guidance_footer_does_not_hide_joined_increment_condition():
+    source = (
+        "If household size exceeds eight, add $757 for each additional member. "
+        "Guidance documents lack the force and effect of law, unless expressly "
+        "authorized by statute or"
+    )
+
+    assert completeness_module._source_exception_requires_paired_witness(source)
+
+
 @pytest.mark.parametrize(
     "source",
     [

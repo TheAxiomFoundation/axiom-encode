@@ -4561,10 +4561,19 @@ def _without_precomputed_income_table_percentage_captions(
         rf"\s+{rows}\s+Each additional person\s+{three_amounts}[ \t]*(?=\r?$)",
         flags=re.MULTILINE | re.IGNORECASE,
     )
+    flattened_captioned_table = re.compile(
+        r"(?:Net|Gross) Monthly Income Eligibility Standards"
+        r"(?: for Households Where Elderly Disabled Are a Separate Household)?"
+        r"\s+(?P<caption>\(\d+(?:\.\d+)? Percent of Poverty Level\))"
+        r"\s+Household Size 48 States, D\.C\., Guam, Virgin Islands Alaska Hawaii"
+        rf"\s+{rows}\s+Each additional member\s+{three_amounts}",
+        flags=re.IGNORECASE,
+    )
     masked = list(source_text)
-    for match in captioned_table.finditer(source_text):
-        start, end = match.span("caption")
-        masked[start:end] = " " * (end - start)
+    for pattern in (captioned_table, flattened_captioned_table):
+        for match in pattern.finditer(source_text):
+            start, end = match.span("caption")
+            masked[start:end] = " " * (end - start)
     if (
         corpus_citation_path == _FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_PATH
         and hashlib.sha256(source_text.encode()).hexdigest()
@@ -26256,6 +26265,25 @@ def _source_exception_requires_paired_witness(
         return False
     if _source_is_guidance_glossary_description(collapsed):
         return False
+    # PDF extraction can reorder the standard USDA footer around table cells.
+    # Remove only its recognizable fragments, then evaluate any remaining
+    # conditional text normally; a joined household rule must still be paired.
+    guidance_footer_fragments = (
+        r"\bthrough\s+(?:its|their)\s+guidance\s+portal,\s*except\s+to\s+"
+        r"establish\s+historical\s+facts\b|"
+        r"\bGuidance\s+documents\s+lack\s+the\s+force\s+and\s+effect\s+"
+        r"of\s+law,\s*unless\s+expressly\s+authorized\s+by\s+statute\s+or\b|"
+        r"\bUSDA\s+may\s+not\s+cite,\s*use,\s*or\s+rely\s+on\s+any\s+guidance\s+"
+        r"that\s+is\s+not\s+available\b|"
+        r"\bincorporated\s+into\s+a\s+contract\b"
+    )
+    without_footer = re.sub(
+        guidance_footer_fragments, " ", collapsed, flags=re.IGNORECASE
+    )
+    if without_footer != collapsed:
+        collapsed = _collapse_text(without_footer).strip(" .;,")
+        if not _source_exception_or_applicability_matches(collapsed):
+            return False
     if re.fullmatch(
         r"(?:Guidance\s+documents\s+lack\s+the\s+force\s+and\s+effect\s+"
         r"of\s+law,\s*unless\s+expressly\s+authorized\s+by\s+statute\s+or\s+"

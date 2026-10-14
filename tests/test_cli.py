@@ -9173,6 +9173,63 @@ $533 with 2 children
     assert repaired == "$533 with 2 children"
 
 
+def test_closest_exact_source_excerpt_keeps_parenthesized_numeric_heading():
+    source_text = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+    ).read_text()
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level)"
+
+
+def test_closest_exact_source_excerpt_retains_governing_parenthetical_condition():
+    source_text = (
+        "(a) If the household has an elderly member, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == source_text
+
+
+def test_closest_exact_source_excerpt_rejects_long_governing_condition():
+    source_text = (
+        "(a) If the household has an elderly member and "
+        + "the household meets the additional eligibility requirements and " * 8
+        + "has qualifying income, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_does_not_wrap_partial_parenthetical():
+    repaired = _closest_exact_source_excerpt(
+        source_text="(165 Percent of Poverty Level for Guam)",
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level for Guam)"
+
+
 def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
     repaired = _closest_exact_source_excerpt(
         source_text="The annual amount is $533 with 2 children.",
