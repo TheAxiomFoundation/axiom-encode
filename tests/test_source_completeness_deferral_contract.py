@@ -18,6 +18,8 @@ Every acceptance below is paired with negative controls of the same shape.
 from __future__ import annotations
 
 import functools
+import json
+from pathlib import Path
 
 import pytest
 
@@ -545,47 +547,45 @@ def test_cfr_reader_identity():
 FMAP_457_622 = (
     "(a) Basis. Sections 1905(b), 2105(a) and 2105(b) of the Act provides for "
     "payments to States from the States' allotments for a fiscal year, as "
-    "determined under § 457.608, for part of the cost of expenditures.\n\n"
-    "(b) Enhanced FMAP—Computations. The enhanced FMAP is the lower of the "
+    "determined under \u00a7 457.608, for part of the cost of expenditures.\n\n"
+    "(b) Enhanced FMAP\u2014Computations. The enhanced FMAP is the lower of the "
     "following:\n\n"
     "(1) 70 percent of the regular FMAP determined under section 1905(b) of the "
     "Act, plus 30 percentage points; or\n\n"
     "(2) 85 percent.\n\n"
     "(c) Categories. (1) Child health assistance in the form of health benefits "
     "coverage that meets the requirements of section 2103 of the Act; and\n\n"
-    "(2) Subject to the 10 percent limit provisions under § 457.618(a)(2), "
-    "outreach expenditures.\n\n"
-    "(d) Other expenditures."
+    "(2) Subject to the 10 percent limit provisions under \u00a7 457.618(a)(2), the "
+    "following expenditures:\n\n"
+    "(i) Outreach expenditures;\n\n"
+    "(ii) Reasonable costs to administer the plan.\n\n"
+    "(d) Available allotments. The State's allotments, as reduced in accordance "
+    "with \u00a7 457.616, remain available for the fiscal year.\n\n"
+    "(e) Other expenditures."
 )
 
 
 @pytest.mark.parametrize(
     ("path", "reason"),
     [
-        # Reasons copied verbatim from replayed rejected candidates.
-        (
-            ("b", "1"),
-            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP plus 30 "
-            "percentage points, but the numeric regular FMAP determined under "
-            "section 1905(b) of the Act is not supplied as an executable output.",
-        ),
-        (
-            ("b", "1"),
-            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP "
-            "determined under section 1905(b) of the Act, plus 30 percentage "
-            "points; no executable RuleSpec output for that regular FMAP is "
-            "supplied in the available context.",
-        ),
+        # Reasons copied verbatim from replayed rejected candidates; the
+        # paragraph chapeau cites the limit, and its leaves state no amount.
         (
             ("c", "2"),
             "42 CFR 457.622(c)(2) subjects its listed expenditures to the 10 "
-            "percent limit under § 457.618(a)(2); that limit computation is not "
+            "percent limit under \u00a7 457.618(a)(2); that limit computation is not "
             "supplied.",
         ),
         (
             ("c", "2"),
             "42 CFR 457.622(c)(2) requires the limit in 42 CFR 457.618(a)(2), "
             "which is not yet encoded.",
+        ),
+        (
+            ("d",),
+            "42 CFR 457.622(d) requires available fiscal-year allotments after "
+            "reductions under \u00a7 457.616; those allotment and reduction amounts "
+            "are not supplied in the available context.",
         ),
     ],
 )
@@ -604,6 +604,21 @@ def test_cfr_branch_deferral_names_source_cited_regulation_dependency(path, reas
 @pytest.mark.parametrize(
     ("path", "reason"),
     [
+        # A leaf that states its own percentage and computation keeps them:
+        # encode it with the dependency as a declared input, or it fails.
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP plus 30 "
+            "percentage points, but the numeric regular FMAP determined under "
+            "section 1905(b) of the Act is not supplied as an executable output.",
+        ),
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP "
+            "determined under section 1905(b) of the Act, plus 30 percentage "
+            "points; no executable RuleSpec output for that regular FMAP is "
+            "supplied in the available context.",
+        ),
         # The branch does not cite the named dependency.
         (
             ("b", "2"),
@@ -805,9 +820,19 @@ def test_cfr_dependency_parent_deferral_requires_the_dependency_to_block_it():
             FMAP_457_622, corpus_citation_path="us/regulation/42/457/622"
         )
     }
-    assert {("b",), ("b", "1"), ("b", "2"), ("c",), ("c", "1"), ("c", "2")} <= branches
+    assert {
+        ("b",),
+        ("b", "1"),
+        ("b", "2"),
+        ("c",),
+        ("c", "1"),
+        ("c", "2"),
+        ("c", "2", "i"),
+        ("d",),
+    } <= branches
 
-    # (b) computes the lower of its children, so (b)(1)'s dependency blocks it.
+    # (b) computes over leaves that state their own percentages, which stay
+    # encoded (with the regular FMAP as a declared input) or fail.
     covered, issues = _covered(
         "us/regulation/42/457/622",
         FMAP_457_622,
@@ -815,7 +840,7 @@ def test_cfr_dependency_parent_deferral_requires_the_dependency_to_block_it():
         "42 CFR 457.622(b) requires the lower of its paragraphs, and the regular "
         "FMAP determined under section 1905(b) of the Act is not supplied.",
     )
-    assert ("b",) in covered and not issues
+    assert ("b",) not in covered and issues
 
     # (c) lists independent categories; only (c)(2) cites the 457.618(a)(2)
     # limit, so deferring all of (c) would also hide the (c)(1) category.
@@ -827,3 +852,329 @@ def test_cfr_dependency_parent_deferral_requires_the_dependency_to_block_it():
         "limit under 42 CFR 457.618(a)(2); that limit computation is not supplied.",
     )
     assert ("c",) not in covered and issues
+
+
+# Independent review of #1897: real CFR texts the first dependency reader
+# covered because `under` / `in accordance with` / `pursuant to` linked a
+# category label, plus the reviewer's adversarial shapes. Every one must stay
+# rejected. Bodies are byte-exact corpus provisions.
+
+REVIEW_BODIES = json.loads(
+    (
+        Path(__file__).parent
+        / "fixtures/source_completeness/cfr_deferral_label_controls.json"
+    ).read_text()
+)
+
+
+@pytest.mark.parametrize(
+    ("citation", "path", "reason"),
+    [
+        # Chapeau label "services under § 98.50" over an under-13, 85% SMI,
+        # $1,000,000 asset eligibility test.
+        (
+            "us/regulation/45/98/20",
+            ("a",),
+            "45 CFR 98.20(a) depends on § 98.50, which is not supplied.",
+        ),
+        # "demonstration project under section 1115(a)(2) of the Act" over an
+        # age 19-64 eligibility group.
+        (
+            "us/regulation/42/435/561",
+            ("a", "2"),
+            "42 CFR 435.561(a)(2) depends on section 1115(a)(2) of the Act, which "
+            "is not supplied.",
+        ),
+        # "temporarily absent in accordance with § 416.1149(c)(1)" over the SSI
+        # essential-person increment.
+        (
+            "us/regulation/20/416/430",
+            ("b",),
+            "20 CFR 416.430(b) depends on § 416.1149(c)(1), which is not supplied.",
+        ),
+        # "as defined under section 1927(k)(7)(A)(i) of the Act" over the $1/$3
+        # Part D copayments and their CPI update.
+        (
+            "us/regulation/42/423/782",
+            ("a", "2", "iii", "a"),
+            "42 CFR 423.782(a)(2)(iii)(A) depends on section 1927(k)(7)(A)(i) of "
+            "the Act, which is not supplied.",
+        ),
+        # "not eligible for Medicaid under § 435.117" is an eligibility test.
+        (
+            "us/regulation/42/457/360",
+            ("b", "1", "ii"),
+            "42 CFR 457.360(b)(1)(ii) depends on § 435.117, which is not supplied.",
+        ),
+        # "we continue to consider ... deeming will cease" is a consequence,
+        # not an administrative workflow.
+        (
+            "us/regulation/20/416/1167",
+            ("c",),
+            "20 CFR 416.1167(c) requires the active duty military absence "
+            "information, which is not available at runtime.",
+        ),
+    ],
+)
+def test_review_real_cfr_label_and_consequence_controls_stay_rejected(
+    citation, path, reason
+):
+    body = REVIEW_BODIES[citation]
+    output_root = sc._deferral_anchor_bases(citation)[0]
+    covered, issues = _covered(
+        citation, body, f"{output_root}/{'/'.join(path)}", reason
+    )
+
+    assert path not in covered
+    assert issues
+
+
+SPONSOR_273_4 = (
+    "(a) Citizens. No person is eligible unless that person is a U.S. citizen.\n\n"
+    "(b) Reporting. The State agency must report each case.\n\n"
+    "(c) Sponsor deeming.\n\n"
+    "(1) Definition. A sponsored alien is an alien with a sponsor.\n\n"
+    "(2) Resources. (i) The State agency must count the sponsor's income.\n\n"
+    "(ii) Other income.\n\n(iii) Reserved.\n\n"
+    "(iv) The State agency must deem as available to the eligible sponsored "
+    "alien the total amount of the resources of the sponsor and sponsor's spouse "
+    "as determined in accordance with § 273.8, reduced by $1,500.\n\n"
+    "(d) Other."
+)
+
+
+@pytest.mark.parametrize(
+    ("citation", "source", "output", "reason"),
+    [
+        # Replayed bundle reason: a value-supplying link, but the leaf states
+        # its own amount and a mandated deeming consequence.
+        (
+            "us/regulation/7/273/4",
+            SPONSOR_273_4,
+            "us:regulations/7-cfr/273/4/c/2/iv",
+            "7 CFR 273.4(c)(2)(iv) requires sponsor and sponsor-spouse resources "
+            "as determined under 7 CFR 273.8 before applying the $1,500 reduction; "
+            "no executable RuleSpec output for those resources is supplied.",
+        ),
+        # Runtime-gap leaf with an ineligibility and exclusion consequence.
+        (
+            "us/regulation/7/273/99",
+            "(a) Notice.\n\n(1) The State agency must notify the USCIS office of "
+            "each determination and file the notice record.\n\n(2) A household "
+            "member who does not submit the required immigration document is "
+            "ineligible to participate and the State agency will exclude that "
+            "member's share of the allotment.\n\n(b) Other.",
+            "us:regulations/7-cfr/273/99/a/2",
+            "7 CFR 273.99(a)(2) requires the immigration document submission "
+            "record, which is not available at runtime.",
+        ),
+        # A citation of (a)(1) never stands for all of (a), in either form.
+        (
+            "us/regulation/7/273/98",
+            "(a) Reporting.\n\n(1) The State agency must submit the monthly report "
+            "to FNS.\n\n(2) The State agency must file the corrective action plan "
+            "record.\n\n(b) Other.",
+            "us:regulations/7-cfr/273/98/a",
+            "7 CFR 273.98(a)(1) requires the monthly report submission record, "
+            "which is not available at runtime.",
+        ),
+        (
+            "us/regulation/7/273/98",
+            "(a) Reporting.\n\n(1) The State agency must submit the monthly report "
+            "to FNS.\n\n(2) The State agency must file the corrective action plan "
+            "record.\n\n(b) Other.",
+            "us:regulations/7-cfr/273/98/a",
+            "us/regulation/7/273/98(a)(1) requires the monthly report submission "
+            "record, which is not available at runtime.",
+        ),
+        # Framing openings followed by an operative clause or a spelled amount.
+        (
+            "us/regulation/7/273/97",
+            "(a) Scope. This section sets forth the income standards for SNAP, and "
+            "the State agency must deny benefits to any household that refuses to "
+            "cooperate in the quality control review.\n\n(b) Amount. The amount "
+            "is $10.",
+            "us:regulations/7-cfr/273/97/a",
+            "7 CFR 273.97(a) is a non-operative scope statement and supplies no "
+            "operative rule.",
+        ),
+        (
+            "us/regulation/7/273/96",
+            "(a) Purpose. The purpose of this section is to deny eligibility to "
+            "households whose gross income exceeds one hundred thirty percent of "
+            "the poverty line.\n\n(b) Amount. The amount is $10.",
+            "us:regulations/7-cfr/273/96/a",
+            "7 CFR 273.96(a) is a non-operative purpose statement and supplies no "
+            "operative rule.",
+        ),
+        (
+            "us/regulation/42/435/603",
+            "(a) Basis. This section implements section 1902(e)(14) of the Act and "
+            "the agency must disregard an amount equal to five percentage points "
+            "of the Federal poverty level.\n\n(b) Other.",
+            "us:regulations/42-cfr/435/603/a",
+            "42 CFR 435.603(a) is a non-operative statutory-basis statement and "
+            "supplies no operative rule.",
+        ),
+    ],
+)
+def test_review_adversarial_deferrals_stay_rejected(citation, source, output, reason):
+    covered, issues = _covered(citation, source, output, reason)
+
+    assert not covered
+    assert issues
+
+
+def _regulation_leaf_source(leaf: str) -> str:
+    return f"(a) Procedures.\n\n(1) {leaf}\n\n(2) Other text.\n\n(b) Other."
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [
+        # Corpus leaves the corpus probe found under the lexical guard; each
+        # states an operative rule beside its administrative words.
+        "The agency must, to determine countable income, deduct amounts that "
+        "would be deducted in determining eligibility under the State's approved "
+        "plan for OAA, AFDC, AB, APTD, or AABD.",
+        "If the request is not filed within 20 days of the date of the notice, "
+        "we will pay to you all past-due benefits remaining after we reimburse "
+        "the State.",
+        "If an eligible household files a complete report after the issuance "
+        "month, the State agency shall not provide the household with an "
+        "opportunity to participate for that month.",
+        "For States that elect to extend eligibility to unborn children under "
+        "the approved Child Health Plan, the State does not adopt eligibility "
+        "standards and methodologies that were more restrictive than those "
+        "applied under policies of the State plan in effect on June 1, 1997.",
+        "If your parent is absent due to active duty, we continue to consider "
+        "that person to be living in the same household, and deeming will cease "
+        "when evidence indicates otherwise.",
+        "A household member who does not submit the required document is "
+        "ineligible, and the State agency will exclude that member's share.",
+        "The State agency shall apply the different income standard at the next "
+        "recertification after the household reports the change.",
+        "The MAGI-based income of a child who is not required to file a tax "
+        "return is not included in household income, as reported on the "
+        "application.",
+        # An administrative word with no administrative act on an artifact.
+        "The State agency is responsible for the program in each project area.",
+    ],
+)
+def test_regulation_runtime_gap_rejects_operative_or_non_administrative_leaf(leaf):
+    covered, issues = _covered(
+        "us/regulation/7/273/94",
+        _regulation_leaf_source(leaf),
+        "us:regulations/7-cfr/273/94/a/1",
+        "7 CFR 273.94(a)(1) requires the State agency report, notice, and "
+        "certification records for this paragraph, which are not available at "
+        "runtime.",
+    )
+
+    assert ("a", "1") not in covered
+    assert issues
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [
+        "The State agency must inform the local USCIS office immediately whenever "
+        "personnel responsible for the certification or recertification of "
+        "households determine that any member of a household is ineligible to "
+        "receive SNAP benefits because the member is present in the U.S. in "
+        "violation of the INA.",
+        "Each State must submit to CMS the reporting data described in paragraph "
+        "(d) of this section by the deadline in the certification notice.",
+        "The State agency must send the household a written notice of the "
+        "certification record within 10 days of the hearing request.",
+    ],
+)
+def test_regulation_runtime_gap_still_accepts_administrative_duty(leaf):
+    covered, issues = _covered(
+        "us/regulation/7/273/94",
+        _regulation_leaf_source(leaf),
+        "us:regulations/7-cfr/273/94/a/1",
+        "7 CFR 273.94(a)(1) requires the State agency notice, certification, "
+        "report, and submission records for this duty, which are not available "
+        "at runtime.",
+    )
+
+    assert ("a", "1") in covered
+    assert not issues
+
+
+@pytest.mark.parametrize(
+    ("leaf", "reason"),
+    [
+        # `Determined under` after a category and a program label are not
+        # values supplied by the cited provision.
+        (
+            "A separate line of business (as determined under § 1.414(r)-3) "
+            "satisfies the administrative scrutiny requirement.",
+            "26 CFR 1.414(r)-94(a)(1) depends on § 1.414(r)-3, which is not supplied.",
+        ),
+        (
+            "An enrollee may appear by video-teleconferencing, telephone, or in "
+            "person, as determined under § 423.2020.",
+            "26 CFR 1.414(r)-94(a)(1) depends on § 423.2020, which is not supplied.",
+        ),
+        (
+            "Individuals entitled to benefits under § 406.10 are not eligible.",
+            "26 CFR 1.414(r)-94(a)(1) depends on § 406.10, which is not supplied.",
+        ),
+        (
+            "For able-bodied adults subject to the time limit of § 273.24, any "
+            "change in work hours must be reported.",
+            "26 CFR 1.414(r)-94(a)(1) depends on § 273.24, which is not supplied.",
+        ),
+        # A value link, but the leaf computes (an imperative worksheet step).
+        (
+            "Multiply the product arrived at in paragraph (g)(2) by the number of "
+            "months. The penalty may not exceed an amount specified in § 3.91.",
+            "26 CFR 1.414(r)-94(a)(1) depends on § 3.91, which is not supplied.",
+        ),
+    ],
+)
+def test_cfr_dependency_rejects_label_links_and_computing_leaves(leaf, reason):
+    covered, issues = _covered(
+        "us/regulation/26/1.414r-94",
+        _regulation_leaf_source(leaf),
+        "us:regulations/26-cfr/1/414r-94/a/1",
+        reason.replace("1.414(r)-94", "1.414r-94"),
+    )
+
+    assert ("a", "1") not in covered
+    assert issues
+
+
+def test_cfr_dependency_accepts_value_link_in_the_same_harness():
+    """The positive twin of the label controls above."""
+
+    covered, issues = _covered(
+        "us/regulation/26/1.414r-94",
+        _regulation_leaf_source(
+            "The home is excluded to the extent its value does not exceed the "
+            "amount set forth in § 416.1212."
+        ),
+        "us:regulations/26-cfr/1/414r-94/a/1",
+        "26 CFR 1.414r-94(a)(1) depends on § 416.1212, which is not supplied.",
+    )
+
+    assert ("a", "1") in covered and not issues
+
+
+def test_cfr_dependency_parent_chapeau_must_not_compute():
+    source = (
+        "(a) National average cost. This is equal to the sum of the costs for "
+        "each area as calculated pursuant to § 54.1308(a) divided by the sum of "
+        "the loops:\n\n(1) First area.\n\n(2) Second area.\n\n(b) Other."
+    )
+    covered, issues = _covered(
+        "us/regulation/47/54/1309",
+        source,
+        "us:regulations/47-cfr/54/1309/a",
+        "47 CFR 54.1309(a) requires the costs calculated pursuant to "
+        "§ 54.1308(a), which are not supplied.",
+    )
+
+    assert ("a",) not in covered and issues

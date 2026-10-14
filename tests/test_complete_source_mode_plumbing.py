@@ -110,15 +110,11 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     )
     assert "The output path\n  is not a source citation" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
-    assert "`7 CFR 273.10(a)(1)` or as the resolver-attested" in complete_prompt
+    assert "the display form `7 CFR 273.10(a)(1)` names the same branch" in (
+        complete_prompt
+    )
     assert "display-style" not in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
-    assert "only frames the source unit" in complete_prompt
-    assert (
-        "`42 CFR 435.145(a) is a non-operative statutory-basis statement and\n"
-        "  supplies no operative rule.`" in complete_prompt
-    )
-    assert "only frames the source unit" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt
@@ -290,15 +286,11 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
     )
     assert "The output path\n  is not a source citation" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
-    assert "`7 CFR 273.10(a)(1)` or as the resolver-attested" in complete_prompt
+    assert "the display form `7 CFR 273.10(a)(1)` names the same branch" in (
+        complete_prompt
+    )
     assert "display-style" not in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" not in default_prompt
-    assert "only frames the source unit" in complete_prompt
-    assert (
-        "`42 CFR 435.145(a) is a non-operative statutory-basis statement and\n"
-        "  supplies no operative rule.`" in complete_prompt
-    )
-    assert "only frames the source unit" not in default_prompt
     assert (
         "authoritative branch is exactly a bare `Repealed.` tombstone"
         in complete_prompt

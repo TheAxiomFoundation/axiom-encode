@@ -9200,6 +9200,32 @@ _FEDERAL_REGULATION_DEPENDENCY = re.compile(
     r"\s+of\s+the\s+(?:Social\s+Security\s+)?Act\b",
     flags=re.IGNORECASE,
 )
+_VALUE_NOUN = (
+    r"(?:amounts?|rates?|percentages?|percent|income|resources?|values?|basis|"
+    r"allotments?|FMAPs?|limits?|thresholds?|payments?|levels?|costs?|premiums?|"
+    r"deductions?|credits?|wages?|base|ratios?|sizes?|sums?|totals?|prices?|"
+    r"benefits?|shares?|charges?|fees?|ceilings?|caps?)"
+)
+# Only syntax that makes the cited provision supply a value: a computed,
+# calculated, adjusted, reduced, or increased quantity, a value noun that is
+# `determined` there, or an amount, rate, percentage, limit, cap, FMAP,
+# allotment, or threshold set under or in the cited provision. `Determined
+# under` after a category (`separate line of business (as determined under
+# § 1.414(r)-3)`, `in person, as determined under § 423.2020`) and a program
+# label (`benefits under part A`, `services under § 98.50`) are not values.
+_VALUE_SUPPLYING_DEPENDENCY_LINK = re.compile(
+    r"(?:"
+    r"\b(?:computed|calculated|adjusted|reduced|increased)\s+"
+    r"(?:under|in\s+accordance\s+with|pursuant\s+to|as\s+provided\s+in)"
+    rf"|\b{_VALUE_NOUN}\b[^.;,()]{{0,60}}?\b(?:is\s+|are\s+|be\s+|as\s+)?"
+    r"determined\s+(?:under|in\s+accordance\s+with|pursuant\s+to)"
+    r"|(?<!\btime\s)\b(?:amounts?|rates?|percentages?|limits?|ceilings?|caps?|"
+    r"FMAPs?|allotments?|thresholds?)\s+(?:(?:provisions?|requirements?)\s+)?"
+    r"(?:under|in|in\s+accordance\s+with|pursuant\s+to|specified\s+in|"
+    r"described\s+in|set\s+(?:forth|out)\s+in)"
+    r")\s*$",
+    flags=re.IGNORECASE,
+)
 _FEDERAL_REGULATION_DEPENDENCY_MISSING_STATE = re.compile(
     r"\b(?:is|are)\s+not\s+(?:yet\s+)?"
     r"(?:supplied|provided|available|encoded|implemented)\b|"
@@ -9271,17 +9297,17 @@ def _reason_names_missing_federal_regulation_dependency(
     masked_source = _period_masked(source_scope_text, source_references)
     linked_identities: set[tuple[str, str, str, tuple[str, ...]]] = set()
     for reference in source_references:
-        # The same dependency syntax the USC reader requires (`under`,
-        # `in accordance with`, `pursuant to`, ...). A category label such as
-        # `meets the requirements of section 2103 of the Act` is a boundary
-        # predicate, not a missing computation, and is never linked here.
+        # Only syntax that makes the cited provision supply a value links it:
+        # `FMAP determined under`, `as reduced in accordance with`,
+        # `limit provisions under`. A label (`services under`, `as defined
+        # under`, `eligible under`, `demonstration project under`, `meets the
+        # requirements of`) names a category or a boundary predicate and is
+        # never linked here.
         clause_start = (
             max(masked_source.rfind(stop, 0, reference.start()) for stop in ".;\n") + 1
         )
-        if _source_clause_links_dependency(
-            masked_source[clause_start : reference.end()],
-            reference_start=reference.start() - clause_start,
-            reference_end=reference.end() - clause_start,
+        if _VALUE_SUPPLYING_DEPENDENCY_LINK.search(
+            masked_source[clause_start : reference.start()]
         ):
             linked_identities.add(
                 _federal_regulation_dependency_identity(
@@ -9333,11 +9359,14 @@ def _federal_regulation_dependency_blocks_branch(
 ) -> bool:
     """Accept a CFR/Act dependency deferral only where it blocks the branch.
 
-    A leaf is blocked by a dependency its text cites. A parent is blocked only
-    when its own chapeau cites the dependency, its chapeau computes over its
-    children (`the lower of the following`), or every leaf below it cites the
-    dependency; otherwise the deferral must name the child that cites it, so
-    an independent sibling category is not deferred with it.
+    A leaf is blocked by a value-supplying dependency its text cites. A parent
+    is blocked only when its own chapeau cites the dependency or every leaf
+    below it cites the dependency; otherwise the deferral must name the child
+    that cites it, so an independent sibling category is not deferred with it.
+    No covered leaf may state its own amount, percentage, explicit computation,
+    or consequence: those stay encoded with the dependency as a declared input
+    or are rejected, so `7 CFR 273.4(c)(2)(iv)` ("must deem ... as determined in
+    accordance with § 273.8, reduced by $1,500") is not deferred this way.
     """
 
     if not path or _cfr_current_section_identity(corpus_citation_path) is None:
@@ -9361,22 +9390,11 @@ def _federal_regulation_dependency_blocks_branch(
         if len(branch.path) > len(path) and branch.path[: len(path)] == path
     ]
     if not descendants:
-        return cited_in(owner.text)
+        return cited_in(owner.text) and not _regulation_leaf_states_operative_rule(
+            owner.text
+        )
     if not cited_in(owner.text):
         return False
-    direct_text = _source_branch_direct_text(owner, branches=branches)
-    if (
-        cited_in(direct_text)
-        or source_states_explicit_computation(direct_text)
-        or re.search(
-            r"\b(?:lesser|lower|greater|higher|smaller|larger|least|greatest|"
-            r"minimum|maximum|sum|total|difference|product)\s+of\s+"
-            r"(?:the\s+)?(?:following|amounts?\s+(?:in|under)\s+paragraphs?)\b",
-            direct_text,
-            flags=re.IGNORECASE,
-        )
-    ):
-        return True
     leaves = [
         branch
         for branch in descendants
@@ -9386,7 +9404,17 @@ def _federal_regulation_dependency_blocks_branch(
             for other in descendants
         )
     ]
-    return all(cited_in(leaf.text) for leaf in leaves)
+    if any(_regulation_leaf_states_operative_rule(leaf.text) for leaf in leaves):
+        return False
+    direct_text = _source_branch_direct_text(owner, branches=branches)
+    # The chapeau may name the limiting dependency (`Subject to the 10 percent
+    # limit provisions under § 457.618(a)(2), the following expenditures:`) but
+    # must not itself compute or mandate a consequence.
+    if _regulation_text_states_computation(
+        direct_text
+    ) or _regulation_text_states_consequence(direct_text):
+        return False
+    return cited_in(direct_text) or all(cited_in(leaf.text) for leaf in leaves)
 
 
 def _reason_names_missing_same_act_dependency(
@@ -13017,27 +13045,110 @@ def _regulation_runtime_gap_descendants_are_administrative(
         )
     ]
     # The whole branch already names an administrative artifact and action;
-    # each covered leaf must itself be administrative in at least one of
-    # those respects and state no computation or mandated consequence.
+    # each covered leaf must itself state an administrative act on an
+    # administrative artifact or recipient (`submit ... the data`, `inform the
+    # local USCIS office`) and no amount, computation, or consequence.
     return all(
-        (
-            _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE.search(leaf.text)
-            or _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(leaf.text)
-        )
-        and not source_states_explicit_computation(leaf.text)
-        and not _REGULATION_OPERATIVE_CONSEQUENCE.search(leaf.text)
+        _REGULATION_ADMINISTRATIVE_ACT.search(_collapse_text(leaf.text))
+        and not _regulation_leaf_states_operative_rule(leaf.text)
         for leaf in leaves
     )
 
 
-# A mandated eligibility, classification, or income/resource consequence. Its
-# branch states an operative rule, not only an administrative workflow.
-_REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
-    r"\b(?:must|shall)\s+(?:not\s+)?(?:be\s+)?"
-    r"(?:attribut|classif|count|deduct|deem|den(?:y|ied)|disqualif|disregard|"
-    r"divid|exclud|includ|prorat|reduc|terminat|treat)[a-z]*\b",
+_REGULATION_ADMINISTRATIVE_ACT = re.compile(
+    r"\b(?:submit|file|notif|inform|report|publish|send|transmit|mail|issu|"
+    r"maintain|retain|document|record|certif|review|approv|request|develop|"
+    r"post|provid|furnish|forward|conduct|hold|schedul|explain|advis)[a-z]*\s+"
+    r"(?:[\w'-]+\s+){0,8}?"
+    r"(?:reports?|notices?|records?|plans?|data|documentation|documents?|"
+    r"forms?|requests?|information|applications?|waivers?|certifications?|"
+    r"hearings?|interviews?|appeals?|letters?|statements?|procedures?|"
+    r"policies|reviews?|samples?|audits?|files?|office|agency|CMS|FNS|SSA|"
+    r"Secretary|Commissioner|Administrator|Department|USCIS)\b",
     flags=re.IGNORECASE,
 )
+
+
+# A stated eligibility, classification, benefit, or income/resource
+# consequence. This is a lexical screen over a closed phrase list; a branch
+# that matches it states an operative rule, not only an administrative
+# workflow.
+_REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
+    r"\b(?:must|shall|will|may)\b[^.;:]{0,60}?\b(?:not\s+)?(?:be\s+)?"
+    r"(?:attribut|classif|consider|count|deduct|deem|den(?:y|ied)|disqualif|"
+    r"disregard|discontinu|divid|exclud|increas|presum|prorat|reduc|suspend|"
+    r"terminat|treat|withh(?:o|e)ld)[a-z]*\b|"
+    r"\b(?:must|shall|will|may)\s+(?:not\s+)?(?:provide|pay|furnish|issue)\b"
+    r"[^.;:]{0,40}?\b(?:Medicaid|CHIP|SSI|SNAP|benefits?|assistance|coverage|"
+    r"payments?|allotments?|opportunity\s+to\s+participate)\b|"
+    r"\b(?:eligibility|income|resources?)\s+(?:standards?|methodolog[a-z]*|"
+    r"limits?|criteria)\b|"
+    r"\b(?:must|shall|will|may)\s+(?:not\s+)?apply\s+(?:the\s+)?(?:[\w-]+\s+){0,3}"
+    r"(?:standards?|limits?|deductions?|rates?)\b|"
+    r"\b(?:is|are)\s+(?:not\s+)?(?:included|excluded|counted|disregarded)\s+"
+    r"(?:in|from|as)\b|"
+    r"\b(?:is|are|was|were|be|becomes?|remains?)\s+(?:not\s+)?(?:in)?eligible\b|"
+    r"\b(?:continu|ceas|stop)[a-z]*\s+(?:to\s+)?"
+    r"(?:consider|deem|count|pay|provid|issu|receiv|includ|exclud)[a-z]*\b|"
+    r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?)\s+"
+    r"(?:will|shall|must|may)\s+(?:not\s+)?"
+    r"(?:cease|stop|end|terminate|continue|be\s+(?:reduced|terminated|denied|"
+    r"suspended|withheld))\b",
+    flags=re.IGNORECASE,
+)
+_SPELLED_AMOUNT = re.compile(
+    r"\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
+    r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)"
+    r"[\s-]+(?:percent|percentage\s+points?|per\s+centum|dollars?)\b|"
+    r"\b(?:hundredths?|tenths?)\s+(?:of\s+(?:one|a)\s+)?percent\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _regulation_text_states_consequence(text: str) -> bool:
+    """Find a consequence phrase that is not the trigger of a determination.
+
+    `... personnel determine that any member of a household is ineligible ...`
+    describes when an administrative duty arises; the duty is the operative
+    text. Any other match states the consequence itself.
+    """
+
+    for match in _REGULATION_OPERATIVE_CONSEQUENCE.finditer(text):
+        sentence_start = max(text.rfind(stop, 0, match.start()) for stop in ".;\n") + 1
+        if re.search(
+            r"\bdetermin[a-z]*\s+(?:that|whether)\b",
+            text[sentence_start : match.start()],
+            flags=re.IGNORECASE,
+        ):
+            continue
+        return True
+    return False
+
+
+def _regulation_leaf_states_operative_rule(text: str) -> bool:
+    """Return whether a regulation leaf states an amount, computation, or consequence."""
+
+    return bool(
+        re.search(r"\$\s*\d|\d\s*(?:%|percent\b|per\s+centum\b)", text, flags=re.I)
+        or _SPELLED_AMOUNT.search(text)
+        or _regulation_text_states_computation(text)
+        or _regulation_text_states_consequence(text)
+    )
+
+
+def _regulation_text_states_computation(text: str) -> bool:
+    """Detect a stated computation, including an imperative worksheet step."""
+
+    return bool(
+        source_states_explicit_computation(text)
+        or re.search(
+            r"(?:^|[.;:]\s+|\)\s*)(?:multiply|divide|add|subtract|compute|"
+            r"calculate)\b",
+            _collapse_text(text),
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _reason_covers_source_authenticated_repeal(
@@ -13229,8 +13340,35 @@ def _source_branch_nonoperative_framing(source_scope_text: str) -> str | None:
         return None
     if re.search(r"\$\s*\d|\d\s*(?:%|percent\b)", text, flags=re.IGNORECASE):
         return None
+    if _SPELLED_AMOUNT.search(text) or _regulation_text_states_consequence(text):
+        return None
     if source_states_explicit_computation(source_scope_text):
         return None
+    # The framing opening must be the whole sentence: a modal after it adds
+    # an operative clause (`This section sets forth ..., and the State agency
+    # must deny ...`). Severability and short titles are stated with `shall` or
+    # `may be cited`, and a basis may restate what the implemented Act provides
+    # (`..., which provides that the State plan must include ...`) without a
+    # coordinated clause of its own.
+    if framing not in {"severability", "short title"}:
+        modals = list(re.finditer(r"\b(?:must|shall|may|will)\b", text, re.I))
+        restated = re.search(
+            r"\bwhich\s+(?:provides?|requires?|states?|specifies|directs?)\s+that\b",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if modals and not (
+            framing == "basis"
+            and restated is not None
+            and all(modal.start() > restated.end() for modal in modals)
+            and not re.search(
+                r"(?:,\s*|\s)and\s+(?:the|a|an|each|any|this|that|such)\s+"
+                r"(?:[\w-]+\s+){0,5}(?:must|shall|may|will)\b",
+                text[restated.end() :],
+                flags=re.IGNORECASE,
+            )
+        ):
+            return None
     return framing
 
 
@@ -13642,18 +13780,16 @@ def _reason_cites_exact_current_statute_branch(
     if cfr_identity is not None:
         # A federal regulation branch is conventionally cited as
         # `42 CFR 457.622(c)(1)`; it names exactly the branch that the literal
-        # corpus path `us/regulation/42/457/622(c)(1)` names. The terminal
-        # guards mirror the USC reader above.
+        # corpus path `us/regulation/42/457/622(c)(1)` names. Like the
+        # canonical reader, it never lets a deeper citation such as
+        # `7 CFR 273.98(a)(1)` stand for the whole of branch (a).
         title, section, corpus_scope = cfr_identity
         complete_cfr_branch = (*corpus_scope, *path)
         cfr_branch_pattern = r"\s*".join(
             rf"\(\s*{re.escape(normalize_rulespec_path_segment(part))}\s*\)"
             for part in complete_cfr_branch
         )
-        if strict_terminal or not complete_cfr_branch:
-            cfr_terminal_guard = state_branch_terminal_guard
-        else:
-            cfr_terminal_guard = r"(?!\s*\()" if len(complete_cfr_branch) > 1 else ""
+        cfr_terminal_guard = state_branch_terminal_guard
         return bool(
             re.search(
                 rf"{start_guard}(?<![A-Za-z0-9_.-]){re.escape(title)}\s+"
