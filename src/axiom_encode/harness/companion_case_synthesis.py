@@ -114,6 +114,20 @@ def companion_obligation_keys(issues: Iterable[object]) -> frozenset[tuple[str, 
             if output is not None:
                 keys.add(("principal-output", output.group(1)))
                 continue
+            if "require paired positive/blocking cases" in text and "missing:" in text:
+                head, listed = text.split("missing:", 1)
+                listed = listed.split(". The evaluator recognized", 1)[0]
+                conditions = [
+                    item.strip()
+                    for item in re.split(
+                        r";\s+(?=[a-z]{2}(?:-[a-z0-9_]+)*/)", listed.strip()
+                    )
+                    if item.strip()
+                ]
+                keys.update(("paired-condition", head + item) for item in conditions)
+                if not conditions:
+                    keys.add(("issue", text))
+                continue
         keys.add(("issue", text))
     return frozenset(keys)
 
@@ -132,6 +146,7 @@ def _yaml_number(value: float) -> int | float:
 
 
 def _slug(text: str) -> str:
+    text = re.sub(r"(?<![A-Za-z0-9])-(?=\d)", "minus_", text)
     return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_").lower()[:80] or "case"
 
 
