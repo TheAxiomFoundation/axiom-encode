@@ -147,6 +147,10 @@ class FakeGitHub:
         self.fail_get: set[str] = set()
         self.missing_runs: set[int] = set()
         self.approvals: dict[int, list[dict[str, Any]]] = {}
+        # base...tip -> compare payload; an unknown pair answers 404.
+        self.comparisons: dict[str, dict[str, Any]] = {}
+        # ref -> workflow-toolchain text, overriding the default for that ref.
+        self.workflow_toolchains: dict[str, str] = {}
         self.next_id = 1000
 
     # helpers used by tests
@@ -174,7 +178,15 @@ class FakeGitHub:
         if path == f"repos/{RULESPEC_REPO}/contents/.axiom/toolchain.toml":
             return _toml_payload(_toolchain(self.release))
         if path == f"repos/{RULESPEC_REPO}/contents/.axiom/workflow-toolchain.toml":
-            return _toml_payload(_workflow_toolchain())
+            return _toml_payload(
+                self.workflow_toolchains.get(params.get("ref", ""))
+                or _workflow_toolchain()
+            )
+        match = re.fullmatch(rf"repos/{RULESPEC_REPO}/compare/(.+)", path)
+        if match:
+            if match.group(1) not in self.comparisons:
+                raise q.GitHubError(404, "Not Found")
+            return self.comparisons[match.group(1)]
         if path == f"repos/{ENCODER_REPO}/actions/workflows/{q.ENCODE_WORKFLOW}/runs":
             since = params["created"].removeprefix(">=")
             return {
@@ -754,6 +766,145 @@ def test_a_running_run_on_a_stale_main_is_cancelled_too():
     assert github.cancelled == [first]
     assert item["attempts"][0]["result"] == "stale-cancelled"
     assert q._counted(item) == 0
+
+
+def _advance(
+    github: FakeGitHub,
+    files: list[str],
+    *,
+    tip: str = "b" * 40,
+    first_parent_of_tip: str | None = None,
+    **overrides: Any,
+) -> str:
+    """Move the fake main from TIP to ``tip`` through one middle commit."""
+
+    middle = "0123456789" * 4
+    github.comparisons[f"{TIP}...{tip}"] = {
+        "status": "ahead",
+        "total_commits": 2,
+        "commits": [
+            {"sha": middle, "parents": [{"sha": TIP}]},
+            {
+                "sha": tip,
+                "parents": [{"sha": first_parent_of_tip or middle}, {"sha": TIP}],
+            },
+        ],
+        "files": [{"filename": path, "status": "modified"} for path in files],
+        **overrides,
+    }
+    github.tip = tip
+    return tip
+
+
+@pytest.mark.parametrize("status", ["waiting", "in_progress"])
+def test_a_run_on_a_plumbing_only_main_advance_is_kept(status: str):
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    github.runs[first]["status"] = status
+    _advance(
+        github,
+        [".github/workflows/repository-checks.yml", "tests/test_layout.py"],
+    )
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["status"] == "dispatched"
+    assert item["attempts"][-1]["run_id"] == first
+    assert len(github.dispatches) == 1
+
+
+def test_a_nonbinding_workflow_pin_advance_keeps_the_run():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    tip = _advance(github, [".axiom/workflow-toolchain.toml"])
+    github.workflow_toolchains[tip] = (
+        _workflow_toolchain() + f'axiom_artifact_rules_engine_ref = "{"9" * 40}"\n'
+    )
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["attempts"][-1]["run_id"] == first
+
+
+@pytest.mark.parametrize(
+    ("files", "extra"),
+    [
+        (["known-validation-gaps.yaml"], {}),
+        ([".axiom/toolchain.toml", "README.md"], {}),
+        (["us/statutes/7/2015/f.yaml"], {}),
+        (["tests/test_encoding_manifests.py"], {}),
+        ([".axiom/workflow-toolchain.toml"], {"binding_pin": True}),
+        (["README.md"], {"first_parent_of_tip": "d" * 40}),
+        (["README.md"], {"total_commits": 900}),
+        (["README.md"], {"status": "diverged"}),
+    ],
+)
+def test_a_binding_or_unprovable_main_advance_still_cancels(
+    files: list[str], extra: dict[str, Any]
+):
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    binding_pin = extra.pop("binding_pin", False)
+    tip = _advance(github, files, **extra)
+    if binding_pin:
+        github.workflow_toolchains[tip] = _workflow_toolchain().replace(
+            ENGINE_REF, "9" * 40
+        )
+
+    _tick(state, github)
+
+    assert github.cancelled == [first]
+    assert item["attempts"][0]["result"] == "stale-cancelled"
+    assert github.dispatches[-1]["inputs"]["rulespec_ref"] == tip
+
+
+def test_a_start_gate_failure_after_a_plumbing_advance_is_counted():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    _advance(github, ["tools/engine_root_load.py"])
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "Queue protected signed RuleSpec re-encode",
+            "conclusion": "failure",
+            "steps": [
+                {
+                    "name": "Verify immutable checkout identities",
+                    "conclusion": "failure",
+                }
+            ],
+        }
+    ]
+
+    _tick(state, github)
+
+    assert item["attempts"][0]["result"] == "failure"
+    assert q._counted(item) == 1
+
+
+def test_base_advance_admitted_uses_the_workflow_rule():
+    github = FakeGitHub()
+    assert q.base_advance_admitted(github, RULESPEC_REPO, TIP, TIP)
+    tip = _advance(github, ["bulk/local_drain.py", "CLAUDE.md"])
+    assert q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
+    tip = _advance(github, ["programs/us-fl/snap.yaml"], tip="5" * 40)
+    assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, tip)
+    github.fail_get.add("/compare/")
+    assert not q.base_advance_admitted(github, RULESPEC_REPO, TIP, "b" * 40)
 
 
 def test_a_failure_from_main_moving_mid_run_is_not_counted():

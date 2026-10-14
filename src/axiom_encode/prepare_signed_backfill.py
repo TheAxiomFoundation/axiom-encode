@@ -15,6 +15,7 @@ import re
 import stat
 import subprocess
 import tokenize
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path, PurePosixPath
 
@@ -521,18 +522,13 @@ def _regular_blob_at(repo: Path, commit: str, path: PurePosixPath) -> bytes | No
     return _publication_git(repo, "cat-file", "blob", fields[2].decode("ascii"))
 
 
-def _workflow_toolchain_change_is_nonbinding(
-    repo: Path,
-    recorded_base: str,
-    tip: str,
-) -> bool:
+def _workflow_toolchains_equivalent(before: bytes | None, after: bytes | None) -> bool:
     """Admit a workflow-toolchain change only to pins no encode input uses."""
 
     import tomllib
 
     documents = []
-    for commit in (recorded_base, tip):
-        raw = _regular_blob_at(repo, commit, WORKFLOW_TOOLCHAIN_PATH)
+    for raw in (before, after):
         if raw is None:
             return False
         try:
@@ -551,23 +547,45 @@ def _workflow_toolchain_change_is_nonbinding(
     return documents[0] == documents[1]
 
 
-def _is_nonbinding_base_advance_path(
-    repo: Path,
-    path: PurePosixPath,
+def base_advance_binding_paths(
+    changed_paths: Iterable[str],
     *,
-    recorded_base: str,
-    tip: str,
-) -> bool:
-    text = path.as_posix()
-    if path in LEGACY_REPLACEMENT_METADATA_PATHS:
-        return False
-    if text in PUBLICATION_BASE_ADVANCE_FILES or text.startswith(
-        PUBLICATION_BASE_ADVANCE_PREFIXES
-    ):
-        return True
-    if path == WORKFLOW_TOOLCHAIN_PATH:
-        return _workflow_toolchain_change_is_nonbinding(repo, recorded_base, tip)
-    return False
+    workflow_toolchain_before: bytes | None = None,
+    workflow_toolchain_after: bytes | None = None,
+) -> list[str]:
+    """Return the changed paths that a base advance may not cross (pure).
+
+    ``changed_paths`` are the tree paths that differ between the recorded
+    base and the tip. When ``.axiom/workflow-toolchain.toml`` is among them,
+    the caller passes its exact bytes at both commits (``None`` if absent or
+    not a regular file). An empty result admits the path half of the rule;
+    the caller still proves first-parent ancestry.
+    """
+
+    binding: set[str] = set()
+    for text in changed_paths:
+        if not isinstance(text, str):
+            binding.add(repr(text))
+            continue
+        path = PurePosixPath(text)
+        if (
+            path.is_absolute()
+            or path.as_posix() != text
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path in LEGACY_REPLACEMENT_METADATA_PATHS
+        ):
+            binding.add(str(text))
+        elif text in PUBLICATION_BASE_ADVANCE_FILES or text.startswith(
+            PUBLICATION_BASE_ADVANCE_PREFIXES
+        ):
+            continue
+        elif path == WORKFLOW_TOOLCHAIN_PATH and _workflow_toolchains_equivalent(
+            workflow_toolchain_before, workflow_toolchain_after
+        ):
+            continue
+        else:
+            binding.add(text)
+    return sorted(binding)
 
 
 def publication_base_advance_paths(
@@ -625,12 +643,18 @@ def publication_base_advance_paths(
             "ancestor of that tip"
         )
     changed = _publication_diff_paths(repo, recorded_base, tip)
-    binding = sorted(
-        path.as_posix()
-        for path in changed
-        if not _is_nonbinding_base_advance_path(
-            repo, path, recorded_base=recorded_base, tip=tip
+    toolchains = (
+        (
+            _regular_blob_at(repo, recorded_base, WORKFLOW_TOOLCHAIN_PATH),
+            _regular_blob_at(repo, tip, WORKFLOW_TOOLCHAIN_PATH),
         )
+        if WORKFLOW_TOOLCHAIN_PATH in changed
+        else (None, None)
+    )
+    binding = base_advance_binding_paths(
+        (path.as_posix() for path in changed),
+        workflow_toolchain_before=toolchains[0],
+        workflow_toolchain_after=toolchains[1],
     )
     if binding:
         shown = ", ".join(binding[:20])

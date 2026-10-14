@@ -16,10 +16,13 @@ same draft RuleSpec pull request as an ad hoc encode.
    branch `axiom/signed-backfill-us-<run_id>-<attempt>`. A failure records the
    failing step and retries once; a rejected signing approval or a used-up
    attempt budget blocks at once. The encode workflow needs rulespec `main`
-   to stay at the pinned tip until it opens its PR, so an unfinished run on a
-   `main` that has since moved is cancelled, and a run that failed because
-   `main` moved is not counted; both are sent again on the new tip, up to six
-   times in a row. A run that already opened its PR is never cancelled or
+   to stay at the pinned tip until it opens its PR, or to move from it only
+   through plumbing the signed run neither reads nor binds (CI, repository
+   tests and tools, docs, non-encode workflow pins; see
+   `prepare_signed_backfill.base_advance_binding_paths`). So an unfinished run
+   on a `main` that has since moved in any other way is cancelled, and a run
+   that failed because `main` moved that way is not counted; both are sent
+   again on the new tip, up to six times in a row. A run that already opened its PR is never cancelled or
    redone, whatever its conclusion: its PR is tracked instead.
 2. For every item in review, read its PR: merged is done, closed is blocked.
 3. If the queue is active, dispatch pending items until `max_in_flight` (4)

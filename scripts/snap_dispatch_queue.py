@@ -82,9 +82,11 @@ TOC_MIN_LEADERS = 10
 # The only step that opens a PR, and the only place the workflow closes one:
 # when main moved under it, it closes the PR it just opened and fails.
 PR_STEP = "Push lane branch and open draft pull request"
-# The encode workflow requires rulespec main to still be at the pinned tip
-# when it starts (checkout verification) and again when it opens the pull
-# request, so a run whose main moved fails at one of these steps.
+# The encode workflow requires rulespec main to still be at the pinned tip,
+# or to have moved from it only through plumbing the signed run neither
+# reads nor binds (base_advance_admitted), when it starts (checkout
+# verification) and again when it opens the pull request, so a run whose
+# main moved in any other way fails at one of these steps.
 STALE_BASE_STEPS = frozenset(
     {
         "Verify immutable checkout identities",
@@ -836,6 +838,84 @@ def _apply_pull_request(
         item["status"] = "in_review"
 
 
+_PUBLICATION_RULES: Any = None
+
+
+def _publication_rules() -> Any:
+    """The encode workflow's own base-advance path rule (stdlib-only module)."""
+
+    global _PUBLICATION_RULES
+    if _PUBLICATION_RULES is None:
+        import importlib.util
+
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "axiom_encode"
+            / "prepare_signed_backfill.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "_snap_dispatch_publication_rules", source
+        )
+        if spec is None or spec.loader is None:
+            raise RuntimeError("cannot load the publication base-advance rule")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _PUBLICATION_RULES = module
+    return _PUBLICATION_RULES
+
+
+def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> bool:
+    """Whether the encode workflow would still publish a ``base`` run on ``tip``.
+
+    Mirrors the workflow's gate (prepare_signed_backfill.py): ``base`` must be
+    a first-parent ancestor of ``tip`` and every path between them must be
+    plumbing the signed run neither reads nor binds. Anything unknown, an
+    API error, or a truncated comparison answers False, which keeps today's
+    stale handling; the workflow's own gates stay authoritative either way.
+    """
+
+    if base == tip:
+        return True
+    try:
+        comparison = github.get(f"repos/{repo}/compare/{base}...{tip}")
+        commits = comparison["commits"]
+        files = comparison["files"]
+        if (
+            comparison.get("status") != "ahead"
+            or comparison.get("total_commits") != len(commits)
+            or not 0 < len(commits) <= 250
+            or len(files) >= 300
+        ):
+            return False
+        first_parents = {
+            commit["sha"]: commit["parents"][0]["sha"] for commit in commits
+        }
+        current, steps = tip, 0
+        while current != base:
+            if current not in first_parents or steps > len(commits):
+                return False
+            current, steps = first_parents[current], steps + 1
+        paths: set[str] = set()
+        for entry in files:
+            paths.add(entry["filename"])
+            if entry.get("previous_filename"):
+                paths.add(entry["previous_filename"])
+        rules = _publication_rules()
+        toolchain = rules.WORKFLOW_TOOLCHAIN_PATH.as_posix()
+        before = after = None
+        if toolchain in paths:
+            before = _contents(github, repo, toolchain, base).encode("utf-8")
+            after = _contents(github, repo, toolchain, tip).encode("utf-8")
+        return not rules.base_advance_binding_paths(
+            paths,
+            workflow_toolchain_before=before,
+            workflow_toolchain_after=after,
+        )
+    except (GitHubError, KeyError, IndexError, TypeError, ValueError):
+        return False
+
+
 def reconcile_dispatched(
     item: dict[str, Any],
     *,
@@ -883,6 +963,12 @@ def reconcile_dispatched(
     stale = (
         attempt.get("rulespec_ref") is not None
         and attempt["rulespec_ref"] != target.rulespec_ref
+        and not base_advance_admitted(
+            github,
+            target.rulespec_repo,
+            attempt["rulespec_ref"],
+            target.rulespec_ref,
+        )
     )
 
     def opened_pull() -> dict[str, Any] | None:
