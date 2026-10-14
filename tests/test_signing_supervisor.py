@@ -1713,13 +1713,33 @@ def test_runtime_startup_and_editable_injection_is_rejected_before_attachment(
 
 
 @pytest.mark.parametrize(
-    ("behavior", "expected"),
+    ("behavior", "detail", "expected"),
     [
-        ("wrong_challenge_signature", "challenge response is invalid"),
-        ("legacy_v1_response", "initialization failed"),
-        ("extra_challenge_field", "initialization failed"),
-        ("wrong_sign_signature", "External apply signer failed"),
-        ("extra_sign_field", "External apply signer failed"),
+        (
+            "wrong_challenge_signature",
+            "external apply signer challenge response is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "legacy_v1_response",
+            "external signer response identity is invalid",
+            "External apply signer initialization failed",
+        ),
+        (
+            "extra_challenge_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer initialization failed",
+        ),
+        (
+            "wrong_sign_signature",
+            "external apply signer returned an invalid signature",
+            "External apply signer failed",
+        ),
+        (
+            "extra_sign_field",
+            'signing broker frame is malformed: json: unknown field "legacy"',
+            "External apply signer failed",
+        ),
     ],
 )
 def test_invalid_external_signer_response_fails_closed(
@@ -1727,6 +1747,7 @@ def test_invalid_external_signer_response_fails_closed(
     trusted_python_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
     behavior: str,
+    detail: str,
     expected: str,
 ) -> None:
     apply_public, apply_key = _keypair(b"\xab" * 32)
@@ -1742,7 +1763,13 @@ def test_invalid_external_signer_response_fails_closed(
             descriptors,
         )
     assert completed.returncode != 0
+    # The broker sends its peer only the generic error and writes the detail to
+    # stderr first, so the detail survives the supervisor killing the broker
+    # and always precedes the generic error.
+    diagnostic = f"signing broker: {detail}\n"
+    assert diagnostic in completed.stderr
     assert expected in completed.stderr
+    assert completed.stderr.index(diagnostic) < completed.stderr.index(expected)
 
 
 def test_non_socket_signer_descriptor_is_rejected(

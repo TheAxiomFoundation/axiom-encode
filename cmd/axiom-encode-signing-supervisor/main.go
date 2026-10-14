@@ -410,7 +410,7 @@ func main() {
 			err = serveBroker(brokerServerFD, parsed)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "signing broker: %v\n", err)
+			_ = reportBrokerFailure(os.Stderr, err)
 			os.Exit(2)
 		}
 		return
@@ -1565,7 +1565,25 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 	if connection == nil {
 		return errors.New("broker descriptor is invalid")
 	}
+	return serveBrokerConnection(connection, parsed, os.Stderr)
+}
+
+// serveBrokerConnection runs the broker protocol on connection, then closes it.
+// Every failure is written to diagnostics before the peer can observe it, as an
+// error reply or as EOF when the connection closes. The supervisor kills the
+// broker as soon as it reads an initialization failure, and the
+// Codex-subscription supervisor kills it once the child exits, so a diagnostic
+// written after the peer has seen the failure can be lost.
+func serveBrokerConnection(
+	connection *os.File,
+	parsed brokerOptions,
+	diagnostics io.Writer,
+) (err error) {
 	defer connection.Close()
+	// Deferred after Close, so it runs first.
+	defer func() {
+		err = reportBrokerFailure(diagnostics, err)
+	}()
 
 	var initialization brokerRequest
 	if err := receiveFrame(connection, &initialization); err != nil {
@@ -1576,8 +1594,11 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		initialization.Operation != "initialize" ||
 		!initialization.hasValidInitializationShape() {
 		zeroRequestSecrets(&initialization)
-		_ = sendError(connection, 0, "Signing broker initialization is malformed")
-		return errors.New("initialization is malformed")
+		return failBroker(
+			connection, diagnostics, 0,
+			"Signing broker initialization is malformed",
+			errors.New("initialization is malformed"),
+		)
 	}
 	var applySigner *externalSigner
 	var evalSigner *externalSigner
@@ -1603,8 +1624,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External apply signer initialization failed")
-			return err
+			return failBroker(
+				connection, diagnostics, 0,
+				"External apply signer initialization failed", err,
+			)
 		}
 		defer applySigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "apply_ed25519")
@@ -1616,8 +1639,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		)
 		if err != nil {
 			zeroRequestSecrets(&initialization)
-			_ = sendError(connection, 0, "External eval signer initialization failed")
-			return err
+			return failBroker(
+				connection, diagnostics, 0,
+				"External eval signer initialization failed", err,
+			)
 		}
 		defer evalSigner.close() //nolint:errcheck
 		status.Capabilities = append(status.Capabilities, "eval_ed25519")
@@ -1681,8 +1706,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := applySigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External apply signer failed")
-				return signErr
+				return failBroker(
+					connection, diagnostics, request.ID,
+					"External apply signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1704,8 +1731,10 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 			signature, signErr := evalSigner.sign(request.Payload)
 			zero(request.Payload)
 			if signErr != nil {
-				_ = sendError(connection, request.ID, "External eval signer failed")
-				return signErr
+				return failBroker(
+					connection, diagnostics, request.ID,
+					"External eval signer failed", signErr,
+				)
 			}
 			err := sendFrame(connection, brokerResponse{
 				Version: protocolVersion,
@@ -1727,6 +1756,47 @@ func zeroRequestSecrets(request *brokerRequest) {
 	zero(request.EvalPublicKey)
 	zero(request.CorpusReleasePublicKey)
 	zeroPublicKeys(request.CorpusReleasePublicKeys)
+}
+
+// reportedBrokerFailure marks a broker error whose diagnostic is already written.
+type reportedBrokerFailure struct {
+	cause error
+}
+
+func (failure reportedBrokerFailure) Error() string {
+	return failure.cause.Error()
+}
+
+func (failure reportedBrokerFailure) Unwrap() error {
+	return failure.cause
+}
+
+// reportBrokerFailure writes the broker's diagnostic for err once and returns
+// err marked as reported.
+func reportBrokerFailure(diagnostics io.Writer, err error) error {
+	if err == nil {
+		return nil
+	}
+	var reported reportedBrokerFailure
+	if errors.As(err, &reported) {
+		return err
+	}
+	fmt.Fprintf(diagnostics, "signing broker: %v\n", err)
+	return reportedBrokerFailure{cause: err}
+}
+
+// failBroker writes the detailed diagnostic for cause, and only then sends the
+// peer the generic reply.
+func failBroker(
+	connection io.Writer,
+	diagnostics io.Writer,
+	requestID int64,
+	reply string,
+	cause error,
+) error {
+	reported := reportBrokerFailure(diagnostics, cause)
+	_ = sendError(connection, requestID, reply)
+	return reported
 }
 
 func sendError(connection io.Writer, requestID int64, message string) error {
