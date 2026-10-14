@@ -8,7 +8,7 @@ dispatched earlier, then sends the next pending items to
 tip, exactly as ad hoc encodes are dispatched.
 
 The dispatcher adds no trust checks of its own. The encode workflow's
-``production-signing`` approval and the review of each draft RuleSpec pull
+``generation-approval`` approval and the review of each draft RuleSpec pull
 request remain the gates; the dispatcher only decides what to send next and
 records what happened.
 """
@@ -1261,7 +1261,7 @@ def render_summary(results: Iterable[dict[str, Any]]) -> str:
             lines.append(f"**Error:** {result['error']}")
             lines.append("")
         if result["waiting_for_approval"]:
-            lines.append("Waiting for `production-signing` approval:")
+            lines.append("Waiting for `generation-approval` approval:")
             lines.extend(
                 f"- [{run['citation']}]({run['url']})"
                 for run in result["waiting_for_approval"]

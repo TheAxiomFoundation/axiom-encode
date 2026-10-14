@@ -411,41 +411,48 @@ environment. That job has no checkout and no secrets. It fails unless the
 GitHub creates a missing environment without protection rules. It then records
 the run attempt it approved. Reviewed-candidate promotions skip it.
 
-The `encode` job retains the `production-signing` environment and signing key.
-It requires successful generation approval recorded in the same run attempt, or
-a classified promotion with approval skipped. "Re-run failed jobs" keeps the
-earlier approval job and its outputs, so a re-run generation attempt skips
-signing; use "Re-run all jobs" to request a new approval. Cancellation,
-failed-attempt budget, main-branch dispatch, and queue-actor restrictions still
-apply. Its first step refuses any promotion that includes review findings,
-repair replay, dependents, legacy paths, source or refresh bundles, signed
-import inputs, or any queue input.
+The `encode` job signs in the `apply-signing` environment, which holds the
+apply key and the repository token. It requires successful generation approval
+recorded in the same run attempt, or a classified promotion with approval
+skipped. "Re-run failed jobs" keeps the earlier approval job and its outputs, so
+a re-run generation attempt skips signing; use "Re-run all jobs" to request a
+new approval. Cancellation, failed-attempt budget, main-branch dispatch, and
+queue-actor restrictions still apply. Its first step refuses any promotion that
+includes review findings, repair replay, dependents, legacy paths, source or
+refresh bundles, signed import inputs, or any queue input.
 
-After the workflow change merges and the environment settings below are applied,
-**anyone who can dispatch this workflow on main can sign allowlisted, reviewed
-candidates without human approval**. The exact reviewed-head and publication
-base allowlists (`REVIEWED_RULESPEC_REFS` and `REVIEWED_RULESPEC_PR_BASES` in
-`src/axiom_encode/prepare_signed_backfill.py`) change only through a reviewed PR.
-Generation continues to require a human approval.
+**Why a new environment.** GitHub re-runs a workflow run with the commit and
+workflow file of the original run, and allows re-runs for 30 days. Earlier
+revisions of this workflow have no `approve_generation` job and sign in
+`production-signing`. If `production-signing` kept the key without its required
+reviewers, re-running an old generation run would sign with no human approval.
+So the key lives only in `apply-signing`, which no earlier revision names;
+`production-signing` keeps its required reviewers and holds no key. A test pins
+that this workflow never names `production-signing`.
 
-An administrator applies these settings, creating the generation gate before
-removing the signing gate. Steps 1 and 2 can be done before the workflow change
-merges, and doing so avoids an interruption: once it merges, generation runs fail
-the reviewer check until `generation-approval` has a required reviewer. Step 3
-must wait until the workflow change is on main.
+After the change merges and the settings below are applied, **anyone who can
+dispatch this workflow on main can sign allowlisted, reviewed candidates
+without human approval**. The reviewed-head and publication-base allowlists
+(`REVIEWED_RULESPEC_REFS` and `REVIEWED_RULESPEC_PR_BASES` in
+`src/axiom_encode/prepare_signed_backfill.py`) and this workflow change only
+through a pull request to main, so whoever can merge to main controls what
+`apply-signing` signs. Generation still requires a human approval in each
+attempt.
 
-1. Open `TheAxiomFoundation/axiom-encode` → **Settings** → **Environments** →
-   **New environment**. Enter `generation-approval`, then click **Configure
-   environment**. If a generation run already created it, open it instead.
-2. Select **Required reviewers**, add `@MaxGhenis` and `@PavelMakarchuk`, then
-   click **Save protection rules**. Leave **Environment secrets** empty.
-3. Return to **Environments** and open `production-signing`. Clear **Required
-   reviewers**, deselect **Allow administrators to bypass configured protection
-   rules**, then click **Save protection rules**. Keep its existing signing secret.
-4. Under **Deployment branches**, retain **Selected branches and tags** with
-   only a **Branch** rule named `main`. If absent, click **Add deployment branch
-   or tag rule**, choose **Branch**, enter `main`, then click **Add rule**. Remove
-   any other branch or tag rules.
+Settings, in this order:
+
+1. Before the change merges, create `generation-approval` with required
+   reviewers `@MaxGhenis` and `@PavelMakarchuk`, a deployment branch rule for
+   `main` only, administrator bypass off, and no secrets.
+2. Before the change merges, create `apply-signing` with a deployment branch
+   rule for `main` only, no required reviewers, and administrator bypass off.
+   Add the secrets `AXIOM_ENCODE_APPLY_SIGNING_KEY` (the apply key) and
+   `AXIOM_REPO_TOKEN` (a token with contents and pull-request write on the
+   RuleSpec repositories and read on axiom-corpus, axiom-rules-engine and
+   axiom-compose).
+3. After the change merges, delete both secrets from `production-signing` and
+   keep its required reviewers, so no earlier workflow revision can reach the
+   key, with or without approval.
 
 These controls and labels are documented in GitHub's
 [environment configuration instructions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).

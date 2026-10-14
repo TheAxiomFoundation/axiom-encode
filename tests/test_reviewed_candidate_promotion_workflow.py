@@ -206,7 +206,7 @@ def test_approval_graph_has_one_secretless_generation_gate() -> None:
         "classify_run",
         "approve_generation",
     }
-    assert jobs["encode"]["environment"] == "production-signing"
+    assert jobs["encode"]["environment"] == "apply-signing"
     approval = jobs["approve_generation"]
     assert approval["environment"] == "generation-approval"
     assert approval["permissions"] == {"actions": "read"}
@@ -240,6 +240,32 @@ def test_approval_graph_has_one_secretless_generation_gate() -> None:
     }
     assert "secrets." not in json.dumps(classifier)
     assert "secrets." not in json.dumps(approval)
+
+
+def test_no_job_signs_in_the_environment_earlier_revisions_use() -> None:
+    # GitHub re-runs a run with its original workflow file for 30 days, and
+    # earlier revisions sign in production-signing with no approve_generation
+    # job. Keeping the key out of every environment those revisions name is what
+    # stops a re-run from signing without approval, so this workflow must never
+    # name production-signing again.
+    workflow = _workflow()
+    environments = {
+        name: job.get("environment") for name, job in workflow["jobs"].items()
+    }
+    assert "production-signing" not in json.dumps(environments)
+    code = [
+        line
+        for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    assert not [line for line in code if "production-signing" in line]
+    signing = [
+        name
+        for name, job in workflow["jobs"].items()
+        if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in json.dumps(job)
+    ]
+    assert signing == ["encode"]
+    assert workflow["jobs"]["encode"]["environment"] == "apply-signing"
 
 
 def test_promotion_boundary_runs_before_checkout_or_network_access() -> None:

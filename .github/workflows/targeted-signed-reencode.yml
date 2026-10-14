@@ -289,7 +289,11 @@ jobs:
           )
         )
       }}
-    environment: production-signing
+    # Earlier revisions of this workflow sign in production-signing with no
+    # approve_generation job, and GitHub re-runs a run with its original
+    # workflow file for 30 days. The key therefore lives only in apply-signing,
+    # which no earlier revision names. Never sign in production-signing here.
+    environment: apply-signing
     runs-on: ubuntu-latest
     # A replacement with a composed source bundle performs a target preflight,
     # each source lane, and the final target validation serially. Keep the

@@ -2171,7 +2171,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
 
     job = workflow["jobs"]["encode"]
     assert job["name"] == "Queue protected signed RuleSpec re-encode"
-    assert job["environment"] == "production-signing"
+    assert job["environment"] == "apply-signing"
     assert "github.ref == 'refs/heads/main'" in job["if"]
     assert "github.actor == 'github-actions[bot]'" in job["if"]
     assert "github.run_attempt == 1" in job["if"]
@@ -3087,7 +3087,7 @@ def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> Non
 
     job = workflow["jobs"]["encode"]
     assert "approve_generation" in job["needs"]
-    assert job["environment"] == "production-signing"
+    assert job["environment"] == "apply-signing"
     assert job["steps"][0]["name"] == "Reject mixed promotion inputs"
     assert "IS_PROMOTION" in job["steps"][0]["env"]
 

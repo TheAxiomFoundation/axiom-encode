@@ -3,7 +3,7 @@
 An hourly workflow that sends SNAP manual pages to the targeted encode workflow
 and records what happened to each one. It replaces nothing in the encode path:
 every item is an ordinary `targeted-signed-reencode.yml` run on the current
-rulespec-us `main` tip, with the same `production-signing` approval and the
+rulespec-us `main` tip, with the same `generation-approval` approval and the
 same draft RuleSpec pull request as an ad hoc encode.
 
 - Script: `scripts/snap_dispatch_queue.py`
