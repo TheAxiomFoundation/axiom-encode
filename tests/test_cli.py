@@ -7374,30 +7374,6 @@ class TestCmdValidate:
 
 
 class TestCmdCompile:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
         checkout = tmp_path / "rulespec-us"
         rules_file = checkout / "us/statutes/1/test.yaml"
@@ -7420,12 +7396,14 @@ rules:
         )
         return rules_file
 
-    def _compile_args(self, rules_file: Path, *, json_output: bool):
+    def _compile_args(
+        self, rules_file: Path, *, json_output: bool, axiom_rules_path: Path
+    ):
         args = MagicMock()
         args.file = rules_file
         args.json = json_output
         args.as_of = None
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.axiom_rules_engine_ref = None
         args.rulespec_dependency_root = []
         return args
@@ -7439,8 +7417,12 @@ rules:
             cmd_compile(args)
         assert exc_info.value.code == 1
 
-    def test_compile_success_text(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=False)
+    def test_compile_success_text(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=False,
+            axiom_rules_path=real_engine.root,
+        )
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_compile(args)
@@ -7449,8 +7431,12 @@ rules:
         assert "Compiled" in captured.out
         assert "test_rule" in captured.out
 
-    def test_compile_success_json(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=True)
+    def test_compile_success_json(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=True,
+            axiom_rules_path=real_engine.root,
+        )
         args.as_of = "2024-01-01"
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7462,10 +7448,11 @@ rules:
         assert output["rule_count"] == 1
         assert output["rules"] == ["test_rule"]
 
-    def test_compile_failure_text(self, capsys, tmp_path):
+    def test_compile_failure_text(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=False,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7474,10 +7461,11 @@ rules:
         captured = capsys.readouterr()
         assert "Compilation failed" in captured.out
 
-    def test_compile_failure_json(self, capsys, tmp_path):
+    def test_compile_failure_json(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=True,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7512,30 +7500,6 @@ rules:
 
 
 class TestCmdTest:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _write_rulespec_with_test(
         self,
         tmp_path: Path,
@@ -7580,13 +7544,13 @@ rules:
         )
         return repo
 
-    def _args(self, repo: Path, *, json_output: bool):
+    def _args(self, repo: Path, *, json_output: bool, axiom_rules_path: Path):
         _write_test_rulespec_toolchain(repo)
         args = MagicMock()
         args.root = repo / "us"
         args.paths = []
         args.json = json_output
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
         return args
 
@@ -8200,11 +8164,13 @@ rules:
         )
         assert proof_import["hash"] == f"sha256:{_sha256_file(child_a2)}"
 
-    def test_executes_companion_tests_success_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_success_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
@@ -8213,7 +8179,9 @@ rules:
         assert output["cases"] == 1
         assert output["failures"] == []
 
-    def test_executes_companion_tests_with_custom_period_name(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_custom_period_name(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/policies/ssa/base.yaml"
         target.parent.mkdir(parents=True)
@@ -8243,12 +8211,16 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_with_table_rows(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_table_rows(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/payment.yaml"
         target.parent.mkdir(parents=True)
@@ -8286,13 +8258,15 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
     def test_executes_companion_tests_with_absolute_relation_inputs(
-        self, capsys, tmp_path
+        self, real_engine, capsys, tmp_path
     ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/relation.yaml"
@@ -8328,16 +8302,20 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_failure_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 1
         output = json.loads(capsys.readouterr().out)
@@ -8345,7 +8323,7 @@ rules:
         assert "expected 16" in output["failures"][0]["message"]
 
     def test_executes_companion_tests_prefers_current_repo_over_env_root(
-        self, capsys, monkeypatch, tmp_path
+        self, real_engine, capsys, monkeypatch, tmp_path
     ):
         stale_repo = tmp_path / "canonical" / "rulespec-us"
         stale_child = stale_repo / "us/statutes/1/child.yaml"
@@ -8411,7 +8389,9 @@ rules:
         monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)

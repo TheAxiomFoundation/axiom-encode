@@ -617,7 +617,7 @@ def test_workflow_runs_every_shard_and_reports_each():
         "run": (
             "set -e\n"
             f'export {ci_shards.REPORT_ENV}="$RUNNER_TEMP/shard-report"\n'
-            ".venv/bin/pytest --durations=200 --durations-min=5 tests/\n"
+            '.venv/bin/pytest --durations=200 --durations-min=5 -m "not real_engine" tests/\n'
             "# Reached only when pytest exits 0, so a failure anywhere in the run,\n"
             "# including after the report was written, publishes nothing.\n"
             'cat "$RUNNER_TEMP/shard-report" >> "$GITHUB_OUTPUT"\n'

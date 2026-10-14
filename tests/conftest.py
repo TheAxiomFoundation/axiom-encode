@@ -24,8 +24,18 @@ from axiom_encode import (
 )
 from axiom_encode import signing_broker as _signing_broker
 from tests import ci_shards
+from tests import real_engine as _real_engine_plugin
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
+
+
+def pytest_configure(config):
+    # tests/real_engine.py defines its own pytest_collection_modifyitems (and the
+    # real_engine fixture). This conftest defines one for the CI shard split, and
+    # a module can hold only one function per hook name, so register it as a plugin.
+    if not config.pluginmanager.is_registered(_real_engine_plugin):
+        config.pluginmanager.register(_real_engine_plugin, "axiom-encode-real-engine")
+
 
 # This session's CI shard, once collection has chosen its tests; absent when unsharded.
 # Kept on the session's own config so a pytest run started inside a test cannot touch it.

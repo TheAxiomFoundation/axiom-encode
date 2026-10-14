@@ -642,36 +642,6 @@ def _write_signed_guard_fixture(
     return rulespec_root, corpus_root
 
 
-def _current_engine_root() -> Path | None:
-    configured = os.environ.get("AXIOM_RULES_ENGINE_ROOT")
-    candidates = [
-        *(Path(configured).expanduser() for _ in (0,) if configured),
-        ROOT.parent / "axiom-rules-engine-canonical-loader-hard-cut",
-        ROOT.parents[1] / "axiom-rules-engine",
-    ]
-    for root in candidates:
-        if not root.is_dir():
-            continue
-        for binary in (
-            root / "target" / "debug" / "axiom-rules-engine",
-            root / "target" / "release" / "axiom-rules-engine",
-            root / "axiom-rules-engine",
-        ):
-            if not binary.is_file() or not os.access(binary, os.X_OK):
-                continue
-            probe = subprocess.run(
-                [str(binary), "compile", "--help"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if probe.returncode == 0 and "--rulespec-root" in (
-                probe.stdout + probe.stderr
-            ):
-                return root.resolve()
-    return None
-
-
 def _write_current_engine_fixture(tmp_path: Path) -> tuple[Path, Path]:
     rulespec_root = tmp_path / "rulespec-us"
     corpus_root = tmp_path / "axiom-corpus"
@@ -1570,13 +1540,11 @@ def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transactio
 
 
 def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
+    real_engine,
     signing_supervisor: Path,
     trusted_real_cli_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
 ) -> None:
-    engine_root = _current_engine_root()
-    if engine_root is None:
-        pytest.skip("current axiom-rules-engine binary is not available")
     rules, corpus_root = _write_current_engine_fixture(tmp_path)
     apply_public, _apply_key = _keypair(b"\xab" * 32)
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
@@ -1598,7 +1566,7 @@ def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
             "--corpus-path",
             str(corpus_root),
             "--axiom-rules-engine-path",
-            str(engine_root),
+            str(real_engine.root),
             "--skip-reviewers",
         ),
     )
