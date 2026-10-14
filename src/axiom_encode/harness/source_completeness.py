@@ -2603,6 +2603,7 @@ _US_CODE_REFERENCE_LIST_TAIL = re.compile(
     r"(?:(?:and/or|and|or|nor|through|thru|to)[ \t]+)?$",
     flags=re.IGNORECASE,
 )
+_US_CODE_TRAILING_CHAIN = re.compile(r"(?:\([A-Za-z0-9]{1,6}\))+\Z")
 _US_CODE_REFERENCE_CONTINUATION_FOLLOWER = re.compile(
     r"[ \t]+(?:of|and|or|nor|through|to|shall|applies|apply|does|do|is|are|"
     r"was|were|has|have|thereof|hereof|above|below|as)\b",
@@ -2750,8 +2751,10 @@ def _restore_flattened_us_code_outline(
         labels = re.findall(r"\(([A-Za-z0-9]+)\)", match.group("chain"))
         if not all(_is_parenthesized_outline_label(label) for label in labels):
             continue
-        line_start = source_text.rfind("\n", 0, chain_start) + 1
-        prefix = source_text[line_start:chain_start]
+        # Only the same line's last few words decide a marker's role.
+        line_start = source_text.rfind("\n", max(0, chain_start - 256), chain_start)
+        prefix_start = max(line_start + 1, chain_start - 256)
+        prefix = source_text[prefix_start:chain_start]
         # A designation followed by punctuation (`(I), (II), and`) is cited,
         # not opened; it still anchors a following list continuation.
         is_reference = bool(
@@ -2762,7 +2765,7 @@ def _restore_flattened_us_code_outline(
         previous = _US_CODE_REFERENCE_LIST_TAIL.search(prefix)
         if not is_reference and previous is not None:
             previous_end = (
-                line_start + previous.start() + len(previous.group("label")) + 2
+                prefix_start + previous.start() + len(previous.group("label")) + 2
             )
             if (
                 previous_end in structural_ends
@@ -2771,8 +2774,8 @@ def _restore_flattened_us_code_outline(
                 # `(3) (A)`: a spaced chain under a structural marker.
                 record_structural(chain_end, labels)
                 continue
-            previous_chain = re.search(
-                r"(?:\([A-Za-z0-9]{1,6}\))+\Z", source_text[:previous_end]
+            previous_chain = _US_CODE_TRAILING_CHAIN.search(
+                source_text, max(0, previous_end - 128), previous_end
             )
             assert previous_chain is not None
             attached = (
