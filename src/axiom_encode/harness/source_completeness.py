@@ -12989,8 +12989,8 @@ def _regulation_runtime_gap_descendants_are_administrative(
     """Keep a regulation runtime gap from covering operative rules.
 
     A runtime-gap deferral covers every descendant of its branch. For a
-    federal or state regulation each covered leaf must itself state an
-    administrative artifact and action, no computation, and no mandated
+    federal or state regulation each covered leaf must itself name an
+    administrative artifact or action and state no computation and no mandated
     eligibility or income consequence. So `7 CFR 273.4(b)` (a USCIS notice
     duty in (b)(1) beside the ineligible-alien classification in (b)(2)) cannot
     be deferred whole, while (b)(1) still can, and `7 CFR 273.4(c)(4)`, which
@@ -13016,9 +13016,14 @@ def _regulation_runtime_gap_descendants_are_administrative(
             for other in covered
         )
     ]
+    # The whole branch already names an administrative artifact and action;
+    # each covered leaf must itself be administrative in at least one of
+    # those respects and state no computation or mandated consequence.
     return all(
-        _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE.search(leaf.text)
-        and _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(leaf.text)
+        (
+            _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE.search(leaf.text)
+            or _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(leaf.text)
+        )
         and not source_states_explicit_computation(leaf.text)
         and not _REGULATION_OPERATIVE_CONSEQUENCE.search(leaf.text)
         for leaf in leaves
