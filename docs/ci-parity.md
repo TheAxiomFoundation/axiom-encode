@@ -169,7 +169,11 @@ Python. The scripts cover:
   `rulespec-us` entry is reduced the same way, while the composer keeps its
   tags, since "Checkout axiom-compose" fetches with `fetch-depth: 0` (see
   "Composer tags" under "Known differences"). Git runs on these copies
-  without the developer's global or system configuration or hooks. Only
+  without the developer's global or system configuration or hooks. CI
+  fetches every dependency with its full history (`--unshallow`, and
+  `fetch-depth: 0` for the composer), so a shallow local dependency
+  checkout fails resolution rather than lending its truncated history to
+  a copy. Only
   the paths tracked at the pin are placed, and paths this filesystem would
   merge (case or Unicode normalization) fail resolution. A path that is a
   regular file in the verified checkout is cloned copy-on-write from it
@@ -218,6 +222,9 @@ Python. The scripts cover:
   `AXIOM_DEPENDENCY_STAGE` for its dependency root, and `AXIOM_COMPOSE_REF`.
   So committed configuration that names `${GITHUB_WORKSPACE}`,
   `${RUNNER_OS}` or `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner.
+  Git, which uv runs for git dependencies, and the provision script read no
+  global or system Git configuration, as on a fresh runner, so a
+  developer's hooks, credential helpers and URL rewrites never apply.
   Repository pytest gets the same runner variables. uv still reads `/etc/uv/uv.toml` when no system configuration
   is found there, and from a directory with no uv configuration of its own it
   reads a `uv.toml` or `[tool.uv]` table above it. So that file, or
@@ -666,6 +673,9 @@ named:
   runner does not have: `/etc/uv/uv.toml`, or a `uv.toml` or `[tool.uv]`
   table above the temporary directory (the message names the file). For the
   second, point `TMPDIR` outside the uv project.
+- **"Cannot reproduce CI's ... checkout from the shallow checkout".** A
+  dependency checkout is shallow. Run `git -C <checkout> fetch --unshallow`
+  and rerun.
 - **"Cannot make a disposable ... checkout" or "Disposable ... checkout
   still differs".** `ci` could not copy a verified encoder, engine or corpus
   checkout at its pin for the composer build (the pin is missing from its

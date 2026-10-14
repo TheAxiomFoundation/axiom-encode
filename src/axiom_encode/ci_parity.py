@@ -5673,6 +5673,10 @@ def _build_workflow_composer(
     # its own AXIOM_COMPOSE_REF, never the developer's values. Committed uv
     # configuration can name any of them, as in ${AXIOM_DEPENDENCY_ROOT}.
     environment.update(step_environment or {})
+    # Git, which uv runs for git dependencies, reads no global or system
+    # configuration, as on a fresh runner: no developer hooks, credential
+    # helpers or URL rewrites.
+    environment.update(_isolated_git_settings())
     environment["XDG_CONFIG_HOME"] = str(empty_config)
     environment["XDG_CONFIG_DIRS"] = str(empty_config)
     # The one uv setting a committed file can use to move writes is
@@ -5779,6 +5783,7 @@ def _build_workflow_composer(
         "HOME": str(home),
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
+        **_isolated_git_settings(),
     }
     result = _run_build_command(
         [
@@ -6282,6 +6287,36 @@ def _copy_on_write(source: Path, target: Path) -> None:
     shutil.copy2(source, target, follow_symlinks=False)
 
 
+def _isolated_git_settings() -> dict[str, str]:
+    """The variables that keep Git from a developer's global and system setup."""
+
+    return {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
+def _refuse_shallow_source(source: Path, name: str) -> None:
+    """Fail resolution for a shallow checkout CI would see with full history.
+
+    "Authenticate dependency commits" fetches every dependency with
+    --unshallow (92ccb0f2 L1559) and the composer checkout uses
+    fetch-depth 0 (L1602), so their history, and anything derived from it
+    (setuptools-scm or hatch-vcs versions, `git describe`), is complete. A
+    copy of a shallow local checkout would not be.
+    """
+
+    shallow = _isolated_git(source, "rev-parse", "--is-shallow-repository", check=False)
+    if shallow.returncode == 0 and shallow.stdout.strip() == "true":
+        raise ValueError(
+            f"Cannot reproduce CI's {name} checkout from the shallow checkout "
+            f"{source}: CI fetches its full history. Run "
+            f"`git -C {source} fetch --unshallow` and rerun"
+        )
+
+
 def _isolated_git_environment() -> dict[str, str]:
     """Git with no global or system configuration, attributes or prompts.
 
@@ -6290,13 +6325,7 @@ def _isolated_git_environment() -> dict[str, str]:
     templates touch a checkout ci made.
     """
 
-    return {
-        **_git_environment(),
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_ATTR_NOSYSTEM": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    return {**_git_environment(), **_isolated_git_settings()}
 
 
 def _isolated_git(
@@ -6415,6 +6444,7 @@ def _disposable_checkout(
     before the step (the corpus release object), copied from ``source``.
     """
 
+    _refuse_shallow_source(source, destination.name)
     environment = _isolated_git_environment()
 
     def git(*arguments: str, stdin: bytes | None = None) -> bytes:
@@ -6666,6 +6696,7 @@ def _fresh_dependency_entry(
     tree, with origin https://github.com/<repository>.
     """
 
+    _refuse_shallow_source(source, _CHECKOUT_NAMES[name])
     clone = resources.enter_context(
         committed_checkout(source, commit, repository=repository)
     )
