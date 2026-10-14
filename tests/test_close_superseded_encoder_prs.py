@@ -54,6 +54,8 @@ class FakeGitHub:
     def __init__(self, pulls: list[dict[str, Any]]) -> None:
         self.pulls = pulls
         self.commits: dict[int, list[str]] = {}
+        self.committers: dict[int, list[str]] = {}
+        self.checks: dict[str, list[dict[str, str]]] = {}
         self.files: dict[int, list[dict[str, str]]] = {}
         self.contents: dict[tuple[str, str], dict[str, Any]] = {}
         self.writes: list[tuple[str, str, dict[str, Any]]] = []
@@ -67,8 +69,25 @@ class FakeGitHub:
         prefix = f"repos/{REPO}/pulls/"
         if path.startswith(prefix) and path.endswith("/commits"):
             number = int(path[len(prefix) : -len("/commits")])
-            names = self.commits.get(number, [closer.BOT_AUTHOR])
-            return [{"commit": {"author": {"name": name}}} for name in names]
+            authors = self.commits.get(number, [closer.BOT_AUTHOR])
+            committers = self.committers.get(number, authors)
+
+            def person(name: str) -> dict[str, str]:
+                email = (
+                    closer.BOT_EMAIL
+                    if name == closer.BOT_AUTHOR
+                    else f"{name.split()[0].lower()}@example.com"
+                )
+                return {"name": name, "email": email}
+
+            return [
+                {"commit": {"author": person(author), "committer": person(committer)}}
+                for author, committer in zip(authors, committers, strict=True)
+            ]
+        checks = f"repos/{REPO}/commits/"
+        if path.startswith(checks) and path.endswith("/check-runs"):
+            sha = path[len(checks) : -len("/check-runs")]
+            return {"check_runs": self.checks.get(sha, [])}
         if path.startswith(prefix) and path.endswith("/files"):
             number = int(path[len(prefix) : -len("/files")])
             return self.files.get(number, []) if params.get("page") == "1" else []
@@ -167,7 +186,57 @@ def test_pr_with_a_human_commit_is_kept() -> None:
     github.commits[1370] = [closer.BOT_AUTHOR, "Max Ghenis"]
     decision = _plan(github)[1370]
     assert decision.action == "keep"
-    assert "not made by axiom-encode-bot" in decision.reason
+    assert "not authored and committed by axiom-encode-bot" in decision.reason
+
+
+def test_bot_commit_amended_by_a_person_is_kept() -> None:
+    # Amending or rebasing keeps the bot as author; the committer changes.
+    github = FakeGitHub([_pull(1370, MEMO), _pull(1371, MEMO)])
+    github.commits[1370] = [closer.BOT_AUTHOR]
+    github.committers[1370] = ["Max Ghenis"]
+    decision = _plan(github)[1370]
+    assert decision.action == "keep"
+    assert "not authored and committed" in decision.reason
+
+
+def _checks(*conclusions: str | None) -> list[dict[str, str | None]]:
+    return [
+        {
+            "status": "completed" if conclusion else "in_progress",
+            "conclusion": conclusion,
+        }
+        for conclusion in conclusions
+    ]
+
+
+@pytest.mark.parametrize(
+    "newer,expected",
+    [
+        (_checks("success", "failure"), "failure"),
+        (_checks("success", None), "pending"),
+        (_checks("success", "cancelled"), "incomplete"),
+        ([], "none"),
+    ],
+)
+def test_older_pr_with_green_ci_is_kept_over_a_newer_pr_without_it(
+    newer: list, expected: str
+) -> None:
+    github = FakeGitHub([_pull(1370, MEMO), _pull(1371, MEMO)])
+    github.checks[f"{1370:040d}"] = _checks("success", "skipped", "neutral")
+    github.checks[f"{1371:040d}"] = newer
+    decision = _plan(github)[1370]
+    assert decision.action == "keep"
+    assert f"RuleSpec CI: success; #1371: {expected}" in decision.reason
+    assert "its RuleSpec CI passes and #1371's does not" in decision.reason
+
+
+def test_older_pr_is_closed_when_both_pass_ci() -> None:
+    github = FakeGitHub([_pull(1370, MEMO), _pull(1371, MEMO)])
+    github.checks[f"{1370:040d}"] = _checks("success")
+    github.checks[f"{1371:040d}"] = _checks("success")
+    decision = _plan(github)[1370]
+    assert decision.action == "close"
+    assert "RuleSpec CI: success; #1371: success" in decision.reason
 
 
 def test_base_of_an_open_stacked_pr_is_kept() -> None:
@@ -260,15 +329,32 @@ def test_dry_run_is_the_default_and_writes_nothing(capsys) -> None:
     assert "dry run; pass --apply to close" in out
 
 
-def test_apply_comments_then_closes_without_deleting_branches() -> None:
+def test_apply_closes_then_comments_without_deleting_branches() -> None:
     github = FakeGitHub([_pull(1370, MEMO), _pull(1371, MEMO)])
     assert closer.main(["--country", "us", "--apply"], github=github) == 0
     assert [(method, path) for method, path, _body in github.writes] == [
-        ("POST", f"repos/{REPO}/issues/1370/comments"),
         ("PATCH", f"repos/{REPO}/pulls/1370"),
+        ("POST", f"repos/{REPO}/issues/1370/comments"),
     ]
-    assert "superseded by #1371" in github.writes[0][2]["body"]
-    assert github.writes[1][2] == {"state": "closed"}
+    assert github.writes[0][2] == {"state": "closed"}
+    assert "superseded by #1371" in github.writes[1][2]["body"]
+
+
+def test_apply_only_acts_on_the_reviewed_numbers() -> None:
+    github = FakeGitHub(
+        [_pull(1370, MEMO), _pull(1371, MEMO), _pull(1351, COLA), _pull(1352, COLA)]
+    )
+    assert closer.main(["--apply", "--only", "1351,9999"], github=github) == 0
+    assert [path for _method, path, _body in github.writes] == [
+        f"repos/{REPO}/pulls/1351",
+        f"repos/{REPO}/issues/1351/comments",
+    ]
+
+
+@pytest.mark.parametrize("raw", ["", "abc", "0", "1370,x"])
+def test_only_rejects_malformed_numbers(raw: str) -> None:
+    with pytest.raises(SystemExit):
+        closer.main(["--apply", "--only", raw], github=FakeGitHub([]))
 
 
 def test_kept_prs_are_never_written() -> None:

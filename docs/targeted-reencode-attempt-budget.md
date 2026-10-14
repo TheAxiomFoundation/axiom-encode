@@ -138,8 +138,10 @@ drafts open. `scripts/close_superseded_encoder_prs.py` lists them and plans to
 close a draft when a newer open encoder PR names the same citation on the same
 base branch, or when the default branch holds a signed manifest for the
 citation that was generated after the draft's own. It keeps a PR that is ready
-for review, that has a commit not made by `axiom-encode-bot`, or whose branch is
-the base of an open PR that stays open (a stacked repair).
+for review, that has a commit not both authored and committed by
+`axiom-encode-bot`, whose branch is the base of an open PR that stays open (a
+stacked repair), or whose RuleSpec CI passes while the newer PR's does not.
+Each line of the plan shows the CI state of both PRs.
 
 The script is a dry run by default. Read the plan first:
 
@@ -147,7 +149,8 @@ The script is a dry run by default. Read the plan first:
 uv run python scripts/close_superseded_encoder_prs.py --country us
 ```
 
-Then run it again with `--apply` to comment on and close each planned PR. It
-never deletes branches, so a closed PR can be reopened. The encode workflow does
-not run it: closing other PRs from the signing workflow would need a decision
-about which of two drafts to keep before RuleSpec CI has judged either.
+Then run it again with `--apply --only <numbers>`, naming the PRs you reviewed,
+to close each one and comment why. A number that the new plan no longer closes
+is skipped. It never deletes branches, so a closed PR can be reopened. The
+encode workflow does not run it: at publish time RuleSpec CI has not judged the
+new PR yet, so the choice between two drafts belongs to a person.

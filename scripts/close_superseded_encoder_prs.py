@@ -14,12 +14,14 @@ This script lists those open drafts and plans to close a draft when either:
 - the default branch now holds a signed manifest for the same citation whose
   ``generated_at`` is later than the draft's own manifest.
 
-It keeps a draft that is not a draft any more, that carries a commit not made
-by ``axiom-encode-bot``, or whose branch is the base of an open PR that stays
-open (a stacked repair). It is a dry run by default: it prints the plan and
-changes nothing. With ``--apply`` it comments on each planned PR, naming why
-it is superseded, and closes it. It never deletes branches, so a closed PR can
-be reopened. A person runs it; the encode workflow does not.
+It keeps a PR that is not a draft any more, that carries a commit not both
+authored and committed by ``axiom-encode-bot``, whose branch is the base of an
+open PR that stays open (a stacked repair), or whose RuleSpec CI passes while
+the newer PR's does not. It prints each PR's CI state. It is a dry run by
+default: it prints the plan and changes nothing. With ``--apply`` it closes
+each planned PR (``--only`` limits that to the numbers reviewed in the dry
+run) and comments why. It never deletes branches, so a closed PR can be
+reopened. A person runs it; the encode workflow does not.
 
 Authentication: ``GH_TOKEN`` or ``GITHUB_TOKEN``, else ``gh auth token``.
 """
@@ -43,6 +45,7 @@ from typing import Any, Protocol
 
 API_VERSION = "2022-11-28"
 BOT_AUTHOR = "axiom-encode-bot"
+BOT_EMAIL = "axiom-encode-bot@users.noreply.github.com"
 MANIFEST_PREFIX = ".axiom/encoding-manifests/"
 TITLE_PATTERN = re.compile(r"Add signed encoding manifest for (?P<citation>\S+)")
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
@@ -228,11 +231,56 @@ def _generated_at(manifest: dict[str, Any]) -> datetime | None:
 
 
 def only_bot_commits(github: GitHub, repo: str, pr: EncoderPr) -> bool:
+    """Every commit was authored and committed by the workflow's bot identity.
+
+    A person who amends, rebases or cherry-picks a bot commit keeps the bot as
+    author but becomes the committer, so both identities are checked.
+    """
+
     commits = _paged(github, f"repos/{repo}/pulls/{pr.number}/commits", {})
+
+    def is_bot(person: object) -> bool:
+        return (
+            isinstance(person, dict)
+            and person.get("name") == BOT_AUTHOR
+            and person.get("email") == BOT_EMAIL
+        )
+
     return bool(commits) and all(
-        ((commit.get("commit") or {}).get("author") or {}).get("name") == BOT_AUTHOR
+        is_bot((commit.get("commit") or {}).get("author"))
+        and is_bot((commit.get("commit") or {}).get("committer"))
         for commit in commits
     )
+
+
+def ci_state(github: GitHub, repo: str, sha: str) -> str:
+    """Summarize the head commit's check runs.
+
+    ``failure`` if any run failed, ``pending`` if any is unfinished,
+    ``incomplete`` if any was cancelled or went stale, ``success`` if all
+    passed or were skipped, and ``none`` without check runs.
+    """
+
+    runs: list[dict[str, Any]] = []
+    for page in range(1, 11):
+        payload = github.get(
+            f"repos/{repo}/commits/{sha}/check-runs",
+            {"per_page": "100", "page": str(page)},
+        )
+        batch = (payload or {}).get("check_runs") or []
+        runs.extend(run for run in batch if isinstance(run, dict))
+        if len(batch) < 100:
+            break
+    if not runs:
+        return "none"
+    conclusions = {run.get("conclusion") for run in runs}
+    if conclusions & {"failure", "timed_out", "action_required", "startup_failure"}:
+        return "failure"
+    if any(run.get("status") != "completed" for run in runs):
+        return "pending"
+    if conclusions - {"success", "neutral", "skipped"}:
+        return "incomplete"
+    return "success"
 
 
 def plan(
@@ -248,10 +296,12 @@ def plan(
     for pr in prs:
         groups[(pr.citation, pr.base)].append(pr)
     reasons: dict[int, str] = {}
+    superseded_by: dict[int, EncoderPr] = {}
     for members in groups.values():
         members.sort(key=lambda pr: (pr.created_at, pr.number))
         newest = members[-1]
         for pr in members[:-1]:
+            superseded_by[pr.number] = newest
             reasons[pr.number] = (
                 f"superseded by #{newest.number}, a newer open encoder PR for "
                 f"`{pr.citation}` on base `{pr.base}`"
@@ -262,14 +312,32 @@ def plan(
             if landed:
                 reasons[pr.number] = landed
 
+    states: dict[str, str] = {}
+
+    def state_of(pr: EncoderPr) -> str:
+        if pr.head_sha not in states:
+            states[pr.head_sha] = ci_state(github, repo, pr.head_sha)
+        return states[pr.head_sha]
+
     keep: dict[int, str] = {}
     for pr in prs:
         if pr.number not in reasons:
             continue
+        newer = superseded_by.get(pr.number)
+        reasons[pr.number] += f" (RuleSpec CI: {state_of(pr)}"
+        reasons[pr.number] += (
+            f"; #{newer.number}: {state_of(newer)})" if newer is not None else ")"
+        )
         if not pr.draft:
             keep[pr.number] = "marked ready for review"
         elif not only_bot_commits(github, repo, pr):
-            keep[pr.number] = f"has commits not made by {BOT_AUTHOR}"
+            keep[pr.number] = f"has commits not authored and committed by {BOT_AUTHOR}"
+        elif (
+            newer is not None
+            and state_of(pr) == "success"
+            and state_of(newer) != "success"
+        ):
+            keep[pr.number] = f"its RuleSpec CI passes and #{newer.number}'s does not"
 
     # A stacked repair builds on its base PR's branch: keep a base while any
     # PR on top of it stays open.
@@ -318,18 +386,42 @@ def comment_body(decision: Decision) -> str:
     )
 
 
-def apply(github: GitHub, repo: str, decisions: list[Decision]) -> list[str]:
+def apply(
+    github: GitHub,
+    repo: str,
+    decisions: list[Decision],
+    *,
+    only: set[int] | None = None,
+) -> list[str]:
+    """Close each planned PR (restricted to ``only`` when given), then comment.
+
+    Closing first means a failed close never leaves a "closing" comment on an
+    open PR.
+    """
+
     done = []
     for decision in decisions:
         if decision.action != "close":
             continue
+        if only is not None and decision.number not in only:
+            continue
+        github.patch(f"repos/{repo}/pulls/{decision.number}", {"state": "closed"})
         github.post(
             f"repos/{repo}/issues/{decision.number}/comments",
             {"body": comment_body(decision)},
         )
-        github.patch(f"repos/{repo}/pulls/{decision.number}", {"state": "closed"})
         done.append(f"closed #{decision.number}")
     return done
+
+
+def _numbers(raw: str) -> set[int]:
+    try:
+        numbers = {int(part) for part in raw.split(",") if part.strip()}
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("expected PR numbers like 1370,1372") from exc
+    if not numbers or any(number < 1 for number in numbers):
+        raise argparse.ArgumentTypeError("expected PR numbers like 1370,1372")
+    return numbers
 
 
 def _token() -> str:
@@ -366,7 +458,13 @@ def main(argv: list[str] | None = None, github: GitHub | None = None) -> int:
         "--apply",
         dest="apply",
         action="store_true",
-        help="comment on and close every PR the plan closes",
+        help="close and comment on every PR the plan closes",
+    )
+    parser.add_argument(
+        "--only",
+        type=_numbers,
+        help="with --apply, act only on these PR numbers from the reviewed dry run "
+        "(comma-separated); a number the new plan no longer closes is skipped",
     )
     parser.add_argument("--json", action="store_true", help="print the plan as JSON")
     args = parser.parse_args(argv)
@@ -390,7 +488,7 @@ def main(argv: list[str] | None = None, github: GitHub | None = None) -> int:
             f"{'' if args.apply else ' (dry run; pass --apply to close)'}"
         )
     if args.apply:
-        for line in apply(client, repo, decisions):
+        for line in apply(client, repo, decisions, only=args.only):
             print(line)
     return 0
 
