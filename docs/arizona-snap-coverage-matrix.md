@@ -337,6 +337,26 @@ migration. Thus, the federal imports and 2012(j) relation need a coordinated,
 source-bound protected migration, followed by final program validation and
 fresh signatures.
 
+As of 2026-10-14, the protected income-standards replacement produced signed
+[RuleSpec #1770](https://github.com/TheAxiomFoundation/rulespec-us/pull/1770),
+but it remains draft and unmerged. Its Arizona validation shard passed, while
+the full exact-head run has two failures and other shards remain live.
+Colorado's unchanged direct importer now passes,
+making its active validation waiver stale, while a New York validation
+fingerprint changed because the imported 7 CFR 273.10 module reaches the
+still-invalid federal FY 2026 deductions and maximum-allotments modules.
+Compiling the New York root, 273.10, and those two modules separately on
+RuleSpec `09007382ad02b0928c91c022b2215be464285632` with the pinned engine
+`89571cc2a938707fd60a5489b951135345697296` reproduces the removed
+`source_verification.values` error in the two federal modules. The proposed
+[encoder #1907](https://github.com/TheAxiomFoundation/axiom-encode/pull/1907)
+permits narrowly checked post-apply waiver retirement for an unchanged direct
+importer, but is not a substitute for repairing the federal imports. The
+model-free signed metadata migration [encoder #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
+is also draft: an independent review reproduced an unrelated proof-pin rewrite
+in its cascade, and its waiver/signing protocol and exact-head CI remain open.
+Neither draft establishes a usable signed repair or Arizona household parity.
+
 The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
 passed its attempt-budget check and provisioned the protected signing
 supervisor, but failed source and compile
