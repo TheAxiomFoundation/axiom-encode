@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -300,24 +301,35 @@ def _json_sha256(payload: object) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _uses_corpus_lock_files(corpus_root: Path) -> bool:
+    """True when the corpus checkout keeps its bytes in lock files.
+
+    The same test as ``axiom_encode.corpus_materialize.corpus_uses_lock_files``,
+    made without importing ``axiom_encode``, so a checkout without lock files
+    reaches the same checks in the same order as before lock files existed.
+    """
+
+    try:
+        return stat.S_ISDIR(os.lstat(corpus_root / ".axiom/corpus-locks").st_mode)
+    except OSError:
+        return False
+
+
 def _manual_source_paths(corpus_root: Path, jurisdiction: str) -> list[Path]:
     """The provisions files a corpus checkout holds in one state's manual directory.
 
     A checkout that tracks its corpus bytes lists the directory. A checkout
     that keeps them in lock files (``.axiom/corpus-locks/``) also lists every
-    file its locks pin there, so a scope not yet fetched counts as it would
-    once fetched, and a file the release omits fails the build as it does in
-    a pre-switch checkout.
+    file its locks pin there: the files a pre-switch checkout of the same
+    content holds. So a locked scope the release omits fails the build, as a
+    tracked one does.
     """
 
-    from axiom_encode.corpus_materialize import (
-        corpus_uses_lock_files,
-        locked_directory_listing,
-    )
-
     directory = corpus_root / "data/corpus/provisions" / jurisdiction / "manual"
-    if not corpus_uses_lock_files(corpus_root):
+    if not _uses_corpus_lock_files(corpus_root):
         return sorted(directory.glob("*.jsonl"))
+    from axiom_encode.corpus_materialize import locked_directory_listing
+
     locked = locked_directory_listing(corpus_root, "provisions", jurisdiction, "manual")
     return sorted(
         {*directory.glob("*.jsonl"), *(corpus_root / path for path in locked)}
@@ -329,12 +341,15 @@ def _place_release_sources(
     release: VerifiedCorpusReleaseObject,
     source_paths: list[Path],
 ) -> None:
-    """Place a lock-file checkout's queue sources from the signed release's bytes.
+    """Put a lock-file checkout's queue sources in place with the signed release's bytes.
 
-    Each file comes from the first source whose bytes hash to the release's
-    sha256 and byte count (``axiom_encode.corpus_materialize``), and only
-    where the checkout's own lock pins those bytes. Any source that is not in
-    place afterwards fails the build before a byte is hashed or read.
+    Every source must be a release artifact. A missing one is placed from the
+    first source whose bytes hash to the release's sha256 and byte count
+    (``axiom_encode.corpus_materialize``), and only where the checkout's own
+    lock pins those bytes. A present one counts only if it has the release's
+    size and its lock, when it has one, pins the release's bytes; the hash
+    check that follows compares its bytes with the release. Anything else
+    fails the build before a byte is hashed or read.
     """
 
     from axiom_encode.corpus_materialize import (
@@ -343,6 +358,7 @@ def _place_release_sources(
         destination_state,
         fetch_disabled,
         materialize_release_artifacts,
+        present_file_note,
         release_sources,
     )
 
@@ -354,16 +370,27 @@ def _place_release_sources(
             raise ValueError(f"signed release omits queue source artifact: {relative}")
         by_path[relative] = artifacts[relative]
     selected = list(by_path.values())
-    root = Path(os.path.abspath(corpus_root))
+    # The materializer refuses a symlinked root; resolve it once, as reading
+    # through it did before the switch. Symlinks under the root stay refused.
+    root = Path(os.path.realpath(corpus_root))
+    unplaced: dict[str, str] = {}
     if fetch_disabled():
-        unplaced: dict[str, str] = {}
         for artifact in selected:
             try:
                 if destination_state(root, artifact) != "present":
                     unplaced[artifact.path] = "missing"
+                    continue
             except CorpusMaterializationError as exc:
                 unplaced[artifact.path] = str(exc)
+                continue
+            note = present_file_note(root, artifact, release.git_commit)
+            if note is not None:
+                unplaced[artifact.path] = note
         action = f"{NO_FETCH_ENV} is set, and {len(unplaced)} of"
+        hint = (
+            f"Unset {NO_FETCH_ENV} to place them, or place them first "
+            "(`axiom-encode corpus-fetch`, or `axiom-corpus-ingest corpus fetch`)."
+        )
     else:
         try:
             report = materialize_release_artifacts(
@@ -373,7 +400,6 @@ def _place_release_sources(
                     root, git_commit=release.git_commit, r2_bucket=release.r2_bucket
                 ),
                 release_commit=release.git_commit,
-                note_present=False,
             )
         except CorpusMaterializationError as exc:
             raise ValueError(f"cannot place queue sources: {exc}") from exc
@@ -385,8 +411,20 @@ def _place_release_sources(
                 f"{counts}",
                 file=sys.stderr,
             )
-        unplaced = {**report.failed, **report.skipped, **report.modified}
+        # notes: present by size, but the lock pins other bytes.
+        unplaced = {
+            **report.notes,
+            **report.failed,
+            **report.skipped,
+            **report.modified,
+        }
         action = f"cannot place {len(unplaced)} of"
+        hint = (
+            "Where no source had the bytes, place them first (`axiom-encode "
+            "corpus-fetch` with R2 read credentials, or `axiom-corpus-ingest "
+            "corpus fetch`), or check the corpus out with full history so git "
+            "objects can supply files committed before the switch."
+        )
     if unplaced:
         reasons = [f"{path}: {reason}" for path, reason in sorted(unplaced.items())]
         if len(reasons) > 10:
@@ -395,11 +433,10 @@ def _place_release_sources(
             f"{action} {len(selected)} queue source artifact(s) of corpus release "
             f"{release.name} in the lock-file corpus checkout {root}:\n"
             + "\n".join(reasons)
-            + "\nWhere no source had the bytes, place them first "
-            "(`axiom-encode corpus-fetch` with R2 read credentials, or "
-            "`axiom-corpus-ingest corpus fetch`), or check the corpus out with "
-            "full history so git objects can supply files committed before "
-            "the switch."
+            + "\n"
+            + hint
+            + " Where a lock pins other bytes than the release, the release does "
+            "not match the locks at corpus_ref, its own git.commit."
         )
 
 
@@ -413,6 +450,20 @@ def _git(corpus_root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _verify_corpus_checkout(corpus_root: Path, corpus_ref: str) -> None:
+    """The corpus checkout is a clean checkout of exactly ``corpus_ref``."""
+
+    try:
+        head = _git(corpus_root, "rev-parse", "HEAD")
+        checkout_status = _git(corpus_root, "status", "--porcelain")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("corpus_root must be a readable Git checkout") from exc
+    if head != corpus_ref:
+        raise ValueError(f"corpus checkout HEAD {head} does not match {corpus_ref}")
+    if checkout_status:
+        raise ValueError("corpus checkout is not clean")
+
+
 def _verify_corpus_provenance(
     corpus_root: Path,
     *,
@@ -424,15 +475,7 @@ def _verify_corpus_provenance(
 
     if RELEASE_NAME_PATTERN.fullmatch(release_name) is None:
         raise ValueError("release_name is malformed")
-    try:
-        head = _git(corpus_root, "rev-parse", "HEAD")
-        checkout_status = _git(corpus_root, "status", "--porcelain")
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValueError("corpus_root must be a readable Git checkout") from exc
-    if head != corpus_ref:
-        raise ValueError(f"corpus checkout HEAD {head} does not match {corpus_ref}")
-    if checkout_status:
-        raise ValueError("corpus checkout is not clean")
+    _verify_corpus_checkout(corpus_root, corpus_ref)
 
     manifest_path = corpus_root / "manifests/releases" / f"{release_name}.json"
     release = _load_json(manifest_path)
@@ -535,9 +578,7 @@ def _verify_signed_release_binding(
     if not isinstance(git, dict) or git.get("commit") != corpus_ref:
         raise ValueError("signed release Git provenance does not match corpus_ref")
 
-    from axiom_encode.corpus_materialize import corpus_uses_lock_files
-
-    if corpus_uses_lock_files(corpus_root):
+    if _uses_corpus_lock_files(corpus_root):
         _place_release_sources(corpus_root, verified, source_paths)
     artifacts = {artifact.path: artifact for artifact in verified.artifacts}
     for source_path in source_paths:
@@ -573,6 +614,9 @@ def build_snap_queue(
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
     _require_approved_pr_base_branch(pr_base_branch)
+    if _uses_corpus_lock_files(corpus_root):
+        # Read no lock file until the checkout is the queue's exact clean commit.
+        _verify_corpus_checkout(corpus_root, corpus_ref)
     or_paths = _manual_source_paths(corpus_root, "us-or")
     ut_paths = _manual_source_paths(corpus_root, "us-ut")
     source_paths = or_paths + ut_paths

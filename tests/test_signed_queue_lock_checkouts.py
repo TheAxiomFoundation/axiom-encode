@@ -131,6 +131,7 @@ class Corpus:
     release_scopes: list[Scope]
     signed: dict[str, bytes]
     unmaterialized: list[Scope] = field(default_factory=list)
+    byte_counts: dict[str, int] = field(default_factory=dict)
     release_sha: str = ""
 
     @property
@@ -154,6 +155,7 @@ class Corpus:
                 self.release_scopes,
                 git_commit=self.head,
                 unmaterialized_scopes=self.unmaterialized,
+                byte_count_overrides=self.byte_counts,
             )
         finally:
             for path, data in saved.items():
@@ -176,11 +178,13 @@ def _pre_switch_corpus(
     unmaterialized: list[Scope] = (),
     committed_overrides: dict[str, bytes] | None = None,
     tracked: dict[str, bytes] | None = None,
+    byte_counts: dict[str, int] | None = None,
 ) -> Corpus:
     """A corpus that tracks its files, signed by a release bound to its HEAD.
 
     ``committed_overrides`` replaces some committed bytes after the release's
     bytes are chosen, so the release no longer matches the commit.
+    ``byte_counts`` signs other byte counts for some paths, same sha256.
     """
 
     root.mkdir(parents=True)
@@ -220,6 +224,7 @@ def _pre_switch_corpus(
             if path in _scope_files(scope, b"")
         },
         list(unmaterialized),
+        dict(byte_counts or {}),
     )
     corpus.sign()
     return corpus
@@ -776,6 +781,164 @@ def test_cli_keeps_stdout_for_the_queue_and_fails_closed_with_a_message(
     assert "prepare_signed_queue: placed 4 corpus release artifact(s)" in placed.stderr
 
 
+@pytest.mark.parametrize("no_fetch", [False, True], ids=["fetch", "no-fetch"])
+def test_release_bytes_left_on_disk_do_not_stand_in_for_the_lock(
+    tmp_path, monkeypatch, no_fetch
+):
+    """A reused worktree can hold the release's bytes where the lock at
+    corpus_ref pins others. Before the switch that commit's tracked file
+    differs from the release and the build fails; the lock-file build fails too,
+    whatever is on disk."""
+
+    contents = _basic_contents()
+    path = f"{OR_DIR}/2026-07-20-or-supplement.jsonl"
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(
+        tmp_path / "axiom-corpus",
+        contents,
+        committed_overrides={path: _rows([_record("us-or/manual/odhs/open/page-9")])},
+    )
+    with pytest.raises(ValueError, match=f"digest differs from signed release: {path}"):
+        _build(corpus, tmp_path)
+
+    _switch(corpus)
+    _write_files(
+        corpus.root, {p: d for p, d in corpus.signed.items() if p.endswith(".jsonl")}
+    )
+    if no_fetch:
+        monkeypatch.setenv(cm.NO_FETCH_ENV, "1")
+    with pytest.raises(ValueError, match="1 of 4 queue source artifact") as caught:
+        _build(corpus, tmp_path)
+    assert f"{path}: present by size, but the checkout's lock" in str(caught.value)
+    assert "does not match the locks at corpus_ref" in str(caught.value)
+
+
+def test_a_misstated_byte_count_fails_only_after_the_switch_by_design(
+    tmp_path, monkeypatch
+):
+    """Intended difference from the pre-switch build.
+
+    A pre-switch build checks each source's sha256 against the release.
+    Placement also checks each artifact's byte count and its lock's
+    (sha256, size), so a signed release that misstates a size fails closed
+    after the switch. axiom-corpus records every file's size in the release
+    it cuts.
+    """
+
+    contents = _basic_contents()
+    path = f"{OR_DIR}/2026-07-16-or-notebook.jsonl"
+    size = len(contents[("us-or", "manual", "2026-07-16-or-notebook")])
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(
+        tmp_path / "axiom-corpus", contents, byte_counts={path: size + 1}
+    )
+    pre = _build(corpus, tmp_path)
+    assert len(pre["items"]) == _expected_counts(contents)["total"]
+
+    _switch(corpus)
+    with pytest.raises(ValueError, match="cannot place 1 of 4 queue source") as caught:
+        _build(corpus, tmp_path)
+    assert f"{path}: not placed: the checkout's lock" in str(caught.value)
+    assert f"{size} bytes; the release lists sha256" in str(caught.value)
+    assert not (corpus.root / path).exists()
+
+
+@pytest.mark.parametrize("no_fetch", [False, True], ids=["fetch", "no-fetch"])
+def test_a_symlinked_corpus_root_builds_as_it_does_before_the_switch(
+    tmp_path, monkeypatch, no_fetch
+):
+    contents = _basic_contents()
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(tmp_path / "axiom-corpus", contents)
+    link = tmp_path / "corpus-link"
+    link.symlink_to(corpus.root)
+    pre = _build(corpus, tmp_path, root=link)
+
+    _switch(corpus)
+    if no_fetch:
+        _write_files(
+            corpus.root,
+            {p: d for p, d in corpus.signed.items() if p.endswith(".jsonl")},
+        )
+        monkeypatch.setenv(cm.NO_FETCH_ENV, "1")
+    _same_queue_but_refs(pre, _build(corpus, tmp_path, root=link))
+
+
+def test_a_lock_file_checkout_is_checked_for_head_and_dirt_before_its_locks(
+    tmp_path, monkeypatch
+):
+    contents = _basic_contents()
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(tmp_path / "axiom-corpus", contents)
+    _switch(corpus)
+    lock = corpus.root / cm.LOCK_ROOT / "us-or/manual/2026-07-20-or-supplement.json"
+    lock.write_bytes(b"{")  # uncommitted, and not a lock
+
+    arguments = _build_arguments(corpus, tmp_path)
+    with pytest.raises(ValueError, match="corpus checkout is not clean"):
+        build_snap_queue(
+            arguments.pop("corpus_root"), arguments.pop("rulespec_root"), **arguments
+        )
+    arguments = _build_arguments(corpus, tmp_path)
+    arguments["corpus_ref"] = "d" * 40
+    with pytest.raises(ValueError, match=f"does not match {'d' * 40}"):
+        build_snap_queue(
+            arguments.pop("corpus_root"), arguments.pop("rulespec_root"), **arguments
+        )
+    assert _provisions_on_disk(corpus.root) == {}
+
+
+def test_a_checkout_without_lock_files_runs_its_git_checks_before_any_import(
+    tmp_path, monkeypatch
+):
+    """As before the switch, a bad corpus root fails on its git checks even
+    when ``axiom_encode`` cannot be imported."""
+
+    for name in [n for n in sys.modules if n.split(".")[0] == "axiom_encode"]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "axiom_encode", None)
+    root = tmp_path / "not-a-checkout"
+    root.mkdir()
+
+    with pytest.raises(ValueError, match="corpus_root must be a readable Git checkout"):
+        build_snap_queue(
+            root,
+            tmp_path,
+            corpus_ref="a" * 40,
+            rulespec_ref="b" * 40,
+            rules_engine_ref="c" * 40,
+            release_name=NAME,
+            release_content_sha256="d" * 64,
+            release_object_path=tmp_path / "release.json",
+            release_public_key_path=tmp_path / "key",
+            state="paused",
+            pause_reason="Awaiting protected activation.",
+        )
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda locks: None,
+        lambda locks: locks.mkdir(parents=True),
+        lambda locks: (locks.parent.mkdir(), locks.write_text("")),
+        lambda locks: (
+            locks.parent.mkdir(),
+            (locks.parent / "real").mkdir(),
+            locks.symlink_to(locks.parent / "real"),
+        ),
+        lambda locks: (locks.parent.mkdir(), locks.symlink_to(locks.parent / "gone")),
+        lambda locks: locks.parent.write_text(""),
+    ],
+    ids=["missing", "directory", "file", "symlink", "dangling", "axiom-is-a-file"],
+)
+def test_the_scripts_lock_file_test_agrees_with_the_materializers(tmp_path, make):
+    make(tmp_path / ".axiom/corpus-locks")
+    assert signed_queue._uses_corpus_lock_files(tmp_path) == cm.corpus_uses_lock_files(
+        tmp_path
+    )
+
+
 # ----------------------------------------------------------- all states
 
 
@@ -912,9 +1075,45 @@ def test_all_state_lock_checkout_fails_closed_without_a_source(tmp_path, monkeyp
     assert _staging_leftovers(shallow) == []
 
 
+def test_all_state_release_omitting_a_scope_fails_alike_before_and_after(
+    tmp_path, monkeypatch
+):
+    states, contents, _ = _all_state_contents()
+    inventory = yaml.safe_dump({"program": "SNAP", "states": states}).encode()
+    monkeypatch.setattr(
+        signed_queue,
+        "ALL_STATE_INVENTORY_SHA256",
+        hashlib.sha256(inventory).hexdigest(),
+    )
+    omitted = ("us-ak", "regulation", "test-us-ak-snap")
+    corpus = _pre_switch_corpus(
+        tmp_path / "axiom-corpus",
+        contents,
+        release_scopes=[scope for scope in contents if scope != omitted],
+        tracked={ALL_STATE_INVENTORY_PATH: inventory},
+    )
+
+    def build() -> dict:
+        arguments = _build_arguments(corpus, tmp_path)
+        return build_all_state_snap_queue(
+            arguments.pop("corpus_root"), arguments.pop("rulespec_root"), **arguments
+        )
+
+    message = (
+        "signed release omits queue source artifact: "
+        "data/corpus/provisions/us-ak/regulation/test-us-ak-snap.jsonl"
+    )
+    with pytest.raises(ValueError, match=message):
+        build()
+    _switch(corpus)
+    with pytest.raises(ValueError, match=message):
+        build()
+    assert _provisions_on_disk(corpus.root) == {}
+
+
 # ------------------------------------------------------------- properties
 
-PERTURBATIONS = ("none", "extra", "omit", "stray", "tamper")
+PERTURBATIONS = ("none", "extra", "omit", "stray", "tamper", "tamper-on-disk")
 
 
 @st.composite
@@ -925,8 +1124,9 @@ def _snap_corpora(draw):
     scopes; non-SNAP rows are noise. The perturbation: none; the release also
     lists a scope the corpus lacks (``extra``); the release omits one corpus
     scope (``omit``); an untracked file sits in a manual directory
-    (``stray``); or one committed file differs from the signed bytes
-    (``tamper``).
+    (``stray``); one committed file differs from the signed bytes
+    (``tamper``); or that, and after the switch the release's bytes for it sit
+    on disk anyway, as a reused worktree can leave them (``tamper-on-disk``).
     """
 
     or_versions = [
@@ -977,8 +1177,9 @@ _GIT_PROPERTY_SETTINGS = settings(
 @_GIT_PROPERTY_SETTINGS
 @given(_snap_corpora())
 def test_property_lock_checkout_agrees_with_the_pre_switch_checkout(scenario):
-    """Invariant: for every corpus, the build after the switch equals the build
-    before it, or both fail. A successful lock-file build leaves only the
+    """Invariant: for every corpus, and every release whose byte counts are its
+    bytes' lengths, the build after the switch equals the build before it, or
+    both fail. A successful lock-file build leaves only the
     release's bytes in place, keeps the checkout clean, and is idempotent."""
 
     contents, perturbation, target = scenario
@@ -990,7 +1191,7 @@ def test_property_lock_checkout_agrees_with_the_pre_switch_checkout(scenario):
             unmaterialized = [("us-or", "manual", "2026-12-31-or-not-in-corpus")]
         elif perturbation == "omit":
             release_scopes.remove(target)
-        elif perturbation == "tamper":
+        elif perturbation in {"tamper", "tamper-on-disk"}:
             path = f"data/corpus/provisions/{target[0]}/manual/{target[2]}.jsonl"
             overrides = {
                 path: contents[target] + _rows([_record(f"{target[0]}/tampered")])
@@ -1011,6 +1212,9 @@ def test_property_lock_checkout_agrees_with_the_pre_switch_checkout(scenario):
         if perturbation == "stray":
             stray.parent.mkdir(parents=True)
             stray.write_bytes(_rows([_record("us-or/manual/odhs/open/page-999")]))
+        if perturbation == "tamper-on-disk":
+            # The lock pins the committed bytes; the release's sit on disk.
+            _write_files(corpus.root, {path: corpus.signed[path]})
         post = _outcome(lambda: _build(corpus, base))
 
         assert (pre[0] == "ok") == (perturbation in {"none", "extra"}), pre[1]
