@@ -582,6 +582,12 @@ named:
   setuptools `.egg-info`) stay in that disposable checkout for later steps;
   `ci` builds in a disposable copy and removes it afterwards, so later steps see
   the link to the developer's checkout instead.
+- **The composer build's home directory.** The composer build keeps the
+  developer's `HOME`, which `--offline` needs for uv's default cache. So
+  uv's managed Pythons (`uv python install 3.14` installs there, where CI's
+  go under `$RUNNER_TEMP`) and any credentials uv reads from it (`~/.netrc`)
+  are the developer's. A private index that only the developer can reach
+  would resolve locally and fail in CI.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` sets `UV_CACHE_DIR` for
   the composer build only and does not export either to repository pytest.
