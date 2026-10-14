@@ -42398,6 +42398,11 @@ def _closest_exact_source_excerpt(
             and candidate.end >= direct_match.end()
         ]
         if not enclosing:
+            parenthesized_caption = _parenthesized_numeric_direct_source_match(
+                source, direct_match
+            )
+            if parenthesized_caption is not None:
+                return parenthesized_caption
             return _safe_wrapped_direct_source_match(source, direct_match)
         table_rows = [
             candidate for candidate in enclosing if candidate.kind == "table_row"
@@ -42509,6 +42514,43 @@ def _proof_excerpt_numeric_occurrence_counter(
             ),
         )
     return Counter(values_by_span.values())
+
+
+def _parenthesized_numeric_direct_source_match(
+    source: str,
+    direct_match: re.Match[str],
+) -> str | None:
+    """Keep parentheses only for a published income-table heading caption."""
+
+    start, end = direct_match.span()
+    if (
+        start == 0
+        or end == len(source)
+        or source[start - 1] != "("
+        or source[end] != ")"
+        or re.fullmatch(
+            r"\d+(?:\.\d+)?\s+Percent\s+of\s+Poverty\s+Level",
+            source[start:end],
+            flags=re.IGNORECASE,
+        )
+        is None
+        or re.search(
+            r"(?:Net|Gross)\s+Monthly\s+Income\s+Eligibility\s+Standards"
+            r"(?:\s+for\s+Households\s+Where\s+Elderly\s+Disabled\s+Are\s+a\s+"
+            r"Separate\s+Household)?\s*$",
+            source[max(0, start - 160) : start - 1],
+            flags=re.IGNORECASE,
+        )
+        is None
+        or re.match(
+            r"\s+Household\s+Size\b",
+            source[end + 1 : end + 40],
+            flags=re.IGNORECASE,
+        )
+        is None
+    ):
+        return None
+    return source[start - 1 : end + 1]
 
 
 def _safe_wrapped_direct_source_match(
