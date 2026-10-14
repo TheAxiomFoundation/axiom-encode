@@ -181,8 +181,12 @@ Python. The scripts cover:
 - **Release object.** It is fetched as the caller configures CI to fetch it:
   from the Supabase registry alone when `corpus-release-registry-url` is set,
   otherwise from `corpus-release-base-url`. The workflow's verifier then checks
-  it and rewrites it in canonical form. An object already cached in the corpus
-  checkout is re-verified and rewritten instead of being fetched again.
+  it and rewrites it in canonical form. Like CI, `ci` fetches it on every run,
+  even when the corpus checkout already caches it. Only under `--offline` does
+  the cached object stand in for the download; it is re-verified and rewritten
+  the same way. A symlink at `releases/`, the release directory or the object
+  fails resolution, because following it would read and write outside the
+  corpus checkout.
 - **Migration authorization.** Reviewed-migration authorization is
   pull-request scoped. When a caller requests it, pass `--pull-request N`, or
   the gate fails the way CI would without a pull-request number.
@@ -311,7 +315,8 @@ the environment.
   Cargo and uv may populate their normal local caches. Outside these temporary
   directories and caches it writes only the pinned public
   release object at the workflow-defined corpus release path, which the corpus
-  checkout's cleanliness check exempts. Like CI's "Link axiom-rules-engine as
+  checkout's cleanliness check exempts. It refuses a symlink on that path, so
+  the write stays inside the corpus checkout. Like CI's "Link axiom-rules-engine as
   sibling checkout" step, it links the engine, corpus and rulespec-us
   dependency checkouts next to the temporary checkout. It creates nothing under
   `_axiom/` inside it. CI's checkouts there are real directories, which the
