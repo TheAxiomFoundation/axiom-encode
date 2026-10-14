@@ -53,9 +53,11 @@ def _commit(repo: Path, message: str) -> str:
 
 @pytest.fixture()
 def history(tmp_path: Path) -> dict[str, str | Path]:
-    """Encoder history: old pin, the #1859 floor, a newer pin, a merged branch.
+    """Encoder history with the #1859 floor, the #1883 fix and a merged branch.
 
-    main (first parent): old_pin -> floor -> pin -> merge(feature) -> tip
+    main (first parent):
+      old_pin -> floor (#1859) -> window_pin -> fix (#1883) -> pin
+      -> merge(feature) -> tip
     feature (second parent of the merge): feature_commit, branched at pin
     """
 
@@ -64,6 +66,8 @@ def history(tmp_path: Path) -> dict[str, str | Path]:
     _git(repo, "init", "-q", "-b", "main")
     old_pin = _commit(repo, "old pin")
     floor = _commit(repo, "producer-ancestry admission (#1859)")
+    window_pin = _commit(repo, "pin without the trusted-wrapper fix")
+    fix = _commit(repo, "trusted Git wrapper runs the proof (#1883)")
     pin = _commit(repo, "newer pin")
     _git(repo, "switch", "-q", "-c", "feature")
     feature_commit = _commit(repo, "feature work")
@@ -74,20 +78,25 @@ def history(tmp_path: Path) -> dict[str, str | Path]:
         "repo": repo,
         "old_pin": old_pin,
         "floor": floor,
+        "window_pin": window_pin,
+        "fix": fix,
         "pin": pin,
         "feature_commit": feature_commit,
         "tip": tip,
     }
 
 
-def _evaluate(history: dict, *, pin: str, commit: str):
+def _evaluate(
+    history: dict, *, pin: str, commit: str, main_ref: str = "refs/heads/main"
+):
     repo = history["repo"]
     return evaluate_admission(
         pin=EncoderPin(ref=pin, version="0.2.1"),
         encoder_commit=commit,
         is_ancestor=git_is_ancestor(repo),
-        on_first_parent_main=git_on_first_parent_main(repo, "refs/heads/main"),
+        on_first_parent_main=git_on_first_parent_main(repo, main_ref),
         ancestry_admission_commit=history["floor"],
+        supervised_admission_fix_commit=history["fix"],
     )
 
 
@@ -140,8 +149,42 @@ class TestEvaluateAdmission:
         assert result.admissible is True
         assert "descends from the pin" in result.reason
 
-    def test_floor_itself_as_pin_admits_descendants(self, history) -> None:
-        result = _evaluate(history, pin=history["floor"], commit=history["tip"])
+    def test_fix_itself_as_pin_admits_descendants(self, history) -> None:
+        result = _evaluate(history, pin=history["fix"], commit=history["tip"])
+        assert result.admissible is True
+
+    @pytest.mark.parametrize("pin_key", ["floor", "window_pin"])
+    @pytest.mark.parametrize("commit_key", ["tip", None])
+    def test_pin_between_1859_and_1883_admits_nothing(
+        self, history, pin_key: str, commit_key: str | None
+    ) -> None:
+        # Under the verification runtime such a pin's guard cannot run its own
+        # Git checks, so CI rejects every changed manifest, exact pin included.
+        commit = history[commit_key] if commit_key else history[pin_key]
+        result = _evaluate(history, pin=history[pin_key], commit=commit)
+        assert result.admissible is False
+        assert "#1883" in result.reason
+        assert "the exact pin included" in result.reason
+
+    def test_descendant_admitted_from_a_full_clone_remote_main(
+        self, history, tmp_path: Path
+    ) -> None:
+        clone = tmp_path / "clone"
+        subprocess.run(
+            ["git", "clone", "-q", f"file://{history['repo']}", str(clone)],
+            check=True,
+            capture_output=True,
+        )
+        result = evaluate_admission(
+            pin=EncoderPin(ref=history["pin"], version="0.2.1"),
+            encoder_commit=history["tip"],
+            is_ancestor=git_is_ancestor(clone),
+            on_first_parent_main=git_on_first_parent_main(
+                clone, "refs/remotes/origin/main"
+            ),
+            ancestry_admission_commit=history["floor"],
+            supervised_admission_fix_commit=history["fix"],
+        )
         assert result.admissible is True
 
     def test_merged_second_parent_commit_is_refused(self, history) -> None:
@@ -212,6 +255,7 @@ class TestMain:
         pin: str | None,
         commit: str,
         override: str = "",
+        open_pr: str = "true",
     ) -> tuple[int, str]:
         toolchain = tmp_path / "workflow-toolchain.toml"
         toolchain.write_text(_toolchain(pin), encoding="utf-8")
@@ -220,6 +264,9 @@ class TestMain:
         monkeypatch.setenv("ENCODER_PIN_ADMISSION_OVERRIDE", override)
         monkeypatch.setattr(
             admission_mod, "PRODUCER_ANCESTRY_ADMISSION_COMMIT", history["floor"]
+        )
+        monkeypatch.setattr(
+            admission_mod, "SUPERVISED_ADMISSION_FIX_COMMIT", history["fix"]
         )
         code = admission_mod.main(
             [
@@ -231,6 +278,8 @@ class TestMain:
                 commit,
                 "--main-ref",
                 "refs/heads/main",
+                "--open-pr",
+                open_pr,
             ]
         )
         return code, summary.read_text() if summary.exists() else ""
@@ -272,12 +321,42 @@ class TestMain:
         )
         assert code == 0
         assert "Report-only" in summary
+        assert "ENCODER_PIN_ADMISSION_OVERRIDE=true" in summary
 
-    def test_missing_pin_passes(self, monkeypatch, tmp_path, history) -> None:
-        code, _summary = self._run(
+    def test_window_pin_blocks_a_pr_run(self, monkeypatch, tmp_path, history) -> None:
+        code, summary = self._run(
+            monkeypatch,
+            tmp_path,
+            history,
+            pin=history["window_pin"],
+            commit=history["tip"],
+        )
+        assert code == 1
+        assert "#1883" in summary
+
+    def test_artifact_only_run_is_reported_not_blocked(
+        self, monkeypatch, tmp_path, history
+    ) -> None:
+        code, summary = self._run(
+            monkeypatch,
+            tmp_path,
+            history,
+            pin=history["old_pin"],
+            commit=history["tip"],
+            open_pr="false",
+        )
+        assert code == 0
+        assert "Report-only: this run opens no RuleSpec pull request" in summary
+
+    def test_missing_pin_passes_and_is_reported(
+        self, monkeypatch, tmp_path, history
+    ) -> None:
+        code, summary = self._run(
             monkeypatch, tmp_path, history, pin=None, commit=history["tip"]
         )
         assert code == 0
+        assert "declares no axiom_encode_ref" in summary
+        assert "Not judged" in summary
 
     def test_unprovable_history_blocks(self, monkeypatch, tmp_path, history) -> None:
         code, summary = self._run(
@@ -301,10 +380,14 @@ class TestMain:
         assert code == 1
 
 
-def test_floor_is_the_1859_merge_commit() -> None:
+def test_admission_commits_are_the_1859_and_1883_main_commits() -> None:
     assert (
         admission_mod.PRODUCER_ANCESTRY_ADMISSION_COMMIT
         == "630aa73931e5aa87c51d25fe448e38dbcfaed50f"
+    )
+    assert (
+        admission_mod.SUPERVISED_ADMISSION_FIX_COMMIT
+        == "b5e85ab4135be6ed4acaf2b2cd2b783648af2f6e"
     )
 
 
@@ -333,6 +416,8 @@ def test_workflow_checks_admission_before_the_protected_job() -> None:
     assert check["env"]["ENCODER_PIN_ADMISSION_OVERRIDE"] == (
         "${{ vars.ENCODER_PIN_ADMISSION_OVERRIDE }}"
     )
+    assert check["env"]["OPEN_PR"] == "${{ inputs.open_pr }}"
+    assert '--open-pr "$OPEN_PR"' in check["run"]
     assert "scripts/check_encoder_pin_admission.py" in check["run"]
     assert '--encoder-commit "$GITHUB_SHA"' in check["run"]
     assert '.axiom/workflow-toolchain.toml"' in check["run"]

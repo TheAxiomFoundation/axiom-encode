@@ -165,11 +165,13 @@ jobs:
 
   # Cost damper: a signed PR lands only when the target RuleSpec repository's
   # pinned encoder (.axiom/workflow-toolchain.toml axiom_encode_ref) admits
-  # this run's encoder: the exact pin or, from axiom-encode #1859 on, a
-  # first-parent main descendant of it. Decide that from the dispatch refs
-  # before the protected environment asks for approval and before any model
-  # call, for queue and ad hoc runs alike. Unprotected and read-only: it uses
-  # the read-scoped token on public repositories and signs nothing.
+  # this run's encoder: the exact pin or, for pins that contain axiom-encode
+  # #1883, a first-parent main descendant of it (pins from #1859 up to #1883
+  # admit nothing in CI). Decide that from the dispatch refs before the
+  # protected environment asks for approval and before any model call, for
+  # queue and ad hoc runs alike; artifact-only runs are reported, not blocked.
+  # Unprotected and read-only: it uses the read-scoped token on public
+  # repositories and signs nothing.
   encoder_pin_admission:
     name: Check RuleSpec encoder pin admission
     if: >-
@@ -200,6 +202,7 @@ jobs:
       - name: Refuse an encoder the RuleSpec pin cannot admit
         env:
           ENCODER_PIN_ADMISSION_OVERRIDE: ${{ vars.ENCODER_PIN_ADMISSION_OVERRIDE }}
+          OPEN_PR: ${{ inputs.open_pr }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -208,7 +211,8 @@ jobs:
             --toolchain "$RULESPEC_CHECKOUT/.axiom/workflow-toolchain.toml" \
             --encoder-checkout axiom-encode \
             --encoder-commit "$GITHUB_SHA" \
-            --main-ref refs/remotes/origin/main
+            --main-ref refs/remotes/origin/main \
+            --open-pr "$OPEN_PR"
 
   encode:
     name: Queue protected signed RuleSpec re-encode
