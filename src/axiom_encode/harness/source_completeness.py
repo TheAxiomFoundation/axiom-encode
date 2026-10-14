@@ -150,23 +150,21 @@ class _OutlineMarker:
 
 @dataclass(frozen=True)
 class CompanionTestObligation:
-    """One unmet companion-test demand, for deterministic case synthesis.
+    """One unmet companion-test demand in structured form.
 
     ``rule_names`` are the local principal outputs that could witness it;
-    ``values`` are source-derived selector values (a boundary, points inside
-    a source range, or a negative clamp input) for the numeric
-    ``input_names``, which a covering formula compares directly with that
-    source value (or which the demand names). ``toggle_input_names`` are
-    boolean inputs that select between formula paths of the covering rules.
-    ``label`` is the validator's display key for the demand. Expected values
-    are never carried here: synthesis must execute every proposed case.
+    ``values`` are source-derived values (a boundary, or a negative clamp
+    input) for the numeric ``input_names``, which a covering formula compares
+    directly with that source value (or which the demand names). ``label`` is
+    the validator's display key for the demand. Expected values are never
+    carried here. Only boundary demands are synthesized, and synthesis must
+    execute every proposed case.
     """
 
     kind: str
     rule_names: tuple[str, ...]
     values: tuple[float, ...] = ()
     input_names: tuple[str, ...] = ()
-    toggle_input_names: tuple[str, ...] = ()
     label: str = ""
 
 
@@ -18539,9 +18537,9 @@ def _case_execution_may_reach_direct_clamp(
     """Whether the owner's selected formula path for a case holds the clamp.
 
     The path is resolved from the case's asserted dependency values, then from
-    dependencies computed from its inputs. When neither resolves the path, the
-    case keeps its credit (the engine run of the case stays authoritative); a
-    resolved path without ``max(0, input)`` never witnesses that clamp.
+    dependencies computed from its inputs. A resolved path without
+    ``max(0, input)``, or a path that cannot be resolved, never witnesses that
+    clamp (fail closed).
     """
 
     environments = [dependency_environment]
@@ -18571,7 +18569,7 @@ def _case_execution_may_reach_direct_clamp(
             for text in texts
             for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(text)
         )
-    return True
+    return False
 
 
 def _negative_local_input_clamp_test_issues(
@@ -19504,56 +19502,6 @@ def _direct_threshold_input_names(
     return tuple(sorted(found))
 
 
-def _boolean_selector_input_names(
-    rule_names: Iterable[str],
-    *,
-    principal_rules: dict[str, dict[str, Any]],
-    boolean_input_names: set[str],
-) -> tuple[str, ...]:
-    """Return boolean inputs read by the covering formulas."""
-
-    found: set[str] = set()
-    for name in _principal_rule_closure(rule_names, principal_rules=principal_rules):
-        for expression in _rule_parsed_expressions(principal_rules[name]):
-            found.update(
-                node.id
-                for node in ast.walk(expression)
-                if isinstance(node, ast.Name) and node.id in boolean_input_names
-            )
-    return tuple(sorted(found))
-
-
-def _interval_probe_values(interval: _NumericInterval) -> tuple[float, ...]:
-    """Return a few selector values strictly governed by one source range."""
-
-    lower = float(interval.lower.value) if interval.lower is not None else None
-    upper = float(interval.upper.value) if interval.upper is not None else None
-    probes: list[float] = []
-    if lower is not None and upper is not None:
-        middle = (lower + upper) / 2
-        if lower.is_integer() and upper.is_integer():
-            # Integral source ranges get integral probes only.
-            middle = float(math.floor(middle)) if upper - lower >= 2 else lower
-        probes.append(middle)
-    for endpoint, inclusive, step in (
-        (lower, interval.lower_inclusive, 1.0),
-        (upper, interval.upper_inclusive, -1.0),
-    ):
-        if endpoint is None:
-            continue
-        if inclusive:
-            probes.append(endpoint)
-        if endpoint.is_integer():
-            probes.append(endpoint + step)
-        else:
-            probes.append(endpoint + step * max(abs(endpoint) * 0.01, 0.01))
-    return tuple(
-        dict.fromkeys(
-            round(probe, 6) for probe in probes if _interval_contains(interval, probe)
-        )
-    )
-
-
 _INTEGRAL_INPUT_DTYPES = frozenset({"integer", "int", "count"})
 
 
@@ -19631,7 +19579,7 @@ def _companion_test_issues(
     obligations: list[CompanionTestObligation] = (
         obligation_sink if obligation_sink is not None else []
     )
-    numeric_input_names, boolean_input_names = _companion_case_input_classes(
+    numeric_input_names, _boolean_input_names = _companion_case_input_classes(
         input_declarations or {},
         declared_input_names,
     )
@@ -19776,48 +19724,6 @@ def _companion_test_issues(
             branch,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
-        if principal_formula_clause_rules[branch]:
-            bound_rule_names = tuple(sorted(principal_formula_clause_rules[branch]))
-            range_input_names = (
-                _direct_threshold_input_names(
-                    bound_rule_names,
-                    principal_rules=principal_rules,
-                    formula_environment=formula_environment,
-                    numeric_input_names=numeric_input_names,
-                    values=(
-                        float(endpoint.value)
-                        for endpoint in (interval.lower, interval.upper)
-                        if endpoint is not None
-                    ),
-                )
-                if interval is not None
-                else ()
-            )
-            obligations.append(
-                CompanionTestObligation(
-                    "formula-branch",
-                    bound_rule_names,
-                    values=(
-                        _values_for_synthesis_inputs(
-                            _interval_probe_values(interval),
-                            range_input_names,
-                            input_declarations or {},
-                        )
-                        if interval is not None
-                        else ()
-                    ),
-                    input_names=range_input_names,
-                    toggle_input_names=_boolean_selector_input_names(
-                        bound_rule_names,
-                        principal_rules=principal_rules,
-                        boolean_input_names=boolean_input_names,
-                    ),
-                    label=(
-                        f"{branch.label} at "
-                        f"{_branch_citation(corpus_citation_path, branch)}"
-                    ),
-                )
-            )
         witness_requirement = (
             "The asserted principal formula must execute this source computation "
             "in its legally applicable companion-case period."

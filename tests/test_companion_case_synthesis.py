@@ -153,13 +153,56 @@ def test_obligation_keys_ignore_observed_period_detail():
     assert companion_obligation_keys([first]) == companion_obligation_keys([second])
 
 
-def test_has_synthesizable_test_issue_requires_a_supported_tests_demand():
+@pytest.mark.parametrize(
+    "issue",
+    [
+        f"{TESTS} Source-stated exceptions ... require paired positive/blocking",
+        f"{TESTS} Companion tests do not demonstrate formula branch (b) at us/x(b). "
+        "Exact source computation (characters 1:2): `x`.",
+        f"{TESTS} Direct nonnegative clamp companion evidence is missing for "
+        "`max(0, a)` in `r`.",
+        f"{TESTS} Principal output `r` is never asserted by a companion test.",
+        "[complete-source-unit:structure] Source branch (b) is unencoded.",
+    ],
+)
+def test_only_boundary_demands_are_synthesizable(issue):
+    """Branch, clamp, output and exception demands exist so the model states a
+    value; an engine-computed expectation would pin the encoding (A1, A13)."""
+
     assert has_synthesizable_test_issue([_boundary_issue("(i)=500")])
-    assert not has_synthesizable_test_issue(
-        [f"{TESTS} Source-stated exceptions ... require paired positive/blocking"]
-    )
-    assert not has_synthesizable_test_issue(
-        ["[complete-source-unit:structure] Source branch (b) is unencoded."]
+    assert not has_synthesizable_test_issue([issue])
+
+
+@pytest.mark.parametrize(
+    "obligation",
+    [
+        CompanionTestObligation(
+            "clamp",
+            ("income_considered",),
+            values=(-1.0,),
+            input_names=("income",),
+            label="`max(0, income)` in `income_considered`",
+        ),
+        CompanionTestObligation(
+            "formula-branch",
+            ("income_limit_met",),
+            values=(600.0,),
+            input_names=("income",),
+            label="(b) at us/x(b)",
+        ),
+        CompanionTestObligation(
+            "principal-output", ("income_considered",), label="income_considered"
+        ),
+    ],
+)
+def test_non_boundary_obligations_are_never_proposed(obligation):
+    assert (
+        propose_companion_cases(
+            [obligation],
+            rules_payload=RULES,
+            test_cases=[_case("base", income=300, eligible=True)],
+        )
+        == []
     )
 
 
@@ -186,113 +229,13 @@ def test_boundary_proposal_changes_only_the_directly_compared_input():
     }
     assert proposal.case["period"] == "2025-07"
     assert "output" not in proposal.case
-    # Only the targeted rule (and what it reads) is re-asserted.
+    # Only the targeted rule (and what it reads) is re-asserted, but every
+    # same-entity value the model stated in the source case must reproduce.
     assert proposal.output_keys == (f"{BASE}#income_limit_met",)
     assert proposal.source_case is case
+    assert proposal.source_output_keys == tuple(case["output"])
     # The source case is never mutated.
     assert case["input"][f"{BASE}#input.income"] == 100
-
-
-def test_clamp_proposal_uses_a_negative_input_and_asserts_the_clamped_rule():
-    obligation = CompanionTestObligation(
-        "clamp",
-        ("income_considered",),
-        values=(-1.0,),
-        input_names=("income",),
-        label="`max(0, income)` in `income_considered`",
-    )
-    case = {
-        "name": "limit only",
-        "period": "2025-07",
-        "input": {f"{BASE}#input.income": 300},
-        "output": {f"{BASE}#income_limit_met": "holds"},
-    }
-
-    proposals = propose_companion_cases(
-        [obligation], rules_payload=RULES, test_cases=[case]
-    )
-
-    assert [proposal.case["input"] for proposal in proposals] == [
-        {f"{BASE}#input.income": -1}
-    ]
-    # The unrelated `income_limit_met` assertion is not carried over.
-    assert proposals[0].output_keys == (f"{BASE}#income_considered",)
-    assert proposals[0].case["name"] == "auto_source_clamp_income_minus_1"
-    # The liveness twin keeps the original positive input.
-    assert proposals[0].liveness_case["input"] == {f"{BASE}#input.income": 300}
-    assert proposals[0].liveness_output_key == f"{BASE}#income_considered"
-
-
-def test_clamp_is_never_proposed_for_a_limit_like_input():
-    obligation = CompanionTestObligation(
-        "clamp",
-        ("income_considered",),
-        values=(-1.0,),
-        input_names=("income_eligibility_limit",),
-        label="`max(0, income_eligibility_limit)` in `income_considered`",
-    )
-    case = {
-        "name": "limit",
-        "period": "2025-07",
-        "input": {f"{BASE}#input.income_eligibility_limit": 300},
-        "output": {f"{BASE}#income_considered": 300},
-    }
-
-    assert (
-        propose_companion_cases([obligation], rules_payload=RULES, test_cases=[case])
-        == []
-    )
-
-
-def test_unasserted_principal_outputs_are_never_synthesized():
-    """The demand exists so the model states an expectation (control V5)."""
-
-    obligation = CompanionTestObligation(
-        "principal-output", ("income_considered",), label="income_considered"
-    )
-    person_case = {
-        "name": "person",
-        "period": "2025-07",
-        "input": {f"{BASE}#input.income": 300},
-        "output": {f"{BASE}#income_limit_met": "holds"},
-    }
-    never_asserted = (
-        f"{TESTS} Principal output `income_considered` is never asserted by a "
-        "companion test."
-    )
-
-    assert (
-        propose_companion_cases(
-            [obligation], rules_payload=RULES, test_cases=[person_case]
-        )
-        == []
-    )
-    assert not has_synthesizable_test_issue([never_asserted])
-
-
-def test_formula_branch_proposals_flip_selectors_and_move_to_version_periods():
-    obligation = CompanionTestObligation(
-        "formula-branch",
-        ("income_limit_met",),
-        toggle_input_names=("eligible",),
-        label="(b) at us/x(b)",
-    )
-    case = _case("base", income=100, eligible=True)
-
-    proposals = propose_companion_cases(
-        [obligation], rules_payload=RULES, test_cases=[case]
-    )
-
-    flipped = [
-        proposal
-        for proposal in proposals
-        if proposal.case["input"][f"{BASE}#input.eligible"] is False
-    ]
-    moved = [proposal for proposal in proposals if proposal.case["period"] != "2025-07"]
-    assert len(flipped) == 1
-    assert flipped[0].case["period"] == "2025-07"
-    assert [proposal.case["period"] for proposal in moved] == ["2024-01"]
-    assert moved[0].case["input"] == case["input"]
 
 
 def test_clones_assert_only_outputs_on_the_covering_rule_entity():
@@ -405,6 +348,39 @@ def test_no_clone_of_a_case_whose_stated_expectation_the_engine_rejects():
     assert accepted == []
 
 
+def test_source_agreement_covers_outputs_the_clone_does_not_reassert():
+    """`income_considered` is outside the clone's keys, but the model stated
+    it in the source case; a conflict there still blocks every clone."""
+
+    _boundary, case, proposals = _proposal_pair()
+    case["output"][f"{BASE}#income_considered"] = 999
+
+    accepted = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=proposals,
+        evaluate_case=_engine,
+        analyze_cases=lambda cases: (
+            [_boundary_issue("(i)=500")] if len(cases) == 1 else []
+        ),
+    )
+
+    assert accepted == []
+
+
+def test_source_agreement_fails_closed_without_stated_values():
+    from axiom_encode.harness.companion_case_synthesis import (
+        CompanionCaseProposal,
+        _source_case_agrees_with_engine,
+    )
+
+    boundary, case, _proposals = _proposal_pair()
+    proposal = CompanionCaseProposal(
+        boundary, dict(case), (f"{BASE}#income_limit_met",), source_case=case
+    )
+
+    assert not _source_case_agrees_with_engine(proposal, _engine)
+
+
 def test_synthesis_rejects_a_case_that_adds_any_other_finding():
     _boundary, case, proposals = _proposal_pair()
 
@@ -488,57 +464,6 @@ def test_synthesis_never_closes_an_unasserted_output_on_the_way():
     )
 
     assert accepted == []
-
-
-def test_clamp_clone_on_a_dead_path_is_rejected():
-    obligation = CompanionTestObligation(
-        "clamp",
-        ("income_considered",),
-        values=(-1.0,),
-        input_names=("income",),
-        label="`max(0, income)` in `income_considered`",
-    )
-    clamp_issue = (
-        f"{TESTS} Direct nonnegative clamp companion evidence is missing for "
-        "`max(0, income)` in `income_considered`. Each requires ..."
-    )
-
-    def analyze(cases):
-        return [clamp_issue] if len(cases) == 1 else []
-
-    # Dead path (the 7 USC 2015(f) shape): the case takes `else: 0`, so the
-    # clamped input never changes the owner's executed value.
-    dead_case = {
-        "name": "ineligible",
-        "period": "2025-07",
-        "input": {f"{BASE}#input.income": 300},
-        "output": {f"{BASE}#income_considered": 0},
-    }
-    [dead_proposal] = propose_companion_cases(
-        [obligation], rules_payload=RULES, test_cases=[dead_case]
-    )
-    assert (
-        synthesize_companion_cases(
-            test_cases=[dead_case],
-            proposals=[dead_proposal],
-            evaluate_case=lambda _case, keys: dict.fromkeys(keys, 0),
-            analyze_cases=analyze,
-        )
-        == []
-    )
-
-    case = _case("base", income=300)
-    [proposal] = propose_companion_cases(
-        [obligation], rules_payload=RULES, test_cases=[case]
-    )
-    [accepted] = synthesize_companion_cases(
-        test_cases=[case],
-        proposals=[proposal],
-        evaluate_case=_engine,
-        analyze_cases=analyze,
-    )
-    assert accepted["input"][f"{BASE}#input.income"] == -1
-    assert accepted["output"][f"{BASE}#income_considered"] == 0
 
 
 def test_rejected_proposals_do_not_consume_case_names():

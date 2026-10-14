@@ -124,7 +124,9 @@ def staged_module(tmp_path: Path) -> tuple[Path, Path]:
     return root, module
 
 
-def _pipeline(root: Path, engine_root: Path, monkeypatch) -> ValidatorPipeline:
+def _pipeline(
+    root: Path, engine_root: Path, monkeypatch, source: str = SOURCE
+) -> ValidatorPipeline:
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=engine_root,
@@ -136,7 +138,7 @@ def _pipeline(root: Path, engine_root: Path, monkeypatch) -> ValidatorPipeline:
     monkeypatch.setattr(
         pipeline,
         "_source_texts_for_rulespec_content",
-        lambda _content: {CITATION: SOURCE},
+        lambda _content: {CITATION: source},
     )
     monkeypatch.setattr(
         pipeline,
@@ -148,17 +150,19 @@ def _pipeline(root: Path, engine_root: Path, monkeypatch) -> ValidatorPipeline:
     monkeypatch.setattr(
         validator_pipeline,
         "_fetch_corpus_source_text",
-        lambda citation_path: SOURCE if citation_path == CITATION else None,
+        lambda citation_path: source if citation_path == CITATION else None,
     )
     return pipeline
 
 
-def _tests_issues(pipeline: ValidatorPipeline, module: Path, cases) -> list[str]:
+def _tests_issues(
+    pipeline: ValidatorPipeline, module: Path, cases, source: str = SOURCE
+) -> list[str]:
     return [
         issue
         for issue in pipeline._complete_source_unit_issues(
             module.read_text(),
-            validation_source_texts={CITATION: SOURCE},
+            validation_source_texts={CITATION: source},
             test_cases=cases,
             rules_file=module,
         )
@@ -166,7 +170,7 @@ def _tests_issues(pipeline: ValidatorPipeline, module: Path, cases) -> list[str]
     ]
 
 
-def test_synthesized_cases_close_boundary_and_clamp_with_engine_values(
+def test_synthesized_boundary_case_carries_engine_values_and_clamp_stays(
     real_engine, staged_module, monkeypatch
 ):
     root, module = staged_module
@@ -177,31 +181,19 @@ def test_synthesized_cases_close_boundary_and_clamp_with_engine_values(
 
     synthesized = pipeline.synthesize_complete_source_companion_cases(module)
 
-    by_input = {
-        tuple(sorted(case["input"].items())): case["output"] for case in synthesized
+    [boundary] = synthesized
+    assert boundary["name"].startswith(f"{SYNTHESIZED_CASE_PREFIX}boundary_")
+    assert boundary["input"] == {
+        f"{TARGET}#input.countable_income": 500,
+        f"{TARGET}#input.unmet_need": 40,
     }
-    assert all(case["name"].startswith(SYNTHESIZED_CASE_PREFIX) for case in synthesized)
-    at_boundary = tuple(
-        sorted(
-            {
-                f"{TARGET}#input.countable_income": 500,
-                f"{TARGET}#input.unmet_need": 40,
-            }.items()
-        )
-    )
-    negative_need = tuple(
-        sorted(
-            {
-                f"{TARGET}#input.countable_income": 100,
-                f"{TARGET}#input.unmet_need": -1,
-            }.items()
-        )
-    )
-    # The engine, not the synthesizer, supplies each expected value, and a
-    # clone asserts only the targeted rule and what it reads.
-    assert by_input[at_boundary] == {f"{TARGET}#household_eligible": "not_holds"}
-    assert by_input[negative_need] == {f"{TARGET}#countable_shortfall": 0}
-    assert _tests_issues(pipeline, module, [*TESTS, *synthesized]) == []
+    # The engine, not the synthesizer, supplies the expected value, and the
+    # clone asserts only the covering rule and what it reads.
+    assert boundary["output"] == {f"{TARGET}#household_eligible": "not_holds"}
+    after = _tests_issues(pipeline, module, [*TESTS, *synthesized])
+    assert not any("boundary input" in issue for issue in after)
+    # The clamp demand needs a model-stated value; it is never synthesized.
+    assert any("`max(0, unmet_need)`" in issue for issue in after)
     # The companion file is left for the caller to update.
     assert yaml.safe_load(module.with_name("9999.test.yaml").read_text()) == TESTS
 
@@ -263,7 +255,7 @@ AT_BOUNDARY = {
 }
 
 
-def _run_control(tmp_path, engine_root, monkeypatch, module_text, tests):
+def _run_control(tmp_path, engine_root, monkeypatch, module_text, tests, source=SOURCE):
     root = tmp_path.resolve() / "rulespec-us" / "us"
     module = root / "statutes" / "7" / "9999.yaml"
     module.parent.mkdir(parents=True)
@@ -271,9 +263,9 @@ def _run_control(tmp_path, engine_root, monkeypatch, module_text, tests):
     module.with_name("9999.test.yaml").write_text(
         yaml.safe_dump(tests, sort_keys=False)
     )
-    pipeline = _pipeline(root, engine_root, monkeypatch)
+    pipeline = _pipeline(root, engine_root, monkeypatch, source)
     synthesized = pipeline.synthesize_complete_source_companion_cases(module)
-    return synthesized, _tests_issues(pipeline, module, [*tests, *synthesized])
+    return synthesized, _tests_issues(pipeline, module, [*tests, *synthesized], source)
 
 
 @pytest.mark.parametrize(
@@ -300,10 +292,11 @@ def test_wrong_boundary_encoding_is_never_pinned(
     assert any("boundary input; missing: (a)=500" in issue for issue in after)
 
 
-def test_clamp_closes_only_with_a_case_whose_path_reaches_it(
+def test_clamp_demand_is_never_synthesized_even_with_a_live_case(
     real_engine, tmp_path, monkeypatch
 ):
-    """V3: the first case takes `else: 0`; only the eligible case is live."""
+    """V3: a live case reaches the clamp, but the clamped value is a source
+    value the model must state; only the boundary demand is synthesized."""
 
     synthesized, after = _run_control(
         tmp_path,
@@ -313,10 +306,13 @@ def test_clamp_closes_only_with_a_case_whose_path_reaches_it(
         [INELIGIBLE, TESTS[0]],
     )
 
-    [clamp] = [case for case in synthesized if "clamp" in case["name"]]
-    assert clamp["input"][f"{TARGET}#input.countable_income"] == 100
-    assert clamp["output"][f"{TARGET}#household_eligible"] == "holds"
-    assert not any("`max(0, unmet_need)`" in issue for issue in after)
+    assert synthesized
+    assert all(
+        case["name"].startswith(f"{SYNTHESIZED_CASE_PREFIX}boundary_")
+        and f"{TARGET}#countable_shortfall" not in case["output"]
+        for case in synthesized
+    )
+    assert any("`max(0, unmet_need)`" in issue for issue in after)
 
 
 def test_wrong_clamped_branch_without_a_live_case_keeps_its_demand(
@@ -351,5 +347,178 @@ def test_unasserted_output_is_left_for_the_model(real_engine, tmp_path, monkeypa
     assert synthesized == []
     assert any(
         "Principal output `household_ineligible` is never asserted" in issue
+        for issue in after
+    )
+
+
+# Round-2 review controls: a clamp or formula-branch demand exists to make
+# the model state a source value, so synthesis must leave it for the model
+# even when the engine could execute the wrong encoding cleanly.
+SOURCE_CLAMP_OF_DIFFERENCE = (
+    "(a) A household whose countable income is less than $500 is eligible.\n"
+    "(b) The countable shortfall is the household's unmet need minus the "
+    "household contribution, but not less than zero.\n"
+)
+
+
+def _with_contribution(cases):
+    return [
+        {
+            **case,
+            "input": {**case["input"], f"{TARGET}#input.household_contribution": 10},
+            "output": {
+                **case["output"],
+                f"{TARGET}#countable_shortfall": max(
+                    0, case["input"][f"{TARGET}#input.unmet_need"] - 10
+                ),
+            },
+        }
+        for case in cases
+    ]
+
+
+def test_clamp_on_the_wrong_operand_is_never_pinned(real_engine, tmp_path, monkeypatch):
+    """A1: `max(0, need) - contribution` clamps before subtracting; the
+    model's cases agree with it, so only a model-stated clamp value can
+    expose it."""
+
+    module_text = (
+        MODULE.replace(
+            "  - name: unmet_need\n",
+            "  - name: household_contribution\n    entity: Household\n"
+            "    dtype: Money\n    period: Month\n  - name: unmet_need\n",
+        )
+        .replace(
+            "The countable shortfall is the household's unmet need, but not\n"
+            "                less than zero.",
+            "The countable shortfall is the household's unmet need minus the\n"
+            "                household contribution, but not less than zero.",
+        )
+        .replace(
+            "formula: max(0, unmet_need)",
+            "formula: max(0, unmet_need) - household_contribution",
+        )
+    )
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        module_text,
+        _with_contribution(TESTS[:1]),
+        SOURCE_CLAMP_OF_DIFFERENCE,
+    )
+
+    assert all(
+        f"{TARGET}#countable_shortfall" not in case["output"] for case in synthesized
+    )
+    assert any("`max(0, unmet_need)`" in issue for issue in after)
+
+
+SOURCE_TOGGLE = (
+    "(a) A household whose countable income is less than $500 is eligible.\n"
+    "(b) The allowance of an elderly household is 20 percent of the countable "
+    "income. The allowance of any other household is 10 percent of the "
+    "countable income.\n"
+)
+
+
+def _rate_rule(name: str, formula: str, excerpt: str) -> str:
+    return f"""\
+  - name: {name}
+    kind: parameter
+    dtype: Rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: {excerpt}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '{formula}'
+"""
+
+
+def _toggle_module(elderly_branch: str) -> str:
+    head, _, _ = MODULE.partition("  - name: countable_shortfall\n")
+    head = head.replace(
+        "  - name: unmet_need\n    entity: Household\n    dtype: Money\n"
+        "    period: Month\n",
+        "  - name: unmet_need\n    entity: Household\n    dtype: Money\n"
+        "    period: Month\n  - name: household_is_elderly\n"
+        "    entity: Household\n    dtype: Boolean\n    period: Month\n",
+    )
+    return (
+        head
+        + _rate_rule("elderly_rate", "0.2", "20 percent")
+        + _rate_rule("other_rate", "0.1", "10 percent")
+        + f"""\
+  - name: allowance
+    kind: derived
+    entity: Household
+    dtype: Money
+    unit: USD
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: >-
+                The allowance of an elderly household is 20 percent of the
+                countable income. The allowance of any other household is 10
+                percent of the countable income.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_is_elderly: {elderly_branch}
+          else: countable_income * other_rate
+"""
+    )
+
+
+def _toggle_case(name, income, eligible, allowance):
+    return {
+        "name": name,
+        "period": "2026-01",
+        "input": {
+            f"{TARGET}#input.countable_income": income,
+            f"{TARGET}#input.unmet_need": 40,
+            f"{TARGET}#input.household_is_elderly": False,
+        },
+        "output": {
+            f"{TARGET}#household_eligible": eligible,
+            f"{TARGET}#allowance": allowance,
+        },
+    }
+
+
+def test_untested_toggle_branch_is_never_pinned(real_engine, tmp_path, monkeypatch):
+    """A13: the elderly branch reads the wrong operand and no model case
+    sets the toggle; synthesis must not assert the engine's elderly value."""
+
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        _toggle_module("unmet_need * elderly_rate"),
+        [
+            _toggle_case("young", 100, "holds", 10),
+            _toggle_case("high", 900, "not_holds", 90),
+        ],
+        SOURCE_TOGGLE,
+    )
+
+    assert all(
+        case["input"].get(f"{TARGET}#input.household_is_elderly") is False
+        and f"{TARGET}#allowance" not in case["output"]
+        for case in synthesized
+    )
+    assert any(
+        "Companion tests do not demonstrate formula branch (b)" in issue
         for issue in after
     )

@@ -1,27 +1,28 @@
-"""Deterministic companion-case synthesis for complete-source test demands.
+"""Deterministic boundary-case synthesis for complete-source test demands.
 
 The complete-source validator rejects candidates whose companion tests do not
-exercise a source boundary, a source formula branch or a nonnegative clamp.
-Some of these gaps are mechanical: an existing case already exercises the right
-rule, but no case puts the compared input at the source-stated value, takes the
-other path of a boolean selector, runs in the period of another formula
-version, or feeds a negative value to a clamp on the path the case executes.
+put an input at a source-stated boundary. That gap is mechanical when an
+existing model-written case already exercises the covering rule and a formula
+compares one of its inputs directly with the boundary value: the missing case
+is that case with the input set to the boundary.
 
-This module proposes clones of existing model-written cases that change
-exactly one thing (one input, or the period) to a value taken from the
-validator's structured demand. It never supplies an expected value: the caller
-executes each proposal (the rules engine supplies every asserted value) and
-re-runs the complete-source analysis. A proposal is kept only when
+This module proposes exactly that clone and nothing else. It never supplies
+an expected value: the caller executes each proposal (the rules engine
+supplies every asserted value) and re-runs the complete-source analysis. The
+boundary witness itself checks the comparison's operator and polarity against
+the source, so a wrong `<=` for "less than" or an inverted comparison keeps
+its demand. A proposal is kept only when
 
-* the engine returns a value for every asserted output,
-* for a clamp, the clamped input is live: the same clone with a positive input
-  gives the clamped output a different engine value (a clone whose path never
-  reaches ``max(0, x)`` therefore never closes the clamp demand), and
-* the analysis credits exactly that: the targeted demand disappears, only
-  boundary, formula-branch or clamp demands disappear, and no finding appears.
+* the engine reproduces every value the model asserted in the source case on
+  the covering rule's entity (a clone never takes the encoding's side of a
+  conflict with the model's stated expectation),
+* the clone asserts only the covering rule and the local dependencies it reads,
+* the analysis removes the targeted boundary demand, removes nothing but
+  boundary demands, and adds no finding.
 
-Demands whose purpose is a model-stated expectation are never synthesized:
-an unasserted principal output, and paired exception evidence.
+Demands whose purpose is a model-stated value are never synthesized: formula
+branches, nonnegative clamps, unasserted principal outputs and paired
+exception evidence all stay with the model.
 """
 
 from __future__ import annotations
@@ -43,20 +44,10 @@ SYNTHESIZED_CASE_PREFIX = "auto_source_"
 _TESTS_TAG = "[complete-source-unit:tests]"
 _PROPOSALS_PER_OBLIGATION = 6
 _CASES_PER_RULE = 6
-_ISO_PERIOD = re.compile(r"(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?")
-_SYNTHESIZED_KINDS = frozenset({"boundary", "formula-branch", "clamp"})
-# A clamp guards a quantity; a limit, rate or standard is a parameter-like
-# input whose negative value would be an implausible fixture.
-_LIMIT_LIKE_INPUT = re.compile(
-    r"(?:^|_)(?:limit|limits|threshold|thresholds|ceiling|cap|maximum|minimum|"
-    r"rate|rates|percent|percentage|standard|standards)(?:_|$)"
-)
-_LIVENESS_PROBE = 100
+_SYNTHESIZED_KINDS = frozenset({"boundary"})
 
 SYNTHESIZABLE_TEST_ISSUE_MARKERS = (
     "Companion tests do not exercise every source-stated boundary input",
-    "Companion tests do not demonstrate formula branch",
-    "Direct nonnegative clamp companion evidence is missing",
 )
 
 EvaluateCase = Callable[[dict[str, Any], tuple[str, ...]], Mapping[str, Any] | None]
@@ -69,16 +60,16 @@ AnalyzeCases = Callable[[list[dict[str, Any]]], object]
 class CompanionCaseProposal:
     """One cloned case to execute; ``case`` has no ``output`` yet.
 
-    ``liveness_case`` is the same clone with the changed input positive; the
-    proposal counts only if ``liveness_output_key`` executes differently.
+    ``source_output_keys`` are the outputs the model asserted in
+    ``source_case`` on the covering rule's entity; the engine must reproduce
+    every one of them before any clone of that case counts.
     """
 
     obligation: CompanionTestObligation
     case: dict[str, Any]
     output_keys: tuple[str, ...]
-    liveness_case: dict[str, Any] | None = None
-    liveness_output_key: str | None = None
     source_case: dict[str, Any] | None = None
+    source_output_keys: tuple[str, ...] = ()
 
 
 def has_synthesizable_test_issue(issues: Iterable[object]) -> bool:
@@ -185,22 +176,6 @@ def _slug(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", text).strip("_").lower()[:80] or "case"
 
 
-def _period_like(period: object, iso_date: str) -> object | None:
-    """Render a version start date in the same shape as an existing period."""
-
-    match = _ISO_PERIOD.fullmatch(str(period).strip()) if period is not None else None
-    target = _ISO_PERIOD.fullmatch(iso_date)
-    if match is None or target is None or isinstance(period, dict):
-        return None
-    if match.group(3) is not None:
-        return iso_date
-    if match.group(2) is not None:
-        return iso_date[:7]
-    if isinstance(period, int):
-        return int(iso_date[:4])
-    return iso_date[:4]
-
-
 def _usable_case(case: object) -> bool:
     if not isinstance(case, dict) or not isinstance(case.get("input"), dict):
         return False
@@ -228,7 +203,7 @@ def propose_companion_cases(
     rules_payload: Mapping[str, Any],
     test_cases: Sequence[object],
 ) -> list[CompanionCaseProposal]:
-    """Clone existing cases toward each structured demand, round-robin."""
+    """Clone existing cases onto each missing boundary, round-robin."""
 
     rules = rules_payload.get("rules") if isinstance(rules_payload, Mapping) else None
     principal_rules = {
@@ -247,16 +222,6 @@ def propose_companion_cases(
 
     def entity(rule_name: str) -> str:
         return str((principal_rules.get(rule_name) or {}).get("entity") or "")
-
-    def local_output_prefix(case: dict[str, Any]) -> str | None:
-        """The module's own output-key prefix, taken from a local output."""
-
-        prefixes = {
-            str(key).rsplit("#", 1)[0] if "#" in str(key) else ""
-            for key in case["output"]
-            if _local_name(key) in principal_rules
-        }
-        return prefixes.pop() if len(prefixes) == 1 else None
 
     def dependency_closure(rule_name: str) -> set[str]:
         closure: set[str] = set()
@@ -278,98 +243,27 @@ def propose_companion_cases(
             )
         return closure
 
-    def scoped_output_keys(case: dict[str, Any], rule_name: str) -> list[str] | None:
-        """Keep the case's asserted outputs that the rule reaches, plus the rule.
-
-        One executed case queries one entity, and a clone asserts only the
-        targeted rule and the local dependencies it reads: other outputs of
-        a model-written case are dropped rather than re-asserted.
-        """
-
-        target = entity(rule_name)
-        reached = dependency_closure(rule_name)
-        keys = [
-            str(key)
-            for key in case["output"]
-            if _local_name(key) in reached and entity(_local_name(key)) == target
-        ]
-        if not any(_local_name(key) == rule_name for key in keys):
-            prefix = local_output_prefix(case)
-            if prefix is None:
-                return None
-            keys.append(f"{prefix}#{rule_name}" if prefix else rule_name)
-        return keys
-
-    def clone(
-        case: dict[str, Any],
-        *,
-        inputs: dict[str, Any] | None = None,
-        period: object | None = None,
-    ) -> dict[str, Any]:
-        proposed = {
-            key: copy.deepcopy(value)
-            for key, value in case.items()
-            if key not in {"name", "output"}
-        }
-        if inputs is not None:
-            proposed["input"] = inputs
-        if period is not None:
-            proposed["period"] = period
-        return proposed
-
-    def named(
-        obligation: CompanionTestObligation, detail: str, case: dict[str, Any]
-    ) -> dict[str, Any]:
-        base = f"{SYNTHESIZED_CASE_PREFIX}{_slug(obligation.kind)}_{_slug(detail)}"
-        return {"name": base, **case}
-
     per_obligation: list[list[CompanionCaseProposal]] = []
     for obligation in obligations:
         if obligation.kind not in _SYNTHESIZED_KINDS:
             continue
         proposals: list[CompanionCaseProposal] = []
         seen: set[str] = set()
-
-        def add(
-            proposal: CompanionCaseProposal,
-            seen: set[str] = seen,
-            proposals: list[CompanionCaseProposal] = proposals,
-        ) -> None:
-            identity = repr(
-                (
-                    sorted(proposal.case.get("input", {}).items(), key=str),
-                    proposal.case.get("period"),
-                    proposal.output_keys,
+        targets = set(obligation.input_names)
+        for rule_name in obligation.rule_names:
+            target_entity = entity(rule_name)
+            reached = dependency_closure(rule_name)
+            for case in asserted.get(rule_name, [])[:_CASES_PER_RULE]:
+                same_entity = tuple(
+                    str(key)
+                    for key in case["output"]
+                    if _local_name(key) in principal_rules
+                    and entity(_local_name(key)) == target_entity
                 )
-            )
-            if identity not in seen and len(proposals) < _PROPOSALS_PER_OBLIGATION:
-                seen.add(identity)
-                proposals.append(proposal)
-
-        rule_cases = [
-            (rule_name, case)
-            for rule_name in obligation.rule_names
-            for case in asserted.get(rule_name, [])[:_CASES_PER_RULE]
-        ]
-        if obligation.kind in {"boundary", "formula-branch", "clamp"}:
-            targets = set(obligation.input_names)
-            if obligation.kind == "clamp":
-                targets = {
-                    name for name in targets if not _LIMIT_LIKE_INPUT.search(name)
-                }
-            candidates = list(rule_cases)
-            if obligation.kind == "clamp" and obligation.rule_names:
-                owner = obligation.rule_names[0]
-                candidates += [
-                    (owner, case)
-                    for case in cases
-                    if all(case is not other for _name, other in rule_cases)
-                    and any(_local_name(key) in targets for key in case["input"])
-                ]
-            for rule_name, case in candidates:
-                output_keys = scoped_output_keys(case, rule_name)
-                if output_keys is None:
-                    continue
+                # The clone re-asserts only the covering rule and what it reads.
+                output_keys = tuple(
+                    key for key in same_entity if _local_name(key) in reached
+                )
                 for key, value in case["input"].items():
                     if _local_name(key) not in targets or not _is_number(value):
                         continue
@@ -378,79 +272,34 @@ def propose_companion_cases(
                             continue
                         inputs = dict(case["input"])
                         inputs[key] = _yaml_number(target)
-                        liveness_case = None
-                        liveness_key = None
-                        if obligation.kind == "clamp":
-                            positive = dict(case["input"])
-                            positive[key] = (
-                                value if float(value) > 0 else _LIVENESS_PROBE
-                            )
-                            liveness_case = clone(case, inputs=positive)
-                            liveness_key = next(
-                                output
-                                for output in output_keys
-                                if _local_name(output) == rule_name
-                            )
-                        add(
-                            CompanionCaseProposal(
-                                obligation,
-                                named(
-                                    obligation,
-                                    f"{_local_name(key)}_{target:g}",
-                                    clone(case, inputs=inputs),
-                                ),
-                                tuple(output_keys),
-                                liveness_case=liveness_case,
-                                liveness_output_key=liveness_key,
-                                source_case=case,
-                            )
-                        )
-        if obligation.kind == "formula-branch":
-            toggles = set(obligation.toggle_input_names)
-            for rule_name, case in rule_cases:
-                output_keys = scoped_output_keys(case, rule_name)
-                if output_keys is None:
-                    continue
-                for key, value in case["input"].items():
-                    if _local_name(key) in toggles and isinstance(value, bool):
-                        inputs = dict(case["input"])
-                        inputs[key] = not value
-                        add(
-                            CompanionCaseProposal(
-                                obligation,
-                                named(
-                                    obligation,
-                                    f"{_local_name(key)}_{not value}",
-                                    clone(case, inputs=inputs),
-                                ),
-                                tuple(output_keys),
-                                source_case=case,
-                            )
-                        )
-            for rule_name, case in rule_cases:
-                output_keys = scoped_output_keys(case, rule_name)
-                if output_keys is None:
-                    continue
-                versions = (principal_rules.get(rule_name) or {}).get("versions")
-                for version in versions if isinstance(versions, list) else []:
-                    start = str((version or {}).get("effective_from") or "")
-                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
-                        continue
-                    period = _period_like(case.get("period"), start)
-                    if period is None or str(period) == str(case.get("period")):
-                        continue
-                    add(
-                        CompanionCaseProposal(
-                            obligation,
-                            named(
-                                obligation,
-                                f"{rule_name}_{start}",
-                                clone(case, period=period),
+                        clone = {
+                            "name": (
+                                f"{SYNTHESIZED_CASE_PREFIX}boundary_"
+                                f"{_slug(f'{_local_name(key)}_{target:g}')}"
                             ),
-                            tuple(output_keys),
-                            source_case=case,
+                            **{
+                                field: copy.deepcopy(item)
+                                for field, item in case.items()
+                                if field not in {"name", "output"}
+                            },
+                            "input": inputs,
+                        }
+                        identity = repr((sorted(inputs.items(), key=str), output_keys))
+                        if (
+                            identity in seen
+                            or len(proposals) >= _PROPOSALS_PER_OBLIGATION
+                        ):
+                            continue
+                        seen.add(identity)
+                        proposals.append(
+                            CompanionCaseProposal(
+                                obligation,
+                                clone,
+                                output_keys,
+                                source_case=case,
+                                source_output_keys=same_entity,
+                            )
                         )
-                    )
         if proposals:
             per_obligation.append(proposals)
 
@@ -494,20 +343,18 @@ def _source_case_agrees_with_engine(
 ) -> bool:
     """Clone only cases whose own stated expectations the engine reproduces.
 
-    A clone inherits its structure from a model-written case. If the engine
-    disagrees with that case's asserted values, the model's expectation and
-    the encoding conflict, and no clone may pin the encoding's side.
+    Every output the model asserted in the source case on the covering
+    rule's entity must execute to the asserted value; a case with no such
+    assertion fails closed. This catches an encoding that conflicts with the
+    model's stated values. It cannot catch a model case and an encoding that
+    are wrong in the same way.
     """
 
     source = proposal.source_case
-    if source is None:
-        return True
     outputs = source.get("output") if isinstance(source, dict) else None
-    if not isinstance(outputs, dict):
+    keys = proposal.source_output_keys
+    if not isinstance(outputs, dict) or not keys:
         return False
-    keys = tuple(key for key in proposal.output_keys if key in outputs)
-    if not keys:
-        return True
     unasserted = {k: v for k, v in source.items() if k not in {"name", "output"}}
     try:
         values = evaluate_case(copy.deepcopy(unasserted), keys)
@@ -524,7 +371,7 @@ def _credits_target(
     current_keys: frozenset[tuple[str, str]],
     trial_keys: frozenset[tuple[str, str]],
 ) -> bool:
-    """Credit only the targeted demand (plus other synthesizable demands)."""
+    """Credit only the targeted boundary (plus other boundary demands)."""
 
     removed = current_keys - trial_keys
     return (
@@ -542,7 +389,7 @@ def synthesize_companion_cases(
     analyze_cases: AnalyzeCases,
     baseline: object | None = None,
     max_analyses: int = 32,
-    time_budget_seconds: float = 180.0,
+    time_budget_seconds: float = 120.0,
 ) -> list[dict[str, Any]]:
     """Keep executed proposals that the complete-source analysis credits.
 
@@ -572,7 +419,7 @@ def synthesize_companion_cases(
             break
         if obligation_key(proposal.obligation) not in current_keys:
             continue
-        source_key = (id(proposal.source_case), proposal.output_keys)
+        source_key = (id(proposal.source_case), proposal.source_output_keys)
         if source_key not in source_agreement:
             evaluations += 1
             source_agreement[source_key] = _source_case_agrees_with_engine(
@@ -587,21 +434,6 @@ def synthesize_companion_cases(
             continue
         if not outputs or set(outputs) != set(proposal.output_keys):
             continue
-        if proposal.liveness_case is not None:
-            liveness_key = str(proposal.liveness_output_key)
-            evaluations += 1
-            try:
-                twin = evaluate_case(
-                    copy.deepcopy(proposal.liveness_case), (liveness_key,)
-                )
-            except Exception:
-                continue
-            if not twin or liveness_key not in twin:
-                continue
-            if twin[liveness_key] == outputs.get(liveness_key):
-                # The clamped input does not change the executed result: the
-                # clone's path never reaches max(0, x).
-                continue
         case = {
             **copy.deepcopy(proposal.case),
             "name": _unique_name(str(proposal.case["name"]), used_names),

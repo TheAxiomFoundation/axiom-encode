@@ -38090,18 +38090,19 @@ class ValidatorPipeline:
         rules_file: Path,
         *,
         max_analyses: int = 32,
-        time_budget_seconds: float = 180.0,
+        time_budget_seconds: float = 120.0,
     ) -> list[dict[str, Any]]:
         """Propose engine-executed companion cases for complete-source gaps.
 
-        Each returned case clones an existing companion case, changes one input
-        or the period to a value taken from a structured boundary, formula-
-        branch or clamp demand, asserts outputs whose values the rules engine
-        computed (a clamp clone must also be live: a positive input changes
-        the clamped output), closes exactly its targeted demand in the
-        complete-source analysis, and passes the companion test runner.
-        Unasserted outputs and paired exception evidence are never
-        synthesized. Nothing is written; the caller decides whether to append.
+        Each returned case clones an existing companion case whose asserted
+        values the engine reproduces, sets the one input that a covering
+        formula compares directly with a missing source boundary to that
+        boundary, asserts only the covering rule and what it reads with values
+        the rules engine computed, closes exactly that boundary demand in the
+        complete-source analysis, and passes the companion test runner. Formula
+        branches, clamps, unasserted outputs and paired exception evidence are
+        never synthesized: those demands exist so the model states the value.
+        Nothing is written; the caller decides whether to append.
         """
 
         if not self.require_complete_source_unit:
