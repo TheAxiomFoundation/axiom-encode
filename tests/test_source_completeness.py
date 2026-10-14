@@ -8916,9 +8916,14 @@ rules: []
         extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
     )
 
-    assert _has_issue(result, "us/regulation/7/273/4(a)", "Nummer 3")
-    assert _has_issue(result, "us/regulation/7/273/4(c)", "Nummer 3")
-    assert not _has_issue(result, "us/regulation/7/273/4(3) [Absatz 3]")
+    assert _has_issue(result, "us/regulation/7/273/4(a)(3) [paragraph (a)(3)]")
+    assert _has_issue(result, "us/regulation/7/273/4(c)(3) [paragraph (c)(3)]")
+    assert not _has_issue(result, "us/regulation/7/273/4(3) ")
+    assert not any(
+        label in issue
+        for issue in result.issues
+        for label in ("Absatz", "Nummer", "Buchstabe")
+    )
 
 
 def test_parenthesized_cfr_outline_is_recognized_with_bounded_runtime():

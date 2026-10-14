@@ -22,6 +22,7 @@ import re
 import textwrap
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import date
 from decimal import (
     ROUND_CEILING,
@@ -127,6 +128,12 @@ class SourceStructureBranch:
     start: int
     end: int
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
+    # Printed-case designations for `path` (`("a", "6", "i", "A")` for the
+    # lowercased `("a", "6", "i", "a")`). Display only: excluded from equality
+    # and hashing, and ignored unless it still spells `path`.
+    display_path: tuple[str, ...] | None = dataclass_field(
+        default=None, compare=False, repr=False
+    )
 
 
 @dataclass(frozen=True)
@@ -2548,14 +2555,60 @@ def _irs_revenue_procedure_structure(
     return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
 
 
+def _with_display_paths(
+    branches: Iterable[SourceStructureBranch],
+) -> tuple[SourceStructureBranch, ...]:
+    """Attach printed-case designations (`(A)`, `(I)`) to lowercased paths."""
+
+    branches = tuple(branches)
+    printed: dict[tuple[str, ...], str] = {}
+    for branch in branches:
+        if not branch.path:
+            continue
+        label = re.fullmatch(
+            r"\s*\(?(?P<designation>[A-Za-z0-9]+)[.)]?\s*", branch.label
+        )
+        if label is not None and label.group("designation").lower() == branch.path[-1]:
+            printed.setdefault(branch.path, label.group("designation"))
+    return tuple(
+        replace(
+            branch,
+            display_path=tuple(
+                printed.get(branch.path[: index + 1], component)
+                for index, component in enumerate(branch.path)
+            ),
+        )
+        if branch.path
+        else branch
+        for branch in branches
+    )
+
+
 def recognize_source_structure(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> tuple[SourceStructureBranch, ...]:
-    """Recognize paragraph, list, letter, and glued German sentence markers."""
+    """Recognize paragraph, list, letter, and glued German sentence markers.
+
+    German glued (`1Das`) and explicit (`Satz 2`) sentence markers are German
+    drafting conventions; a U.S. source never numbers its sentences that way,
+    so U.S. corpus paths do not recognize them (`K-40ES`, `42CFR`, `22VAC40`
+    and `Form G-2RP` are not "Satz 40", "Satz 42", "Satz 22" or "Satz 2").
+    """
 
     if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
-        return _irs_revenue_procedure_structure(source_text)
+        return _with_display_paths(_irs_revenue_procedure_structure(source_text))
+    return _with_display_paths(
+        _recognize_source_structure(
+            source_text,
+            sentence_markers=_US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+            is None,
+        )
+    )
 
+
+def _recognize_source_structure(
+    source_text: str, *, sentence_markers: bool
+) -> tuple[SourceStructureBranch, ...]:
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
     dotted_matches = _qualified_dotted_subsection_matches(source_text)
@@ -2690,13 +2743,24 @@ def recognize_source_structure(
     legacy_marker_offsets = {
         *(match.start() for match in _NUMBER_MARKER.finditer(source_text)),
         *(match.start() for match in _LETTER_MARKER.finditer(source_text)),
-        *(match.start() for match in _GLUED_SENTENCE_MARKER.finditer(source_text)),
-        *(
-            match.start()
-            for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
-        ),
-        *(match.start() for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)),
     }
+    if sentence_markers:
+        legacy_marker_offsets.update(
+            (
+                *(
+                    match.start()
+                    for match in _GLUED_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _GLUED_SECTION_SENTENCE_MARKER.finditer(source_text)
+                ),
+                *(
+                    match.start()
+                    for match in _EXPLICIT_SENTENCE_MARKER.finditer(source_text)
+                ),
+            )
+        )
     owner_paths = _most_specific_segment_paths_at_offsets(
         paragraph_segments,
         legacy_marker_offsets,
@@ -2757,18 +2821,22 @@ def recognize_source_structure(
                     )
                 )
 
-        sentence_matches = [
-            match
-            for match in sorted(
-                (
-                    *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
-                    *_glued_section_sentence_matches(paragraph_text),
-                    *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
-                ),
-                key=lambda item: item.start(),
-            )
-            if owner_paths.get(paragraph_start + match.start()) == paragraph_path
-        ]
+        sentence_matches = (
+            [
+                match
+                for match in sorted(
+                    (
+                        *_GLUED_SENTENCE_MARKER.finditer(paragraph_text),
+                        *_glued_section_sentence_matches(paragraph_text),
+                        *_EXPLICIT_SENTENCE_MARKER.finditer(paragraph_text),
+                    ),
+                    key=lambda item: item.start(),
+                )
+                if owner_paths.get(paragraph_start + match.start()) == paragraph_path
+            ]
+            if sentence_markers
+            else []
+        )
         for index, match in enumerate(sentence_matches):
             start = paragraph_start + match.start()
             end = (
@@ -6028,6 +6096,7 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
+    us_source = _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
@@ -6056,6 +6125,12 @@ def _paths_from_source_reference(
                         *_keyword_path_components(trailing, base_components),
                     )
                 )
+                if not suffix.startswith("/") and us_source:
+                    paths.update(
+                        _us_designation_list_continuations(
+                            value, match.end(), components
+                        )
+                    )
 
     keyword_components = _keyword_path_components(value)
     if keyword_components:
@@ -6079,8 +6154,139 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+            if us_source:
+                paths.update(
+                    _us_designation_list_continuations(value, match.end(), components)
+                )
     if not paths:
         paths.add(())
+    return paths
+
+
+_US_DESIGNATION_LIST_CONTINUATION = re.compile(
+    r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
+    r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)"
+    # `(c)(1)(A) and (B) of section 152` cites another section's (B).
+    r"(?![ \t]+of[ \t]+(?:section|title|subtitle|chapter|subchapter|part|"
+    r"subpart|such|the|that|said|Public)\b)",
+    flags=re.IGNORECASE,
+)
+_US_DESIGNATION_RANGE_SEPARATORS = frozenset({"-", "–", "—", "through", "thru", "to"})
+
+
+def _is_outline_roman_designation(label: str) -> bool:
+    """A single letter is roman only as `i`, `v` or `x`."""
+
+    return _is_roman_outline_label(label) and (
+        len(label) > 1 or label.lower() in {"i", "v", "x"}
+    )
+
+
+def _us_designation_classes(label: str) -> frozenset[str]:
+    """Classify a U.S. designation: numeric, letter or roman, by case."""
+
+    if label[0].isdigit():
+        return frozenset({"numeric"})
+    case = "upper" if label.isupper() else "lower"
+    classes = set()
+    if len(label) == 1:
+        classes.add(f"{case}-letter")
+    if _is_outline_roman_designation(label):
+        classes.add(f"{case}-roman")
+    return frozenset(classes)
+
+
+def _us_designation_range(
+    first: str, last: str, label_class: str
+) -> tuple[str, ...] | None:
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations."""
+
+    if label_class == "numeric":
+        if not (first.isdigit() and last.isdigit()):
+            return None
+        low, high = int(first), int(last)
+        if not 0 < high - low < 26:
+            return None
+        return tuple(str(value) for value in range(low, high + 1))
+    if label_class.endswith("letter"):
+        if not 0 < ord(last.lower()) - ord(first.lower()) < 26:
+            return None
+        return tuple(chr(code) for code in range(ord(first), ord(last) + 1))
+    first_value = _roman_outline_value(first)
+    last_value = _roman_outline_value(last)
+    if first_value is None or last_value is None:
+        return None
+    if not 0 < last_value - first_value < 26:
+        return None
+    numerals = ((10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"))
+    labels = []
+    for value in range(first_value, last_value + 1):
+        rendered = ""
+        for size, numeral in numerals:
+            while value >= size:
+                rendered += numeral
+                value -= size
+        labels.append(rendered.upper() if first.isupper() else rendered)
+    return tuple(labels)
+
+
+def _us_designation_list_continuations(
+    source: str,
+    position: int,
+    components: Sequence[str],
+) -> set[tuple[str, ...]]:
+    """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
+
+    U.S. citations list and range sibling designations after the first one.
+    Each continuation replaces the designation of its own class at the
+    deepest matching level of the previous one (`(a)(5)(iii)-(iv)` cites
+    (a)(5)(iii) and (a)(5)(iv); `(a)(4)(iii), (a)(5)(ii)` restarts at the
+    root). A range spans siblings only when it replaces the last designation;
+    `(a)(4)(iii)-(5)` cites (a)(4)(iii) and (a)(5), never all of (a)(4).
+    Reading stops at the first continuation that is not a designation of a
+    level already cited, at a gloss (`(a) (citizenship)`), and at a
+    designation of another section (`and (B) of section 152`).
+    """
+
+    paths: set[tuple[str, ...]] = set()
+    previous = list(components)
+    while True:
+        continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
+        if continuation is None:
+            break
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", continuation.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            break
+        classes = _us_designation_classes(labels[0])
+        depth = next(
+            (
+                index
+                for index in range(len(previous) - 1, -1, -1)
+                if _us_designation_classes(previous[index]) & classes
+            ),
+            None,
+        )
+        if depth is None:
+            break
+        current = [*previous[:depth], *labels]
+        if (
+            continuation.group("separator").strip().lower()
+            in _US_DESIGNATION_RANGE_SEPARATORS
+            and len(labels) == 1
+            and depth == len(previous) - 1
+        ):
+            shared = sorted(_us_designation_classes(previous[depth]) & classes)
+            expanded = (
+                _us_designation_range(previous[depth], labels[0], shared[-1])
+                if shared
+                else None
+            )
+            for label in expanded or ():
+                paths.add(tuple(part.lower() for part in (*previous[:depth], label)))
+        paths.add(tuple(part.lower() for part in current))
+        previous = current
+        position = continuation.end()
     return paths
 
 
@@ -6685,7 +6891,13 @@ def _resolved_definition_deferral_clauses(
             continue
         clauses.append(
             SourceStructureBranch(
-                owner.path, "deferred-definition", owner.label, text, start, end
+                owner.path,
+                "deferred-definition",
+                owner.label,
+                text,
+                start,
+                end,
+                display_path=owner.display_path,
             )
         )
     return tuple(clauses)
@@ -13215,6 +13427,8 @@ def _branch_citation(
         ]
         path = "".join(f"({component})" for component in branch.path)
         return f"{corpus_citation_path}{path} [{', '.join(components)}]"
+    if not _uses_german_branch_labels(corpus_citation_path):
+        return _english_branch_citation(corpus_citation_path, branch)
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -13227,6 +13441,62 @@ def _branch_citation(
         else:
             components.append(f"Nummer {component}")
     return f"{citation}({branch.path[0]}) [{', '.join(components)}]"
+
+
+_GERMAN_CORPUS_CITATION_PATH = re.compile(r"de(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+
+
+def _uses_german_branch_labels(corpus_citation_path: str) -> bool:
+    """German (and unscoped legacy) sources keep Absatz/Nummer/Buchstabe."""
+
+    path = corpus_citation_path.strip()
+    return not path or _GERMAN_CORPUS_CITATION_PATH.match(path) is not None
+
+
+def _english_branch_citation(
+    corpus_citation_path: str,
+    branch: SourceStructureBranch,
+) -> str:
+    """Render `us/regulation/7/273/4(a)(6)(i)(A) [paragraph (a)(6)(i)(A)]`.
+
+    Repair feedback for a non-German source names the branch with its full
+    parenthesized designation, the literal citation a deferral `reason` must
+    use, instead of German Absatz/Nummer/Buchstabe labels. Only the wording
+    differs; the branch is the same. The CFR calls every level a paragraph;
+    elsewhere the level nouns vary, so the label says `provision`.
+    """
+
+    display = branch.display_path
+    if not (
+        display is not None
+        and len(display) == len(branch.path)
+        and all(
+            printed.lower() == component
+            for printed, component in zip(display, branch.path, strict=True)
+        )
+    ):
+        display = branch.path
+    designations = [
+        printed
+        for printed, component in zip(display, branch.path, strict=True)
+        if not component.startswith("satz-")
+    ]
+    sentences = [
+        component.removeprefix("satz-")
+        for component in branch.path
+        if component.startswith("satz-")
+    ]
+    fragment = "".join(f"({designation})" for designation in designations)
+    noun = (
+        "paragraph"
+        if corpus_citation_path.strip().startswith("us/regulation/")
+        else "provision"
+    )
+    components = [
+        *((f"{noun} {fragment}",) if fragment else ()),
+        *(f"sentence {sentence}" for sentence in sentences),
+    ]
+    return f"{corpus_citation_path}{fragment} [{', '.join(components)}]"
 
 
 def _validated_session_law_history_entries(
@@ -15472,6 +15742,11 @@ def _flattened_inline_dotted_list_ownership(
                 source_text[start:end].strip(),
                 start,
                 end,
+                display_path=(
+                    (*parent.display_path, match.group("label"))
+                    if parent.display_path is not None
+                    else None
+                ),
             )
         )
     return tuple(branches), False
@@ -17924,6 +18199,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            display_path=owner.display_path,
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -26196,6 +26472,7 @@ def _source_exception_branches(
                     branch_text,
                     branch_start,
                     branch_end,
+                    display_path=owner.display_path,
                 )
             )
     return tuple(
@@ -26907,6 +27184,7 @@ def _source_rounding_obligations(
             clause_text,
             clause_start,
             clause_end,
+            display_path=owner.display_path,
         )
         obligations.append((obligation_branch, direction))
     return tuple(obligations)

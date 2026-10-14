@@ -1,0 +1,295 @@
+"""U.S. structure findings: English branch labels, sentence markers, citations.
+
+U.S. repair feedback used German Absatz/Nummer/Buchstabe labels, U.S. text
+was read for German glued sentence numbers (`K-40ES` became "Satz 40"), and a
+rule citing `7 CFR 273.4(a)(3)-(5)` covered only (a)(3).
+"""
+
+from __future__ import annotations
+
+import functools
+
+from axiom_encode.cli import _validation_retry_branch_locator
+from axiom_encode.harness import source_completeness as completeness
+from axiom_encode.harness.source_completeness import (
+    analyze_complete_source_unit,
+    recognize_source_structure,
+)
+from axiom_encode.harness.validator_pipeline import (
+    extract_named_scalar_occurrences,
+    extract_typed_numeric_inventory_occurrences_from_text,
+    extract_typed_numeric_occurrences_from_text,
+    numeric_value_is_grounded,
+)
+
+CFR_273_4 = "us/regulation/7/273/4"
+CFR_SOURCE = """\
+(a) Household members meeting citizenship or alien status requirements. No person is eligible unless that person is:
+(1) A U.S. citizen;
+(2) A U.S. non-citizen national;
+(3) A qualified alien; or
+(4) A Hmong or Highland Laotian tribal member.
+(6) An individual who is a qualified alien:
+(i) A qualified alien is:
+(A) An alien who is lawfully admitted for permanent residence;
+(B) An alien who is granted asylum.
+(b) Reporting illegal aliens. The State agency must inform USCIS.
+"""
+
+
+def _analyze(content: str, source: str, citation: str):
+    return analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=citation,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def _structure_issues(result) -> list[str]:
+    return [
+        issue
+        for issue in result.issues
+        if issue.startswith("[complete-source-unit:structure]")
+    ]
+
+
+def _module(citation: str, *rule_sources: str) -> str:
+    rules = "".join(
+        f"""\
+  - name: rule_{index}
+    kind: derived
+    dtype: Judgment
+    source: {source}
+    versions:
+      - effective_from: '2025-01-01'
+        formula: some_input_{index}
+"""
+        for index, source in enumerate(rule_sources)
+    )
+    return f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {citation}
+rules:
+{rules}"""
+
+
+def test_cfr_omitted_branch_fails_with_english_paragraph_label():
+    result = _analyze(
+        _module(CFR_273_4, "7 CFR 273.4(a)(6)(i)(A)"), CFR_SOURCE, CFR_273_4
+    )
+    structure = _structure_issues(result)
+
+    assert any(
+        "Source branch (B) at us/regulation/7/273/4(a)(6)(i)(B) "
+        "[paragraph (a)(6)(i)(B)] is neither encoded nor precisely deferred." in issue
+        for issue in structure
+    ), structure
+    assert any(
+        "us/regulation/7/273/4(b) [paragraph (b)]" in issue for issue in structure
+    )
+    assert not any("(a)(6)(i)(A) " in issue for issue in structure)
+    assert not any(
+        word in issue
+        for issue in result.issues
+        for word in ("Absatz", "Nummer", "Buchstabe")
+    )
+
+
+def test_us_statute_omitted_branch_fails_with_english_provision_label():
+    citation = "us/statute/7/2015/f"
+    source = (
+        "No individual may participate in the supplemental nutrition assistance "
+        "program as a member of any household unless he or she is—\n\n"
+        "(1) a resident of the United States; and\n\n"
+        "(2) either—\n\n"
+        "(A) a citizen or national of the United States;\n\n"
+        "(B) an alien lawfully admitted for permanent residence; or\n\n"
+        "(C) an individual who lawfully resides in the United States.\n"
+    )
+    structure = _structure_issues(
+        _analyze(
+            _module(citation, "7 U.S.C. 2015(f)(1)", "7 U.S.C. 2015(f)(2)(A)-(B)"),
+            source,
+            citation,
+        )
+    )
+
+    assert any(
+        "Source branch (C) at us/statute/7/2015/f(2)(C) [provision (2)(C)] is "
+        "neither encoded nor precisely deferred." in issue
+        for issue in structure
+    ), structure
+    assert not any("2015/f(2)(B) " in issue for issue in structure)
+
+
+def test_state_statute_labels_are_english_and_keep_printed_case():
+    source = """\
+(1) (a) For purposes of this section, qualified individual means:
+(I) A natural person who is domiciled in this state; or
+(II) A natural person who died during the taxable year.
+(b) The refund is equal to the identical refund amount.
+(2) The department shall pay the refund.
+"""
+    citation = "us-co/statute/39/39-22-2003"
+    branches = recognize_source_structure(source, corpus_citation_path=citation)
+    branch = next(branch for branch in branches if branch.path == ("1", "a", "ii"))
+
+    assert (
+        completeness._branch_citation(citation, branch)
+        == "us-co/statute/39/39-22-2003(1)(a)(II) [provision (1)(a)(II)]"
+    )
+
+
+def test_german_labels_are_unchanged():
+    branches = recognize_source_structure(
+        "(1) Die Einkommensteuer bemisst sich nach dem Einkommen.\n"
+        "(2) Bei Ehegatten gilt:\n"
+        "1. der Splittingtarif;\n"
+        "2. der Grundtarif.\n",
+        corpus_citation_path="de/statute/estg/32a",
+    )
+    rendered = {
+        completeness._branch_citation("de/statute/estg/32a", branch)
+        for branch in branches
+    }
+
+    assert "de/statute/estg/32a(2) [Absatz 2, Nummer 1]" in rendered
+    assert "de/statute/estg/32a(1) [Absatz 1]" in rendered
+
+
+def test_us_sources_do_not_recognize_german_sentence_markers():
+    # Corpus shapes: a Kansas voucher number, a CHIP plan's `(42CFR`, a
+    # Virginia budget's `8VAC20`, a Georgia rule's `Form G-2RP`.
+    for citation, source in (
+        (
+            "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+            "Schedule K-210 is available at ksrevenue.gov K-40ES 2026 KANSAS "
+            "INDIVIDUAL ESTIMATED INCOME TAX VOUCHER K-40ES 1810 Please print.",
+        ),
+        (
+            "us-md/policy/cms/chip-state-plan/spa/md-23-0002/page-88",
+            "Check all standards that will apply to the State plan. "
+            "(42CFR 457.305(a) and 457.320(a)) Describe the verification.",
+        ),
+        (
+            "us-va/statute/budget/2025/hb1600/chapter-725/page-198",
+            "Notwithstanding 8VAC-20-100, the Board of Education shall issue loans.",
+        ),
+        (
+            "us-ga/regulation/560-7/560-7-8-.33",
+            "The buyer shall provide the seller a copy of the Form G-2RP as a "
+            "statement of tax withheld.",
+        ),
+    ):
+        branches = recognize_source_structure(source, corpus_citation_path=citation)
+        assert not [branch for branch in branches if branch.kind == "sentence"], (
+            citation
+        )
+
+    german = recognize_source_structure(
+        "(1) 1Die Steuer beträgt 10 Prozent. 2Sie ist jährlich zu entrichten.",
+        corpus_citation_path="de/statute/estg/32a",
+    )
+    assert {branch.path for branch in german if branch.kind == "sentence"} == {
+        ("1", "satz-1"),
+        ("1", "satz-2"),
+    }
+
+
+def test_english_structure_and_formula_locators_still_pair_for_retry():
+    structure = (
+        "[complete-source-unit:structure] Source branch (ii) at "
+        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] is neither "
+        "encoded nor precisely deferred."
+    )
+    formula = (
+        "[complete-source-unit:formula-output] Source-stated control (ii) in "
+        "us/regulation/7/273/4(a)(6)(ii) [paragraph (a)(6)(ii)] has no "
+        "principal derived/relation output (`derived` or `derived_relation`)."
+    )
+    other = (
+        "[complete-source-unit:formula-output] Source-stated control (iii) in "
+        "us/regulation/7/273/4(a)(6)(iii) [paragraph (a)(6)(iii)] has no "
+        "principal derived/relation output (`derived` or `derived_relation`)."
+    )
+
+    assert _validation_retry_branch_locator(structure) == (
+        _validation_retry_branch_locator(formula)
+    )
+    assert _validation_retry_branch_locator(structure) != (
+        _validation_retry_branch_locator(other)
+    )
+
+
+def test_us_citation_lists_and_ranges_name_each_listed_branch():
+    paths = completeness._paths_from_source_reference(
+        "7 CFR 273.4(a)(4)(iii), (a)(5)(ii), and (c)(3)(vi)-(vii)",
+        corpus_citation_path=CFR_273_4,
+    )
+    assert paths == {
+        ("a", "4", "iii"),
+        ("a", "5", "ii"),
+        ("c", "3", "vi"),
+        ("c", "3", "vii"),
+    }
+    assert completeness._paths_from_source_reference(
+        "26 USC 2(a)(1)(A)-(C)", corpus_citation_path="us/statute/26/2/a"
+    ) == {("1", "a"), ("1", "b"), ("1", "c")}
+    assert completeness._paths_from_source_reference(
+        "42 USC 416(l)(1), (3)", corpus_citation_path="us/statute/42/416/l"
+    ) == {("1",), ("3",)}
+
+
+def test_us_citation_lists_never_claim_more_than_they_name():
+    # A gloss, a different section, and German citations are not continued.
+    assert completeness._paths_from_source_reference(
+        "7 CFR 273.4(a) (citizenship) and 7 CFR 273.10(c)",
+        corpus_citation_path=CFR_273_4,
+    ) == {("a",)}
+    assert completeness._paths_from_source_reference(
+        "26 USC 32(c)(1)(A) and (B) of section 152",
+        corpus_citation_path="us/statute/26/32",
+    ) == {("c", "1", "a")}
+    assert completeness._paths_from_source_reference(
+        "de/statute/estg/32a(1), (2)", corpus_citation_path="de/statute/estg/32a"
+    ) == {("1",)}
+    # A range that replaces a non-final designation names only its endpoints:
+    # neither all of (a)(4) nor subsection (b).
+    assert completeness._paths_from_source_reference(
+        "7 CFR 273.4(a)(4)(iii)-(5)", corpus_citation_path=CFR_273_4
+    ) == {("a", "4", "iii"), ("a", "5")}
+    assert completeness._paths_from_source_reference(
+        "26 USC 32(a)(1)(A)-(c)", corpus_citation_path="us/statute/26/32"
+    ) == {("a", "1", "a"), ("c",)}
+    # An absurd range expands nothing.
+    assert completeness._paths_from_source_reference(
+        "7 CFR 273.4(a)(1)-(999999)", corpus_citation_path=CFR_273_4
+    ) == {("a", "1"), ("a", "999999")}
+
+
+def test_cited_range_covers_only_its_own_branches():
+    result = _analyze(
+        _module(CFR_273_4, "7 CFR 273.4(a)(1)-(3)"), CFR_SOURCE, CFR_273_4
+    )
+    structure = _structure_issues(result)
+
+    for covered in ("(a)(1) ", "(a)(2) ", "(a)(3) "):
+        assert not any(f"273/4{covered}" in issue for issue in structure), covered
+    # Negative controls: omitted siblings outside the range still fail.
+    assert any(
+        "Source branch (4) at us/regulation/7/273/4(a)(4) [paragraph (a)(4)]" in issue
+        for issue in structure
+    ), structure
+    assert any("273/4(a)(6) [paragraph (a)(6)]" in issue for issue in structure)
+    assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)
