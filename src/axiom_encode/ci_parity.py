@@ -5589,12 +5589,24 @@ def _build_workflow_composer(
         name: value
         for name, value in _git_environment().items()
         if not name.startswith(
-            ("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA", "XDG_CONFIG_", "AXIOM_")
+            (
+                "PYTHON",
+                "UV_",
+                "PIP_",
+                "VIRTUAL_ENV",
+                "CONDA",
+                "XDG_CONFIG_",
+                "AXIOM_",
+                "GITHUB_",
+                "RUNNER_",
+            )
         )
+        and name != "CI"
     }
-    # What the step sees in CI: AXIOM_DEPENDENCY_ROOT and _STAGE from
-    # GITHUB_ENV and its own AXIOM_COMPOSE_REF, never the developer's values
-    # (committed uv configuration can name them, as in ${AXIOM_DEPENDENCY_ROOT}).
+    # What the step sees on a runner: GitHub's variables (GITHUB_WORKSPACE,
+    # RUNNER_TEMP, ...), AXIOM_DEPENDENCY_ROOT and _STAGE from GITHUB_ENV and
+    # its own AXIOM_COMPOSE_REF, never the developer's values. Committed uv
+    # configuration can name any of them, as in ${AXIOM_DEPENDENCY_ROOT}.
     environment.update(step_environment or {})
     environment["XDG_CONFIG_HOME"] = str(empty_config)
     environment["XDG_CONFIG_DIRS"] = str(empty_config)
@@ -6205,19 +6217,35 @@ def _copy_on_write(source: Path, target: Path) -> None:
     shutil.copy2(source, target, follow_symlinks=False)
 
 
+# Attributes under which a checkout writes other bytes than the blob's.
+_CHECKOUT_CONVERSIONS = ("text", "eol", "filter", "ident", "working-tree-encoding")
+
+
 def _disposable_checkout(
-    source: Path, commit: str, destination: Path, repository: str
+    source: Path,
+    commit: str,
+    destination: Path,
+    repository: str,
+    carried: Sequence[str] = (),
 ) -> None:
-    """Make ``destination`` a checkout of ``commit`` that shares nothing writable.
+    """Make ``destination`` byte for byte what a fresh checkout of ``commit`` is.
 
     CI's dependency checkouts are disposable, so a build may write into them.
-    ci's are the developer's own, so a build gets this copy instead: Git
-    objects shared read-only through alternates, the committed files cloned
-    copy-on-write from the verified checkout (only tracked paths, so nothing
-    untracked or ignored comes along), origin https://github.com/<repository>,
-    HEAD detached at ``commit``. Git then compares every file with the commit;
-    one that differs (under a recorded ref mismatch, say) is rewritten from
-    the commit's objects, and anything still different fails closed.
+    ci's are the developer's own, so a build gets this copy instead:
+    - Git objects are shared read-only through alternates, and origin is
+      https://github.com/<repository>, HEAD detached at ``commit``.
+    - Only paths tracked at ``commit`` are placed, so nothing untracked or
+      ignored comes along. Links come from their blobs, and regular files are
+      cloned copy-on-write from the verified checkout.
+    - A file whose committed attributes make a checkout convert it (line
+      endings, filters, ident, encodings) is written by ``git
+      checkout-index``, as a fresh checkout writes it: the developer's copy
+      can differ in bytes while Git calls it clean.
+    - Every other file's raw bytes are hashed and compared with its blob; one
+      that differs is written by ``git checkout-index`` too, and still
+      differing fails closed. Modes are a fresh checkout's (0644, 0755).
+    ``carried`` names untracked files CI has already placed in its checkout
+    before the step (the corpus release object), copied from ``source``.
     """
 
     environment = {
@@ -6228,7 +6256,7 @@ def _disposable_checkout(
         "GIT_TERMINAL_PROMPT": "0",
     }
 
-    def git(*arguments: str) -> bytes:
+    def git(*arguments: str, stdin: bytes | None = None) -> bytes:
         result = subprocess.run(
             [
                 "git",
@@ -6238,6 +6266,7 @@ def _disposable_checkout(
                 str(destination),
                 *arguments,
             ],
+            input=stdin,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=environment,
@@ -6262,6 +6291,7 @@ def _disposable_checkout(
         ".",
     )
     git("remote", "set-url", "origin", f"https://github.com/{repository}")
+    regular: dict[str, tuple[str, bool]] = {}
     for record in git("ls-tree", "-r", "-z", "--full-tree", commit).split(b"\0"):
         if not record:
             continue
@@ -6276,33 +6306,89 @@ def _disposable_checkout(
             target.mkdir(exist_ok=True)
         else:
             _copy_on_write(source / relative, target)
+            regular[relative] = (blob.decode(), mode == b"100755")
     git("read-tree", commit)
     git("update-ref", "--no-deref", "HEAD", commit)
 
-    def differences() -> bytes:
-        subprocess.run(
-            ["git", "-C", str(destination), "update-index", "-q", "--refresh"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=environment,
-            check=False,
-        )
-        return git("status", "--porcelain", "-z", "--untracked-files=all")
+    paths = list(regular)
+    converted: set[str] = set()
+    if paths:
+        fields = git(
+            "check-attr",
+            "-z",
+            f"--source={commit}",
+            "--stdin",
+            *_CHECKOUT_CONVERSIONS,
+            stdin=b"".join(os.fsencode(path) + b"\0" for path in paths),
+        ).split(b"\0")
+        for index in range(0, len(fields) - 2, 3):
+            if fields[index + 2] not in (b"unspecified", b"unset"):
+                converted.add(os.fsdecode(fields[index]))
 
-    if differences():
-        # Only the files that differ are written, from the commit's objects.
-        git("checkout", "-q", "-f", "--", ".")
-        git("clean", "-q", "-f", "-d", "-x")
-        if remaining := differences():
+    def raw_mismatches(candidates: Sequence[str]) -> list[str]:
+        # hash-object reads newline-separated paths; a path holding a
+        # newline is simply rewritten.
+        listed = [path for path in candidates if "\n" not in path]
+        hashes = (
+            git(
+                "hash-object",
+                "--no-filters",
+                "--stdin-paths",
+                stdin="".join(path + "\n" for path in listed).encode(),
+            )
+            .decode()
+            .split()
+            if listed
+            else []
+        )
+        return [
+            *(path for path in candidates if "\n" in path),
+            *(
+                path
+                for path, digest in zip(listed, hashes, strict=True)
+                if digest != regular[path][0]
+            ),
+        ]
+
+    plain = [path for path in paths if path not in converted]
+    rewrite = sorted({*converted, *raw_mismatches(plain)})
+    if rewrite:
+        git(
+            "checkout-index",
+            "-f",
+            "-z",
+            "--stdin",
+            stdin=b"".join(os.fsencode(path) + b"\0" for path in rewrite),
+        )
+        if remaining := raw_mismatches([path for path in rewrite if path in plain]):
             raise ValueError(
                 f"Disposable {destination.name} checkout still differs from "
-                f"{commit}: {os.fsdecode(remaining)[:500]}"
+                f"{commit}: {', '.join(remaining[:10])}"
             )
+    for path, (_blob, executable) in regular.items():
+        os.chmod(destination / path, 0o755 if executable else 0o644)
+    for relative in carried:
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError(f"Cannot carry {relative!r} into a disposable checkout")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _copy_on_write(source / relative, target)
+
+
+def _carried_release_object(release_path: Path, corpus: Path) -> list[str]:
+    """The release object's path inside the corpus checkout, if it is there."""
+
+    try:
+        return [str(release_path.resolve().relative_to(corpus.resolve()))]
+    except ValueError:
+        return []
 
 
 @contextlib.contextmanager
 def _fresh_composer_siblings(
-    layout: DependencyLayout, checkouts: Mapping[str, tuple[Path, str]]
+    layout: DependencyLayout,
+    checkouts: Mapping[str, tuple[Path, str]],
+    carried: Mapping[str, Sequence[str]] | None = None,
 ) -> Iterator[None]:
     """Give the composer build disposable copies of the sibling dependencies.
 
@@ -6313,8 +6399,11 @@ def _fresh_composer_siblings(
     path comes from the composer's lock, the rules checkout's uv configuration
     or a link inside another dependency. So while the composer builds, each
     sibling entry is such a copy rather than a link to the developer's
-    checkout. Afterwards each copy is removed and the link restored, also on
-    failure, so later steps see the layout they saw before.
+    checkout. ``carried`` lists, per sibling, untracked files CI's checkout
+    already holds at that point (the corpus release object, 92ccb0f2
+    L1870-1938), which the copy receives too. Afterwards each copy is
+    removed and the link restored, also on failure, so later steps see the
+    layout they saw before.
     """
 
     swapped: list[str] = []
@@ -6328,7 +6417,11 @@ def _fresh_composer_siblings(
             elif entry.exists():
                 raise ValueError(f"CI dependency entry already exists: {entry}")
             _disposable_checkout(
-                source, commit, entry, f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}"
+                source,
+                commit,
+                entry,
+                f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}",
+                (carried or {}).get(name, ()),
             )
         yield
     finally:
@@ -6875,6 +6968,11 @@ def _run_ci_in_checkout(
                             )
                             for name in _COMPOSER_SIBLINGS
                         },
+                        {
+                            "corpus": _carried_release_object(
+                                release_path, paths["corpus"]
+                            )
+                        },
                     )
                     if layout is not None
                     else contextlib.nullcontext()
@@ -6893,9 +6991,23 @@ def _run_ci_in_checkout(
                         workspace=repo,
                         offline=args.offline,
                         notes=notes,
-                        # The step's own env and the GITHUB_ENV exports before
-                        # it (92ccb0f2 L1460-1461, L2011-2012).
+                        # A runner's environment for the step: GitHub's default
+                        # variables (as repository pytest gets them), the
+                        # GITHUB_ENV exports before it and its own env
+                        # (92ccb0f2 L1460-1461, L2011-2012).
                         step_environment={
+                            "CI": "true",
+                            "GITHUB_ACTIONS": "true",
+                            **(
+                                simulation.github_environment(repo)
+                                if simulation is not None
+                                else {"GITHUB_WORKSPACE": str(repo)}
+                            ),
+                            **(
+                                {"RUNNER_TEMP": str(runner_temp)}
+                                if runner_temp is not None
+                                else {}
+                            ),
                             **(layout.environment() if layout is not None else {}),
                             "AXIOM_COMPOSE_REF": caller.refs["compose"],
                         },

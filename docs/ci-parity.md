@@ -160,12 +160,19 @@ Python. The scripts cover:
   (setuptools writes `.egg-info` there), whether the path comes from the
   composer's lock, the rules checkout's uv configuration or a link inside
   another dependency. So while the composer builds, the encoder, engine and
-  corpus entries are disposable copies too: Git objects shared read-only
-  through alternates, the committed files cloned copy-on-write (APFS
-  `clonefile`, Linux `FICLONE`, else copied) from the verified checkout, the
-  result compared file by file with the pin by Git, and HEAD detached at the
-  pin. Afterwards each copy is removed and its link restored, also on
-  failure; the developer's checkouts are never a build directory. `ci` also
+  corpus entries are disposable copies too, byte for byte what a fresh
+  checkout at the pin writes. Git objects are shared read-only through
+  alternates, and HEAD is detached at the pin. Only the paths tracked at the
+  pin are placed, cloned copy-on-write (APFS `clonefile`, Linux `FICLONE`,
+  else copied) from the verified checkout. A file whose committed attributes
+  make a checkout convert it (line endings, filters, `ident`, encodings) is
+  written by `git checkout-index`, because Git calls the developer's file
+  clean even when its bytes differ. Every other file's raw bytes are hashed
+  against its blob and rewritten the same way if they differ, and modes are a
+  fresh checkout's. The corpus copy also receives the release object `ci` has
+  fetched, as CI's corpus holds it by then (L1870-1938). Afterwards each copy
+  is removed and its link restored, also on failure; the developer's
+  checkouts are never a build directory. `ci` also
   points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
@@ -188,11 +195,14 @@ Python. The scripts cover:
   those requirements. Like the step, they run in the rules checkout and read
   the committed project configuration there and in the composer project;
   user and system configuration directories point at an empty directory, as
-  a fresh runner has none, and ambient `UV_*`, `PIP_*`, `PYTHON*` and
-  `AXIOM_*` values are removed. The commands see what the step sees in CI:
-  `AXIOM_DEPENDENCY_ROOT` and `AXIOM_DEPENDENCY_STAGE` for the run's
-  dependency root, and `AXIOM_COMPOSE_REF`, so committed configuration that
-  names `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner. uv still reads `/etc/uv/uv.toml` when no system configuration
+  a fresh runner has none, and ambient `UV_*`, `PIP_*`, `PYTHON*`,
+  `AXIOM_*`, `GITHUB_*` and `RUNNER_*` values and `CI` are removed. The
+  commands see what the step sees on a runner: `CI`, `GITHUB_ACTIONS` and the
+  simulated run's `GITHUB_*` values (`GITHUB_WORKSPACE` is the temporary
+  checkout), the run's `RUNNER_TEMP`, `AXIOM_DEPENDENCY_ROOT` and
+  `AXIOM_DEPENDENCY_STAGE` for its dependency root, and `AXIOM_COMPOSE_REF`.
+  So committed configuration that names `${GITHUB_WORKSPACE}` or
+  `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner. uv still reads `/etc/uv/uv.toml` when no system configuration
   is found there, and from a directory with no uv configuration of its own it
   reads a `uv.toml` or `[tool.uv]` table above it. So that file, or
   either of those in any directory above `ci`'s temporary checkout or
@@ -572,6 +582,12 @@ named:
   setuptools `.egg-info`) stay in that disposable checkout for later steps;
   `ci` builds in a disposable copy and removes it afterwards, so later steps see
   the link to the developer's checkout instead.
+- **The composer build's home directory.** The composer build keeps the
+  developer's `HOME`, which `--offline` needs for uv's default cache. So
+  uv's managed Pythons (`uv python install 3.14` installs there, where CI's
+  go under `$RUNNER_TEMP`) and any credentials uv reads from it (`~/.netrc`)
+  are the developer's. A private index that only the developer can reach
+  would resolve locally and fail in CI.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` sets `UV_CACHE_DIR` for
   the composer build only and does not export either to repository pytest.
