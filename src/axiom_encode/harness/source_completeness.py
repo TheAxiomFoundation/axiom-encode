@@ -17608,6 +17608,7 @@ def _principal_rule_closure(
     return tuple(closure)
 
 
+@functools.lru_cache(maxsize=4096)
 def _formula_expression_texts(formula_text: str) -> tuple[str, ...]:
     """Return the selector and leaf expressions of one RuleSpec formula."""
 
@@ -17632,16 +17633,24 @@ def _formula_expression_texts(formula_text: str) -> tuple[str, ...]:
     return tuple(texts)
 
 
+@functools.lru_cache(maxsize=4096)
+def _parsed_formula_expressions(formula_text: str) -> tuple[ast.expr, ...]:
+    """Parse each selector and leaf once; callers only read the trees."""
+
+    return tuple(
+        expression
+        for text in _formula_expression_texts(formula_text)
+        if (expression := _parse_formula_expression(text)) is not None
+    )
+
+
 def _rule_parsed_expressions(rule: dict[str, Any]) -> tuple[ast.expr, ...]:
-    expressions: list[ast.expr] = []
-    for version in rule.get("versions") or ():
-        if not isinstance(version, dict) or version.get("formula") is None:
-            continue
-        for text in _formula_expression_texts(str(version["formula"])):
-            expression = _parse_formula_expression(text)
-            if expression is not None:
-                expressions.append(expression)
-    return tuple(expressions)
+    return tuple(
+        expression
+        for version in rule.get("versions") or ()
+        if isinstance(version, dict) and version.get("formula") is not None
+        for expression in _parsed_formula_expressions(str(version["formula"]))
+    )
 
 
 def _constant_node_values(

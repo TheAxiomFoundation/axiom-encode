@@ -235,6 +235,32 @@ def test_formula_branch_proposals_flip_selectors_and_move_to_version_periods():
     assert moved[0].case["input"] == case["input"]
 
 
+def test_clones_assert_only_outputs_on_the_covering_rule_entity():
+    obligation = CompanionTestObligation(
+        "boundary",
+        ("income_limit_met",),
+        values=(500.0,),
+        input_names=("income",),
+        label="(i)=500",
+    )
+    mixed = {
+        "name": "mixed entities",
+        "period": "2025-07",
+        "input": {f"{BASE}#input.income": 100},
+        "output": {
+            f"{BASE}#household_total": 3,
+            f"{BASE}#income_limit_met": "holds",
+            f"{BASE}#some_parameter": 7,
+        },
+    }
+
+    [proposal] = propose_companion_cases(
+        [obligation], rules_payload=RULES, test_cases=[mixed]
+    )
+
+    assert proposal.output_keys == (f"{BASE}#income_limit_met",)
+
+
 def test_unusable_cases_are_never_cloned():
     obligation = CompanionTestObligation(
         "boundary",
