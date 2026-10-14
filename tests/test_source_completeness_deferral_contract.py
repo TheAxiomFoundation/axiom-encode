@@ -252,6 +252,20 @@ def test_nonoperative_framing_leaf_deferral_is_precise(
             ("a",),
             "42 CFR 457.800(a) states no computation or independent test.",
         ),
+        (
+            "(a) Scope. This section establishes that the agency must deny "
+            "eligibility to any applicant who refuses to cooperate.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative scope statement and supplies no "
+            "operative rule.",
+        ),
+        (
+            "(a) Purpose and scope. This section provides that each State must "
+            "cover every eligible child.",
+            ("a",),
+            "42 CFR 457.800(a) is a non-operative scope statement and supplies no "
+            "operative rule.",
+        ),
         # A second, operative sentence or an amount after a framing sentence.
         (
             "(a) Basis. This section implements section 2102 of the Act. The "
@@ -524,3 +538,162 @@ def test_cfr_reader_identity():
         "us/statute/26/32",
     ):
         assert sc._cfr_current_section_identity(citation) is None
+
+
+# CFR and Act dependencies named by a regulation branch.
+
+FMAP_457_622 = (
+    "(a) Basis. Sections 1905(b), 2105(a) and 2105(b) of the Act provides for "
+    "payments to States from the States' allotments for a fiscal year, as "
+    "determined under § 457.608, for part of the cost of expenditures.\n\n"
+    "(b) Enhanced FMAP—Computations. The enhanced FMAP is the lower of the "
+    "following:\n\n"
+    "(1) 70 percent of the regular FMAP determined under section 1905(b) of the "
+    "Act, plus 30 percentage points; or\n\n"
+    "(2) 85 percent.\n\n"
+    "(c) Categories. (1) Child health assistance in the form of health benefits "
+    "coverage that meets the requirements of section 2103 of the Act; and\n\n"
+    "(2) Subject to the 10 percent limit provisions under § 457.618(a)(2), "
+    "outreach expenditures.\n\n"
+    "(d) Other expenditures."
+)
+
+
+@pytest.mark.parametrize(
+    ("path", "reason"),
+    [
+        # Reasons copied verbatim from replayed rejected candidates.
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP plus 30 "
+            "percentage points, but the numeric regular FMAP determined under "
+            "section 1905(b) of the Act is not supplied as an executable output.",
+        ),
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) computes 70 percent of the regular FMAP "
+            "determined under section 1905(b) of the Act, plus 30 percentage "
+            "points; no executable RuleSpec output for that regular FMAP is "
+            "supplied in the available context.",
+        ),
+        (
+            ("c", "2"),
+            "42 CFR 457.622(c)(2) subjects its listed expenditures to the 10 "
+            "percent limit under § 457.618(a)(2); that limit computation is not "
+            "supplied.",
+        ),
+        (
+            ("c", "2"),
+            "42 CFR 457.622(c)(2) requires the limit in 42 CFR 457.618(a)(2), "
+            "which is not yet encoded.",
+        ),
+    ],
+)
+def test_cfr_branch_deferral_names_source_cited_regulation_dependency(path, reason):
+    covered, issues = _covered(
+        "us/regulation/42/457/622",
+        FMAP_457_622,
+        f"us:regulations/42-cfr/457/622/{'/'.join(path)}",
+        reason,
+    )
+
+    assert path in covered
+    assert not issues
+
+
+@pytest.mark.parametrize(
+    ("path", "reason"),
+    [
+        # The branch does not cite the named dependency.
+        (
+            ("b", "2"),
+            "42 CFR 457.622(b)(2) requires the regular FMAP determined under "
+            "section 1905(b) of the Act, which is not supplied.",
+        ),
+        # A different section, paragraph, or title than the source cites.
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) requires the FMAP under section 1905(a) of the "
+            "Act; that FMAP is not supplied.",
+        ),
+        (
+            ("c", "2"),
+            "42 CFR 457.622(c)(2) requires the limit in § 457.618(a)(1); that "
+            "limit is not supplied.",
+        ),
+        (
+            ("c", "2"),
+            "42 CFR 457.622(c)(2) requires the limit in 45 CFR 457.618(a)(2); "
+            "that limit is not supplied.",
+        ),
+        # A category-membership label is a boundary predicate, not a
+        # missing computation.
+        (
+            ("c", "1"),
+            "42 CFR 457.622(c)(1) requires coverage meeting section 2103 of the "
+            "Act; that coverage determination is not supplied.",
+        ),
+        # No missing state, a qualified or retracted one, or a missing state
+        # beyond the next clause.
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) uses the regular FMAP determined under section "
+            "1905(b) of the Act.",
+        ),
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) uses section 1905(b) of the Act; however, it is "
+            "not supplied only for some States.",
+        ),
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) uses section 1905(b) of the Act. The rate is "
+            "known. The table is not supplied.",
+        ),
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) requires section 1905(b) of the Act, which is "
+            "not supplied, although the State plan states the rate.",
+        ),
+        # The current section is never its own dependency, and the reason
+        # must open with the exact current branch.
+        (
+            ("b", "1"),
+            "42 CFR 457.622(b)(1) requires 42 CFR 457.622(b)(2), which is not "
+            "supplied.",
+        ),
+        (
+            ("b", "1"),
+            "The regular FMAP determined under section 1905(b) of the Act is not "
+            "supplied for 42 CFR 457.622(b)(1).",
+        ),
+        (
+            ("b",),
+            "42 CFR 457.622(b)(1) requires section 1905(b) of the Act, which is "
+            "not supplied.",
+        ),
+    ],
+)
+def test_cfr_branch_dependency_rejects_unbound_or_unstated_dependency(path, reason):
+    covered, issues = _covered(
+        "us/regulation/42/457/622",
+        FMAP_457_622,
+        f"us:regulations/42-cfr/457/622/{'/'.join(path)}",
+        reason,
+    )
+
+    assert path not in covered
+    assert issues
+
+
+def test_cfr_dependency_form_is_limited_to_numbered_federal_regulations():
+    reason = (
+        "us-ca/regulation/mpp/63-300(a) requires the limit under § 457.618(a)(2), "
+        "which is not supplied."
+    )
+    assert not sc._reason_names_missing_federal_regulation_dependency(
+        reason,
+        "(a) Subject to the limit under § 457.618(a)(2), outreach.",
+        corpus_citation_path="us-ca/regulation/mpp/63-300",
+        path=("a",),
+    )

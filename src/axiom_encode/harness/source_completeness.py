@@ -9028,6 +9028,13 @@ def _reason_dependency_is_source_bound(
         authenticated_same_act_aliases=authenticated_same_act_aliases,
     ):
         return True
+    if _reason_names_missing_federal_regulation_dependency(
+        reason,
+        source_scope_text,
+        corpus_citation_path=corpus_citation_path,
+        path=path,
+    ):
+        return True
 
     louisiana_dependencies = _qualified_louisiana_rs_dependencies(reason)
     if not _MISSING_DEPENDENCY_LANGUAGE.search(reason) and not any(
@@ -9151,6 +9158,146 @@ def _reason_dependency_is_source_bound(
         ).strip()
         if normalized_dependency and normalized_dependency in normalized_source:
             return True
+    return False
+
+
+# Dependencies a federal regulation branch cites: another CFR section, written
+# `42 CFR 457.618(a)(2)` or, within the same title, `§ 457.618(a)(2)`, and a
+# section of the statute the regulation implements, `section 1905(b) of the
+# Act`.
+_FEDERAL_REGULATION_DEPENDENCY = re.compile(
+    r"(?P<cfr>(?<![A-Za-z0-9])(?P<title>\d+)\s+C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?"
+    r"(?:(?:§{1,2}|sections?|sec\.)\s*)?"
+    r"|§{1,2}\s*)"
+    r"(?P<section>\d+\.\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?)"
+    r"(?P<tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)"
+    r"(?![A-Za-z0-9]|\.\d|\s*\()"
+    r"|(?<![A-Za-z0-9])section\s+(?P<act_section>\d+[A-Z]?(?:-\d+)?)"
+    r"(?P<act_tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)"
+    r"\s+of\s+the\s+(?:Social\s+Security\s+)?Act\b",
+    flags=re.IGNORECASE,
+)
+_FEDERAL_REGULATION_DEPENDENCY_MISSING_STATE = re.compile(
+    r"\b(?:is|are)\s+not\s+(?:yet\s+)?"
+    r"(?:supplied|provided|available|encoded|implemented)\b|"
+    r"\b(?:is|are)\s+(?:missing|unavailable)\b|"
+    r"\bno\s+executable\s+(?:RuleSpec\s+)?(?:outputs?|exports?|rules?)\b"
+    r"[^.;]{0,160}?\b(?:is|are)\s+supplied\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _federal_regulation_dependency_identity(
+    match: re.Match[str],
+    *,
+    current_title: str,
+) -> tuple[str, str, str, tuple[str, ...]]:
+    fragments = tuple(
+        fragment.lower()
+        for fragment in re.findall(
+            r"\(\s*([A-Za-z0-9]+)\s*\)",
+            match.group("tail") or match.group("act_tail") or "",
+        )
+    )
+    if match.group("act_section"):
+        return ("act", "", match.group("act_section").lower(), fragments)
+    title = match.group("title") or current_title
+    return ("cfr", title, match.group("section").lower(), fragments)
+
+
+def _period_masked(text: str, spans: Iterable[re.Match[str]]) -> str:
+    masked = list(text)
+    for span in spans:
+        for position in range(span.start(), span.end()):
+            if masked[position] in {".", ";"}:
+                masked[position] = " "
+    return "".join(masked)
+
+
+def _reason_names_missing_federal_regulation_dependency(
+    reason: str,
+    source_scope_text: str,
+    *,
+    corpus_citation_path: str,
+    path: tuple[str, ...] | None,
+) -> bool:
+    """Accept an exact CFR branch blocked by a CFR or Act section it cites.
+
+    The reason must open with the exact current branch citation, name another
+    regulation section or a section of the Act, and state that it is missing in
+    the same or the next clause. The exact source branch must cite the same
+    provision through dependency syntax (`determined under section 1905(b) of
+    the Act`, `limit provisions under § 457.618(a)(2)`).
+    """
+
+    identity = _cfr_current_section_identity(corpus_citation_path)
+    if identity is None or not path or not source_scope_text.strip():
+        return False
+    current_title, current_section, _scope = identity
+    if not _reason_cites_exact_current_statute_branch(
+        reason,
+        corpus_citation_path=corpus_citation_path,
+        path=path,
+        strict_terminal=True,
+        citation_must_start=True,
+    ):
+        return False
+    source_references = tuple(
+        _FEDERAL_REGULATION_DEPENDENCY.finditer(source_scope_text)
+    )
+    masked_source = _period_masked(source_scope_text, source_references)
+    linked_identities: set[tuple[str, str, str, tuple[str, ...]]] = set()
+    for reference in source_references:
+        # The same dependency syntax the USC reader requires (`under`,
+        # `in accordance with`, `pursuant to`, ...). A category label such as
+        # `meets the requirements of section 2103 of the Act` is a boundary
+        # predicate, not a missing computation, and is never linked here.
+        clause_start = (
+            max(masked_source.rfind(stop, 0, reference.start()) for stop in ".;\n") + 1
+        )
+        if _source_clause_links_dependency(
+            masked_source[clause_start : reference.end()],
+            reference_start=reference.start() - clause_start,
+            reference_end=reference.end() - clause_start,
+        ):
+            linked_identities.add(
+                _federal_regulation_dependency_identity(
+                    reference, current_title=current_title
+                )
+            )
+    if not linked_identities:
+        return False
+    reason_references = tuple(_FEDERAL_REGULATION_DEPENDENCY.finditer(reason))
+    masked_reason = _period_masked(
+        reason,
+        (*reason_references, *_PERIOD_BEARING_CITATION.finditer(reason)),
+    )
+    for reference in reason_references:
+        dependency = _federal_regulation_dependency_identity(
+            reference, current_title=current_title
+        )
+        if dependency[:3] == ("cfr", current_title, current_section.lower()):
+            continue
+        if dependency not in linked_identities:
+            continue
+        # The missing state must follow in this clause or the next one, with
+        # no qualification between the dependency and its missing state and
+        # no retraction afterwards.
+        stops = [
+            match.start()
+            for match in re.finditer(r"[.;\n]", masked_reason[reference.end() :])
+        ]
+        window_end = reference.end() + (stops[1] if len(stops) > 1 else len(reason))
+        missing = _FEDERAL_REGULATION_DEPENDENCY_MISSING_STATE.search(
+            masked_reason, reference.end(), window_end
+        )
+        if missing is None:
+            continue
+        if _has_adversative_language(
+            reason[reference.end() : missing.start()]
+        ) or _has_adversative_language(reason[missing.end() :]):
+            continue
+        return True
     return False
 
 
@@ -12822,8 +12969,8 @@ _NONOPERATIVE_SOURCE_BODIES = {
         re.compile(
             rf"{_NONOPERATIVE_SOURCE_SUBJECT}\s+(?:"
             r"sets?\s+forth|describes?|contains?|addresses?|prescribes?|"
-            r"specif(?:y|ies)|establish(?:es)?|implements?|provides?"
-            r")\b",
+            r"specif(?:y|ies)|establish(?:es)?|implements?"
+            r")\s+(?!that\b)",
             flags=re.IGNORECASE,
         ),
     ),
