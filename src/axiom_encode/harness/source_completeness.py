@@ -28955,6 +28955,8 @@ _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"|\bcreditable\b|\btaxable\b|\bcountable\b"
     r"|\b(?:shall|does|do|will|may)\s+not\s+apply\b|\bappl(?:y|ies)\s+only\b"
     r"|\bin\s+lieu\s+of\b|\bpenalt(?:y|ies)\b"
+    r"|\b(?:shall|must|may|will)\s+not\s+use\b|\ballowances?\b|\bdeductions?\b"
+    r"|\bcoverage\b|\breasonable\s+opportunity\s+period\b|\brecalculat|\brevert"
     r"|[$%€£]|\bpercent\b",
     flags=re.IGNORECASE,
 )
@@ -28976,21 +28978,31 @@ _ADMINISTRATIVE_INNER_CUE = re.compile(
 )
 
 
-def _administrative_main_clause(clause: str) -> str:
-    """Return the main clause of a condition sentence, without the condition.
+def _without_leading_condition(clause: str) -> str:
+    """Drop a leading condition (`If ..., the State agency shall ...`).
 
-    A leading condition (`If ..., the State agency shall ...`) ends at its first
-    comma or `then`; a trailing one (`... shall verify the change if ...`) starts
-    at its cue.
+    The condition ends at `, then` when the sentence has one, else at its first
+    comma. A sentence that does not open with a condition is returned whole.
     """
 
-    if _ADMINISTRATIVE_LEADING_CUE.match(clause):
-        comma = clause.find(",")
-        then = re.search(r"\bthen\b", clause, flags=re.IGNORECASE)
-        ends = [index for index in (comma, then.end() if then else -1) if index > 0]
-        if not ends:
-            return ""
-        clause = clause[min(ends) + 1 :]
+    clause = re.sub(
+        r"^(if|when)\s*,\s*however\s*,\s*",
+        r"\1 ",
+        clause,
+        flags=re.IGNORECASE,
+    )
+    if not _ADMINISTRATIVE_LEADING_CUE.match(clause):
+        return clause
+    then = re.search(r",\s*then\b", clause, flags=re.IGNORECASE)
+    if then is not None:
+        return clause[then.end() :]
+    comma = clause.find(",")
+    return clause[comma + 1 :] if comma > 0 else ""
+
+
+def _administrative_main_clause(clause: str) -> str:
+    """Return the main clause, without a leading or a trailing condition."""
+
     cue = _ADMINISTRATIVE_INNER_CUE.search(clause)
     return clause if cue is None else clause[: cue.start()]
 
@@ -29021,6 +29033,7 @@ def _source_condition_is_administrative(text: str) -> bool:
     ):
         return True
     if re.fullmatch(
+        r"(?:\(\s*[0-9A-Za-z.]{1,8}\s*\)\s*)*"
         r"(?:(?:as\s+)?used\s+in|in|for\s+(?:the\s+)?purposes\s+of)\s+this\s+"
         r"(?:section|subsection|chapter|article|part|act|subdivision|paragraph)"
         r"\s*,?\s*unless\s+the\s+context\s+(?:otherwise\s+|clearly\s+)*"
@@ -29036,11 +29049,17 @@ def _source_condition_is_administrative(text: str) -> bool:
         or _source_has_operative_policy_effect(clause)
     ):
         return False
-    main = _ADMINISTRATIVE_DOCUMENT_NAME.sub(" ", _administrative_main_clause(clause))
+    # The action is read from the main clause alone; the outcome guard reads
+    # everything after a leading condition, so a trailing `and, if there is no
+    # other basis for eligibility, deny the application` still keeps it.
+    consequence = _ADMINISTRATIVE_DOCUMENT_NAME.sub(
+        " ", _without_leading_condition(clause)
+    )
+    main = _administrative_main_clause(consequence)
     return bool(
         main.strip()
         and _ADMINISTRATIVE_CONSEQUENT.search(main)
-        and not _ADMINISTRATIVE_OPERATIVE_GUARD.search(main)
+        and not _ADMINISTRATIVE_OPERATIVE_GUARD.search(consequence)
     )
 
 
