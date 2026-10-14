@@ -128,7 +128,10 @@ jobs:
   # it reads public run history with the read-scoped token and signs
   # nothing. Tunables are repository variables, not inputs — the dispatch
   # input list sits at GitHub's hard cap of 25 (pinned by
-  # tests/test_signing_supervisor.py).
+  # tests/test_signing_supervisor.py). The same job refuses any ad hoc
+  # dispatch, repair replays included, after two consecutive model-bearing
+  # failures that ended with the same final rule-code set (read from those
+  # runs' failure artifacts with the read-scoped token).
   attempt_budget:
     name: Enforce failed-attempt budget
     if: >-
@@ -156,6 +159,7 @@ jobs:
           ATTEMPT_BUDGET: ${{ vars.ATTEMPT_BUDGET }}
           ATTEMPT_BUDGET_OVERRIDE: ${{ vars.ATTEMPT_BUDGET_OVERRIDE }}
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
+          REPEATED_FAILURE_OVERRIDE_JSON: ${{ vars.REPEATED_FAILURE_OVERRIDE_JSON }}
         run: |
           python3 "$GITHUB_WORKSPACE/axiom-encode/scripts/enforce_attempt_budget.py"
 

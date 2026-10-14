@@ -4,7 +4,9 @@ The ad hoc re-encode guard blocks after three consecutive failed model-bearing
 runs by default. Triage the actual failure before granting another attempt;
 regeneration alone does not fix a validator or source defect. Queue dispatches,
 authenticated repair replays and existing repository-wide overrides retain their
-established behavior. This is a cost limit, not a signing or validation waiver.
+established behavior for this numeric limit. The repeated-failure rule below
+also covers repair replays. This is a cost limit, not a signing or validation
+waiver.
 
 For a reviewed retry that must leave concurrent citations at their existing
 limits, set the repository Actions variable `ATTEMPT_BUDGET_BY_CITATION_JSON`
@@ -37,6 +39,39 @@ reviewed retry. Preserve other operators' entries when changing the variable.
 it takes precedence over numeric limits and should not be used for an isolated
 retry while another citation is being worked on. All protected environment,
 source, behavior, completeness and signature gates remain in force.
+
+## Repeated failures with the same rules
+
+The same unprotected job also refuses an ad hoc dispatch, repair replays
+included, when the two most recent consecutive model-bearing failures for the
+citation ended with the same final rule-code set. The guard reads each run's
+failure artifact (`targeted-reencode-failure-<run>-<attempt>`) and collects the
+bracketed validator rule codes, such as `[complete-source-unit:tests]`, from
+every lane's `final-rejected-candidate/issues.json`. A run without that
+artifact, or with any final issue that names no rule code (a YAML parse,
+compile or expected-value error), has no known set and never triggers the
+rule. A success resets the streak, and runs that never reached the encode step
+stay neutral, as for the numeric limit. API or artifact trouble fails open.
+
+Another attempt rarely clears the same validator rules. Fix the generator side
+(prompt, repair guidance or deterministic repair), or a validator rule that is
+wrong, or give a review finding that addresses those rules. Then, to allow the
+retry, add an expiring entry for the exact citation to the repository variable
+`REPEATED_FAILURE_OVERRIDE_JSON`:
+
+```json
+{
+  "us/regulation/7/273/4": {
+    "expires_at": "2026-10-20T00:00:00Z",
+    "reason": "Reviewed paired-test repair guidance before one more retry"
+  }
+}
+```
+
+Malformed JSON or a malformed selected entry keeps the rule with a warning.
+`ATTEMPT_BUDGET_OVERRIDE=true` also lifts it. Queue dispatches report only.
+Over the US runs dispatched since 2026-09-01, the rule would have refused 33 of
+292 runs: 32 of them failed, and 1 opened a draft PR that has not merged.
 
 ## Retaining a primary while repairing dependents
 
