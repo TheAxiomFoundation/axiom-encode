@@ -623,8 +623,9 @@ named:
   repository's tags (`fetch-depth: 0`); `ci`'s fresh clone carries the tags
   of the local checkout it is cloned from. A tag that exists only locally,
   or one missing locally, changes what `git describe --tags` (and a
-  setuptools-scm or hatch-vcs version built on it) reports there. Fetch the
-  composer checkout's tags from GitHub before a run to match CI.
+  setuptools-scm or hatch-vcs version built on it) reports there. To match
+  CI, fetch the composer checkout's tags from GitHub and delete local-only
+  ones before a run.
 - **The composer build's platform.** uv resolves and installs the composer's
   requirements for the host: environment markers such as
   `sys_platform == "linux"` and the wheels it picks follow this machine's
