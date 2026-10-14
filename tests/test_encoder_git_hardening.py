@@ -650,3 +650,39 @@ def test_symbolic_main_is_refused_through_the_trusted_wrapper(
     monkeypatch.setenv("PATH", str(trusted_wrapper_tools))
 
     assert "must not be symbolic" in (_issue(history, feature) or "")
+
+
+def test_wrapper_neutralizes_a_graft_even_without_the_guard_file_check(
+    tmp_path, monkeypatch, trusted_wrapper_tools
+):
+    # The guard looks for info/grafts itself; the wrapper's GIT_GRAFT_FILE is the
+    # second layer, so test it with the guard's own check switched off.
+    history, main, feature = _forked_graph(tmp_path / "graft-history")
+    _grafts(history.root, f"{history.commits[main]} {history.commits[feature]}\n")
+    monkeypatch.setattr(cli, "_guard_encoder_git_metadata_issue", lambda checkout: None)
+    monkeypatch.setenv("PATH", str(trusted_wrapper_tools))
+
+    assert _issue(history, feature)
+
+
+def test_shallow_encoder_history_cannot_admit_a_newer_producer(tmp_path):
+    history, main, _feature = _forked_graph(tmp_path / "full-history")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            "--branch",
+            "main",
+            f"file://{history.root}",
+            str(shallow),
+        ],
+        check=True,
+    )
+
+    assert cli._encoder_git_history_admission_issue(
+        shallow, pin=history.commits[1], producer=history.commits[main]
+    ) == ("encoder history is shallow or unavailable; fetch complete main history")

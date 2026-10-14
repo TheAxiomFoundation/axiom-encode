@@ -338,7 +338,9 @@ def test_nests_a_pytest_run_when_asked(tmp_path):
     if os.environ.get("GENERATED_TEST_NESTS"):
         inner = tmp_path / "test_inner.py"
         inner.write_text("def test_inner():\\n    pass\\n")
-        arguments = ["-q", "-p", "no:cacheprovider", "-p", "tests.conftest", str(inner)]
+        arguments = [
+            "-q", "-o", "addopts=", "-p", "no:cacheprovider", "-p", "tests.conftest", str(inner)
+        ]
         assert pytest.main(arguments) == 0
 
 
@@ -453,6 +455,8 @@ def test_a_test_that_stops_the_session_leaves_no_report(tmp_path):
     code, results, line, stderr = _run(tmp_path, "1/1", ask="GENERATED_TEST_EXITS")
 
     assert code == 0
+    # Every other generated test ran, so the stopping test was the last one.
+    assert len(results) == 15
     assert "test_stops_the_session_when_asked" not in results
     assert line == ""
     assert "not publishing its report" in stderr

@@ -786,7 +786,10 @@ def _install_trusted_git_wrapper(
         "    assert_safe_worktree_attributes()\n"
         "if command == 'diff':\n"
         "    args[cursor + 1:cursor + 1] = ['--no-ext-diff', '--no-textconv']\n"
-        "os.execv(git, [*trusted, *args])\n"
+        "try:\n"
+        "    os.execv(git, [*trusted, *args])\n"
+        "except OSError as error:\n"
+        "    refuse(f'trusted git wrapper could not run git: {error}')\n"
     )
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):

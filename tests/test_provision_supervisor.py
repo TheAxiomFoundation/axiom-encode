@@ -1333,6 +1333,37 @@ class TestTrustedGit:
         assert walked.stdout.split() == [head]
         assert walked.stderr == ""
 
+    def test_installed_wrapper_refuses_when_git_cannot_run(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        vanished = tmp_path / "vanished-git"
+        vanished.write_text("#!/bin/sh\n")
+        vanished.chmod(0o755)
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination, Path(sys.executable).resolve(), vanished
+        )
+        vanished.unlink()
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+
+        result = subprocess.run(
+            [
+                str(wrapper),
+                "-C",
+                str(repository),
+                "rev-parse",
+                "--is-shallow-repository",
+            ],
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+
+        assert result.returncode == 126
+        assert b"trusted git wrapper could not run git" in result.stderr
+
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
         git = shutil.which("git")
         if git is None:
