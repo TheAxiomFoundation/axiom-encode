@@ -59,7 +59,7 @@ def _format_coverage_index(
     baseline: str | None,
 ) -> str:
     source_hash = hashlib.sha256(source_text.encode()).hexdigest()
-    branches = sc.recognize_source_structure(source_text)
+    branches = sc.recognize_source_structure(source_text, corpus_citation_path=citation)
     formulas = sc._source_formula_branches(
         source_text, branches=branches, active_branches=branches, deferred_paths=set()
     )
