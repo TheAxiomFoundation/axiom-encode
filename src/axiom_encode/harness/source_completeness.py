@@ -1437,6 +1437,14 @@ _RELATIVE_USC_DEFERRAL_DEPENDENCY = re.compile(
     r"(?P<tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)",
     flags=re.IGNORECASE,
 )
+# A title-qualified federal regulation citation such as `42 C.F.R. § 457.622(a)`.
+# Its internal periods are part of the citation, never a clause boundary.
+_QUALIFIED_CFR_CITATION = re.compile(
+    r"\b\d+\s+C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?(?:(?:§{1,2}|sections?|sec\.)\s*)?"
+    r"\d+[A-Za-z]?(?:\.\d+[A-Za-z0-9]*(?:-\d+[A-Za-z0-9]*)*)?"
+    r"(?:\s*\(\s*[A-Za-z0-9]+\s*\))*",
+    flags=re.IGNORECASE,
+)
 _LOUISIANA_RS_DEFERRAL_DEPENDENCY = re.compile(
     r"(?<![A-Za-z0-9_])(?:(?:La\.?\s*)|(?:LSA\s*[-\u2010-\u2015]?\s*))?"
     r"R\.?\s*S\.?\s*(?:§{1,2}\s*)?"
@@ -2101,16 +2109,33 @@ def _imprecise_deferral_retry_shape(
     ):
         branch_hint = (
             "\nThe current-source branch citation in `reason` is already "
-            "recognized; correct the bounded dependency, runtime-gap, or repeal "
-            "tail without replacing that authenticated citation."
+            "recognized; correct the bounded dependency, runtime-gap, repeal, or "
+            "non-operative tail without replacing that authenticated citation."
+        )
+    elif path and (cfr_identity := _cfr_current_section_identity(corpus_citation_path)):
+        # A numbered federal regulation branch binds through its conventional
+        # CFR citation (`42 CFR 457.622(a)`) or its literal corpus path
+        # (`us/regulation/42/457/622(a)`).
+        title, section, corpus_scope = cfr_identity
+        fragments = "".join(
+            f"({normalize_rulespec_path_segment(part)})"
+            for part in (*corpus_scope, *path)
+        )
+        branch_hint = (
+            "\nFor this rejected current-source branch, the literal citation "
+            f"required in `reason` is `{title} CFR {section}{fragments}` (or "
+            f"`{corpus_citation_path.rstrip('/')}"
+            f"{''.join(f'({normalize_rulespec_path_segment(part)})' for part in path)}`) "
+            "when the reason cites this branch itself (a repeal, a runtime gap, "
+            "a non-operative branch, or a source-stated input); a reason naming "
+            "an exact external missing dependency need not cite it."
         )
     elif path:
         citation_parts = [
             part for part in corpus_citation_path.strip("/").split("/") if part
         ]
-        # `_reason_cites_exact_current_statute_branch` has no CFR-style reader;
-        # a regulation branch binds through its literal corpus path, e.g.
-        # `us/regulation/42/457/622(a)`, not `42 CFR 457.622(a)`.
+        # Other statute and regulation branches bind through their literal
+        # corpus path, e.g. `us-co/statute/39/39-22-2003(9)`.
         if len(citation_parts) >= 3 and citation_parts[1] in {"statute", "regulation"}:
             fragments = "".join(
                 f"({normalize_rulespec_path_segment(part)})" for part in path
@@ -6373,6 +6398,20 @@ def _deferred_coverage(
                     candidate_scope_text,
                     path=candidate_path,
                     corpus_citation_path=corpus_citation_path,
+                )
+                or (
+                    bool(candidate_path)
+                    and not any(
+                        len(branch.path) > len(candidate_path)
+                        and branch.path[: len(candidate_path)] == candidate_path
+                        for branch in branches
+                    )
+                    and _reason_covers_source_nonoperative_branch(
+                        reason,
+                        candidate_scope_text,
+                        path=candidate_path,
+                        corpus_citation_path=corpus_citation_path,
+                    )
                 )
             )
 
@@ -11724,6 +11763,7 @@ def _reason_clause_bounds(
     for dependency in (
         *_qualified_usc_dependencies(reason),
         *_qualified_louisiana_rs_dependencies(reason),
+        *_QUALIFIED_CFR_CITATION.finditer(reason),
     ):
         for position in range(dependency.start(), dependency.end()):
             if masked[position] in {".", ";"}:
@@ -12703,6 +12743,202 @@ def _reason_covers_source_authenticated_repeal(
     return False
 
 
+# A leaf branch whose own heading and single sentence only frame the source
+# unit: its statutory basis or authority, scope, purpose, findings,
+# severability, or short title. Applicability, definitions, effective dates
+# and every other heading remain operative and are never accepted here.
+_NONOPERATIVE_SOURCE_HEADING = re.compile(
+    r"(?P<heading>"
+    r"(?:(?:statutory|legal)\s+)?basis(?:\s+and\s+(?:purpose|scope))?|"
+    r"(?:statutory\s+)?authority|"
+    r"purposes?(?:\s+and\s+scope)?|"
+    r"scope(?:\s+and\s+purposes?)?|"
+    r"severability|"
+    r"(?:legislative\s+)?findings(?:\s+and\s+(?:purposes?|declarations?))?|"
+    r"short\s+title"
+    r")",
+    flags=re.IGNORECASE,
+)
+_NONOPERATIVE_SOURCE_SUBJECT = (
+    r"(?:this|the)\s+(?:act|article|chapter|part|paragraph|regulation|rule|"
+    r"section|subchapter|subpart|title)s?"
+)
+_NONOPERATIVE_SOURCE_BODIES = {
+    "basis": (
+        re.compile(
+            rf"{_NONOPERATIVE_SOURCE_SUBJECT}\s+(?:"
+            r"(?:is|are)\s+(?:based\s+on|issued\s+under|authorized\s+by|"
+            r"promulgated\s+under|adopted\s+under)|"
+            r"(?:interprets?\s+and\s+)?implements?|interprets?"
+            r")\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            r"sections?\s+[^.;]{1,200}?\s+of\s+the\s+(?:Social\s+Security\s+)?Act\s+"
+            r"(?:authoriz|describ|direct|establish|permit|provid|requir|"
+            r"set(?:s)?\s+forth|specif)[a-z]*\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    "scope": (
+        re.compile(
+            rf"{_NONOPERATIVE_SOURCE_SUBJECT}\s+(?:"
+            r"sets?\s+forth|describes?|contains?|addresses?|prescribes?|"
+            r"specif(?:y|ies)|establish(?:es)?|implements?|provides?"
+            r")\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    "purpose": (
+        re.compile(
+            r"(?:the\s+)?purposes?\s+of\s+(?:this|the)\s+(?:act|article|chapter|"
+            r"part|program|section|subchapter|subpart|title)\s+(?:is|are)\s+to\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"{_NONOPERATIVE_SOURCE_SUBJECT}\s+(?:is|are)\s+(?:intended|designed)"
+            r"\s+to\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    "findings": (
+        re.compile(
+            r"(?:the\s+)?(?:congress|legislature|general\s+assembly|council)\s+"
+            r"(?:hereby\s+)?(?:finds|declares|determines)\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    "severability": (
+        re.compile(
+            r"(?:if\s+)?any\s+provisions?\b[^.;]{0,240}?\b(?:(?:is|are)\s+)?held\s+"
+            r"(?:to\s+be\s+)?(?:invalid|unenforceable|unconstitutional)\b"
+            r"[^.;]*\bseverable\b",
+            flags=re.IGNORECASE,
+        ),
+        re.compile(
+            rf"(?:the\s+)?provisions\s+of\s+{_NONOPERATIVE_SOURCE_SUBJECT}\s+"
+            r"(?:are|shall\s+be)\s+severable\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+    "short title": (
+        re.compile(
+            rf"{_NONOPERATIVE_SOURCE_SUBJECT}\s+(?:shall\s+be\s+known|may\s+be\s+"
+            r"cited)\s+as\b",
+            flags=re.IGNORECASE,
+        ),
+    ),
+}
+_NONOPERATIVE_REASON_ASSERTION = re.compile(
+    r"\b(?:"
+    r"(?:is|are)\s+(?:an?\s+)?non-?operative\b|"
+    r"(?:states?|supplies|supply|contains?|provides?|imposes?|has|have)\s+no\s+"
+    r"(?:(?:separate|independent|independently|computable|executable|operative|"
+    r"substantive|policy|reporting|legal)\s+){0,3}"
+    r"(?:computations?|conditions?|rules?|tests?|requirements?|effects?|"
+    r"predicates?|procedures?|outputs?)\b|"
+    r"not\s+an?\s+(?:(?:independently\s+)?computable|operative|executable)\s+"
+    r"(?:computation|condition|rule|test|requirement)\b"
+    r")",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_branch_nonoperative_framing(source_scope_text: str) -> str | None:
+    """Return the framing class of a non-operative source branch, if any.
+
+    The branch must open with one closed-list heading followed by exactly one
+    sentence of the matching framing form, and it must state no computation,
+    money amount, or percentage. Everything else is treated as operative.
+    """
+
+    body = _collapse_text(_strip_source_clause_marker(source_scope_text))
+    heading = _NONOPERATIVE_SOURCE_HEADING.match(body)
+    if heading is None:
+        return None
+    separator = re.match(
+        r"\s*(?:[.:—–]|--?)\s*|\s+(?=[A-Z])",
+        body[heading.end() :],
+    )
+    if separator is None:
+        return None
+    text = body[heading.end() + separator.end() :].strip()
+    label = re.sub(r"\s+", " ", heading.group("heading").lower())
+    framing = (
+        "basis"
+        if "basis" in label or "authority" in label
+        else "short title"
+        if label == "short title"
+        else "severability"
+        if label == "severability"
+        else "findings"
+        if "findings" in label
+        else "scope"
+        if label.startswith("scope")
+        else "purpose"
+    )
+    candidates = _NONOPERATIVE_SOURCE_BODIES[framing]
+    if framing in {"scope", "purpose"}:
+        # `Purpose and scope` / `Scope and purpose` headings use either form.
+        candidates = (
+            *_NONOPERATIVE_SOURCE_BODIES["scope"],
+            *_NONOPERATIVE_SOURCE_BODIES["purpose"],
+        )
+    if not text or not any(pattern.match(text) for pattern in candidates):
+        return None
+    masked = re.sub(
+        r"\b(?:U\.\s*S\.\s*C|U\.\s*S|C\.\s*F\.\s*R|Pub|L|Stat|No|Nos|Sec|secs?|"
+        r"et\s+seq|e\.g|i\.e|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.",
+        lambda match: match.group(0).replace(".", ""),
+        text,
+    )
+    if re.search(r"[.;!?]\s+\S", masked):
+        return None
+    if re.search(r"\$\s*\d|\d\s*(?:%|percent\b)", text, flags=re.IGNORECASE):
+        return None
+    if source_states_explicit_computation(source_scope_text):
+        return None
+    return framing
+
+
+def _reason_covers_source_nonoperative_branch(
+    reason: str,
+    source_scope_text: str,
+    *,
+    path: tuple[str, ...],
+    corpus_citation_path: str,
+) -> bool:
+    """Cover an exact leaf branch whose source text only frames the unit.
+
+    The reason must open with the exact current-branch citation and assert that
+    the branch is non-operative or supplies no rule; it may not also claim a
+    missing dependency or qualify that assertion.
+    """
+
+    if not path or not source_scope_text.strip():
+        return False
+    if _source_branch_nonoperative_framing(source_scope_text) is None:
+        return False
+    if not _reason_cites_exact_current_statute_branch(
+        reason,
+        corpus_citation_path=corpus_citation_path,
+        path=path,
+        strict_terminal=True,
+        citation_must_start=True,
+    ):
+        return False
+    assertion = _NONOPERATIVE_REASON_ASSERTION.search(reason)
+    if assertion is None or _MISSING_DEPENDENCY_LANGUAGE.search(reason):
+        return False
+    # `... identifies the statutory basis but states no computation` joins the
+    # assertion itself with `but`; any other adversative qualifies or retracts
+    # it.
+    prefix = re.sub(
+        r"(?:,\s*)?\bbut\s*$", "", reason[: assertion.start()], flags=re.IGNORECASE
+    )
+    return not _has_adversative_language(f"{prefix} {reason[assertion.end() :]}")
+
+
 def _repeal_reason_tail_is_bounded(
     tail: str,
     *,
@@ -13069,6 +13305,34 @@ def _reason_cites_exact_current_statute_branch(
     if canonical_pattern.search(reason):
         return True
 
+    cfr_identity = _cfr_current_section_identity(corpus_citation_path)
+    if cfr_identity is not None:
+        # A federal regulation branch is conventionally cited as
+        # `42 CFR 457.622(c)(1)`; it names exactly the branch that the literal
+        # corpus path `us/regulation/42/457/622(c)(1)` names. The terminal
+        # guards mirror the USC reader above.
+        title, section, corpus_scope = cfr_identity
+        complete_cfr_branch = (*corpus_scope, *path)
+        cfr_branch_pattern = r"\s*".join(
+            rf"\(\s*{re.escape(normalize_rulespec_path_segment(part))}\s*\)"
+            for part in complete_cfr_branch
+        )
+        if strict_terminal or not complete_cfr_branch:
+            cfr_terminal_guard = state_branch_terminal_guard
+        else:
+            cfr_terminal_guard = r"(?!\s*\()" if len(complete_cfr_branch) > 1 else ""
+        return bool(
+            re.search(
+                rf"{start_guard}(?<![A-Za-z0-9_.-]){re.escape(title)}\s+"
+                r"C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?"
+                r"(?:(?:§{1,2}|(?:sections?|sec\.))\s*)?"
+                rf"{literal_pattern(section)}(?![A-Za-z0-9]|\.\d)\s*"
+                rf"{cfr_branch_pattern}{cfr_terminal_guard}{end_guard}",
+                reason,
+                flags=re.IGNORECASE,
+            )
+        )
+
     citation_parts = [
         part for part in corpus_citation_path.strip("/").split("/") if part
     ]
@@ -13100,6 +13364,38 @@ def _reason_cites_exact_current_statute_branch(
         flags=re.IGNORECASE,
     )
     return bool(louisiana_rs_pattern.search(reason))
+
+
+def _cfr_current_section_identity(
+    corpus_citation_path: str,
+) -> tuple[str, str, tuple[str, ...]] | None:
+    """Return `(title, section, scope)` for a numbered federal regulation path.
+
+    `us/regulation/42/457/622` is 42 CFR 457.622, `us/regulation/26/1.36B-2`
+    and `us/regulation/26/1/36B-2` are 26 CFR 1.36B-2, and
+    `us/regulation/7/273/9/d` is 7 CFR 273.9(d). A part-only path such as
+    `us/regulation/42/435` has no section identity.
+    """
+
+    parts = [part for part in corpus_citation_path.strip("/").split("/") if part]
+    if (
+        len(parts) < 4
+        or parts[0].lower() != "us"
+        or parts[1].lower() != "regulation"
+        or not parts[2].isdigit()
+    ):
+        return None
+    title, tail = parts[2], parts[3:]
+    component = r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*"
+    if re.fullmatch(rf"{component}(?:\.{component})+", tail[0]):
+        section, scope = tail[0], tail[1:]
+    elif len(tail) >= 2 and all(re.fullmatch(component, part) for part in tail[:2]):
+        section, scope = f"{tail[0]}.{tail[1]}", tail[2:]
+    else:
+        return None
+    if not all(re.fullmatch(r"[A-Za-z0-9]+", part) for part in scope):
+        return None
+    return title, section, tuple(scope)
 
 
 def _rulespec_target_base(corpus_citation_path: str) -> str:

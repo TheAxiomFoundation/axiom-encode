@@ -155,15 +155,16 @@ def test_saved_457_800_rejection_now_evaluates_generated_cfr_deferrals():
 
     issues = _analyze(content, source, recorded["citation"], tests).issues
 
+    # Both reasons cite their branch as `42 CFR 457.800(a)` / `(b)`, which now
+    # binds the exact branch; neither states a bounded dependency, runtime gap,
+    # repeal, or non-operative assertion, so both remain imprecise.
     for index, branch in enumerate(("a", "b")):
         assert any(
             issue.startswith("[complete-source-unit:deferral] ")
             and f"`module.deferred_outputs[{index}]` identifies source branch "
             f"({branch})"
             in issue
-            and "literal canonical citation required in `reason` is "
-            f"`us/regulation/42/457/800({branch})`"
-            in issue
+            and "branch citation in `reason` is already recognized" in issue
             for issue in issues
         ), issues
 
@@ -229,15 +230,55 @@ rules: []
     assert not result.issues
 
 
-def test_federal_regulation_retry_shape_names_literal_canonical_citation():
-    content = """\
+@pytest.mark.parametrize(
+    "citation",
+    (
+        "42 CFR 457.622(a)",
+        "42 C.F.R. 457.622(a)",
+        "42 CFR § 457.622(a)",
+        "42 C.F.R. § 457.622 (a)",
+    ),
+)
+def test_federal_regulation_repeal_accepts_conventional_cfr_citation(citation):
+    content = f"""\
 format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/regulation/42/457/622
   deferred_outputs:
     - output: us:regulations/42-cfr/457/622/a#repealed_paragraph
-      reason: 42 CFR 457.622(a) is repealed.
+      reason: {citation} is repealed.
+rules: []
+"""
+
+    result = _analyze(content, "(a) Repealed.", "us/regulation/42/457/622", [])
+
+    assert not result.issues
+
+
+@pytest.mark.parametrize(
+    "citation",
+    (
+        # Wrong title, part, section, paragraph, or an extra descendant marker.
+        "43 CFR 457.622(a)",
+        "42 CFR 456.622(a)",
+        "42 CFR 457.6221(a)",
+        "42 CFR 457.62(a)",
+        "42 CFR 457.622(b)",
+        "42 CFR 457.622(a)(1)",
+        "142 CFR 457.622(a)",
+        "42 U.S.C. 457.622(a)",
+    ),
+)
+def test_federal_regulation_repeal_rejects_inexact_cfr_citation(citation):
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/42/457/622
+  deferred_outputs:
+    - output: us:regulations/42-cfr/457/622/a#repealed_paragraph
+      reason: {citation} is repealed.
 rules: []
 """
 
@@ -245,8 +286,8 @@ rules: []
 
     assert any(
         "`module.deferred_outputs[0]` identifies source branch (a)" in issue
-        and "literal canonical citation required in `reason` is "
-        "`us/regulation/42/457/622(a)`"
+        and "the literal citation required in `reason` is `42 CFR 457.622(a)` "
+        "(or `us/regulation/42/457/622(a)`)"
         in issue
         for issue in issues
     ), issues
