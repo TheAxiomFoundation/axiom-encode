@@ -12873,13 +12873,15 @@ _REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
     r"(?:not\s+)?(?:stops?|ceases?|ends?|terminates?|continues?|begins?|"
     r"resumes?|starts?|restarts?)\b|"
     r"\b(?:must|shall|will|may)\s+(?:not\s+)?(?:start|begin|resume|reinstate|"
-    r"restart)\b[^.;:]{0,40}?\b(?:benefits?|payments?|assistance|allotments?|"
-    r"coverage)\b|"
+    r"restart|continue)\b[^.;:]{0,40}?\b(?:benefits?|payments?|assistance|"
+    r"allotments?|coverage)\b|"
+    r"\b(?:reduction|termination|suspension|denial)\s+of\s+(?:[\w-]+\s+){0,3}?"
+    r"(?:benefits?|payments?|assistance|allotments?|coverage|eligibility)\b|"
     r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?|"
     r"coverage)\s+(?:is|are|(?:will|shall|must|may)\s+(?:not\s+)?be)\s+"
     r"(?:reduced|terminated|denied|suspended|stopped|withheld|discontinued)\b|"
     r"\bclos(?:e|es|ing)\s+(?:the|its|a)\s+case\b|"
-    r"\bcertif(?:y|ies|ying)\s+(?:the|a|each)\s+household\b|"
+    r"\b(?:re)?certif(?:y|ies|ying)\s+(?:the|a|each)\s+household\b|"
     r"\breceives?\s+no\s+(?:allotment|benefits?|payments?)\b",
     flags=re.IGNORECASE,
 )

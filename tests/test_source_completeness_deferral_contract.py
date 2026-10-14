@@ -1089,6 +1089,13 @@ def _regulation_leaf_source(leaf: str) -> str:
         "Individuals who request coverage for long-term care services and "
         "supports for the purpose of being evaluated for an eligibility group "
         "under which those services are covered.",
+        # Round-2 head sample: a hearing request continues benefits, and a
+        # recertification step.
+        "If the household requests a fair hearing within the period provided by "
+        "the notice, the State agency must continue the household's SNAP "
+        "benefits on the basis authorized before the notice was sent.",
+        "Recertify the household in accordance with the certification notice "
+        "and submit the case record to the State office.",
     ],
 )
 @pytest.mark.parametrize(
