@@ -2456,10 +2456,7 @@ def _repository_test_environment(
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
             "TZ": "UTC",
-            "CI": "true",
-            "GITHUB_ACTIONS": "true",
-            "RUNNER_TEMP": str(run.temp),
-            **run.simulation.github_environment(run.repo),
+            **_runner_environment(run.repo, run.temp, run.simulation),
         }
         # 6f11be26 L2184-2188 (0effa6a5 L1728-1732) are the only
         # GITHUB_ENV writes; step-local env and GITHUB_OUTPUT do not persist.
@@ -3152,6 +3149,53 @@ class PullRequestSimulation:
             "GITHUB_SHA": self.github_sha,
             "GITHUB_WORKSPACE": str(repo),
         }
+
+
+def _runner_environment(
+    repo: Path,
+    runner_temp: Path | None,
+    simulation: PullRequestSimulation | None,
+    job: str = "validate",
+) -> dict[str, str]:
+    """GitHub's default variables on a hosted ubuntu-latest runner, as ci derives them.
+
+    Every pin's validate job runs on ubuntu-latest (92ccb0f2 L1081). See
+    https://docs.github.com/en/actions/reference/workflows-and-actions/variables
+    #default-environment-variables. Values tied to one run are not reproduced:
+    GITHUB_RUN_ID, _RUN_NUMBER and _RUN_ATTEMPT, GITHUB_ACTOR and the other
+    actor and id values, GITHUB_WORKFLOW and its ref and sha, the runner's
+    files (GITHUB_ENV, GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY,
+    GITHUB_EVENT_PATH), GITHUB_HEAD_REF (the head branch's name, which a
+    commit does not carry), RUNNER_NAME, RUNNER_DEBUG and RUNNER_TOOL_CACHE.
+    """
+
+    environment = {
+        "CI": "true",
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_API_URL": "https://api.github.com",
+        "GITHUB_GRAPHQL_URL": "https://api.github.com/graphql",
+        "GITHUB_JOB": job,
+        "RUNNER_OS": "Linux",
+        "RUNNER_ARCH": "X64",
+        "RUNNER_ENVIRONMENT": "github-hosted",
+    }
+    if simulation is None:
+        environment["GITHUB_WORKSPACE"] = str(repo)
+    else:
+        environment.update(simulation.github_environment(repo))
+        if simulation.repository:
+            environment["GITHUB_REPOSITORY_OWNER"] = simulation.repository.split(
+                "/", 1
+            )[0]
+        if simulation.number is not None:
+            # A pull_request run's ref is refs/pull/<n>/merge.
+            environment["GITHUB_REF_NAME"] = f"{simulation.number}/merge"
+            environment["GITHUB_REF_TYPE"] = "branch"
+            environment["GITHUB_BASE_REF"] = simulation.base_branch
+    if runner_temp is not None:
+        environment["RUNNER_TEMP"] = str(runner_temp)
+    return environment
 
 
 def _github_repository(repo: Path) -> str:
@@ -6217,6 +6261,62 @@ def _copy_on_write(source: Path, target: Path) -> None:
     shutil.copy2(source, target, follow_symlinks=False)
 
 
+def _ci_dependency_refs(checkout: Path, source: Path) -> None:
+    """Leave ``checkout`` with the refs CI's dependency checkouts hold.
+
+    actions/checkout of a pinned commit fetches it at depth 1 without tags,
+    and "Authenticate dependency commits" then fetches only the default
+    branch, with --no-tags (92ccb0f2 L1543-1567). So there are no tags, no
+    local branches and one remote-tracking ref, and `git describe --tags`
+    and the version schemes built on it (setuptools-scm, hatch-vcs) see what
+    they see in CI. HEAD stays detached at the commit.
+    """
+
+    default = (
+        _git(
+            source, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False
+        ).stdout.strip()
+        or "refs/remotes/origin/main"
+    )
+    tip = _git(
+        source, "rev-parse", "--verify", "-q", default, check=False
+    ).stdout.strip()
+    refs = _git(checkout, "for-each-ref", "--format=%(refname)").stdout.split()
+    if refs:
+        subprocess.run(
+            ["git", "-C", str(checkout), "update-ref", "--stdin"],
+            # no-deref: refs/remotes/origin/HEAD goes, not what it names.
+            input="".join(f"option no-deref\ndelete {ref}\n" for ref in refs),
+            text=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=_git_environment(),
+        )
+    if tip:
+        # A transport clone holds only what it fetched; the default branch's
+        # tip may be newer than every local ref of the source.
+        if _git(
+            checkout, "cat-file", "-e", f"{tip}^{{commit}}", check=False
+        ).returncode:
+            _git(
+                checkout, "fetch", "--quiet", "--no-tags", str(source), tip, check=False
+            )
+        _git(checkout, "update-ref", default, tip, check=False)
+
+
+def _git_blob_digest(path: Path, algorithm: str) -> str:
+    """The Git object id of a regular file's raw bytes (no filters, no links)."""
+
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as handle:
+        digest = hashlib.new(algorithm)
+        digest.update(b"blob %d\0" % os.fstat(handle.fileno()).st_size)
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 # Attributes under which a checkout writes other bytes than the blob's.
 _CHECKOUT_CONVERSIONS = ("text", "eol", "filter", "ident", "working-tree-encoding")
 
@@ -6235,15 +6335,23 @@ def _disposable_checkout(
     - Git objects are shared read-only through alternates, and origin is
       https://github.com/<repository>, HEAD detached at ``commit``.
     - Only paths tracked at ``commit`` are placed, so nothing untracked or
-      ignored comes along. Links come from their blobs, and regular files are
-      cloned copy-on-write from the verified checkout.
+      ignored comes along, and paths this filesystem would merge (case,
+      Unicode normalization) fail closed, as committed_checkout's do. Links
+      come from their blobs. A regular file is cloned copy-on-write from the
+      verified checkout only when that path is a regular file there; a link,
+      directory or missing path (under a recorded ref mismatch) is written
+      from the commit instead, so nothing in the copy leads back into the
+      developer's files.
     - A file whose committed attributes make a checkout convert it (line
       endings, filters, ident, encodings) is written by ``git
       checkout-index``, as a fresh checkout writes it: the developer's copy
       can differ in bytes while Git calls it clean.
     - Every other file's raw bytes are hashed and compared with its blob; one
       that differs is written by ``git checkout-index`` too, and still
-      differing fails closed. Modes are a fresh checkout's (0644, 0755).
+      differing fails closed. Hashes are computed here, so no path is
+      parsed by Git line by line. Modes are a fresh checkout's (0644, 0755).
+    - Tags and branches are reduced to what CI's checkout holds
+      (_ci_dependency_refs).
     ``carried`` names untracked files CI has already placed in its checkout
     before the step (the corpus release object), copied from ``source``.
     """
@@ -6291,24 +6399,39 @@ def _disposable_checkout(
         ".",
     )
     git("remote", "set-url", "origin", f"https://github.com/{repository}")
-    regular: dict[str, tuple[str, bool]] = {}
+    tree = []
     for record in git("ls-tree", "-r", "-z", "--full-tree", commit).split(b"\0"):
-        if not record:
-            continue
-        meta, _, raw = record.partition(b"\t")
-        mode, _kind, blob = meta.split()
-        relative = os.fsdecode(raw)
+        if record:
+            meta, _, raw = record.partition(b"\t")
+            mode, _kind, blob = meta.split()
+            tree.append((mode, blob.decode(), os.fsdecode(raw)))
+    if collisions := _colliding_paths([path for *_, path in tree], destination):
+        raise ValueError(
+            f"Cannot make a disposable {destination.name} checkout at {commit}: "
+            "committed paths collide on this filesystem (case or Unicode "
+            "normalization), so it cannot hold what CI's Linux checkout holds: "
+            + "; ".join(collisions[:10])
+        )
+    regular: dict[str, tuple[str, bool]] = {}
+    for mode, blob, relative in tree:
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == b"120000":
-            os.symlink(os.fsdecode(git("cat-file", "blob", blob.decode())), target)
+            os.symlink(os.fsdecode(git("cat-file", "blob", blob)), target)
         elif mode == b"160000":
             target.mkdir(exist_ok=True)
         else:
-            _copy_on_write(source / relative, target)
-            regular[relative] = (blob.decode(), mode == b"100755")
+            regular[relative] = (blob, mode == b"100755")
+            try:
+                is_file = stat.S_ISREG(os.lstat(source / relative).st_mode)
+            except OSError:
+                is_file = False
+            if is_file:
+                _copy_on_write(source / relative, target)
     git("read-tree", commit)
     git("update-ref", "--no-deref", "HEAD", commit)
+    _ci_dependency_refs(destination, source)
+    algorithm = git("rev-parse", "--show-object-format").decode().strip()
 
     paths = list(regular)
     converted: set[str] = set()
@@ -6325,33 +6448,30 @@ def _disposable_checkout(
             if fields[index + 2] not in (b"unspecified", b"unset"):
                 converted.add(os.fsdecode(fields[index]))
 
-    def raw_mismatches(candidates: Sequence[str]) -> list[str]:
-        # hash-object reads newline-separated paths; a path holding a
-        # newline is simply rewritten.
-        listed = [path for path in candidates if "\n" not in path]
-        hashes = (
-            git(
-                "hash-object",
-                "--no-filters",
-                "--stdin-paths",
-                stdin="".join(path + "\n" for path in listed).encode(),
-            )
-            .decode()
-            .split()
-            if listed
-            else []
-        )
-        return [
-            *(path for path in candidates if "\n" in path),
-            *(
+    def differs(path: str) -> bool:
+        target = destination / path
+        try:
+            kind = os.lstat(target).st_mode
+        except FileNotFoundError:
+            return True
+        if stat.S_ISDIR(kind):
+            shutil.rmtree(target)
+            return True
+        if not stat.S_ISREG(kind):
+            target.unlink()
+            return True
+        return _git_blob_digest(target, algorithm) != regular[path][0]
+
+    def mismatches(candidates: Sequence[str]) -> list[str]:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return [
                 path
-                for path, digest in zip(listed, hashes, strict=True)
-                if digest != regular[path][0]
-            ),
-        ]
+                for path, differ in zip(candidates, pool.map(differs, candidates))
+                if differ
+            ]
 
     plain = [path for path in paths if path not in converted]
-    rewrite = sorted({*converted, *raw_mismatches(plain)})
+    rewrite = sorted({*converted, *mismatches(plain)})
     if rewrite:
         git(
             "checkout-index",
@@ -6360,19 +6480,29 @@ def _disposable_checkout(
             "--stdin",
             stdin=b"".join(os.fsencode(path) + b"\0" for path in rewrite),
         )
-        if remaining := raw_mismatches([path for path in rewrite if path in plain]):
+        if remaining := mismatches([path for path in rewrite if path not in converted]):
             raise ValueError(
                 f"Disposable {destination.name} checkout still differs from "
-                f"{commit}: {', '.join(remaining[:10])}"
+                f"{commit}: {', '.join(repr(path) for path in remaining[:10])}"
             )
     for path, (_blob, executable) in regular.items():
-        os.chmod(destination / path, 0o755 if executable else 0o644)
+        target = destination / path
+        if not stat.S_ISREG(os.lstat(target).st_mode):
+            raise ValueError(
+                f"Disposable {destination.name} checkout holds a non-file at "
+                f"{path!r}, where {commit} has a file"
+            )
+        os.chmod(target, 0o755 if executable else 0o644)
     for relative in carried:
         if Path(relative).is_absolute() or ".." in Path(relative).parts:
             raise ValueError(f"Cannot carry {relative!r} into a disposable checkout")
+        if not stat.S_ISREG(os.lstat(source / relative).st_mode):
+            raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         _copy_on_write(source / relative, target)
+        if not stat.S_ISREG(os.lstat(target).st_mode):
+            raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
 
 
 def _carried_release_object(release_path: Path, corpus: Path) -> list[str]:
@@ -6463,6 +6593,10 @@ def _fresh_dependency_entry(
     clone = resources.enter_context(
         committed_checkout(source, commit, repository=repository)
     )
+    if name != "compose":
+        # "Checkout axiom-compose" alone asks for fetch-depth 0, with tags
+        # (L1602); the other dependency checkouts are fetched without them.
+        _ci_dependency_refs(clone, source)
     entry = layout.entry(_CHECKOUT_NAMES[name])
     if entry.exists() or entry.is_symlink():
         raise ValueError(f"CI dependency entry already exists: {entry}")
@@ -6996,18 +7130,7 @@ def _run_ci_in_checkout(
                         # GITHUB_ENV exports before it and its own env
                         # (92ccb0f2 L1460-1461, L2011-2012).
                         step_environment={
-                            "CI": "true",
-                            "GITHUB_ACTIONS": "true",
-                            **(
-                                simulation.github_environment(repo)
-                                if simulation is not None
-                                else {"GITHUB_WORKSPACE": str(repo)}
-                            ),
-                            **(
-                                {"RUNNER_TEMP": str(runner_temp)}
-                                if runner_temp is not None
-                                else {}
-                            ),
+                            **_runner_environment(repo, runner_temp, simulation),
                             **(layout.environment() if layout is not None else {}),
                             "AXIOM_COMPOSE_REF": caller.refs["compose"],
                         },

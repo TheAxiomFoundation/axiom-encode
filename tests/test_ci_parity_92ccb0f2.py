@@ -36,6 +36,7 @@ from axiom_encode.ci_parity import (
     WORKFLOW_RESOLUTION_STEPS,
     DependencyLayout,
     PinnedWorkflow,
+    PullRequestSimulation,
     isolated_dependency_layout,
     parse_caller_workflow,
     program_spec_parser_mismatch,
@@ -1501,10 +1502,7 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     # The corpus copy gets the release object CI has already fetched.
     assert set(harness_swaps[(id(events), "carried")]) == {"corpus"}
     assert harness_step_environment[id(events)] == {
-        "CI": "true",
-        "GITHUB_ACTIONS": "true",
-        **run.simulation.github_environment(harness.repo),
-        "RUNNER_TEMP": str(run.runner_temp),
+        **ci_parity._runner_environment(harness.repo, run.runner_temp, run.simulation),
         **run.layout.environment(),
         "AXIOM_COMPOSE_REF": COMPOSE_REF,
     }
@@ -3035,16 +3033,18 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
         # A package the rules checkout itself commits, in ci's temporary
         # checkout, and a developer checkout holding the same package.
         checkouts = _siblings(tmp_path)
-        relative = "tests/fixtures/corpus-helper"
+        relative = "tests/fixtures/Linux/corpus-helper"
         for root in (workspace, developer / "rulespec-us"):
             for name, content in _writing_backend(log).items():
                 (root / relative).mkdir(parents=True, exist_ok=True)
                 (root / relative / name).write_text(content)
         expected = workspace / relative
         ambient = developer / "rulespec-us"
+    # The round-5 scenario: the path also names ${RUNNER_OS}.
+    named = relative.replace("/Linux/", "/${RUNNER_OS}/")
     (workspace / "uv.toml").write_text(
         "override-dependencies = [\n"
-        f'    "axiom-corpus @ file://${{{variable}}}/{relative}",\n'
+        f'    "axiom-corpus @ file://${{{variable}}}/{named}",\n'
         "]\n"
     )
     ci_parity._link_dependency_entries(
@@ -3054,6 +3054,7 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
     monkeypatch.setenv(variable, str(ambient))
     monkeypatch.setenv("AXIOM_ENCODE_SOMETHING", "ambient")
     monkeypatch.setenv("RUNNER_TEMP", str(developer / "runner-temp"))
+    monkeypatch.setenv("RUNNER_OS", "macOS")
     real_run = ci_parity._run_build_command
     results: dict[str, subprocess.CompletedProcess] = {}
     environments: list[dict[str, str]] = []
@@ -3093,10 +3094,9 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
                 workspace=workspace,
                 offline=False,
                 step_environment={
-                    "CI": "true",
-                    "GITHUB_ACTIONS": "true",
-                    "GITHUB_WORKSPACE": str(workspace),
-                    "RUNNER_TEMP": str(tmp_path / "runner-temp-root"),
+                    **ci_parity._runner_environment(
+                        workspace, tmp_path / "runner-temp-root", None
+                    ),
                     **layout.environment(),
                     "AXIOM_COMPOSE_REF": COMPOSE_REF,
                 },
@@ -3117,6 +3117,7 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
         assert environment["AXIOM_COMPOSE_REF"] == COMPOSE_REF
         assert environment["GITHUB_WORKSPACE"] == str(workspace)
         assert environment["RUNNER_TEMP"] == str(tmp_path / "runner-temp-root")
+        assert environment["RUNNER_OS"] == "Linux"
         assert "AXIOM_ENCODE_SOMETHING" not in environment
 
 
@@ -3315,3 +3316,182 @@ def test_disposable_checkout_refuses_to_carry_outside_the_checkout(
             "TheAxiomFoundation/axiom-corpus",
             [relative],
         )
+
+
+# ---------------------------------------------------------------------------
+# Round-5 review fixes (GPT-6.1 Sol)
+# ---------------------------------------------------------------------------
+
+
+def test_disposable_checkout_never_copies_a_link_the_developer_put_in_place(
+    tmp_path: Path,
+) -> None:
+    """A tracked file replaced by a link to a private file with the same bytes:
+    the copy gets the committed file, and the private file is untouched."""
+
+    source = gates._repo(tmp_path, {"data.txt": "same bytes\n"}, name="axiom-corpus")
+    commit = _committed(source)
+    private = tmp_path / "private.txt"
+    private.write_text("same bytes\n")
+    private.chmod(0o600)
+    (source / "data.txt").unlink()
+    (source / "data.txt").symlink_to(private)
+    (source / "pkg").mkdir()
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-corpus"
+    )
+
+    copied = destination / "data.txt"
+    assert not copied.is_symlink() and copied.read_text() == "same bytes\n"
+    assert stat.S_IMODE(copied.stat().st_mode) == 0o644
+    assert stat.S_IMODE(private.stat().st_mode) == 0o600
+    copied.write_text("written by a build\n")
+    assert private.read_text() == "same bytes\n"
+
+
+@pytest.mark.parametrize("name", ["line\nbreak.txt", '"quoted.txt', "tab\tname.txt"])
+def test_disposable_checkout_handles_any_tracked_file_name(
+    tmp_path: Path, name: str
+) -> None:
+    source = gates._repo(tmp_path, {name: "content\n"}, name="axiom-encode")
+    commit = _committed(source)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-encode"
+    )
+
+    assert (destination / name).read_text() == "content\n"
+    # Also when the copy has to come from the commit.
+    (source / name).write_text("edited\n")
+    again = tmp_path / "again"
+    ci_parity._disposable_checkout(
+        source, commit, again, "TheAxiomFoundation/axiom-encode"
+    )
+    assert (again / name).read_text() == "content\n"
+
+
+def test_disposable_checkout_refuses_paths_this_filesystem_merges(
+    tmp_path: Path,
+) -> None:
+    probe = tmp_path / "Case-Probe"
+    probe.write_text("")
+    if not (tmp_path / "case-probe").exists():
+        pytest.skip("case-sensitive filesystem")
+    source = gates._repo(tmp_path, {"data/A.json": "{}\n"}, name="axiom-corpus")
+    blob = gates._git(source, "rev-parse", "HEAD:data/A.json")
+    gates._git(
+        source, "update-index", "--add", "--cacheinfo", f"100644,{blob},data/a.json"
+    )
+    gates._git(source, "commit", "-q", "-m", "a Linux-only pair")
+    commit = _committed(source)
+
+    with pytest.raises(ValueError, match="collide on this filesystem"):
+        ci_parity._disposable_checkout(
+            source, commit, tmp_path / "copy", "TheAxiomFoundation/axiom-corpus"
+        )
+
+
+def test_disposable_checkout_holds_the_refs_ci_checkouts_hold(tmp_path: Path) -> None:
+    upstream = gates._repo(tmp_path, {"a.txt": "x\n"}, name="upstream")
+    gates._git(upstream, "tag", "v1.0.0")
+    source = tmp_path / "axiom-rules-engine"
+    subprocess.run(["git", "clone", "-q", str(upstream), str(source)], check=True)
+    gates._git(source, "branch", "local-work")
+    commit = _committed(source)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-rules-engine"
+    )
+
+    refs = gates._git(destination, "for-each-ref", "--format=%(refname)").split()
+    assert refs == ["refs/remotes/origin/main"]
+    assert gates._git(destination, "rev-parse", "refs/remotes/origin/main") == commit
+    assert gates._git(destination, "rev-parse", "HEAD") == commit
+    # No tag for setuptools-scm or hatch-vcs to find, as in CI.
+    described = subprocess.run(
+        ["git", "-C", str(destination), "describe", "--tags"],
+        capture_output=True,
+        check=False,
+    )
+    assert described.returncode != 0
+    # The developer's tags and branches are untouched.
+    assert gates._git(source, "tag") == "v1.0.0"
+    assert "local-work" in gates._git(source, "branch")
+
+
+def test_rulespec_us_entry_drops_tags_and_the_composer_keeps_them(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "rules"
+    repo.mkdir()
+    runner_temp = tmp_path / "runner-temp-root"
+    runner_temp.mkdir()
+    layout = isolated_dependency_layout(PinnedWorkflow(PIN_92CCB0F2), repo, runner_temp)
+    entries = {}
+    for name, checkout in (
+        ("rulespec_us", "rulespec-us"),
+        ("compose", "axiom-compose"),
+    ):
+        (tmp_path / name).mkdir()
+        source = gates._repo(tmp_path / name, {"a.txt": name}, name=checkout)
+        gates._git(source, "tag", "v9")
+        with contextlib.ExitStack() as resources:
+            entry = ci_parity._fresh_dependency_entry(
+                resources,
+                layout,
+                name,
+                source,
+                _committed(source),
+                f"TheAxiomFoundation/{checkout}",
+            )
+            entries[name] = gates._git(entry, "tag")
+
+    # rulespec-us is fetched without tags (L1523-1567); the composer with
+    # fetch-depth 0, so with them (L1594-1603).
+    assert entries == {"rulespec_us": "", "compose": "v9"}
+
+
+def test_runner_environment_is_a_hosted_ubuntu_runners() -> None:
+    simulation = PullRequestSimulation(
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        base_branch="main",
+        repository="TheAxiomFoundation/rulespec-us",
+        number=1695,
+        base_is_ancestor=False,
+        sha="c" * 40,
+    )
+
+    environment = ci_parity._runner_environment(
+        Path("/work/rulespec-us"), Path("/work/_temp"), simulation
+    )
+
+    assert environment == {
+        "CI": "true",
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_API_URL": "https://api.github.com",
+        "GITHUB_GRAPHQL_URL": "https://api.github.com/graphql",
+        "GITHUB_JOB": "validate",
+        "RUNNER_OS": "Linux",
+        "RUNNER_ARCH": "X64",
+        "RUNNER_ENVIRONMENT": "github-hosted",
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_REF": "refs/pull/1695/merge",
+        "GITHUB_REPOSITORY": "TheAxiomFoundation/rulespec-us",
+        "GITHUB_SHA": "c" * 40,
+        "GITHUB_WORKSPACE": "/work/rulespec-us",
+        "GITHUB_REPOSITORY_OWNER": "TheAxiomFoundation",
+        "GITHUB_REF_NAME": "1695/merge",
+        "GITHUB_REF_TYPE": "branch",
+        "GITHUB_BASE_REF": "main",
+        "RUNNER_TEMP": "/work/_temp",
+    }
+    # Every pin's validate job runs on a hosted ubuntu-latest runner.
+    for sha in SUPPORTED_WORKFLOW_PINS:
+        jobs = PinnedWorkflow(sha).payload["jobs"]
+        assert jobs["validate"]["runs-on"] == "ubuntu-latest"
