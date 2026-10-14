@@ -3029,7 +3029,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     checksum_command = checksum_step["run"]
     assert 'artifact="$RUNNER_TEMP/targeted-reencode"' in checksum_command
     assert 'cd "$artifact"' in checksum_command
-    assert "sha256sum * > SHA256SUMS" in checksum_command
+    assert "find . -type f ! -path ./SHA256SUMS -print0" in checksum_command
+    assert "xargs -0 -r sha256sum > SHA256SUMS" in checksum_command
+    assert "sha256sum --check SHA256SUMS" in checksum_command
     assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' not in checksum_command
     assert upload_step["id"] == "upload_signed_reencode_artifact"
     assert upload_step["with"]["name"] == (
@@ -3037,6 +3039,46 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def test_targeted_reencode_checksums_include_nested_admission_files(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    artifact = tmp_path / "targeted-reencode"
+    admission = artifact / "source-admission" / "target"
+    admission.mkdir(parents=True)
+    (artifact / "lane-pull-request.json").write_text('{"number":1770}\n')
+    (admission / "source.json").write_text('{"admitted":true}\n')
+
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    checksums = (artifact / "SHA256SUMS").read_text()
+    assert "./lane-pull-request.json" in checksums
+    assert "./source-admission/target/source.json" in checksums
+    assert "./SHA256SUMS" not in checksums
+
+    (artifact / "unexpected-link").symlink_to(admission / "source.json")
+    rejected = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "artifact contains a symlink" in rejected.stderr
 
 
 def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:
