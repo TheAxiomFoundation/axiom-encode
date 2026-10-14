@@ -334,3 +334,25 @@ def test_us_administrative_sentence_needs_no_paired_cases():
     assert not _paired_case_issues(notice, regulation)
     assert _paired_case_issues(exception, regulation)
     assert _paired_case_issues(notice, "uk/regulation/2013/376/9999")
+
+
+def test_us_administrative_sentence_still_competes_for_case_pairs(monkeypatch):
+    # The administrative sentence is hidden from the report, not from the
+    # allocation of case pairs: a pair that the validator accepts for both a
+    # procedural and an operative sentence on one path must not move to the
+    # operative sentence only because the procedural one stopped competing.
+    regulation = "us-or/regulation/461/135/9999"
+    notice = ADMINISTRATIVE[0]
+    allocated: list[str] = []
+    allocate = completeness_module._unwitnessed_exception_branches
+
+    def recording_allocate(branches, **kwargs):
+        allocated.extend(branch.text for branch in branches)
+        return allocate(branches, **kwargs)
+
+    monkeypatch.setattr(
+        completeness_module, "_unwitnessed_exception_branches", recording_allocate
+    )
+
+    assert not _paired_case_issues(notice, regulation)
+    assert any(notice in text for text in allocated)

@@ -19349,10 +19349,14 @@ def _companion_test_issues(
         deferred_clauses=deferred_clauses,
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
-        # Nor does US administrative prose (notices, verification, ...).
-        skip_administrative_prose=bool(
-            _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
-        ),
+    )
+    # US administrative prose (notices, verification, ...) needs no paired
+    # witnesses either. It still competes for case pairs in the allocation
+    # below and is only left out of the reported conditions, so dropping it can
+    # never hand an operative condition a pair that another sentence on the
+    # same path already claimed.
+    report_administrative_conditions = not _US_CORPUS_CITATION_PATH.match(
+        corpus_citation_path
     )
     if exception_branches:
         independently_covered_paths = {
@@ -19399,6 +19403,12 @@ def _companion_test_issues(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
+        if not report_administrative_conditions:
+            missing_exception_branches = tuple(
+                branch
+                for branch in missing_exception_branches
+                if not _source_condition_is_administrative(branch.text)
+            )
         if missing_exception_branches:
             unsupported_row_outputs = [
                 f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
@@ -19462,6 +19472,12 @@ def _companion_test_issues(
                 for branch in unconditional_nonapplicability_branches
             }
         )
+        if not report_administrative_conditions:
+            missing_unconditional_branches = tuple(
+                branch
+                for branch in missing_unconditional_branches
+                if not _source_condition_is_administrative(branch.text)
+            )
         if missing_unconditional_branches:
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)}: `"
