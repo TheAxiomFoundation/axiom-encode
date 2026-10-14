@@ -304,7 +304,9 @@ CORPUS_EXCERPTS = (
         "payment-weighted average increase in the payment rates of 1.0262 "
         "multiplied by the increase in real casemix of 1.009, which equals "
         "$1,735.39 and is rounded to $1,736",
-        {89},
+        # `by` after the closing parentheses is arithmetic, so the citation
+        # keeps its numbers (fail closed).
+        set(),
         {1676, 1.0262, 1.009, 1735.39, 1736},
     ),
     (
@@ -533,3 +535,122 @@ def test_locator_spans_are_linear_in_long_sources():
 )
 def test_locator_that_shadows_another_token_keeps_main_inventory(citation, source):
     assert _occurrences(source, citation) == _main_occurrences(source, citation)
+
+
+def _analysis(source: str, citation: str):
+    content = yaml.safe_dump({"format": "rulespec/v1", "module": {}, "rules": []})
+    return completeness.analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=citation,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def test_source_and_unrepresented_views_share_one_locator_decision(monkeypatch):
+    # Round-2 review: with a represented annual span, the unrepresented view
+    # can fall back (its `226,000` collapses into the locator `226`) while the
+    # source view filters. One shared decision keeps main's covered count.
+    from axiom_encode.harness import worksheet_operation_evidence as evidence
+
+    source = "Pub. L. 111-226 applies. The cap is $226 and 226,000 households."
+    start = source.index("$226") + 1
+    monkeypatch.setattr(
+        evidence,
+        "certify_worksheet_operations",
+        lambda *args, **kwargs: evidence.WorksheetOperationCoverage(
+            annual_spans=((start, start + 3),)
+        ),
+    )
+    citation = "us/statute/42/1"
+    branch = _analysis(source, citation)
+    with monkeypatch.context() as patch:
+        patch.setattr(completeness, NEW_LOCATORS, ())
+        main = _analysis(source, citation)
+    assert branch.covered_source_numeric_occurrence_count >= 0
+    assert (
+        branch.covered_source_numeric_occurrence_count
+        == main.covered_source_numeric_occurrence_count
+    )
+    assert set(branch.issues) <= set(main.issues)
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        # Round-2 review: contexts the check must reject.
+        "The deduction is 5 +\n62 FR 61344 applies.",
+        "The amount is $\n62 FR 61344 applies.",
+        "5" + " " * 70 + "62 FR 61344 applies.",
+        "± 62 FR 61344 applies",
+        "≈ 62 FR 61344 applies",
+        "≠ 62 FR 61344 applies",
+        "₹ 62 FR 61344 applies",
+        "₩ 62 FR 61344 applies",
+        "[62 FR 61344] percent",
+        "62 FR 61344 (x 5)",
+        "62 FR 61344 a month",
+        "5 FR 100 for each household member",
+        "5 FR 100 per month",
+        "62 FR 61344 times the standard",
+        "Household Size FR Amount\n1 FR 291\n2 FR 535\n3 FR 766\nThe amounts apply.",
+        "Pub. L. 111-226 of the households",
+    ),
+)
+def test_round_two_contexts_keep_main_inventory(source):
+    assert _occurrences(source, SNAP_REGULATION) == _main_occurrences(
+        source, SNAP_REGULATION
+    )
+
+
+@pytest.mark.parametrize(
+    "source, dropped",
+    (
+        # The common CFR source note, and a citation followed by a label.
+        (
+            "[62 FR 61344, Nov. 17, 1997, as amended at 65 FR 70134, Nov. 21, 2000]",
+            {62, 65},
+        ),
+        ("(62 FR 61344) (iii) An alien who is a Cuban entrant", {62}),
+    ),
+)
+def test_source_notes_and_labels_after_a_citation_are_locators(source, dropped):
+    removed = _assert_only_locator_digits_removed(source, SNAP_REGULATION)
+    assert dropped <= removed
+
+
+def test_locator_filter_is_linear_in_long_sources():
+    import dataclasses
+    import time
+
+    unit = "Benefits for eligible households (62 FR 61344). "
+    source = unit * 8000
+    offset = unit.index("62")
+    template = next(
+        item
+        for item in extract_typed_numeric_inventory_occurrences_from_text(
+            unit, profile="legacy"
+        )
+        if item.value == 62
+    )
+    occurrences = [
+        dataclasses.replace(
+            template,
+            start=index * len(unit) + offset,
+            end=index * len(unit) + offset + 2,
+        )
+        for index in range(8000)
+    ]
+    started = time.perf_counter()
+    inventory = completeness._us_locator_filtered_inventory(
+        source,
+        corpus_citation_path=SNAP_REGULATION,
+        extract_numeric_occurrences=lambda text: occurrences if text == source else [],
+    )
+    assert inventory.consistent and inventory.kept == ()
+    assert time.perf_counter() - started < 10
