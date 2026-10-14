@@ -8050,7 +8050,11 @@ def _evaluate_generated_artifact_with_repairs(
 
 
 _COMPLETE_SOURCE_CASE_SYNTHESIS_MAX_ANALYSES = 32
-_COMPLETE_SOURCE_CASE_SYNTHESIS_SECONDS = 180.0
+# Covers the baseline analysis and every trial. One compile and the final
+# runner screen fall outside it, and an analysis that starts before the
+# deadline finishes, so a round on a slow module (one analysis ~100 s, as on
+# 7 CFR 273.4) can take about one analysis longer than this budget.
+_COMPLETE_SOURCE_CASE_SYNTHESIS_SECONDS = 120.0
 # Each round already tries every demand; a second round only covers demands
 # that the first round's cases exposed. More rounds would only add latency.
 _COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS = 2

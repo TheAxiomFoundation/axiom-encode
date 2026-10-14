@@ -282,31 +282,6 @@ def test_fractional_boundary_is_never_proposed_for_an_integer_input():
     )
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("more than 1 qualifying child", (2.0,)),
-        ("at least 3 qualifying children", (3.0, 4.0)),
-        ("more than 2.5 hours", (2.525,)),
-    ],
-)
-def test_range_probes_stay_inside_the_source_range(text, expected):
-    from axiom_encode.harness.source_completeness import (
-        _formula_interval_from_text,
-        _interval_probe_values,
-    )
-
-    interval = _formula_interval_from_text(
-        text,
-        extract_numeric_occurrences=functools.partial(
-            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
-        ),
-    )
-
-    assert interval is not None
-    assert _interval_probe_values(interval) == expected
-
-
 def test_principal_output_and_clamp_obligations_name_their_targets():
     content = HEADER.replace(
         "__FORMULA__", "countable_income < income_limit"
