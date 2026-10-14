@@ -1937,6 +1937,18 @@ def test_yaml_directives_are_refused(header: str) -> None:
             "default calls success",
         ),
         (lambda d: d.__setitem__("default", 3.12), "default is not a string"),
+        # `}}` inside a quoted string does not end the expression.
+        (
+            lambda d: d.__setitem__("default", "${{ contains('}}', secrets.X) }}"),
+            "default reads secrets",
+        ),
+        # A lone literal expression is folded into that literal, then typed.
+        (
+            lambda d: d.update(type="boolean", default="${{ 'oops' }}"),
+            "default is not a boolean",
+        ),
+        (lambda d: d.__setitem__("default", "${{ 3 }}"), "default is not a string"),
+        (lambda d: d.__setitem__("default", "${{ github.ref"), "open"),
         (lambda d: d.__setitem__("default", True), "default is not a string"),
         (lambda d: d.__setitem__("type", []), "has type []"),
         (lambda d: d.__setitem__("type", {}), "has type {}"),
@@ -1975,6 +1987,12 @@ def test_input_declarations_github_rejects_are_refused(edit: Any, message: str) 
         # A default that is one whole expression is typed when GitHub evaluates it.
         lambda d: d.update(type="boolean", default="${{ inputs.x == 'a' }}"),
         lambda d: d.update(type="number", default="${{ fromJSON(vars.N) }}"),
+        lambda d: d.update(type="boolean", default="${{ true }}"),
+        lambda d: d.update(type="number", default="${{ 3 }}"),
+        # A property after `.`, even with a space, is not a context.
+        lambda d: d.__setitem__("default", "${{ github. ref }}"),
+        lambda d: d.__setitem__("default", "${{ 'it''s }} fine' }}"),
+        lambda d: d.__setitem__("default", "prefix ${{ github.ref }} suffix"),
     ],
 )
 def test_input_declarations_github_accepts_are_accepted(edit: Any) -> None:
@@ -2098,3 +2116,31 @@ def test_pure_attribute_vocabulary_is_pure_and_excludes_path_methods() -> None:
     # them too; copy, replace and group are judged by their arguments.
     assert ci_parity_pins._PURE_ATTRIBUTES & host <= {"count", "index", "match"}
     assert not {"copy", "replace", "group"} & ci_parity_pins._PURE_ATTRIBUTES
+
+
+@pytest.mark.parametrize(
+    ("addition", "expected"),
+    [
+        # A local or parameter named like a builtin does not hide a new read of
+        # the builtin elsewhere: names are resolved by scope.
+        (
+            "def format_id(id):\n    return str(id)\ndiagnostic_id = id(workspace)\n",
+            {"<builtin>.id"},
+        ),
+        # An annotation alone binds nothing.
+        ("hash: object\nprint(hash)\n", {"<builtin>.hash"}),
+        # Type parameters, class cells and comprehension variables are locals.
+        ("type Vector[T] = list[T]\n", set()),
+        ("def first[U](items: list[U]) -> U:\n    return items[0]\n", set()),
+        ("class Holder:\n    def kind(self):\n        return __class__\n", set()),
+        ("x = [k for k in range(3)]\n", set()),
+    ],
+)
+def test_builtin_reads_are_resolved_by_scope(addition: str, expected: set[str]) -> None:
+    base = (
+        "import os\nfrom pathlib import Path\n"
+        "workspace = Path(os.environ['GITHUB_WORKSPACE'])\n"
+    )
+    before = set(program_interface(base).names)
+
+    assert set(program_interface(base + addition).names) - before == expected

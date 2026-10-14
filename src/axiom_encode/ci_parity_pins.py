@@ -48,6 +48,7 @@ import json
 import os
 import re
 import subprocess
+import symtable
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -512,10 +513,80 @@ def _snippet(node: ast.AST) -> str:
     return text[:_OPAQUE_SNIPPET_LIMIT]
 
 
+def _annotation_only(tree: ast.AST) -> set[str]:
+    """Module-level names that are annotated (``hash: object``) but never bound."""
+
+    annotated: set[str] = set()
+    stored: set[str] = set()
+    stack: list[ast.AST] = [tree]
+    while stack:
+        node = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            if isinstance(
+                child,
+                ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | ast.Lambda,
+            ):
+                stored.add(getattr(child, "name", ""))
+                continue
+            if isinstance(child, ast.AnnAssign) and child.value is None:
+                if isinstance(child.target, ast.Name):
+                    annotated.add(child.target.id)
+                continue
+            if isinstance(child, ast.Name) and not isinstance(child.ctx, ast.Load):
+                stored.add(child.id)
+            stack.append(child)
+    return annotated - stored
+
+
+def _global_reads(tree: ast.AST, source: str) -> set[str]:
+    """Names the program reads from its module globals or the builtins.
+
+    Resolved by scope (``symtable``), so a parameter or local named ``id`` in
+    one function does not hide a read of the builtin ``id`` elsewhere, and
+    type parameters, class cells and comprehension variables are locals. A
+    name the module only annotates is not a binding. Names the compiler adds
+    (``__conditional_annotations__``) are ignored: only names written in the
+    source count.
+    """
+
+    table = symtable.symtable(source, "<embedded program>", "exec")
+    annotated = _annotation_only(tree)
+    module_bound = {
+        symbol.get_name()
+        for symbol in table.get_symbols()
+        if (
+            symbol.is_assigned()
+            or symbol.is_imported()
+            or symbol.is_namespace()
+            or symbol.is_parameter()
+        )
+        and symbol.get_name() not in annotated
+    }
+    written = {
+        node.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+    }
+    reads: set[str] = set()
+    stack = [table]
+    while stack:
+        scope = stack.pop()
+        stack.extend(scope.get_children())
+        for symbol in scope.get_symbols():
+            name = symbol.get_name()
+            if not symbol.is_referenced() or name not in written:
+                continue
+            if name in module_bound:
+                continue
+            if scope is table or symbol.is_global():
+                reads.add(name)
+    return reads
+
+
 class _InterfaceVisitor:
     """Collects a program's interface, resolving ``import ... as`` names."""
 
-    def __init__(self, tree: ast.AST) -> None:
+    def __init__(self, tree: ast.AST, source: str) -> None:
         self.environment: set[str] = set()
         self.imports: set[str] = set()
         self.names: set[str] = set()
@@ -549,17 +620,13 @@ class _InterfaceVisitor:
                     self.aliases[alias.asname or alias.name] = (
                         f"{parent.module or ''}.{alias.name}"
                     )
-        bound = self._bound_names(tree)
-        for node in ast.walk(tree):
+        for name in _global_reads(tree, source):
             if (
-                isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id not in bound
-                and node.id not in _PURE_BUILTINS
-                and node.id not in _PURE_EXCEPTIONS
-                and not node.id.endswith(("Error", "Exception", "Warning"))
+                name not in _PURE_BUILTINS
+                and name not in _PURE_EXCEPTIONS
+                and not name.endswith(("Error", "Exception", "Warning"))
             ):
-                self.names.add(f"<builtin>.{node.id}")
+                self.names.add(f"<builtin>.{name}")
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant):
                 value = node.value
@@ -570,33 +637,6 @@ class _InterfaceVisitor:
             elif isinstance(node, ast.Name | ast.Attribute):
                 self._reference(node)
                 self._member(node)
-
-    @staticmethod
-    def _bound_names(tree: ast.AST) -> set[str]:
-        """Every name the program binds: assignments, definitions, arguments,
-        imports, exception handlers, comprehension and loop targets."""
-
-        bound: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
-                bound.add(node.id)
-            elif isinstance(
-                node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
-            ):
-                bound.add(node.name)
-            elif isinstance(node, ast.arg):
-                bound.add(node.arg)
-            elif isinstance(node, ast.Import | ast.ImportFrom):
-                bound.update(
-                    alias.asname or alias.name.split(".")[0] for alias in node.names
-                )
-            elif isinstance(node, ast.ExceptHandler) and node.name:
-                bound.add(node.name)
-            elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
-                bound.add(node.name)
-            elif isinstance(node, ast.MatchMapping) and node.rest:
-                bound.add(node.rest)
-        return bound
 
     def _member(self, node: ast.Name | ast.Attribute) -> None:
         """Record the longest module-rooted name ``node`` completes."""
@@ -826,7 +866,7 @@ def program_interface(source: str) -> ProgramInterface:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise GlueError(f"embedded program does not parse: {exc}") from exc
-    found = _InterfaceVisitor(tree)
+    found = _InterfaceVisitor(tree, source)
     return ProgramInterface(
         environment=tuple(sorted(found.environment)),
         imports=tuple(sorted(found.imports)),
@@ -898,46 +938,124 @@ _INPUT_DEFAULT_CONTEXTS = frozenset({"github", "inputs", "vars"})
 _EXPRESSION_FUNCTIONS = frozenset(
     {"contains", "startsWith", "endsWith", "format", "join", "toJSON", "fromJSON"}
 )
-_EXPRESSION_LITERALS = frozenset({"true", "false", "null", "NaN", "Infinity"})
-_EXPRESSION_IDENTIFIER_RE = re.compile(
-    r"(?<![A-Za-z0-9_.-])(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?P<call>\s*\()?"
+_EXPRESSION_LITERALS = {"true": True, "false": False, "null": None}
+_EXPRESSION_NUMBER_NAMES = frozenset({"NaN", "Infinity"})
+_EXPRESSION_TOKEN_RE = re.compile(
+    r"\s*(?:"
+    r"(?P<string>'(?:[^']|'')*')"
+    r"|(?P<number>[-+]?(?:0x[0-9a-fA-F]+|[0-9]+(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?"
+    r"|\.[0-9]+(?:[eE][-+]?[0-9]+)?))"
+    r"|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)"
+    r"|(?P<op>==|!=|<=|>=|&&|\|\||[.\[\]()!<>,*])"
+    r")"
 )
-_WHOLE_EXPRESSION_RE = re.compile(r"^\s*\$\{\{.*\}\}\s*$", re.DOTALL)
 
 
-def _check_expression_contexts(name: str, text: str) -> None:
-    for expression in _EXPRESSION_RE.finditer(text):
-        # String literals ('...', with '' for a quote) name no context.
-        body = re.sub(r"'(?:[^']|'')*'", "''", expression.group("body"))
-        for match in _EXPRESSION_IDENTIFIER_RE.finditer(body):
-            word = match.group("name")
-            if word in _EXPRESSION_LITERALS:
-                continue
-            if match.group("call"):
-                if word not in _EXPRESSION_FUNCTIONS:
-                    raise GlueError(
-                        f"workflow_call input {name} default calls {word}, which "
-                        "an input default cannot"
-                    )
-            elif word not in _INPUT_DEFAULT_CONTEXTS:
+def _expression_bodies(name: str, text: str) -> list[str]:
+    """Every ``${{ ... }}`` body in ``text``; ``}}`` inside a quoted string
+    does not end an expression (as in GitHub's template reader)."""
+
+    bodies: list[str] = []
+    index = 0
+    while (start := text.find("${{", index)) >= 0:
+        cursor, quoted = start + 3, False
+        while cursor < len(text):
+            if quoted:
+                if text[cursor] == "'":
+                    if text.startswith("''", cursor):
+                        cursor += 2
+                        continue
+                    quoted = False
+            elif text[cursor] == "'":
+                quoted = True
+            elif text.startswith("}}", cursor):
+                break
+            cursor += 1
+        else:
+            raise GlueError(f"workflow_call input {name} default has an open ${{{{")
+        bodies.append(text[start + 3 : cursor])
+        index = cursor + 2
+    return bodies
+
+
+def _expression_tokens(name: str, body: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    position = 0
+    while body[position:].strip():
+        match = _EXPRESSION_TOKEN_RE.match(body, position)
+        if match is None or match.end() == position:
+            raise GlueError(
+                f"workflow_call input {name} default has an expression ci cannot "
+                f"read: {body.strip()!r}"
+            )
+        kind = match.lastgroup or ""
+        tokens.append((kind, match.group(kind)))
+        position = match.end()
+    return tokens
+
+
+def _check_expression_contexts(name: str, tokens: list[tuple[str, str]]) -> None:
+    for index, (kind, value) in enumerate(tokens):
+        if kind != "name":
+            continue
+        previous = tokens[index - 1] if index else ("", "")
+        following = tokens[index + 1] if index + 1 < len(tokens) else ("", "")
+        if previous == ("op", "."):
+            continue  # a property: github. ref, not a context named ref
+        if value in _EXPRESSION_LITERALS or value in _EXPRESSION_NUMBER_NAMES:
+            continue
+        if following == ("op", "("):
+            if value not in _EXPRESSION_FUNCTIONS:
                 raise GlueError(
-                    f"workflow_call input {name} default reads {word}, which an "
+                    f"workflow_call input {name} default calls {value}, which an "
                     "input default cannot"
                 )
+        elif value not in _INPUT_DEFAULT_CONTEXTS:
+            raise GlueError(
+                f"workflow_call input {name} default reads {value}, which an input "
+                "default cannot"
+            )
+
+
+def _folded_literal(tokens: list[tuple[str, str]]) -> tuple[bool, Any]:
+    """(True, value) when an expression is one literal, which GitHub folds."""
+
+    if len(tokens) != 1:
+        return False, None
+    kind, value = tokens[0]
+    if kind == "string":
+        return True, value[1:-1].replace("''", "'")
+    if kind == "number":
+        number = (
+            float(int(value, 16))
+            if value.lower().startswith(("0x", "-0x", "+0x"))
+            else float(value)
+        )
+        return True, int(number) if number.is_integer() else number
+    if kind == "name" and value in _EXPRESSION_LITERALS:
+        return True, _EXPRESSION_LITERALS[value]
+    return False, None
 
 
 def _check_input_default(name: str, kind: str, default: Any) -> None:
     """Refuse a default GitHub would reject for an input of type ``kind``.
 
-    A default that is one whole expression is not type-checked (GitHub checks
-    it when it evaluates it), but every default may read only the github,
-    inputs and vars contexts and the always-available functions.
+    Every expression may read only the github, inputs and vars contexts and
+    call only the always-available functions. A default that is one whole
+    expression is typed when GitHub evaluates it, unless the expression is a
+    lone literal, which GitHub folds into that literal before typing it.
     """
 
     if isinstance(default, str):
-        _check_expression_contexts(name, default)
-        if _WHOLE_EXPRESSION_RE.fullmatch(default):
-            return
+        bodies = _expression_bodies(name, default)
+        parsed = [_expression_tokens(name, body) for body in bodies]
+        for tokens in parsed:
+            _check_expression_contexts(name, tokens)
+        if len(bodies) == 1 and default.strip() == "${{" + bodies[0] + "}}":
+            folded, value = _folded_literal(parsed[0])
+            if not folded:
+                return
+            default = value
     if kind == "string" and not isinstance(default, str):
         raise GlueError(f"workflow_call input {name} default is not a string")
     if kind == "boolean" and not isinstance(default, bool):

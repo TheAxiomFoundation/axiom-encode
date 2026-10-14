@@ -104,9 +104,11 @@ canonical JSON.
     `.parent`, `.stat()`, `.read_text()` or `.group(...)` changes the interface
     without anyone having listed it. `copy`, `replace` and `group` are also
     `Path` methods, so their arguments decide;
-  - every builtin or other unbound name it reads, except pure builtins such as
-    `len`, `sorted` or `range` and the exception classes (`open`, `input`,
-    `id`, `hash` and `__file__` are recorded);
+  - every builtin or other global name it reads without binding, resolved by
+    scope (a parameter named `id` does not hide a read of the builtin `id`
+    elsewhere, and an annotation alone binds nothing), except pure builtins
+    such as `len`, `sorted` or `range` and the exception classes (`open`,
+    `input`, `id`, `hash` and `__file__` are recorded);
   - the executables it starts;
   - the absolute paths it names, as string or bytes literals;
   - the file-writing and network calls among those, labelled as effects
@@ -153,11 +155,13 @@ Each `workflow_call` input declaration must be one GitHub accepts: only
 `description` (a scalar without an expression), `type` (`string`, `boolean`
 or `number`), `required` (a boolean) and `default`. A default is a value of
 the input's type, or one whole `${{ }}` expression (typed when GitHub
-evaluates it); any expression in it may read only the `github`, `inputs` and
-`vars` contexts and call only the functions every expression has (`contains`,
-`startsWith`, `endsWith`, `format`, `join`, `toJSON`, `fromJSON`). A
-declaration GitHub would reject is refused rather than normalized into one it
-accepts.
+evaluates it; a lone literal such as `${{ 'x' }}` is folded into that literal
+first, as GitHub does). Any expression in it may read only the `github`,
+`inputs` and `vars` contexts and call only the functions every expression has
+(`contains`, `startsWith`, `endsWith`, `format`, `join`, `toJSON`,
+`fromJSON`); expressions are read as GitHub reads them, so `}}` inside a quoted
+string does not end one. A declaration GitHub would reject is refused rather
+than normalized into one it accepts.
 
 **Templates.** The reviewed glue is every unit of the template pins
 (`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole
