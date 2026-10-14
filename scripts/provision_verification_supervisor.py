@@ -42,10 +42,24 @@ environment. The issue233 Canada diagnostic passes instead the purelib of a
 ``tests/test_verification_site_packages_lock.py`` enforces both forms, reads
 ``--site-packages`` with this script's own argument parser, and rejects any
 command between staging and provisioning that names the staged tree.
-``uv.lock`` does not pin build backends, so the sdists it pins, the git
-dependency and the project are built with whatever backend versions the index
-serves at run time; when the ``--encoder-*`` attestation arguments are given,
-the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
+That staging builds three kinds of input: the sdists the lock pins with no wheel
+for the interpreter (pyiceberg 0.10.0; pyroaring 1.0.3 on 3.14), the git
+dependency and the project. In bulk-encode, golden-regeneration and
+targeted-signed-reencode each build runs uncached (``--no-cache``) with
+``--build-constraints`` set to the hash-pinned export of the lock's ``build``
+dependency group, so uv verifies every build backend it installs against
+``uv.lock``. uv would still build with a backend that export omits, unpinned;
+``scripts/check_locked_builds.py`` (the ``locked-builds`` CI job) builds each
+of those inputs with ``uv build --require-hashes``, which refuses an omitted or
+unhashed one. It builds on 3.13, which these workflows use, and on 3.14, the
+default of the organization's reusable ``validate-rulespec.yml``, which also
+stages this lock. Every uv call in the staging passes ``--no-config``, so
+neither the runner's user ``uv.toml`` nor a parent directory's uv config can
+change what it installs or builds. What remains unpinned everywhere is the
+runner's C toolchain, which compiles pyiceberg's and pyroaring's extensions
+(pyiceberg's build drops its Cython extension silently if compiling it fails).
+When the ``--encoder-*`` attestation arguments are given, the attested commit's
+bytes replace the staged ``axiom_encode`` package.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level
