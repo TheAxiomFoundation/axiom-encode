@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 2
+__version__ = 3
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -798,7 +798,11 @@ _NAMING_PROTOCOL = """- Do not create standalone small-number parameters just to
   Use `dtype: Judgment` for derived legal predicates, or leave simple local
   facts as factual `#input.<fact>` keys consumed by formulas and tests.
 - Use `kind: data_relation` for executable runtime predicates such as
-  `member_of_household`. Put arity under `data_relation.arity`.
+  `member_of_household`. Put arity under `data_relation.arity` and declare
+  `data_relation.arguments` with one entity kind per tuple slot, in tuple
+  order. For person-to-household membership use
+  `data_relation: {arity: 2, arguments: [Person, Household]}`. The engine
+  rejects an untyped relation when a derived rule executes it.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If
   a formula needs a local true/false fact, reference a descriptive bare fact
   name in the formula, declare that fact in the RuleSpec document-root `inputs`
