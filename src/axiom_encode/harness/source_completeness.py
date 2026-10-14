@@ -1437,12 +1437,16 @@ _RELATIVE_USC_DEFERRAL_DEPENDENCY = re.compile(
     r"(?P<tail>(?:\s*\(\s*[A-Za-z0-9]+\s*\))*)",
     flags=re.IGNORECASE,
 )
-# A title-qualified federal regulation citation such as `42 C.F.R. § 457.622(a)`.
-# Its internal periods are part of the citation, never a clause boundary.
-_QUALIFIED_CFR_CITATION = re.compile(
+# A title-qualified federal regulation citation such as `42 C.F.R. § 457.622(a)`
+# or a canonical corpus path such as `us-mo/statute/143.011(2)`. Their internal
+# periods are part of the citation, never a clause boundary.
+_PERIOD_BEARING_CITATION = re.compile(
     r"\b\d+\s+C\.?\s*F\.?\s*R\.?\s*(?:,\s*)?(?:(?:§{1,2}|sections?|sec\.)\s*)?"
     r"\d+[A-Za-z]?(?:\.\d+[A-Za-z0-9]*(?:-\d+[A-Za-z0-9]*)*)?"
-    r"(?:\s*\(\s*[A-Za-z0-9]+\s*\))*",
+    r"(?:\s*\(\s*[A-Za-z0-9]+\s*\))*"
+    r"|(?<![A-Za-z0-9_./-])[a-z]{2}(?:-[a-z0-9]+)*/"
+    r"(?:form|guidance|manual|policy|regulation|statute)/"
+    r"[A-Za-z0-9_./:-]*[A-Za-z0-9_]",
     flags=re.IGNORECASE,
 )
 _LOUISIANA_RS_DEFERRAL_DEPENDENCY = re.compile(
@@ -2070,6 +2074,13 @@ affirmatively state the repeal in `reason`; do not invent a missing dependency o
 executable rule. Use the bounded form `<exact branch citation> is repealed.`, optionally \
 adding the exact authenticated history either as `is repealed by <Acts citation>.` or \
 as `is repealed. <Acts citation>.`, and/or adding `and supplies no operative rule`. \
+When the authoritative branch is a leaf that only frames the source unit (a \
+`Basis.`, `Statutory basis.`, `Authority.`, `Scope.`, `Purpose.`, `Findings.`, \
+`Severability.`, or `Short title.` heading followed by one framing sentence), open \
+`reason` with the exact branch citation and state only that it supplies no operative \
+rule, e.g. `<exact branch citation> is a non-operative statutory-basis statement and \
+supplies no operative rule.`; never use that form for a branch stating a condition, \
+amount, applicability rule, definition, or effective date. \
 For Louisiana delegated rates, use `no executable RuleSpec output \
 for those <source-stated modifiers> rates is supplied in the available context`; do \
 not repeat the dependency in that missing object or append a relative clause."""
@@ -6215,6 +6226,14 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     deferrals at that module root, so completeness accepts it too; otherwise
     one deferral can satisfy at most one of the two coverage gates. The last
     entry is the root retry advice should name.
+
+    The same holds for every other U.S. source whose encoder module root
+    differs from the corpus-shaped root: manuals and forms are written under
+    `policies/` (`us-nc/manual/dhhs/fns/appendix-3100/page-1` lives at
+    `us-nc:policies/dhhs/fns/appendix-3100/page-1`), and a dotted state
+    regulation leaf is nested (`us-ca/regulation/mpp/63-300.1` lives at
+    `us-ca:regulations/mpp/63-300/1`). Deferrals anchored there were silently
+    dropped before.
     """
 
     base = _rulespec_target_base(corpus_citation_path)
@@ -6222,12 +6241,31 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
     root, _, tail = remainder.partition("/")
     title, _, rest = tail.partition("/")
     if jurisdiction != "us" or root != "regulations" or not title.isdigit():
-        return (base,)
+        module_root = _us_encoder_module_root(corpus_citation_path)
+        return tuple(dict.fromkeys((base, module_root))) if module_root else (base,)
     segments = [part for part in rest.split("/") if part]
     if segments:
         segments = [*segments[:-1], *(part for part in segments[-1].split(".") if part)]
     module_root = "/".join([f"us:regulations/{title}-cfr", *segments])
     return tuple(dict.fromkeys((base, module_root)))
+
+
+def _us_encoder_module_root(corpus_citation_path: str) -> str | None:
+    """Return the RuleSpec module root the encoder writes a U.S. source unit to."""
+
+    jurisdiction = corpus_citation_path.strip("/").partition("/")[0]
+    if jurisdiction != "us" and not jurisdiction.startswith("us-"):
+        return None
+    # Imported lazily: the evals harness imports this module.
+    from axiom_encode.harness.evals import (
+        _source_identifier_to_relative_rulespec_path,
+    )
+
+    try:
+        relative = _source_identifier_to_relative_rulespec_path(corpus_citation_path)
+    except ValueError:
+        return None
+    return f"{jurisdiction}:{relative.with_suffix('').as_posix()}"
 
 
 def _deferred_coverage(
@@ -11763,7 +11801,7 @@ def _reason_clause_bounds(
     for dependency in (
         *_qualified_usc_dependencies(reason),
         *_qualified_louisiana_rs_dependencies(reason),
-        *_QUALIFIED_CFR_CITATION.finditer(reason),
+        *_PERIOD_BEARING_CITATION.finditer(reason),
     ):
         for position in range(dependency.start(), dependency.end()):
             if masked[position] in {".", ";"}:

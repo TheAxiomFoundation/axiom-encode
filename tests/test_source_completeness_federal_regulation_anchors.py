@@ -306,10 +306,68 @@ def test_deferral_anchors_end_at_the_encoder_module_root(citation):
 
 
 @pytest.mark.parametrize("citation", OTHER_CITATIONS)
-def test_deferral_anchors_unchanged_outside_numbered_federal_regulations(citation):
-    assert completeness_module._deferral_anchor_bases(citation) == (
-        completeness_module._rulespec_target_base(citation),
+def test_deferral_anchors_add_only_a_differing_us_encoder_module_root(citation):
+    anchors = completeness_module._deferral_anchor_bases(citation)
+    base = completeness_module._rulespec_target_base(citation)
+
+    assert anchors[0] == base
+    if citation.split("/", 1)[0] in {"us"} or citation.startswith("us-"):
+        assert anchors[-1] == _module_root(citation)
+        assert anchors == tuple(dict.fromkeys((base, _module_root(citation))))
+    else:
+        assert anchors == (base,)
+
+
+@pytest.mark.parametrize(
+    ("citation", "module_root"),
+    (
+        (
+            "us/form/cms/medicaid-chip-bhp-eligibility-levels/block-1",
+            "us:policies/cms/medicaid-chip-bhp-eligibility-levels/block-1",
+        ),
+        (
+            "us-nc/manual/dhhs/fns/appendix-3100/page-1",
+            "us-nc:policies/dhhs/fns/appendix-3100/page-1",
+        ),
+        ("us-ca/regulation/mpp/63-300.1", "us-ca:regulations/mpp/63-300/1"),
+    ),
+)
+def test_manual_form_and_dotted_state_regulation_deferrals_are_not_dropped(
+    citation, module_root
+):
+    """A precise repeal deferral at the encoder module root covers its branch;
+    an imprecise one at that root is reported instead of silently ignored."""
+
+    source = "(a) Repealed.\n\n(b) Repealed."
+    branches = recognize_source_structure(source, corpus_citation_path=citation)
+    assert completeness_module._deferral_anchor_bases(citation)[-1] == module_root
+
+    precise = _deferral_payload(
+        citation, [(f"{module_root}/a#repealed", f"{citation}(a) is repealed.")]
     )
+    covered, issues = completeness_module._deferred_coverage(
+        precise, corpus_citation_path=citation, source_text=source, branches=branches
+    )
+    assert ("a",) in covered and not issues
+
+    vague = _deferral_payload(citation, [(f"{module_root}/b#deferred", "Unavailable.")])
+    covered, issues = completeness_module._deferred_coverage(
+        vague, corpus_citation_path=citation, source_text=source, branches=branches
+    )
+    assert not covered
+    assert any("`module.deferred_outputs[0]`" in issue for issue in issues)
+
+    unrelated = _deferral_payload(
+        citation,
+        [(f"{citation.partition('/')[0]}:policies/other/a#repealed", "Repealed.")],
+    )
+    covered, _issues = completeness_module._deferred_coverage(
+        unrelated,
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=branches,
+    )
+    assert not covered
 
 
 @pytest.mark.parametrize(
@@ -341,9 +399,9 @@ def test_deferred_coverage_is_invariant_to_anchor_root(citation, path, precise):
     assert len(results) == 2
     assert results[0] == results[1]
     covered, issues = results[0]
-    # The repeal predicate does not read dotted CFR section citations
-    # (`us/regulation/7/1.36B-2(a)`) at either root; that is unchanged here.
-    if precise and path in REPEALED_LEAF_PATHS and "." not in citation:
+    # Periods inside a canonical citation (`us/regulation/7/1.36B-2(a)`) are
+    # not clause boundaries, so dotted sections bind like the others.
+    if precise and path in REPEALED_LEAF_PATHS:
         assert path in covered and not issues
     elif not precise:
         assert not covered

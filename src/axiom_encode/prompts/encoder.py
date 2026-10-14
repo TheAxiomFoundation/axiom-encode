@@ -8,7 +8,7 @@ pinned by tests and guard encoding-benchmark regressions. Restructure freely;
 reword guarded content only with a benchmark run.
 """
 
-__version__ = 2
+__version__ = 3
 
 SOURCE_SCOPE_PROTOCOL = """Source-scope protocol:
 - Match each executable rule's `entity:` to the legal subject stated by the
@@ -1680,11 +1680,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
-  For a U.S. regulation branch, use the resolver-attested canonical citation
-  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
-  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
-  completeness validator. Follow the citation with the concrete missing input
-  or runtime capability; do not infer a citation beyond the supplied source.
+  For a U.S. regulation branch, cite that exact branch in `reason` either as
+  `7 CFR 273.10(a)(1)` or as the resolver-attested canonical citation
+  `us/regulation/7/273/10(a)(1)`; both identify it to the completeness
+  validator. Follow the citation with the concrete missing input or runtime
+  capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - Before returning YAML, inventory every top-level structural branch in the
   authoritative source and verify that each branch has either an executable
@@ -1710,6 +1710,18 @@ Complete-source-unit mode is enabled for this request:
   adding the exact authenticated history either as `is repealed by <Acts
   citation>.` or as `is repealed. <Acts citation>.`, and/or adding `and supplies
   no operative rule`; never qualify, report, or retract the assertion.
+- When an authoritative leaf branch only frames the source unit, that is a
+  `Basis.`, `Statutory basis.`, `Authority.`, `Scope.`, `Purpose.`,
+  `Findings.`, `Severability.`, or `Short title.` heading followed by one
+  sentence saying what the section implements, sets forth, or is for, or that
+  its provisions are severable, preserve that branch path in
+  `module.deferred_outputs[].output`. Open `reason` with the exact current
+  legal branch citation and state only that it supplies no operative rule, for
+  example `42 CFR 435.145(a) is a non-operative statutory-basis statement and
+  supplies no operative rule.` Do not add a missing dependency, runtime gap, or
+  qualification to that reason. Never use this form for applicability,
+  definitions, effective dates, or any branch that states a condition, amount,
+  or computation.
 - For a Louisiana branch that computes tax at rates provided in another R.S.
   section, use the bounded missing-export clause `no executable RuleSpec output
   for those <source-stated modifiers> rates is supplied in the available
