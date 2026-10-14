@@ -35,7 +35,9 @@ FNS guidance, and state statutes, manuals and guidance. It includes every
 completeness rule and the recorded failure classes `compile`, `oracle`,
 `proof:excerpt-not-found`, `tests:wrong-expected-value`, `tests:missing-input`
 and `grounding:literal`. Seven fixtures replay clean. They failed for other
-reasons, and the snapshot keeps them clean. The fixtures total about 1.4 MB.
+reasons (compile, oracle, proof excerpts, test inputs), or later validator fixes
+removed their completeness issues. The snapshot keeps them clean. The fixtures
+total about 1.4 MB.
 
 ## Fidelity
 
