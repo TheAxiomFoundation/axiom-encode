@@ -5198,15 +5198,9 @@ def _report_money_atom_verdict(money_run) -> bool:
     return True
 
 
+@_rulespec_routing_cache_scope()
 def cmd_test(args):
     """Execute companion tests from one exact jurisdiction content root."""
-
-    with _rulespec_routing_cache_scope():
-        return _cmd_test_with_routing_cache(args)
-
-
-def _cmd_test_with_routing_cache(args):
-    """Share routing admissions while isolating each module resolution scope."""
     root = _resolve_explicit_existing_directory(
         args.root,
         label="RuleSpec jurisdiction content root",
