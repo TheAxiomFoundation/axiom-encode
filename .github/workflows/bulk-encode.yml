@@ -71,10 +71,38 @@ jobs:
 
       - name: Install
         run: |
-          uv sync --locked --python 3.13 --extra api
-          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
-          uv pip install --python .venv/bin/python \
-            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+          set -euo pipefail
+          uv sync --locked --python 3.13 --extra api --no-dev
+          # The protected verification tree is exactly the uv.lock set. A resolving
+          # `uv pip install --target ... ".[api]"` re-resolves every `>=`
+          # dependency against the index at run time (targeted run 36174590343
+          # staged claude-agent-sdk 0.2.159 beside the locked 0.1.47). Export the
+          # lock and install its hash-pinned registry set with --require-hashes,
+          # then the one commit-pinned git dependency (a VCS checkout has no hash)
+          # and the project itself, all --no-deps so nothing is resolved here.
+          site_packages="$RUNNER_TEMP/axiom-verification-site-packages"
+          locked="$RUNNER_TEMP/axiom-verification-locked-requirements.txt"
+          rm -rf "$site_packages"
+          uv export --locked --no-dev --extra api --no-emit-project \
+            --no-emit-package axiom-oracles --format requirements-txt \
+            --output-file "$locked"
+          oracles="$(uv export --locked --no-dev --extra api --no-emit-project \
+            --no-hashes --no-annotate --no-header --format requirements-txt \
+            | grep -xE 'axiom-oracles @ git\+https://github\.com/TheAxiomFoundation/axiom-oracles@[0-9a-f]{40}')"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --require-hashes --no-deps -r "$locked"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --no-deps "$oracles"
+          uv pip install --python .venv/bin/python --target "$site_packages" \
+            --no-deps .
+          # Differential check: the staged tree must equal the locked .venv.
+          uv pip freeze --python .venv/bin/python --exclude-editable \
+            > "$RUNNER_TEMP/axiom-verification-locked.freeze"
+          uv pip freeze --python .venv/bin/python --target "$site_packages" \
+            --exclude axiom-encode > "$RUNNER_TEMP/axiom-verification-staged.freeze"
+          test -s "$RUNNER_TEMP/axiom-verification-locked.freeze"
+          diff -u "$RUNNER_TEMP/axiom-verification-locked.freeze" \
+            "$RUNNER_TEMP/axiom-verification-staged.freeze"
 
       - name: Provision protected verification supervisor
         env:

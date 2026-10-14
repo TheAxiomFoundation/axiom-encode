@@ -25,8 +25,8 @@ built the environment.
 
 Out of scope:
 - what ``uv pip install --target`` stages for the verification and
-  axiom-compose runtimes (the verification tree is locked by
-  ``test_verification_site_packages_lock.py`` once #1712 lands);
+  axiom-compose runtimes, which ``test_verification_site_packages_lock.py``
+  holds to their locks;
 - ``uv version --bump``, which re-locks without ``--frozen`` (#1730);
 - programs named by a variable, such as ``"$PYBIN" -m pip``.
 """
