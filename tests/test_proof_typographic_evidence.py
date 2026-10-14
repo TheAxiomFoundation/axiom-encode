@@ -121,6 +121,8 @@ def _evidence_issues(excerpt: str, source_text: str, **kwargs) -> list[str]:
             "income from self-employ\u2010\nment is counted",
             "income from self-employment",
         ),
+        # A ligature right before a line-end hyphen.
+        ("it applies speci\ufb01-\ncally to the", "it applies specifically to the"),
         (
             "income from self-employ\u00ad\nment is counted",
             "income from self-employment",

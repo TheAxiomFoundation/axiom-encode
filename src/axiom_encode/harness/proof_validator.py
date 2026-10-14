@@ -777,7 +777,7 @@ _PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN = re.compile(
 # Whether a record has a line-end hyphen that the joined view would read
 # differently; most records do not, and need only the one view.
 _PROOF_LINE_END_HYPHEN_PATTERN = re.compile(
-    r"[a-z]" + _PROOF_WRAP_DASH + _PROOF_LINE_WRAP + "[a-zﬀ-ﬆ]"
+    "[a-z\ufb00-\ufb06]" + _PROOF_WRAP_DASH + _PROOF_LINE_WRAP + "[a-z\ufb00-\ufb06]"
 )
 
 
