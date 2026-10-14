@@ -1,0 +1,1 @@
+Classify the exact signed, composed FY2026 FNS SNAP income tables as published values rather than one unwitnessable formula clause, while preserving numeric recall and failing closed on source changes.

@@ -4537,6 +4537,12 @@ _FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_PATH = (
 _FNS_FY2026_INCOME_STANDARDS_PAGE_TWO_SHA256 = (
     "f5d38b6b863f107f0c0e9a4c08ed8443bf4f3432b624860e66c1a899d251bcfc"
 )
+_FNS_FY2026_INCOME_STANDARDS_COMPOSED_PATH = (
+    "us/guidance/usda/fns/snap-fy2026-income-eligibility-standards"
+)
+_FNS_FY2026_INCOME_STANDARDS_COMPOSED_SHA256 = (
+    "4145775814ee480173e064c402eb67fc270c05227073b93f23a3e200ddda23e7"
+)
 
 
 def _without_precomputed_income_table_percentage_captions(
@@ -4591,6 +4597,28 @@ def _without_precomputed_income_table_percentage_captions(
         if title is not None:
             start, end = title.span()
             masked[start:end] = " " * (end - start)
+    if (
+        corpus_citation_path == _FNS_FY2026_INCOME_STANDARDS_COMPOSED_PATH
+        and hashlib.sha256(source_text.encode()).hexdigest()
+        == _FNS_FY2026_INCOME_STANDARDS_COMPOSED_SHA256
+    ):
+        # The signed composed source joins three independently published dollar
+        # tables into a single OCR-flattened paragraph. Their percentage titles
+        # describe the supplied cells, not an instruction to recompute them.
+        captions = (
+            "Table 1: Net Monthly Income Limit (100% of Federal Poverty Level)",
+            "Table 2: Gross Monthly Income Limit (130% of Federal Poverty Level)",
+            "Table 3: Gross Monthly Income Limit Where Elderly/Disabled "
+            "Members Are a Separate Household (165% of Federal Poverty Level)",
+        )
+        matches = tuple(
+            re.search(re.escape(caption), source_text) for caption in captions
+        )
+        if all(match is not None for match in matches):
+            for match in matches:
+                assert match is not None
+                start, end = match.span()
+                masked[start:end] = " " * (end - start)
     return "".join(masked)
 
 
@@ -5390,12 +5418,14 @@ def _analyze_rulespec_payload(
     )
     all_formula_branches = _source_formula_branches(
         source_text,
+        corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=branches,
         deferred_paths=set(),
     )
     formula_branches = _source_formula_branches(
         source_text,
+        corpus_citation_path=corpus_citation_path,
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
@@ -17822,6 +17852,7 @@ def _case_input_principal_output_collisions(
 def _source_formula_branches(
     source_text: str,
     *,
+    corpus_citation_path: str = "",
     branches: Sequence[SourceStructureBranch],
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
@@ -17833,6 +17864,9 @@ def _source_formula_branches(
             {row.span("label") for row in _worksheet_arithmetic_rows(source_text)}
             | set(_corroborated_form_output_label_spans(source_text))
         )
+    )
+    classification_text = _without_precomputed_income_table_percentage_captions(
+        source_text, corpus_citation_path=corpus_citation_path
     )
     obligations: list[SourceStructureBranch] = []
     for clause_index, (start, end, clause) in enumerate(
@@ -17846,7 +17880,7 @@ def _source_formula_branches(
             deferred_paths=deferred_paths,
         ):
             continue
-        if not source_states_explicit_computation(clause):
+        if not source_states_explicit_computation(classification_text[start:end]):
             continue
         owner = _most_specific_containing_branch(
             start,
