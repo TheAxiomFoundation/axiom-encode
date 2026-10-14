@@ -1103,6 +1103,93 @@ def test_cached_release_object_is_fetched_afresh_online_as_ci_does(
     assert _tmp_files(corpus) == []
 
 
+_CACHE_LINK_POSITIONS = ("releases", "release", "object")
+
+
+def _link_cache_outside(
+    corpus: Path, digest: str, position: str, payload: dict[str, Any]
+) -> Path:
+    """Cache the object outside ``corpus`` and link it in at ``position``."""
+
+    outside = corpus.parent / "outside"
+    cached = outside / f"{digest}.json"
+    link: Path = corpus / "releases"
+    target = outside
+    if position == "releases":
+        cached = outside / RELEASE / f"{digest}.json"
+    elif position == "release":
+        link = corpus / "releases" / RELEASE
+    else:
+        link = corpus / "releases" / RELEASE / f"{digest}.json"
+        target = cached
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(json.dumps(payload, separators=(",", ":")).encode())
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target)
+    return outside
+
+
+def _tree(root: Path) -> dict[str, bytes | None]:
+    return {
+        str(path.relative_to(root)): path.read_bytes() if path.is_file() else None
+        for path in sorted(root.rglob("*"))
+    }
+
+
+@pytest.mark.parametrize("position", _CACHE_LINK_POSITIONS)
+@pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
+@pytest.mark.parametrize("sha", EMBEDDED_PINS, ids=lambda s: s[:8])
+def test_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
+    tmp_path: Path, sha: str, offline: bool, position: str
+) -> None:
+    # Cycle 22 reproduced this: an ignored ``releases`` link in a local corpus
+    # checkout passes the clean-checkout check and the tracked-symlink
+    # refusal, and acquisition then rewrote the object in the linked
+    # directory. CI's fresh checkout has no such link.
+    corpus = _corpus(tmp_path)
+    payload, digest = _release_payload()
+    outside = _link_cache_outside(corpus, digest, position, payload)
+    before = _tree(outside)
+    fetcher = _Fetcher(_registry_rows([{"release_object": payload}]))
+
+    with pytest.raises(ValueError, match="is a symlink"):
+        acquire_workflow_release_object(
+            PinnedWorkflow(sha),
+            _release_toolchain(tmp_path, digest),
+            corpus,
+            _registry_caller(tmp_path, sha, "https://registry.example"),
+            offline=offline,
+            fetcher=fetcher,
+        )
+
+    assert _tree(outside) == before
+    assert fetcher.calls == []
+
+
+@pytest.mark.parametrize("position", _CACHE_LINK_POSITIONS)
+@pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
+def test_legacy_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
+    tmp_path: Path, offline: bool, position: str
+) -> None:
+    corpus = _corpus(tmp_path)
+    payload, digest = _release_payload()
+    outside = _link_cache_outside(corpus, digest, position, payload)
+    before = _tree(outside)
+    seen: list[str] = []
+
+    with pytest.raises(ValueError, match="is a symlink"):
+        acquire_release_object(
+            _release_toolchain(tmp_path, digest),
+            corpus,
+            "https://objects.example",
+            offline=offline,
+            fetcher=lambda url: seen.append(url) or json.dumps(payload).encode(),
+        )
+
+    assert _tree(outside) == before
+    assert seen == []
+
+
 def _write_tampered_cache(corpus: Path, payload: dict[str, Any], digest: str) -> Path:
     destination = corpus / "releases" / RELEASE / f"{digest}.json"
     destination.parent.mkdir(parents=True)

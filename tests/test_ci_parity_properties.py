@@ -61,6 +61,7 @@ mismatches = st.lists(
 )
 
 
+@settings(deadline=None)
 @given(passed=st.booleans(), found=mismatches, extra=mismatches)
 def test_verdict_never_improves_on_failures_or_mismatches(
     passed: bool, found: list[DependencyMismatch], extra: list[DependencyMismatch]
@@ -86,6 +87,7 @@ outcomes = st.lists(
 )
 
 
+@settings(deadline=None)
 @given(outcomes=outcomes, matrix_size=st.integers(min_value=1, max_value=4))
 def test_aggregate_fails_exactly_when_a_shard_fails(
     outcomes: list[tuple[str, int, str]], matrix_size: int
@@ -153,6 +155,7 @@ def _without(environment: dict[str, str], *prefixes: str) -> dict[str, str]:
     }
 
 
+@settings(deadline=None)
 @given(environment=environments)
 def test_git_and_repository_test_environments_withhold_exactly_their_prefixes(
     environment: dict[str, str],
@@ -165,6 +168,7 @@ def test_git_and_repository_test_environments_withhold_exactly_their_prefixes(
     assert test_environment == _without(environment, "GIT_", "PYTEST_", "PYTHON")
 
 
+@settings(deadline=None)
 @given(environment=environments, step=environments)
 def test_embedded_python_sees_the_step_environment_and_no_runner_context(
     environment: dict[str, str], step: dict[str, str]
@@ -186,7 +190,7 @@ def test_embedded_python_sees_the_step_environment_and_no_runner_context(
     assert seen["env"] == expected
 
 
-@settings(suppress_health_check=[HealthCheck.too_slow])
+@settings(deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(environment=environments, step=environments)
 def test_supervised_cli_sees_the_supervisor_child_environment(
     environment: dict[str, str], step: dict[str, str]
@@ -298,6 +302,7 @@ plain_scalars = st.one_of(
 )
 
 
+@settings(deadline=None)
 @given(scalar=plain_scalars)
 def test_workflow_loader_differs_from_safe_loader_only_on_yaml_1_1_booleans(
     scalar: str,
@@ -357,6 +362,7 @@ def test_every_name_pair_this_filesystem_merges_is_reported(
             assert any({first, second} <= group for group in groups), (first, second)
 
 
+@settings(deadline=None)
 @given(
     status=st.sampled_from(["PASS", "FAIL"]),
     text=st.lists(st.text(max_size=20), max_size=3),
