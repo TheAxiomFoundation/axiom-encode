@@ -521,9 +521,12 @@ jobs:
             --no-emit-project \
             --format requirements.txt \
             --output-file "$RUNNER_TEMP/axiom-compose-requirements.txt"
+          # Exactly the locked set: every exported requirement is hash-pinned,
+          # and --no-deps keeps uv from resolving anything beyond it.
           uv pip install \
             --python "$RUNNER_TEMP/axiom-compose-build/bin/python" \
             --target "$RUNNER_TEMP/axiom-compose-site-packages" \
+            --require-hashes --no-deps \
             --requirement "$RUNNER_TEMP/axiom-compose-requirements.txt"
           sudo rm -rf /opt/axiom-compose-verification
           sudo "$RUNNER_TEMP/axiom-compose-build/bin/python" \
