@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
+import fcntl
 import fnmatch
 import hashlib
 import importlib.metadata
@@ -39,7 +41,7 @@ import tomllib
 import unicodedata
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
@@ -5554,6 +5556,7 @@ def _build_workflow_composer(
     workspace: Path,
     offline: bool,
     notes: list[str] | None = None,
+    step_environment: Mapping[str, str] | None = None,
 ) -> Path:
     """Mirror "Build protected axiom-compose runtime" (92ccb0f2 L2009-2037).
 
@@ -5586,9 +5589,13 @@ def _build_workflow_composer(
         name: value
         for name, value in _git_environment().items()
         if not name.startswith(
-            ("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA", "XDG_CONFIG_")
+            ("PYTHON", "UV_", "PIP_", "VIRTUAL_ENV", "CONDA", "XDG_CONFIG_", "AXIOM_")
         )
     }
+    # What the step sees in CI: AXIOM_DEPENDENCY_ROOT and _STAGE from
+    # GITHUB_ENV and its own AXIOM_COMPOSE_REF, never the developer's values
+    # (committed uv configuration can name them, as in ${AXIOM_DEPENDENCY_ROOT}).
+    environment.update(step_environment or {})
     environment["XDG_CONFIG_HOME"] = str(empty_config)
     environment["XDG_CONFIG_DIRS"] = str(empty_config)
     # The one uv setting a committed file can use to move writes is
@@ -6163,162 +6170,176 @@ def _link_dependency_entries(
 
 
 _COMPOSER_SIBLINGS = ("encode", "engine", "corpus")
-_LOCAL_SOURCE_KEYS = ("directory", "editable", "path", "virtual")
+_CLONE_NOFOLLOW = 0x0001
+_FICLONE = 0x40049409
 
 
-def _composer_local_references(compose_checkout: Path) -> list[str]:
-    """Local paths the composer build's uv may read or build from.
+def _copy_on_write(source: Path, target: Path) -> None:
+    """Copy one file, sharing its blocks with ``source`` where the filesystem can.
 
-    These are the lock's local sources (packages and their recorded
-    requirements, dev groups included) and the composer project's own path
-    sources and workspace member patterns. ``uv export --locked`` reads, and
-    for dynamic metadata builds, every local package the lock records, and
-    ``uv pip install`` builds the non-dev ones.
+    APFS clonefile and Linux FICLONE make the copy without writing its data;
+    writes to the copy never reach ``source``. Elsewhere it is a plain copy.
     """
 
-    def local(entry: object) -> list[str]:
-        if not isinstance(entry, dict):
-            return []
-        return [
-            str(entry[key])
-            for key in _LOCAL_SOURCE_KEYS
-            if isinstance(entry.get(key), str)
-        ]
-
-    def table(path: Path) -> dict[str, Any]:
-        if not path.exists():
-            return {}
+    if sys.platform == "darwin":
         try:
-            return tomllib.loads(path.read_text())
-        except (OSError, ValueError) as error:
-            raise ValueError(
-                f"Cannot read the composer's {path.name}, so ci cannot tell "
-                f"which dependency checkouts its uv build reaches: {error}"
-            ) from error
-
-    references: list[str] = []
-    for package in table(compose_checkout / "uv.lock").get("package", []):
-        if not isinstance(package, dict):
-            continue
-        references.extend(local(package.get("source")))
-        metadata = package.get("metadata")
-        if isinstance(metadata, dict):
-            requirements = list(metadata.get("requires-dist", []) or [])
-            groups = metadata.get("requires-dev")
-            if isinstance(groups, dict):
-                for group in groups.values():
-                    requirements.extend(group or [])
-            for requirement in requirements:
-                references.extend(local(requirement))
-    tool = table(compose_checkout / "pyproject.toml").get("tool")
-    uv = tool.get("uv") if isinstance(tool, dict) else None
-    if isinstance(uv, dict):
-        sources = uv.get("sources")
-        if isinstance(sources, dict):
-            for source in sources.values():
-                for entry in source if isinstance(source, list) else [source]:
-                    if isinstance(entry, dict) and isinstance(entry.get("path"), str):
-                        references.append(entry["path"])
-        workspace = uv.get("workspace")
-        if isinstance(workspace, dict):
-            # Exclusions only narrow the members, so they reach nothing.
-            references.extend(
-                pattern
-                for pattern in workspace.get("members", []) or []
-                if isinstance(pattern, str)
-            )
-    return references
+            clonefile = ctypes.CDLL(None, use_errno=True).clonefile
+            if (
+                clonefile(
+                    os.fsencode(source),
+                    os.fsencode(target),
+                    ctypes.c_uint32(_CLONE_NOFOLLOW),
+                )
+                == 0
+            ):
+                return
+        except (AttributeError, OSError):
+            pass
+    elif sys.platform.startswith("linux"):
+        try:
+            with open(source, "rb") as reader, open(target, "xb") as writer:
+                fcntl.ioctl(writer.fileno(), _FICLONE, reader.fileno())
+            return
+        except OSError:
+            target.unlink(missing_ok=True)
+    shutil.copy2(source, target, follow_symlinks=False)
 
 
-def _composer_sibling_entries(
-    compose_checkout: Path, layout: DependencyLayout
-) -> set[str]:
-    """The sibling dependency entries the composer build reaches by path.
+def _disposable_checkout(
+    source: Path, commit: str, destination: Path, repository: str
+) -> None:
+    """Make ``destination`` a checkout of ``commit`` that shares nothing writable.
 
-    In CI every dependency-root entry is a disposable checkout, so a build
-    backend that writes into its source tree (setuptools' .egg-info, say)
-    writes there. ci's encoder, engine and corpus entries are links to the
-    developer's checkouts, so the entries a reference reaches get fresh
-    clones for the build. A reference outside the dependency root names a
-    path no runner has, so it fails resolution rather than reaching a
-    directory on this machine.
+    CI's dependency checkouts are disposable, so a build may write into them.
+    ci's are the developer's own, so a build gets this copy instead: Git
+    objects shared read-only through alternates, the committed files cloned
+    copy-on-write from the verified checkout (only tracked paths, so nothing
+    untracked or ignored comes along), origin https://github.com/<repository>,
+    HEAD detached at ``commit``. Git then compares every file with the commit;
+    one that differs (under a recorded ref mismatch, say) is rewritten from
+    the commit's objects, and anything still different fails closed.
     """
 
-    compose = compose_checkout
-    reached: set[str] = set()
-    for reference in _composer_local_references(compose):
-        # Only a member pattern's part before its first glob is a path.
-        literal = reference
-        if glob := re.search(r"[*?\[]", reference):
-            literal = reference[: glob.start()].rpartition("/")[0]
-        target = Path(os.path.normpath(compose / literal))
-        if target == compose or target.is_relative_to(compose):
-            if not target.resolve().is_relative_to(compose.resolve()):
-                raise ValueError(
-                    f"Composer path source {reference!r} leaves the composer "
-                    "checkout through a symlink"
-                )
-            continue
-        if target == layout.root:
-            # A member pattern over the whole root reaches every entry.
-            reached.update(_COMPOSER_SIBLINGS)
-            continue
-        for name in (*_COMPOSER_SIBLINGS, "rulespec_us"):
-            entry = layout.entry(_CHECKOUT_NAMES[name])
-            if target == entry or target.is_relative_to(entry):
-                if name != "rulespec_us":
-                    reached.add(name)
-                break
-        else:
+    environment = {
+        **_git_environment(),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+    def git(*arguments: str) -> bytes:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"core.attributesFile={os.devnull}",
+                "-C",
+                str(destination),
+                *arguments,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        if result.returncode:
             raise ValueError(
-                f"Cannot reproduce CI: composer path source {reference!r} "
-                f"resolves to {target}, outside the dependency root, where no "
-                "runner has a checkout"
+                f"Cannot make a disposable {destination.name} checkout at "
+                f"{commit}: git {arguments[0]}: "
+                + result.stderr.decode("utf-8", "replace").strip()
             )
-    return reached
+        return result.stdout
+
+    destination.mkdir()
+    git(
+        "clone",
+        "--quiet",
+        "--shared",
+        "--no-checkout",
+        "--template=",
+        str(source.resolve()),
+        ".",
+    )
+    git("remote", "set-url", "origin", f"https://github.com/{repository}")
+    for record in git("ls-tree", "-r", "-z", "--full-tree", commit).split(b"\0"):
+        if not record:
+            continue
+        meta, _, raw = record.partition(b"\t")
+        mode, _kind, blob = meta.split()
+        relative = os.fsdecode(raw)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if mode == b"120000":
+            os.symlink(os.fsdecode(git("cat-file", "blob", blob.decode())), target)
+        elif mode == b"160000":
+            target.mkdir(exist_ok=True)
+        else:
+            _copy_on_write(source / relative, target)
+    git("read-tree", commit)
+    git("update-ref", "--no-deref", "HEAD", commit)
+
+    def differences() -> bytes:
+        subprocess.run(
+            ["git", "-C", str(destination), "update-index", "-q", "--refresh"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+            check=False,
+        )
+        return git("status", "--porcelain", "-z", "--untracked-files=all")
+
+    if differences():
+        # Only the files that differ are written, from the commit's objects.
+        git("checkout", "-q", "-f", "--", ".")
+        git("clean", "-q", "-f", "-d", "-x")
+        if remaining := differences():
+            raise ValueError(
+                f"Disposable {destination.name} checkout still differs from "
+                f"{commit}: {os.fsdecode(remaining)[:500]}"
+            )
 
 
 @contextlib.contextmanager
 def _fresh_composer_siblings(
-    layout: DependencyLayout,
-    names: Iterable[str],
-    checkouts: Mapping[str, tuple[Path, str]],
+    layout: DependencyLayout, checkouts: Mapping[str, tuple[Path, str]]
 ) -> Iterator[None]:
-    """Swap the named sibling links for fresh clones while the composer builds.
+    """Give the composer build disposable copies of the sibling dependencies.
 
-    ``checkouts`` maps each name to its verified checkout and the commit CI
-    checks out. Afterwards each clone is removed and the link restored, so
-    later steps see the layout they saw before; a writing build's products
-    go with the clone.
+    ``checkouts`` maps each sibling to its verified checkout and the commit CI
+    checks out. In CI every entry of the dependency root is a disposable
+    checkout, and uv may build a dependency it reaches by path in that
+    dependency's source tree (setuptools writes .egg-info there), whether the
+    path comes from the composer's lock, the rules checkout's uv configuration
+    or a link inside another dependency. So while the composer builds, each
+    sibling entry is such a copy rather than a link to the developer's
+    checkout. Afterwards each copy is removed and the link restored, also on
+    failure, so later steps see the layout they saw before.
     """
 
-    with contextlib.ExitStack() as clones:
-        swapped: list[str] = []
-        try:
-            for name in sorted(names):
-                entry = layout.entry(_CHECKOUT_NAMES[name])
-                source, commit = checkouts[name]
-                swapped.append(name)
-                if entry.is_symlink():
-                    entry.unlink()
-                _fresh_dependency_entry(
-                    clones,
-                    layout,
-                    name,
-                    source,
-                    commit,
-                    f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}",
-                )
-            yield
-        finally:
-            for name in swapped:
-                entry = layout.entry(_CHECKOUT_NAMES[name])
-                if entry.is_symlink():
-                    entry.unlink()
-                elif entry.exists():
-                    shutil.rmtree(entry, ignore_errors=True)
-                if not entry.exists():
-                    entry.symlink_to(checkouts[name][0], target_is_directory=True)
+    swapped: list[str] = []
+    try:
+        for name in sorted(checkouts):
+            entry = layout.entry(_CHECKOUT_NAMES[name])
+            source, commit = checkouts[name]
+            swapped.append(name)
+            if entry.is_symlink():
+                entry.unlink()
+            elif entry.exists():
+                raise ValueError(f"CI dependency entry already exists: {entry}")
+            _disposable_checkout(
+                source, commit, entry, f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}"
+            )
+        yield
+    finally:
+        for name in swapped:
+            entry = layout.entry(_CHECKOUT_NAMES[name])
+            if entry.is_symlink():
+                entry.unlink()
+            elif entry.exists():
+                shutil.rmtree(entry, ignore_errors=True)
+            if not entry.exists():
+                entry.symlink_to(checkouts[name][0], target_is_directory=True)
 
 
 def _dependency_commit(
@@ -6842,23 +6863,9 @@ def _run_ci_in_checkout(
                             repository=COMPOSE_REPOSITORY,
                         )
                     )
-                siblings = (
-                    _composer_sibling_entries(compose_checkout, layout)
-                    if layout is not None
-                    else set()
-                )
-                if siblings:
-                    assert layout is not None
-                    notes.append(
-                        "the composer build reaches "
-                        + ", ".join(_CHECKOUT_NAMES[name] for name in sorted(siblings))
-                        + " by path; it built against fresh clones, as CI's "
-                        "disposable checkouts"
-                    )
                 with (
                     _fresh_composer_siblings(
                         layout,
-                        siblings,
                         {
                             name: (
                                 paths[name],
@@ -6866,7 +6873,7 @@ def _run_ci_in_checkout(
                                     paths[name], caller.refs[name], name, mismatches
                                 ),
                             )
-                            for name in siblings
+                            for name in _COMPOSER_SIBLINGS
                         },
                     )
                     if layout is not None
@@ -6886,6 +6893,12 @@ def _run_ci_in_checkout(
                         workspace=repo,
                         offline=args.offline,
                         notes=notes,
+                        # The step's own env and the GITHUB_ENV exports before
+                        # it (92ccb0f2 L1460-1461, L2011-2012).
+                        step_environment={
+                            **(layout.environment() if layout is not None else {}),
+                            "AXIOM_COMPOSE_REF": caller.refs["compose"],
+                        },
                     )
                 paths = {**paths, "compose": compose_checkout}
             engine_temp = Path(
