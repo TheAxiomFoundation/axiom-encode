@@ -1754,6 +1754,32 @@ def _fetch_bounded_release_object(url: str) -> bytes:
         return response.read(MAX_RELEASE_OBJECT_BYTES + 1)
 
 
+def _release_cache_destination(
+    corpus_path: Path, release: str, content_sha256: str
+) -> Path:
+    """Return the release object's cache path, refusing any symlink on it.
+
+    CI writes the object into its fresh corpus checkout. A local checkout can
+    hold an ignored ``releases`` link, which neither the clean-checkout check
+    nor the tracked-symlink refusal sees; following it would read the cached
+    object from, and write the verified one to, a directory outside the
+    checkout. So a symlink at ``releases``, the release directory or the
+    object itself fails resolution.
+    """
+
+    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
+    current = corpus_path
+    for part in destination.relative_to(corpus_path).parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(
+                f"Corpus release cache path {current} is a symlink; ci reads "
+                "and writes the release object only inside the corpus "
+                "checkout, as CI does"
+            )
+    return destination
+
+
 def acquire_release_object(
     toolchain: RuleSpecToolchain,
     corpus_path: Path,
@@ -1762,11 +1788,10 @@ def acquire_release_object(
     offline: bool,
     fetcher: Callable[[str], bytes] | None = None,
 ) -> Path:
-    destination = (
-        corpus_path
-        / "releases"
-        / toolchain.corpus_release
-        / f"{toolchain.corpus_release_content_sha256}.json"
+    destination = _release_cache_destination(
+        corpus_path,
+        toolchain.corpus_release,
+        toolchain.corpus_release_content_sha256,
     )
     if destination.is_file():
         return destination
@@ -3328,7 +3353,7 @@ def acquire_workflow_release_object(
 
     release = toolchain.corpus_release
     content_sha256 = toolchain.corpus_release_content_sha256
-    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
+    destination = _release_cache_destination(corpus_path, release, content_sha256)
     registry_url = str(caller.inputs.get("corpus-release-registry-url", ""))
     base_url = str(
         caller.inputs.get("corpus-release-base-url", caller.release_base_url)
