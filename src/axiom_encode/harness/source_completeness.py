@@ -28954,7 +28954,6 @@ _ADMINISTRATIVE_ACTION = (
     r"(?:needed\s+|required\s+|additional\s+)?(?:verification|documentation|proof)\b"
     r"|publish\b[^.;]{0,60}\bFederal\s+Register\b"
     r"|act\s+on\s+the\s+(?:information|change|report)\b"
-    r"|follow\s+(?:the\s+)?(?:procedures?|program\s+rules)\b"
     r"|(?:schedule|conduct|hold|offer|provide)\s+(?:an?\s+|the\s+)?"
     r"(?:telephone\s+|in-office\s+|face-to-face\s+)?interviews?\b"
 )
@@ -29013,7 +29012,11 @@ _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"|\bpay\b|\bmake\s+payments?\b|\bceas(?:e|es|ed)\b|\bdisburs\w*"
     r"|\bvoid(?:ed)?\b|\bnullif\w*|\bwithh(?:old|eld|olding)\b"
     r"|\b\d+[- ](?:calendar[- ]|business[- ])?(?:days?[- ])?period\b"
-    r"|\buntil\b|\bparticipa(?:nts?|tion)\b|\bremov(?:e|es|ed|al)\b"
+    r"|\buntil\b|\bparticipa(?:te|tes|ted|ting|nts?|tion)\b|\bremov(?:e|es|ed|al)\b"
+    r"|\btakes?\s+effect\b|\breject(?:s|ed|ion)?\b|\bcertifying\b"
+    r"|\b(?:rejecting|reducing|terminating|denying|suspending|cancell?ing|closing|"
+    r"excluding|discontinuing|revoking|withdrawing|removing|disenrolling|"
+    r"disqualifying|recouping|collecting|sanctioning)\b"
     r"|\bassess(?:es|ed|ment)?\b|\brevo(?:ke|kes|ked|cation)\b|\brepay\w*"
     r"|\brecomput\w*|\boffset\w*|\b(?:dis)?enroll\w*|\breappl(?:y|ies|ication)\b"
     r"|\bcollect(?:s|ed|ion)?\b|\bstop(?:s|ped)?\b|\bexceed\w*"
@@ -29025,8 +29028,10 @@ _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
 # control: `... must provide the enrollee with a notice and disenroll the
 # enrollee`, `... shall notify the household and the household's participation
 # shall stop`, `...; the household's application is then void`, `..., terminating
-# its participation`. A second administrative verb (`notify and instruct`) or a
-# second object (`notify the household and the local office`) is not one.
+# its participation`, or notice content with its own outcome (`notify the
+# individual that he or she may not participate`). A second administrative verb
+# (`notify and instruct`) or a second object (`notify the household and the
+# local office`) is not one.
 _ADMINISTRATIVE_VERB = (
     r"(?:notify|inform|advise|send|mail|provide|give|verify|document|request|"
     r"obtain|follow|explain|include|tell|contact|instruct|submit|furnish|forward|"
@@ -29048,7 +29053,16 @@ _ADMINISTRATIVE_SECOND_PREDICATE = re.compile(
     r"|,\s*(?!(?:including|explaining|describing|stating|containing|indicating|"
     r"advising|informing|listing|showing|specifying|identifying|requesting|"
     r"notifying|confirming|telling|asking|using)\b)[a-z]+ing\s+"
-    r"(?:the|its|their|his|her|a|an|any|all)\b",
+    r"(?:the|its|their|his|her|a|an|any|all)\b"
+    # Notice content: `notify the individual that he or she may not participate`,
+    # `a notice that its certification period is shortened`.
+    r"|^[^.;]{0,120}?\bthat\s+"
+    r"(?:(?:the|its|their|his|her|such|this|each|any|a|an)\s+(?:[\w'’-]+\s+){0,4}?"
+    r"|(?:it|he|she|they|you|he\s+or\s+she)\s+)"
+    r"(?:(?:shall|must|will|may|can|cannot|is|are|be|has|have|does|do)\b"
+    r"(?:\s+not)?(?:\s+be)?"
+    rf"(?!\s+(?:also\s+)?{_ADMINISTRATIVE_VERB}\b)"
+    rf"|(?!{_ADMINISTRATIVE_VERB}s?\b)[a-z]+s\b)",
     flags=re.IGNORECASE,
 )
 # Document names are not outcomes (`a notice containing the same information as
@@ -29190,9 +29204,15 @@ def _source_condition_is_administrative(text: str) -> bool:
         # A definitions lead-in with no definition after it.
         return True
     action = _ADMINISTRATIVE_MAIN_CLAUSE.match(_administrative_main_clause(consequence))
-    return bool(
-        action is not None
-        and not _ADMINISTRATIVE_SECOND_PREDICATE.search(consequence[action.end() :])
+    if action is None:
+        return False
+    rest = consequence[action.end() :]
+    # A trailing exception carves a population out of the action (`shall verify
+    # the expenses, unless the household contains an elderly member`), so the
+    # sentence stays a control.
+    return not (
+        _ADMINISTRATIVE_SECOND_PREDICATE.search(rest)
+        or re.search(r"\b(?:unless|except)\b", rest, flags=re.IGNORECASE)
     )
 
 
@@ -29208,7 +29228,11 @@ def _administrative_condition_text(
 
     if not text.rstrip().endswith(";") or end < start:
         return text
-    sentence_end = re.search(r"[.!?](?=\s|$)", source_text[end : end + 2000])
+    sentence_end = re.search(
+        r"(?<!\bU\.S)(?<!\bU\.S\.C)(?<!\bSec)(?<!\bNo)(?<!\bPub)(?<!\bPart)"
+        r"(?<!\be\.g)(?<!\bi\.e)(?<!\bal)[.!?](?=\s+[A-Z(\"\u201c]|\s*$)",
+        source_text[end : end + 2000],
+    )
     stop = end + sentence_end.end() if sentence_end is not None else end
     return text + source_text[end:stop]
 

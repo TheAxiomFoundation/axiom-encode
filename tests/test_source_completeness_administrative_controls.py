@@ -320,6 +320,50 @@ OPERATIVE = (
     "agency shall notify the household; and benefits are adjusted.",
     "If the State agency determines that the household is ineli- gible, the "
     "State agency shall send a notice.",
+    # Review round 4: notice content with its own outcome (`notify the
+    # individual that he or she may not participate`), outcome participles,
+    # a trailing exception, a `follow the procedures` cross-reference that
+    # imports a benefit rule, and an abbreviation inside a `;` tail.
+    "If the individual is found to have committed an intentional Program violation, the State agency shall notify the individual that he or she may not participate in the Program.",
+    "If the alien's sponsor refuses to sign the affidavit of support, the State agency shall advise the household that the alien is barred from receiving SNAP.",
+    "If the household does not request a fair hearing, the State agency shall notify the household that the claim is established.",
+    "If the household does not respond to the request for contact, the State agency shall send a notice of adverse action, and the reduction takes effect after the notice period expires.",
+    "If the recipient does not request a waiver, we will notify the recipient that the recipient owes the overpayment.",
+    "If the household fails to complete the interview, the State agency shall notify the household that it loses its expedited service.",
+    "If the household refuses to cooperate with the quality control review, the State agency shall inform the household that the household will lose its certification.",
+    "When a household member stops attending school, the State agency shall notify the household that the member is subject to the work requirements of section 273.7.",
+    "If a State does not obligate its funds by the end of the fiscal year, the Secretary shall notify the State that the unobligated amount will be reallotted to other States.",
+    "If the Lead Agency fails to submit the plan, the Secretary shall notify the Lead Agency that it forfeits its share of the discretionary funds.",
+    "If the alien's immigration status cannot be verified, the agency shall send the alien a notice rejecting the application.",
+    "The State agency shall verify the household's residency before certifying the household, except for households that are homeless.",
+    "If the household reports that it will move out of the State, the State agency shall send the household a notice that its certification period is shortened.",
+    "If the student fails to maintain satisfactory academic progress, the institution shall notify the student that the student will receive no further aid.",
+    "If the taxpayer fails to make an installment when due, the Secretary shall notify the taxpayer that the installment agreement is in default.",
+    "If the parent refuses to cooperate with child support enforcement, the State agency shall notify the family that its grant will be cut by the parent's share.",
+    "If you do not give us the information we need, we will notify you that you can no longer receive SSI.",
+    "If the household member was an adult at the time of the overissuance, the State agency shall notify the household that the member is responsible for the overissuance.",
+    "The State agency shall verify the alien status of each applicant; if the status is not verified, the State agency shall deny the application.",
+    "If the household refuses to provide its social security numbers, the State agency shall notify the household that it will not be certified.",
+    "If the household fails to report, the State agency shall send a notice that benefits will be discontinued.",
+    "If the overpayment is not waived, we will notify you that you are required to repay it.",
+    "If the recipient fails to attend the orientation, send the recipient a notice reducing the grant.",
+    "If the student does not meet an exemption, inform the student that the student may not receive SNAP.",
+    "If the household's medical expenses are questionable, the State agency shall verify the expenses, unless the household contains an elderly member.",
+    "If the household does not incur heating costs, the State agency shall notify the household that it does not get the standard utility allowance.",
+    "If the individual does not return the renewal form, the agency must send a notice that coverage ends on the last day of the month.",
+    "If the student's work hours cannot be verified, the State agency shall request verification, and the student is not a household member.",
+    "If the household fails to comply, the State agency shall notify the household that the household is penalized.",
+    "If the individual is disqualified, the State agency shall provide written notice; the period is one year for the first violation.",
+    "If a household's failure to timely apply for recertification was due to "
+    "an error of the State agency and therefore there was a break in "
+    "participation, the State agency shall follow the procedures in "
+    "\u00a7 273.14(e).",
+    "(14) If a benefit overissuance is discovered for a month or months in "
+    "which a mandatory E&T participant has already fulfilled a work component "
+    "requirement, the State agency must follow the procedure specified in "
+    "paragraph (m)(6)(v) of this section.",
+    "If the sponsor does not sign, the State agency shall notify the "
+    "household; under 7 U.S.C. 2014(i), the alien is ineligible.",
     "(3) The agency must inform beneficiaries and providers of the "
     "beneficiaries aggregate limit and notify beneficiaries and providers when "
     "a beneficiary has incurred out-of-pocket expenses up to the aggregate "
