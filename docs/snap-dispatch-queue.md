@@ -20,9 +20,12 @@ same draft RuleSpec pull request as an ad hoc encode.
    through plumbing the signed run neither reads nor binds (CI, repository
    tests and tools, docs, non-encode workflow pins; see
    `prepare_signed_backfill.base_advance_binding_paths`). So an unfinished run
-   on a `main` that has since moved in any other way is cancelled, and a run
-   that failed because `main` moved that way is not counted; both are sent
-   again on the new tip, up to six times in a row. A run that already opened its PR is never cancelled or
+   on a `main` that has since moved in any other way is cancelled; API or
+   network errors and truncated comparisons count as such a move. A run that
+   failed at a base-checking step after `main` moved at all is not counted:
+   the workflow can still reject a plumbing-only move for lane-level reasons,
+   or lose a race with a later move. Both are sent again on the new tip, up to
+   six times in a row. A run that already opened its PR is never cancelled or
    redone, whatever its conclusion: its PR is tracked instead.
 2. For every item in review, read its PR: merged is done, closed is blocked.
 3. If the queue is active, dispatch pending items until `max_in_flight` (4)

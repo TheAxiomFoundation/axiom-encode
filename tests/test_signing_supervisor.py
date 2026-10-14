@@ -3026,9 +3026,25 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if step.get("name") == "Verify immutable checkout identities"
     )
-    assert identity_step["env"]["REPLACE_LEGACY_RULESPEC_PATH"] == (
-        "${{ inputs.replace_legacy_rulespec_path }}"
-    )
+    for env_name, input_name in (
+        ("REPLACE_LEGACY_RULESPEC_PATH", "replace_legacy_rulespec_path"),
+        (
+            "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "second_legacy_exact_dependent_rulespec_path",
+        ),
+        (
+            "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON",
+            "legacy_retained_successor_rulespec_paths_json",
+        ),
+    ):
+        assert identity_step["env"][env_name] == f"${{{{ inputs.{input_name} }}}}"
+        assert f"${env_name}" in identity_step["run"] or (
+            f"${{{env_name}" in identity_step["run"]
+        )
     assert "base_args+=(--require-exact-tip)" in identity_step["run"]
     assert '${base_args[@]+"${base_args[@]}"}' in identity_step["run"]
     assert '"HEAD:refs/heads/${branch}"' in publish_command

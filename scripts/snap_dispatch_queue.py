@@ -86,7 +86,8 @@ PR_STEP = "Push lane branch and open draft pull request"
 # or to have moved from it only through plumbing the signed run neither
 # reads nor binds (base_advance_admitted), when it starts (checkout
 # verification) and again when it opens the pull request, so a run whose
-# main moved in any other way fails at one of these steps.
+# main moved fails at one of these steps; a failure there after any move is
+# treated as stale, never counted.
 STALE_BASE_STEPS = frozenset(
     {
         "Verify immutable checkout identities",
@@ -871,10 +872,18 @@ def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> boo
     Mirrors the workflow's gate (prepare_signed_backfill.py): ``base`` must be
     a first-parent ancestor of ``tip`` and every path between them must be
     plumbing the signed run neither reads nor binds. Anything unknown, an
-    API error, or a truncated comparison answers False, which keeps today's
-    stale handling; the workflow's own gates stay authoritative either way.
+    API or network error, or a truncated comparison answers False, which
+    keeps today's stale handling; the workflow's own gates stay
+    authoritative either way.
     """
 
+    if not (
+        isinstance(base, str)
+        and isinstance(tip, str)
+        and SHA_PATTERN.fullmatch(base)
+        and SHA_PATTERN.fullmatch(tip)
+    ):
+        return False
     if base == tip:
         return True
     try:
@@ -896,6 +905,13 @@ def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> boo
             if current not in first_parents or steps > len(commits):
                 return False
             current, steps = first_parents[current], steps + 1
+        if not files:
+            # An empty file list must mean an identical tree, not a dropped one.
+            tip_commit = next(commit for commit in commits if commit["sha"] == tip)
+            return (
+                comparison["base_commit"]["commit"]["tree"]["sha"]
+                == tip_commit["commit"]["tree"]["sha"]
+            )
         paths: set[str] = set()
         for entry in files:
             paths.add(entry["filename"])
@@ -905,15 +921,37 @@ def base_advance_admitted(github: GitHub, repo: str, base: str, tip: str) -> boo
         toolchain = rules.WORKFLOW_TOOLCHAIN_PATH.as_posix()
         before = after = None
         if toolchain in paths:
-            before = _contents(github, repo, toolchain, base).encode("utf-8")
-            after = _contents(github, repo, toolchain, tip).encode("utf-8")
+            before = _regular_file_bytes(github, repo, toolchain, base)
+            after = _regular_file_bytes(github, repo, toolchain, tip)
         return not rules.base_advance_binding_paths(
             paths,
             workflow_toolchain_before=before,
             workflow_toolchain_after=after,
         )
-    except (GitHubError, KeyError, IndexError, TypeError, ValueError):
+    except (
+        GitHubError,
+        OSError,
+        StopIteration,
+        KeyError,
+        IndexError,
+        TypeError,
+        ValueError,
+    ):
         return False
+
+
+def _regular_file_bytes(github: GitHub, repo: str, path: str, ref: str) -> bytes | None:
+    """One file's bytes at ``ref``, or None if it is absent or not a file."""
+
+    try:
+        payload = github.get(f"repos/{repo}/contents/{path}", {"ref": ref})
+    except GitHubError as exc:
+        if exc.status == 404:
+            return None
+        raise
+    if not isinstance(payload, dict) or payload.get("type") != "file":
+        return None
+    return base64.b64decode(payload["content"])
 
 
 def reconcile_dispatched(
@@ -960,15 +998,14 @@ def reconcile_dispatched(
         item["status"] = "pending"
         events.append(f"requeued {item['citation']}: its run was deleted")
         return None
-    stale = (
+    # A completed failure at a base-checking step after main moved at all is
+    # never counted (bounded by MAX_STALE): the workflow may still reject a
+    # plumbing-only advance for lane-level reasons or lose a race with a
+    # later move. Only the decision to cancel an unfinished run consults the
+    # workflow's admission rule, so a run that would still publish is kept.
+    moved = (
         attempt.get("rulespec_ref") is not None
         and attempt["rulespec_ref"] != target.rulespec_ref
-        and not base_advance_admitted(
-            github,
-            target.rulespec_repo,
-            attempt["rulespec_ref"],
-            target.rulespec_ref,
-        )
     )
 
     def opened_pull() -> dict[str, Any] | None:
@@ -996,7 +1033,12 @@ def reconcile_dispatched(
         return pull
 
     if run.get("status") != "completed":
-        if not stale:
+        if not moved or base_advance_admitted(
+            github,
+            target.rulespec_repo,
+            attempt["rulespec_ref"],
+            target.rulespec_ref,
+        ):
             return run
         # The encode workflow opens its PR a few steps before the run ends;
         # once it has, the PR is the result, so never cancel or redo it.
@@ -1058,7 +1100,7 @@ def reconcile_dispatched(
         elif failure.budget_exhausted:
             item["status"] = "blocked"
             item["note"] = "the encode workflow's failed-attempt budget is used up"
-        elif stale and failure.step in STALE_BASE_STEPS:
+        elif moved and failure.step in STALE_BASE_STEPS:
             attempt["result"] = "stale-base"
             events.append(f"retrying {item['citation']}: rulespec main moved mid-run")
             _requeue_after_stale(item, events)
