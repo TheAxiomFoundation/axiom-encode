@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from axiom_encode.harness import validator_pipeline
 from axiom_encode.harness.companion_case_synthesis import SYNTHESIZED_CASE_PREFIX
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
 
@@ -141,6 +142,13 @@ def _pipeline(root: Path, engine_root: Path, monkeypatch) -> ValidatorPipeline:
         pipeline,
         "_proof_source_texts_for_rulespec_content",
         lambda _content, source_texts: dict(source_texts or {}),
+    )
+    # Production binds a local corpus release around synthesis; serve the
+    # fixture body the same way to the static companion checks.
+    monkeypatch.setattr(
+        validator_pipeline,
+        "_fetch_corpus_source_text",
+        lambda citation_path: SOURCE if citation_path == CITATION else None,
     )
     return pipeline
 

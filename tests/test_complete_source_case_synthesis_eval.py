@@ -233,3 +233,77 @@ def test_append_leaves_the_companion_file_untouched_on_failure(staged, tmp_path)
         assert _append(rulespec_file, tmp_path) == []
 
     assert test_file.read_bytes() == original
+
+
+SYNTHESIZED = {
+    "name": "auto_source_boundary_income_500",
+    "period": "2026-01",
+    "input": {"income": 500},
+    "output": {"x": 0},
+}
+
+
+def test_append_keeps_comments_of_the_model_written_file(staged, tmp_path):
+    rulespec_file, test_file, existing = staged
+    test_file.write_text(
+        "# Written by the encoder; keep this note.\n"
+        + yaml.safe_dump(existing, sort_keys=False)
+    )
+    with patch.object(
+        evals_module.ValidatorPipeline,
+        "synthesize_complete_source_companion_cases",
+        return_value=[SYNTHESIZED],
+    ):
+        assert _append(rulespec_file, tmp_path) == [SYNTHESIZED["name"]]
+
+    text = test_file.read_text()
+    assert text.startswith("# Written by the encoder; keep this note.\n")
+    assert yaml.safe_load(text) == [*existing, SYNTHESIZED]
+
+
+def test_append_supports_a_cases_mapping(staged, tmp_path):
+    rulespec_file, test_file, existing = staged
+    test_file.write_text(yaml.safe_dump({"cases": existing}, sort_keys=False))
+    with patch.object(
+        evals_module.ValidatorPipeline,
+        "synthesize_complete_source_companion_cases",
+        return_value=[SYNTHESIZED],
+    ):
+        assert _append(rulespec_file, tmp_path) == [SYNTHESIZED["name"]]
+
+    assert yaml.safe_load(test_file.read_text()) == {"cases": [*existing, SYNTHESIZED]}
+
+
+def test_append_builds_the_pipeline_exactly_as_evaluation_does(staged, tmp_path):
+    rulespec_file, _test_file, _existing = staged
+    fake = SimpleNamespace(
+        synthesize_complete_source_companion_cases=lambda *_a, **_k: []
+    )
+    amendment = SimpleNamespace(citation_path="us/statute/1", body="text")
+    with patch.object(
+        evals_module, "_eval_validator_pipeline", return_value=fake
+    ) as build:
+        evals_module._append_synthesized_complete_source_companion_cases(
+            rulespec_file=rulespec_file,
+            policy_repo_root=tmp_path / "rulespec-us" / "us",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            axiom_compose_path=None,
+            oracle="policyengine",
+            policyengine_runtime=None,
+            policyengine_rule_hint="household_benefit",
+            source_text="Source body",
+            local_corpus_release=None,
+            source_metadata={"k": "v"},
+            source_citation_path="us/statute/7/9999",
+            rulespec_dependency_roots=(),
+            amendment_documents=(amendment,),
+            legacy_replacement=None,
+            replacement_overlay_scope=False,
+        )
+
+    kwargs = build.call_args.kwargs
+    assert kwargs["oracle"] == "policyengine"
+    assert kwargs["policyengine_rule_hint"] == "household_benefit"
+    assert kwargs["amendment_documents"] == (amendment,)
+    assert kwargs["source_metadata"] == {"k": "v"}
+    assert kwargs["require_complete_source_unit"] is True

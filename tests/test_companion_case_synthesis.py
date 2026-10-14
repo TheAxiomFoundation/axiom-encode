@@ -104,6 +104,32 @@ def test_obligation_keys_split_grouped_findings_into_demands():
     assert not any("source `" in key[1] for key in keys if key[0] == "boundary")
 
 
+def test_clamp_keys_come_from_complete_obligations_when_the_list_is_truncated():
+    shown = ", ".join(f"`max(0, x{index})` in `r{index}`" for index in range(8))
+    issue = (
+        f"{TESTS} Direct nonnegative clamp companion evidence is missing for "
+        f"{shown} (2 additional clamps omitted). Each requires ..."
+    )
+    obligations = [
+        CompanionTestObligation(
+            "clamp",
+            (f"r{index}",),
+            values=(-1.0,),
+            input_names=(f"x{index}",),
+            label=f"`max(0, x{index})` in `r{index}`",
+        )
+        for index in range(10)
+    ]
+
+    keys = companion_obligation_keys([issue], obligations)
+    after_one_fix = companion_obligation_keys([issue], obligations[1:])
+
+    assert keys == {("clamp", obligation.label) for obligation in obligations}
+    # Covering one clamp is a strict reduction even though the shown list and
+    # the omitted count both change.
+    assert after_one_fix < keys
+
+
 def test_obligation_keys_ignore_observed_period_detail():
     first = (
         f"{TESTS} Companion tests do not demonstrate formula branch (B) at us/y. "

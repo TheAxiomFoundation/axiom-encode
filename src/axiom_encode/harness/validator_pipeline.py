@@ -41,6 +41,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
@@ -37821,6 +37822,40 @@ class ValidatorPipeline:
 
         return issues
 
+    def _companion_test_payload_issues(
+        self,
+        content: str,
+        payload: list[Any],
+        *,
+        rules_file: Path,
+        strict_layout_checks: bool,
+    ) -> list[str]:
+        """Static companion-case checks that gate executing the test file."""
+
+        issues: list[str] = []
+        if strict_layout_checks:
+            issues.extend(
+                find_missing_derived_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+            issues.extend(
+                find_judgment_positive_companion_output_issues(
+                    content,
+                    payload,
+                    rules_file=rules_file,
+                    policy_repo_path=self.policy_repo_path,
+                )
+            )
+        issues.extend(find_test_input_assignment_issues(content, payload))
+        issues.extend(find_tax_filing_status_test_input_issues(payload))
+        issues.extend(find_exception_test_coverage_issues(content, payload))
+        issues.extend(find_zero_branch_test_coverage_issues(content, payload))
+        return issues
+
     def _rulespec_case_engine_outputs(
         self,
         *,
@@ -37943,6 +37978,8 @@ class ValidatorPipeline:
             test_cases = _safe_load_unique_keys(test_path.read_text())
         except (OSError, ValueError, yaml.YAMLError):
             return []
+        if isinstance(test_cases, dict) and isinstance(test_cases.get("cases"), list):
+            test_cases = test_cases["cases"]
         if not isinstance(rules_payload, dict) or not isinstance(test_cases, list):
             return []
         validation_source_texts = self._source_texts_for_rulespec_content(content)
@@ -37950,25 +37987,43 @@ class ValidatorPipeline:
             content,
             source_texts=validation_source_texts,
         )
+        strict_layout_checks = (
+            _strict_rules_repo_layout_checks_enabled(
+                policy_repo_path=self.policy_repo_path,
+                rules_file=rules_file,
+            )
+            and self.enforce_repository_layout
+        )
 
-        def analyze_cases(cases: list[dict[str, Any]]) -> list[str]:
-            return self._complete_source_unit_issues(
+        def analyze_cases(cases: list[dict[str, Any]]) -> SimpleNamespace | None:
+            # Credit only against the same findings CI raises for the file:
+            # the complete-source analysis plus the static companion checks.
+            analysis = self._complete_source_unit_analysis(
                 content,
                 validation_source_texts=validation_source_texts,
                 proof_source_texts=proof_source_texts,
                 test_cases=cases,
                 rules_file=rules_file,
             )
+            if analysis is None:
+                return None
+            return SimpleNamespace(
+                issues=[
+                    *self._companion_test_payload_issues(
+                        content,
+                        cases,
+                        rules_file=rules_file,
+                        strict_layout_checks=strict_layout_checks,
+                    ),
+                    *analysis.issues,
+                ],
+                companion_test_obligations=analysis.companion_test_obligations,
+            )
 
-        analysis = self._complete_source_unit_analysis(
-            content,
-            validation_source_texts=validation_source_texts,
-            proof_source_texts=proof_source_texts,
-            test_cases=test_cases,
-            rules_file=rules_file,
-        )
-        if analysis is None or not analysis.companion_test_obligations:
+        baseline = analyze_cases(test_cases)
+        if baseline is None or not baseline.companion_test_obligations:
             return []
+        analysis = baseline
         proposals = propose_companion_cases(
             analysis.companion_test_obligations,
             rules_payload=rules_payload,
@@ -38004,6 +38059,7 @@ class ValidatorPipeline:
                 proposals=proposals,
                 evaluate_case=evaluate_case,
                 analyze_cases=analyze_cases,
+                baseline=baseline,
                 max_analyses=max_analyses,
                 time_budget_seconds=time_budget_seconds,
             )
@@ -38349,28 +38405,13 @@ class ValidatorPipeline:
                     complete_source_unit_test_cases = payload
                 if isinstance(payload, list) and compiled_payload and compiled_path:
                     pre_test_issue_count = len(issues)
-                    if strict_layout_checks:
-                        issues.extend(
-                            find_missing_derived_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                        issues.extend(
-                            find_judgment_positive_companion_output_issues(
-                                content,
-                                payload,
-                                rules_file=rules_file,
-                                policy_repo_path=self.policy_repo_path,
-                            )
-                        )
-                    issues.extend(find_test_input_assignment_issues(content, payload))
-                    issues.extend(find_tax_filing_status_test_input_issues(payload))
-                    issues.extend(find_exception_test_coverage_issues(content, payload))
                     issues.extend(
-                        find_zero_branch_test_coverage_issues(content, payload)
+                        self._companion_test_payload_issues(
+                            content,
+                            payload,
+                            rules_file=rules_file,
+                            strict_layout_checks=strict_layout_checks,
+                        )
                     )
                     if len(issues) == pre_test_issue_count:
                         issues.extend(
