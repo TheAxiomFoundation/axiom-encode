@@ -11143,6 +11143,12 @@ RuleSpec requirements:
   Add `source.excerpt` only for numeric amounts, rates, dates, or necessary
   disambiguation; keep excerpts short and do not quote long definitions or
   institutional descriptions.
+- `source.excerpt` must be one contiguous span copied character for character
+  from the cited source text. Do not join separate passages with `...`, do not
+  wrap the excerpt in quotation marks, and do not insert, drop, reorder, or
+  reword words. For a table value, quote the printed row text, or omit the
+  excerpt and cite the cell with `source.table` (`header`, `row`, `column`);
+  never assemble a header and a cell into a phrase the source does not print.
 - For imported proof support, put `import:` at the proof atom top level
   (for example `kind: import` plus `import.target: us:statutes/...#symbol`);
   do not put imported RuleSpec targets under `source:`. Import proof atoms must

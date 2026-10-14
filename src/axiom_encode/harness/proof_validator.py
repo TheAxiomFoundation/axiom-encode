@@ -501,7 +501,10 @@ def _validate_source_proof_atom(
                     issues.extend(
                         _proof_excerpt_subsection_scope_issues(
                             source_text=resolved_text,
-                            evidence_text=evidence_text,
+                            evidence_text=_source_aligned_proof_evidence(
+                                source_text=resolved_text,
+                                evidence_text=evidence_text,
+                            ),
                             rule_source=rule_source,
                             label=label,
                             field=field,
@@ -665,7 +668,254 @@ def _source_contains_proof_evidence(
             maqaf_evidence, collapse_evidence_whitespace(bind_maqaf_space(segment))
         ):
             return True
-    return False
+    return bool(
+        _typographic_source_evidence_spans(
+            source_text=source_text,
+            evidence_text=evidence_text,
+        )
+    )
+
+
+def _source_aligned_proof_evidence(*, source_text: str, evidence_text: str) -> str:
+    """Return the source's own spelling of evidence matched only typographically.
+
+    An excerpt the source contains as written is returned unchanged. An excerpt
+    that matches only after typographic normalization is replaced by the one
+    exact source span it matched, so structural checks (subsection scope,
+    clause binding) read the printed source text rather than the model's
+    typography. Ambiguous typographic matches keep the excerpt as written.
+    """
+    evidence = evidence_text.strip()
+    for segment in split_proof_evidence_text(source_text):
+        if _bounded_source_evidence_match(evidence, segment):
+            return evidence
+        if _bounded_source_evidence_match(
+            collapse_evidence_whitespace(evidence),
+            collapse_evidence_whitespace(segment),
+        ):
+            return evidence
+    spans = _typographic_source_evidence_spans(
+        source_text=source_text,
+        evidence_text=evidence,
+    )
+    if len({source_text[start:end] for start, end in spans}) == 1:
+        start, end = spans[0]
+        return source_text[start:end]
+    return evidence
+
+
+# Typographic normalization for proof evidence. A PDF, an HTML export and a
+# model each spell the same printed text differently: ligatures ("\ufb01ve"),
+# curly or straight quotation marks, hyphen/en dash/minus variants, a
+# compound word wrapped after its hyphen ("twenty- five"), a word hyphenated
+# at a line end ("employ-\nment"), a space set between a currency or section
+# sign and its number ("$ 4,000", "\u00a7 273.4"), and a space set before a comma
+# ("2006 , established"). None of these changes a word, number or sign, so
+# the matcher reads both texts through one canonical view. It never removes a
+# letter, digit or sign that one text has and the other lacks (other than a
+# line-end hyphen that splits one word), never crosses a paragraph gap or a
+# source-record separator, and keeps every token-boundary check.
+_PROOF_TYPOGRAPHIC_CHARACTER_MAP = {
+    "\ufb00": "ff",
+    "\ufb01": "fi",
+    "\ufb02": "fl",
+    "\ufb03": "ffi",
+    "\ufb04": "ffl",
+    "\ufb05": "st",
+    "\ufb06": "st",
+    "\u2018": "'",
+    "\u2019": "'",
+    "\u201a": "'",
+    "\u201b": "'",
+    "\u201c": '"',
+    "\u201d": '"',
+    "\u201e": '"',
+    "\u201f": '"',
+    "\u2010": "-",
+    "\u2011": "-",
+    "\u2012": "-",
+    "\u2013": "-",
+    "\u2014": "-",
+    "\u2015": "-",
+    "\u2212": "-",
+}
+_PROOF_WRAP_GAP = "(?:[ \\t]+|[ \\t]*" + LINE_END_FRAGMENT + "[ \\t]*)"
+# "twenty- five" / "self-\nemployment": keep the hyphen, drop the wrap.
+_PROOF_COMPOUND_HYPHEN_WRAP_PATTERN = re.compile(
+    r"(?<=[^\W\d_])-(" + _PROOF_WRAP_GAP + r")(?=[^\W\d_])"
+)
+# "employ-\nment": a line-end hyphen between lowercase letters splits a word.
+_PROOF_SOFT_HYPHEN_WRAP_PATTERN = re.compile(
+    r"(?<=[a-z])(-[ \t]*" + LINE_END_FRAGMENT + r"[ \t]*)(?=[a-z])"
+)
+_PROOF_SIGN_DIGIT_GAP_PATTERN = re.compile(
+    r"[$\u00a2-\u00a5\u20a0-\u20cf\u00a7\u00b6](" + _PROOF_WRAP_GAP + r")(?=\d)"
+)
+_PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN = re.compile(
+    r"(?<=\S)([ \t]+)(?=[,;:.](?:\s|$))"
+)
+
+
+def _typographic_evidence_view(
+    text: str,
+    *,
+    join_soft_hyphens: bool = False,
+) -> tuple[str, tuple[int, ...]]:
+    """Return the canonical typographic view of ``text`` and its raw offsets.
+
+    Each canonical character records the index of the raw character it came
+    from, so a match in the view maps back to an exact span of ``text``.
+    """
+    characters: list[str] = []
+    offsets: list[int] = []
+    for index, character in enumerate(text):
+        for mapped in _PROOF_TYPOGRAPHIC_CHARACTER_MAP.get(character, character):
+            characters.append(mapped)
+            offsets.append(index)
+    translated = "".join(characters)
+    deleted: set[int] = set()
+    patterns = [
+        _PROOF_COMPOUND_HYPHEN_WRAP_PATTERN,
+        _PROOF_SIGN_DIGIT_GAP_PATTERN,
+        _PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN,
+    ]
+    if join_soft_hyphens:
+        patterns.insert(0, _PROOF_SOFT_HYPHEN_WRAP_PATTERN)
+    for pattern in patterns:
+        for match in pattern.finditer(translated):
+            deleted.update(range(match.start(1), match.end(1)))
+    kept = [
+        (character, offset)
+        for position, (character, offset) in enumerate(
+            zip(translated, offsets, strict=True)
+        )
+        if position not in deleted
+    ]
+    view: list[str] = []
+    view_offsets: list[int] = []
+    position = 0
+    while position < len(kept):
+        character, offset = kept[position]
+        if not character.isspace():
+            view.append(character)
+            view_offsets.append(offset)
+            position += 1
+            continue
+        run_end = position
+        while run_end < len(kept) and kept[run_end][0].isspace():
+            run_end += 1
+        run = "".join(character for character, _ in kept[position:run_end])
+        collapsed = _WHITESPACE_RUN_PATTERN.sub(_collapse_whitespace_run, run)
+        view.extend(collapsed)
+        view_offsets.extend([offset] * len(collapsed))
+        position = run_end
+    while view and view[0].isspace():
+        view.pop(0)
+        view_offsets.pop(0)
+    while view and view[-1].isspace():
+        view.pop()
+        view_offsets.pop()
+    return "".join(view), tuple(view_offsets)
+
+
+_PROOF_ENCLOSING_QUOTATION_PAIRS = (
+    ('"', '"'),
+    ("\u201c", "\u201d"),
+    ("\u201c", '"'),
+    ('"', "\u201d"),
+    ("\u201e", "\u201c"),
+    ("\u2018", "\u2019"),
+)
+
+
+def _typographic_evidence_variants(evidence_text: str) -> tuple[str, ...]:
+    """Canonical views of an excerpt under quotation conventions.
+
+    A quotation may be wrapped in its own quotation marks, and its first
+    letter may be recased to fit the quoting sentence ("an unmarried child"
+    for "An unmarried child"). Neither changes a word of the quoted text.
+    """
+    evidence = evidence_text.strip()
+    candidates = [evidence]
+    for opening, closing in _PROOF_ENCLOSING_QUOTATION_PAIRS:
+        inner = evidence[len(opening) : -len(closing)].strip()
+        if (
+            len(evidence) > len(opening) + len(closing)
+            and evidence.startswith(opening)
+            and evidence.endswith(closing)
+            and inner
+            and opening not in inner
+            and closing not in inner
+        ):
+            candidates.append(inner)
+            break
+    for candidate in list(candidates):
+        first = candidate[0]
+        recased = first.lower() if first.isupper() else first.upper()
+        if first.isalpha() and len(recased) == 1 and recased != first:
+            candidates.append(recased + candidate[1:])
+    variants: list[str] = []
+    for candidate in candidates:
+        view, _ = _typographic_evidence_view(candidate)
+        if view and view not in variants:
+            variants.append(view)
+    return tuple(variants)
+
+
+def _typographic_source_evidence_spans(
+    *,
+    source_text: str,
+    evidence_text: str,
+) -> tuple[tuple[int, int], ...]:
+    """Locate an excerpt in the source through the typographic view.
+
+    Returns bounded raw source spans (offsets into ``source_text``). A match
+    must pass the same token-boundary checks as a literal match, inside one
+    source record.
+    """
+    variants = _typographic_evidence_variants(evidence_text)
+    if not variants:
+        return ()
+    spans: set[tuple[int, int]] = set()
+    base = 0
+    for segment in split_proof_evidence_text(source_text):
+        seen_views: set[str] = set()
+        for join_soft_hyphens in (False, True):
+            view, offsets = _typographic_evidence_view(
+                segment,
+                join_soft_hyphens=join_soft_hyphens,
+            )
+            if view in seen_views:
+                continue
+            seen_views.add(view)
+            for variant in variants:
+                for match in re.finditer(re.escape(variant), view):
+                    if not _source_evidence_span_is_bounded(
+                        evidence_text=variant,
+                        source_text=view,
+                        start=match.start(),
+                        end=match.end(),
+                    ):
+                        continue
+                    start = offsets[match.start()]
+                    end = offsets[match.end() - 1] + 1
+                    spans.add((base + start, base + end))
+        base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    return tuple(sorted(spans))
+
+
+def source_contains_typographic_proof_evidence(
+    *,
+    source_text: str,
+    evidence_text: str,
+) -> bool:
+    """Whether the source holds the excerpt up to typographic spelling."""
+    return bool(
+        _typographic_source_evidence_spans(
+            source_text=source_text,
+            evidence_text=evidence_text,
+        )
+    )
 
 
 def _source_proof_evidence_spans(
@@ -723,6 +973,13 @@ def _source_proof_evidence_spans(
                 end = coordinates[match.end() - 1] + 1 if coordinates else match.end()
                 spans.add((base + start, base + end))
         base += len(segment) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    if not spans:
+        # The proof check accepts an excerpt that differs from the source only
+        # typographically; locate it the same way so the two never disagree.
+        return _typographic_source_evidence_spans(
+            source_text=source_text,
+            evidence_text=evidence,
+        )
     return tuple(sorted(spans))
 
 
@@ -1014,6 +1271,14 @@ def _is_substantive_numeric_prose(text: str) -> bool:
         or re.fullmatch(
             r"\d+\s+(?:days?|weeks?|months?|years?)\s+or\s+the\s+period\s+"
             r"for\s+which\b.+",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        # The Code's alternative-amount parenthetical: "$80,000 ($160,000 in
+        # the case of a joint return)". The parentheses close a clause, not a
+        # negative amount.
+        or re.fullmatch(
+            r"\$?\d[\d,]*(?:\.\d+)?\s+in\s+the\s+case\s+of\s+[^\W\d_].*",
             normalized,
             flags=re.IGNORECASE,
         )
@@ -2445,18 +2710,23 @@ def _source_numeric_parent_alpha_range_blocks(
     scope: Mapping[str, frozenset[str]],
 ) -> list[tuple[str, str, int, int]]:
     """Return ordered alpha-child blocks owned by cited numeric parents."""
+    # A numeric paragraph may open with its first alpha child on the same
+    # line ("(1)(a) A tax is imposed ..."), as Oregon and other codes print
+    # them. That line opens both the numeric parent and its first child; the
+    # stable sort below keeps the parent ahead of the child at one offset.
     events = [
         *(
             (match.start(), "numeric", match)
             for match in re.finditer(
-                r"(?m)^(?P<indent>[ \t]*)\((?P<marker>\d+)\)[ \t]+",
+                r"(?m)^(?P<indent>[ \t]*)\((?P<marker>\d+)\)"
+                r"(?:[ \t]+|(?=\([a-z]\)[ \t]))",
                 source_text,
             )
         ),
         *(
             (match.start(), "alpha", match)
             for match in re.finditer(
-                r"(?m)^(?P<indent>[ \t]*)\((?P<marker>[a-z])\)[ \t]+",
+                r"(?m)^(?P<indent>[ \t]*)(?:\(\d+\))?\((?P<marker>[a-z])\)[ \t]+",
                 source_text,
             )
         ),
