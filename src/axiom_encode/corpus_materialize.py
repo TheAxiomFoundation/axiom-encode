@@ -1364,11 +1364,13 @@ def locked_directory_listing(
     checkout that tracks its corpus bytes. Each scope lock under
     ``.axiom/corpus-locks/<jurisdiction>/<document_class>/`` names at most one
     file of a single-file class there, ``<version>.jsonl`` or
-    ``<version>.json``; a lock that names none adds nothing. The listing does
-    not depend on which files are on disk. A lock directory that is missing
-    lists nothing. One that is indirect or unreadable, or holds a lock that
-    is, or that is not valid, raises :class:`CorpusMaterializationError`, so
-    a listing is never silently short.
+    ``<version>.json``; a lock that names none adds nothing. Hidden names
+    (``.DS_Store``, editor files) are never locks, as axiom-corpus's
+    ``load_locks`` treats them. The listing does not depend on which files are
+    on disk. A lock directory that is missing lists nothing. One that is
+    indirect or unreadable, or holds a lock that is, or that is not valid,
+    raises :class:`CorpusMaterializationError`, so a listing is never silently
+    short.
     """
 
     if artifact_class not in PLACEABLE_ARTIFACT_CLASSES:
@@ -1405,7 +1407,7 @@ def locked_directory_listing(
     prefix = f"data/corpus/{artifact_class}/{jurisdiction}/{document_class}"
     listing: dict[str, LockEntry] = {}
     for name in names:
-        if not name.endswith(".json"):
+        if name.startswith(".") or not name.endswith(".json"):
             continue
         entries = _read_scope_lock(root, lock_directory / name)
         if isinstance(entries, str):

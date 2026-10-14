@@ -2978,6 +2978,9 @@ def test_listing_ignores_names_that_are_not_lock_files(tmp_path):
     directory = tmp_path / cm.LOCK_ROOT / "us/statute"
     (directory / "README.md").write_text("notes\n")
     (directory / "nested").mkdir()
+    # Hidden names are never locks, as axiom-corpus's load_locks skips them.
+    (directory / ".notes.json").write_text("not a lock\n")
+    (directory / ".DS_Store").write_bytes(b"\0")
 
     assert set(
         cm.locked_directory_listing(tmp_path, "provisions", "us", "statute")

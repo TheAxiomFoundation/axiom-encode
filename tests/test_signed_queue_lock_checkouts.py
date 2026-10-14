@@ -1188,6 +1188,23 @@ def test_lock_mode_checks_the_release_name_first_as_provenance_does(
         build()
 
 
+def test_a_tracked_hidden_file_in_a_lock_directory_is_not_a_lock(tmp_path, monkeypatch):
+    """axiom-corpus's load_locks skips hidden names; so does the listing."""
+
+    contents = _basic_contents()
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(tmp_path / "axiom-corpus", contents)
+    pre = _build(corpus, tmp_path)
+    _switch(corpus)
+    hidden = corpus.root / cm.LOCK_ROOT / "us-or/manual/.notes.json"
+    hidden.write_text("not a lock\n")
+    _git(corpus.root, "add", "-f", str(hidden.relative_to(corpus.root)))
+    _git(corpus.root, "commit", "--quiet", "-m", "a hidden note")
+    corpus.sign()
+
+    _same_queue_but_refs(pre, _build(corpus, tmp_path))
+
+
 # ------------------------------------------------------------- properties
 
 PERTURBATIONS = ("none", "extra", "omit", "stray", "tamper", "tamper-on-disk")
