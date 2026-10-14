@@ -18,6 +18,7 @@ monetary parameters with no proof atoms at all because no file opts in.
 from __future__ import annotations
 
 import contextlib
+import functools
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -809,6 +810,11 @@ def _typographic_evidence_view(
     return "".join(view), tuple(view_offsets)
 
 
+# A source record's view is reused across every excerpt that misses it
+# literally; excerpt views are small and computed per call.
+_typographic_segment_view = functools.lru_cache(maxsize=16)(_typographic_evidence_view)
+
+
 _PROOF_ENCLOSING_QUOTATION_PAIRS = (
     ('"', '"'),
     ("\u201c", "\u201d"),
@@ -872,7 +878,7 @@ def _typographic_source_evidence_spans(
     for segment in split_proof_evidence_text(source_text):
         seen_views: set[str] = set()
         for join_soft_hyphens in (False, True):
-            view, offsets = _typographic_evidence_view(
+            view, offsets = _typographic_segment_view(
                 segment,
                 join_soft_hyphens=join_soft_hyphens,
             )
