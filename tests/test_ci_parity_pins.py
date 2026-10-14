@@ -582,6 +582,9 @@ _INTERFACE_LINES = st.sampled_from(
         'import hashlib; "ripemd160" in hashlib.algorithms_available',
         'from pathlib import Path; Path("/tmp/ci pin").exists()',
         'from pathlib import Path; ci_pin_f = Path("ci-pin-a").replace; ci_pin_f("ci-pin-b")',
+        'from pathlib import Path; (Path("ci-pin-a").parent / "x").exists()',
+        'from pathlib import Path; Path("ci-pin-a").is_fifo()',
+        "ci_pin_id = id(0)",
     ]
 )
 
@@ -769,8 +772,15 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
 
     assert interface.environment == ("<dynamic>", "ALPHA", "BETA", "DELTA", "GAMMA")
     assert interface.imports == ("json", "os", "pathlib", "subprocess")
-    # Members of modules that are not pure; `re` and `json` members are not.
+    # Members of modules that are not pure (`json`'s are not named), object
+    # attributes outside the pure vocabulary, and unbound names: `command` and
+    # `re` are never bound here, so `re.compile` is an object's attribute.
     assert interface.names == (
+        "<builtin>.command",
+        "<builtin>.open",
+        "<builtin>.re",
+        "<object>.compile",
+        "<object>.write_text",
         "os.environ",
         "os.getenv",
         "os.system",
@@ -1901,8 +1911,8 @@ def test_yaml_directives_are_refused(header: str) -> None:
         ),
         (lambda d: d.__setitem__("type", "choice"), "has type 'choice'"),
         (lambda d: d.pop("type"), "has type None"),
-        (lambda d: d.__setitem__("default", None), "default is not a scalar"),
-        (lambda d: d.__setitem__("default", ["a"]), "default is not a scalar"),
+        (lambda d: d.__setitem__("default", None), "default is not a string"),
+        (lambda d: d.__setitem__("default", ["a"]), "default is not a string"),
         (lambda d: d.__setitem__("description", ["a"]), "description is not a scalar"),
         (
             lambda d: d.__setitem__("description", "Uses ${{ inputs.python-version }}"),
@@ -1913,6 +1923,21 @@ def test_yaml_directives_are_refused(header: str) -> None:
             "default reads secrets",
         ),
         (lambda d: d.__setitem__("default", "${{ env.X }}"), "default reads env"),
+        (lambda d: d.__setitem__("default", "${{ env }}"), "default reads env"),
+        (
+            lambda d: d.__setitem__("default", "${{ toJSON(secrets) }}"),
+            "default reads secrets",
+        ),
+        (
+            lambda d: d.__setitem__("default", "${{ hashFiles('x') }}"),
+            "default calls hashFiles",
+        ),
+        (
+            lambda d: d.__setitem__("default", "${{ success() }}"),
+            "default calls success",
+        ),
+        (lambda d: d.__setitem__("default", 3.12), "default is not a string"),
+        (lambda d: d.__setitem__("default", True), "default is not a string"),
         (lambda d: d.__setitem__("type", []), "has type []"),
         (lambda d: d.__setitem__("type", {}), "has type {}"),
         (
@@ -1946,6 +1971,10 @@ def test_input_declarations_github_rejects_are_refused(edit: Any, message: str) 
         ),
         lambda d: d.__setitem__("default", "${{ format('{0}', inputs.x) }}"),
         lambda d: d.__setitem__("default", "${{ 'secrets.X is only text' }}"),
+        lambda d: d.__setitem__("default", "${{ true && null }}"),
+        # A default that is one whole expression is typed when GitHub evaluates it.
+        lambda d: d.update(type="boolean", default="${{ inputs.x == 'a' }}"),
+        lambda d: d.update(type="number", default="${{ fromJSON(vars.N) }}"),
     ],
 )
 def test_input_declarations_github_accepts_are_accepted(edit: Any) -> None:
@@ -1973,3 +2002,99 @@ def test_input_declarations_keep_their_values() -> None:
         "required": False,
         "default": 1,
     }
+
+
+# Object attributes are named unless they are in the pure vocabulary, so a
+# program that starts reaching the host through an object changes its
+# interface without anyone having listed that method.
+DERIVED_HOST_ACCESS = [
+    "assert not (workspace.parent / 'axiom-corpus').exists()",
+    "x = workspace.read_text()",
+    "x = list(workspace.iterdir())",
+    "x = workspace.is_symlink()",
+    "x = workspace.stat().st_mtime",
+    "x = id(workspace)",
+    "x = hash('a')",
+    "x = input()",
+    "x = __file__",
+]
+
+
+@pytest.mark.parametrize("line", DERIVED_HOST_ACCESS)
+def test_object_attributes_and_builtins_outside_the_pure_vocabulary_change_the_interface(
+    line: str,
+) -> None:
+    base = (
+        "import os\nfrom pathlib import Path\n"
+        "workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()\n"
+    )
+
+    assert program_interface(base + line + "\n") != program_interface(base)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "x = 'a,b'.split(',')",
+        "x = sorted({1: 2}.items())",
+        "x = [1, 2].index(2)",
+        "x = {1}.union({2})",
+        "x = 'abc'.removeprefix('a').upper()",
+        "x = len(range(3))",
+        "raise SystemExit(1)",
+        "raise ValueError('bad')",
+    ],
+)
+def test_pure_operations_keep_the_interface(line: str) -> None:
+    base = "import re\npattern = re.compile('a')\n"
+
+    assert program_interface(base + line + "\n") == program_interface(base)
+
+
+def test_pure_attribute_vocabulary_is_pure_and_excludes_path_methods() -> None:
+    import datetime
+    import decimal
+    import io
+    import pathlib
+    import re as re_module
+
+    pure_types = (
+        str,
+        bytes,
+        bytearray,
+        list,
+        dict,
+        set,
+        frozenset,
+        tuple,
+        int,
+        float,
+        bool,
+        complex,
+        type(re_module.match("a", "a")),
+        type(re_module.compile("a")),
+        datetime.date,
+        datetime.datetime,
+        datetime.time,
+        datetime.timedelta,
+        datetime.timezone,
+        decimal.Decimal,
+    )
+    public = {
+        name for kind in pure_types for name in dir(kind) if not name.startswith("_")
+    }
+    host = (
+        set(dir(pathlib.Path))
+        | set(dir(os.DirEntry))
+        | set(dir(io.IOBase))
+        | set(dir(io.TextIOWrapper))
+        | set(dir(os.stat_result))
+    )
+
+    # Every allowed name is a public attribute of a pure type (frozen from
+    # Python 3.14, so newer methods are simply not allowed yet).
+    assert ci_parity_pins._PURE_ATTRIBUTES <= public
+    # The only allowed names Path, file or stat objects also have are pure on
+    # them too; copy, replace and group are judged by their arguments.
+    assert ci_parity_pins._PURE_ATTRIBUTES & host <= {"count", "index", "match"}
+    assert not {"copy", "replace", "group"} & ci_parity_pins._PURE_ATTRIBUTES

@@ -353,34 +353,59 @@ _PURE_MODULES = frozenset(
         "unicodedata",
     }
 )
-# Attributes that reach the host through an object (a Path, a stat result):
-# who owns a file, when it changed, where the checkout lives. No str, list,
-# dict or re.Match has them (so not `group`), and they are named wherever they
-# appear.
-_HOST_ATTRIBUTES = frozenset(
+# Every attribute a program uses on an object (a value not named by an import)
+# is part of its interface unless it is one of these: the public methods and
+# attributes of str, bytes, bytearray, list, dict, set, frozenset, tuple, int,
+# float, bool, complex, re.Match, re.Pattern, datetime's date, datetime, time,
+# timedelta and timezone, and Decimal, as Python 3.14 defines them (frozen
+# here so a digest does not depend on the interpreter). An object's
+# `.exists`, `.parent`, `.stat` or `.read_text` therefore changes the
+# interface by construction. `copy`, `replace` and `group` are also Path
+# methods; _object_method tells them apart by their arguments.
+_PURE_ATTRIBUTES = frozenset(
+    """
+    add adjusted append as_integer_ratio as_tuple astimezone bit_count bit_length
+    canonical capitalize casefold center clear combine compare compare_signal
+    compare_total compare_total_mag conjugate copy_abs copy_negate copy_sign count ctime
+    date day days decode denominator difference difference_update discard dst encode end
+    endpos endswith exp expand expandtabs extend find findall finditer flags fma fold
+    format format_map from_bytes from_float from_number fromhex fromisocalendar
+    fromisoformat fromkeys fromordinal fromtimestamp fromutc fullmatch get groupdict
+    groupindex groups hex hour imag index insert intersection intersection_update
+    is_canonical is_finite is_infinite is_integer is_nan is_normal is_qnan is_signed
+    is_snan is_subnormal is_zero isalnum isalpha isascii isdecimal isdigit isdisjoint
+    isidentifier islower isnumeric isocalendar isoformat isoweekday isprintable isspace
+    issubset issuperset istitle isupper items join keys lastgroup lastindex ljust ln
+    log10 logb logical_and logical_invert logical_or logical_xor lower lstrip maketrans
+    match max max_mag microsecond microseconds min min_mag minute month next_minus
+    next_plus next_toward normalize now number_class numerator partition pattern pop
+    popitem pos quantize radix re real regs remainder_near remove removeprefix
+    removesuffix resize resolution reverse rfind rindex rjust rotate rpartition rsplit
+    rstrip same_quantum scaleb scanner search second seconds setdefault shift sort span
+    split splitlines sqrt start startswith strftime string strip strptime sub subn
+    swapcase symmetric_difference symmetric_difference_update time timestamp timetuple
+    timetz title to_bytes to_eng_string to_integral to_integral_exact to_integral_value
+    today toordinal total_seconds translate tzinfo tzname union update upper utc
+    utcfromtimestamp utcnow utcoffset utctimetuple values weekday year zfill
+    """.split()
+)
+# Builtins a program may use without its interface changing. Any other
+# unbound name it reads (open, input, id, hash, __file__...) is recorded.
+_PURE_BUILTINS = frozenset(
+    """
+    abs all any ascii bin bool bytearray bytes callable chr complex dict divmod
+    enumerate filter float format frozenset hex int isinstance issubclass iter len
+    list map max min next object oct ord pow print range repr reversed round set
+    slice sorted str sum tuple type zip __name__ __doc__
+    """.split()
+)
+_PURE_EXCEPTIONS = frozenset(
     {
-        "stat",
-        "lstat",
-        "owner",
-        "is_mount",
-        "resolve",
-        "absolute",
-        "readlink",
-        "samefile",
-        "st_uid",
-        "st_gid",
-        "st_mode",
-        "st_dev",
-        "st_ino",
-        "st_nlink",
-        "st_mtime",
-        "st_mtime_ns",
-        "st_ctime",
-        "st_ctime_ns",
-        "st_atime",
-        "st_atime_ns",
-        "st_birthtime",
-        "st_birthtime_ns",
+        "SystemExit",
+        "KeyboardInterrupt",
+        "GeneratorExit",
+        "StopIteration",
+        "StopAsyncIteration",
     }
 )
 _EXPANDED_VARIABLE_RE = re.compile(r"\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
@@ -432,19 +457,21 @@ class ProgramInterface:
     """What an exit-status program reads or changes outside its own text.
 
     ci runs the program unchanged, but supplies its environment and runs it in
-    its own interpreter, on another host. A program that starts reading
-    another variable, importing another module, using another member of a
-    module that is not pure (``names``: ``os.path.expandvars``,
-    ``sys.platform``, ``shutil.which``...), starting another executable,
-    naming another absolute path or writing files through another call needs
-    review even when its step's glue is unchanged. ``opaque`` holds,
-    verbatim, every access the other fields cannot name: the environment
-    passed on whole, a variable or executable chosen at run time, dynamic
-    imports and code, attribute access by name, and the home directory.
+    its own interpreter, on another host. A program that starts using a name
+    it did not use before needs review even when its step's glue is
+    unchanged: an environment variable, an import, a member of a module that
+    is not pure, an attribute on an object outside the pure vocabulary
+    (``_PURE_ATTRIBUTES``, an allow-list), a builtin outside the pure ones, an
+    executable or an absolute path (``names`` holds the members, attributes and
+    builtins). ``opaque`` holds, verbatim, every access the other fields
+    cannot name: the environment passed on whole, a variable or executable
+    chosen at run time, dynamic imports and code, attribute access by name,
+    and the home directory.
 
-    The interface guards against an ordinary edit that widens what a program
-    reads. It resolves import aliases, but it is not a sandbox: a program
-    written to hide an access can.
+    The interface is a set of names, so a new use of a name the program
+    already uses (another ``.exists()`` call) does not change it; that is a
+    change in the program's logic, which ci runs unchanged. It resolves import
+    aliases, but it is not a sandbox: a program written to hide an access can.
     """
 
     environment: tuple[str, ...]
@@ -522,6 +549,17 @@ class _InterfaceVisitor:
                     self.aliases[alias.asname or alias.name] = (
                         f"{parent.module or ''}.{alias.name}"
                     )
+        bound = self._bound_names(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Name)
+                and isinstance(node.ctx, ast.Load)
+                and node.id not in bound
+                and node.id not in _PURE_BUILTINS
+                and node.id not in _PURE_EXCEPTIONS
+                and not node.id.endswith(("Error", "Exception", "Warning"))
+            ):
+                self.names.add(f"<builtin>.{node.id}")
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant):
                 value = node.value
@@ -532,6 +570,33 @@ class _InterfaceVisitor:
             elif isinstance(node, ast.Name | ast.Attribute):
                 self._reference(node)
                 self._member(node)
+
+    @staticmethod
+    def _bound_names(tree: ast.AST) -> set[str]:
+        """Every name the program binds: assignments, definitions, arguments,
+        imports, exception handlers, comprehension and loop targets."""
+
+        bound: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+                bound.add(node.id)
+            elif isinstance(
+                node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+            ):
+                bound.add(node.name)
+            elif isinstance(node, ast.arg):
+                bound.add(node.arg)
+            elif isinstance(node, ast.Import | ast.ImportFrom):
+                bound.update(
+                    alias.asname or alias.name.split(".")[0] for alias in node.names
+                )
+            elif isinstance(node, ast.ExceptHandler) and node.name:
+                bound.add(node.name)
+            elif isinstance(node, ast.MatchAs | ast.MatchStar) and node.name:
+                bound.add(node.name)
+            elif isinstance(node, ast.MatchMapping) and node.rest:
+                bound.add(node.rest)
+        return bound
 
     def _member(self, node: ast.Name | ast.Attribute) -> None:
         """Record the longest module-rooted name ``node`` completes."""
@@ -549,10 +614,14 @@ class _InterfaceVisitor:
             or root.id not in self.aliases
             or not isinstance(root.ctx, ast.Load)
         ):
-            # Not rooted at an import: an object's attributes cannot be
-            # resolved, but the ones that reach the host are named.
+            # Not rooted at an import: an object. Its attributes are named
+            # unless they are pure (or Path's look-alikes, which
+            # _object_method judges by their arguments).
             self.names.update(
-                f"<object>.{part}" for part in parts if part in _HOST_ATTRIBUTES
+                f"<object>.{part}"
+                for part in parts
+                if part not in _PURE_ATTRIBUTES
+                and part not in {"copy", "replace", "group"}
             )
             return
         resolved = [*self.aliases[root.id].split("."), *reversed(parts)]
@@ -824,54 +893,59 @@ _INPUT_PROPERTIES = frozenset({"description", "type", "required", "default"})
 _INPUT_TYPES = frozenset({"string", "boolean", "number"})
 # Contexts a workflow_call input default may read (workflow-call-input-default).
 _INPUT_DEFAULT_CONTEXTS = frozenset({"github", "inputs", "vars"})
-# A name followed by `.`, `[` or `(` in an expression: a context or a function.
-_EXPRESSION_NAME_RE = re.compile(
-    r"(?<![A-Za-z0-9_.-])(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?=\s*[.\[(])"
-)
+# Functions every expression may call; status functions and hashFiles are
+# available only where a context lists them, which input defaults do not.
 _EXPRESSION_FUNCTIONS = frozenset(
-    {
-        "contains",
-        "startsWith",
-        "endsWith",
-        "format",
-        "join",
-        "toJSON",
-        "fromJSON",
-        "hashFiles",
-        "success",
-        "always",
-        "cancelled",
-        "failure",
-    }
+    {"contains", "startsWith", "endsWith", "format", "join", "toJSON", "fromJSON"}
 )
+_EXPRESSION_LITERALS = frozenset({"true", "false", "null", "NaN", "Infinity"})
+_EXPRESSION_IDENTIFIER_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?P<call>\s*\()?"
+)
+_WHOLE_EXPRESSION_RE = re.compile(r"^\s*\$\{\{.*\}\}\s*$", re.DOTALL)
+
+
+def _check_expression_contexts(name: str, text: str) -> None:
+    for expression in _EXPRESSION_RE.finditer(text):
+        # String literals ('...', with '' for a quote) name no context.
+        body = re.sub(r"'(?:[^']|'')*'", "''", expression.group("body"))
+        for match in _EXPRESSION_IDENTIFIER_RE.finditer(body):
+            word = match.group("name")
+            if word in _EXPRESSION_LITERALS:
+                continue
+            if match.group("call"):
+                if word not in _EXPRESSION_FUNCTIONS:
+                    raise GlueError(
+                        f"workflow_call input {name} default calls {word}, which "
+                        "an input default cannot"
+                    )
+            elif word not in _INPUT_DEFAULT_CONTEXTS:
+                raise GlueError(
+                    f"workflow_call input {name} default reads {word}, which an "
+                    "input default cannot"
+                )
 
 
 def _check_input_default(name: str, kind: str, default: Any) -> None:
-    """Refuse a default GitHub would reject for an input of type ``kind``."""
+    """Refuse a default GitHub would reject for an input of type ``kind``.
 
+    A default that is one whole expression is not type-checked (GitHub checks
+    it when it evaluates it), but every default may read only the github,
+    inputs and vars contexts and the always-available functions.
+    """
+
+    if isinstance(default, str):
+        _check_expression_contexts(name, default)
+        if _WHOLE_EXPRESSION_RE.fullmatch(default):
+            return
+    if kind == "string" and not isinstance(default, str):
+        raise GlueError(f"workflow_call input {name} default is not a string")
     if kind == "boolean" and not isinstance(default, bool):
         raise GlueError(f"workflow_call input {name} default is not a boolean")
     if kind == "number" and (
         isinstance(default, bool) or not isinstance(default, int | float)
     ):
         raise GlueError(f"workflow_call input {name} default is not a number")
-    if kind == "string" and not isinstance(default, str | bool | int | float):
-        raise GlueError(f"workflow_call input {name} default is not a scalar")
-    if not isinstance(default, str):
-        return
-    for expression in _EXPRESSION_RE.finditer(default):
-        # String literals ('...', with '' for a quote) name no context.
-        body = re.sub(r"'(?:[^']|'')*'", "''", expression.group("body"))
-        for match in _EXPRESSION_NAME_RE.finditer(body):
-            word = match.group("name")
-            if (
-                word not in _EXPRESSION_FUNCTIONS
-                and word not in _INPUT_DEFAULT_CONTEXTS
-            ):
-                raise GlueError(
-                    f"workflow_call input {name} default reads {word}, which an "
-                    "input default cannot"
-                )
 
 
 def declared_inputs(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

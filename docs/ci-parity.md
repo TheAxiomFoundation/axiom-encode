@@ -97,14 +97,21 @@ canonical JSON.
     network, so only its import counts. `yaml` is not pure (a full `Loader`
     constructs arbitrary objects), nor is `hashlib` (`algorithms_available`
     depends on the host's OpenSSL build);
-  - the host attributes it reads on an object, such as a file's owner or group,
-    its times, or its resolved location (`stat`, `st_uid`, `owner()`,
-    `group()` with any keywords, `resolve`);
+  - every attribute it uses on an object, unless the attribute is a pure
+    method of `str`, `bytes`, `list`, `dict`, `set`, `tuple`, the numbers,
+    `re.Match`, `re.Pattern`, `datetime`'s types or `Decimal` (a vocabulary
+    frozen from Python 3.14). This is an allow-list: a new `.exists()`,
+    `.parent`, `.stat()`, `.read_text()` or `.group(...)` changes the interface
+    without anyone having listed it. `copy`, `replace` and `group` are also
+    `Path` methods, so their arguments decide;
+  - every builtin or other unbound name it reads, except pure builtins such as
+    `len`, `sorted` or `range` and the exception classes (`open`, `input`,
+    `id`, `hash` and `__file__` are recorded);
   - the executables it starts;
   - the absolute paths it names, as string or bytes literals;
-  - the methods it calls that write files or reach the network, on any
-    receiver (`Path(...).replace(target=...)`, `p.copy(dest)`), or takes
-    without calling (`f = p.replace`);
+  - the file-writing and network calls among those, labelled as effects
+    (`write_text`, `Path(...).replace(target=...)`, `p.copy(dest)`, a method
+    taken without calling it such as `f = p.replace`);
   - verbatim, every access it cannot name: the environment passed on whole, a
     variable or executable chosen at run time, dynamic imports, `exec`/`eval`,
     `getattr` and similar, and the home directory.
@@ -144,10 +151,13 @@ workflow parser, because the digests are taken from PyYAML's values:
 
 Each `workflow_call` input declaration must be one GitHub accepts: only
 `description` (a scalar without an expression), `type` (`string`, `boolean`
-or `number`), `required` (a boolean) and `default` (a value of the input's
-type, which as a string may read only the `github`, `inputs` and `vars`
-contexts). A declaration GitHub would reject is refused rather than normalized
-into one it accepts.
+or `number`), `required` (a boolean) and `default`. A default is a value of
+the input's type, or one whole `${{ }}` expression (typed when GitHub
+evaluates it); any expression in it may read only the `github`, `inputs` and
+`vars` contexts and call only the functions every expression has (`contains`,
+`startsWith`, `endsWith`, `format`, `join`, `toJSON`, `fromJSON`). A
+declaration GitHub would reject is refused rather than normalized into one it
+accepts.
 
 **Templates.** The reviewed glue is every unit of the template pins
 (`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole
@@ -220,12 +230,15 @@ variant, and each order, feature, dependency or input problem. Then:
   under exit status only if `ci` never parses its output.
 - An exit-status program can change its logic without review. `ci` runs the
   new text unchanged, but in its own interpreter and with only the environment
-  `ci` passes that step. The interface is what catches a program that starts
-  reading something `ci` does not pass.
-- The interface catches ordinary edits. It is not a sandbox: it reads the
-  program's syntax, so a program written to hide an access, such as one that
-  builds a path from pieces at run time, can evade it. `.github` main is
-  reviewed, and that review is the defense against such a program.
+  `ci` passes that step. The interface catches a program that starts using a
+  name it did not use before: an environment variable, a module member, an
+  object attribute outside the pure vocabulary, a builtin, an executable or an
+  absolute path. It does not catch new uses of names the program already
+  uses: a program that already calls `.exists()` can check another path with
+  it. Such a change is in the program's logic, which `ci` runs unchanged.
+- The interface reads the program's syntax; it is not a sandbox. A program
+  written to hide an access can evade it. `.github` main is reviewed, and that
+  review is the defense against such a program.
 - `GITHUB_ENV` exports are found by name (`NAME=` in a step that mentions
   `GITHUB_ENV`), which over-approximates. Files passed through `$RUNNER_TEMP`
   are not followed. Feature requirements, rather than the producer check, keep
