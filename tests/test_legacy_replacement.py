@@ -2737,3 +2737,49 @@ def test_pending_oracle_mixed_moves_preserve_new_destination_debt() -> None:
         {"operation": "remove_legacy_oracle_pending", "count": 1},
         {"operation": "relocate_legacy_oracle_pending", "count": 2},
     )
+
+
+@pytest.mark.parametrize("has_target", [False, True])
+def test_in_place_contract_consumes_only_target_waiver(
+    tmp_path: Path, has_target: bool
+) -> None:
+    checkout, content_root, source = _in_place_legacy_checkout(tmp_path)
+    relative = Path("us-me/policies/income_tax/pilot_liability_pipeline.yaml")
+    waiver = checkout / "known-validation-gaps.yaml"
+    unrelated = '  "us-me/policies/other.yaml":\n    active: unchanged\n'
+    target = f'  "{relative.as_posix()}":\n    active: old\n' if has_target else ""
+    waiver.write_text("validate_failures:\n" + target + unrelated)
+    toolchain = checkout / ".axiom/toolchain.toml"
+    toolchain.write_text(
+        '[toolchain]\nvalidation_waiver_set_sha256 = "'
+        + hashlib.sha256(waiver.read_bytes()).hexdigest()
+        + '"\n'
+    )
+    pending = checkout / "oracle-coverage-pending.yaml"
+    pending.write_text(f'pending:\n  "{relative.as_posix()}": keep\n')
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "waivers")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    reconciled = {item.path: item for item in contract.metadata_reconciliations}
+    assert set(reconciled) == (
+        {Path("known-validation-gaps.yaml"), Path(".axiom/toolchain.toml")}
+        if has_target
+        else set()
+    )
+    if has_target:
+        expected = ("validate_failures:\n" + unrelated).encode()
+        assert reconciled[Path("known-validation-gaps.yaml")].raw == expected
+        assert (
+            hashlib.sha256(expected).hexdigest().encode()
+            in reconciled[Path(".axiom/toolchain.toml")].raw
+        )
+    assert pending.read_text() == f'pending:\n  "{relative.as_posix()}": keep\n'
+    assert contract.rewrites == ()

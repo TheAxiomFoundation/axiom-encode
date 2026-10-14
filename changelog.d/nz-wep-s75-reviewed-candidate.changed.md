@@ -1,0 +1,1 @@
+Admit the New Zealand Winter Energy Payment section 75 candidate (rulespec-nz `a3b2ded3`, branch `nzhub/wep-s75c`) to the signed reviewed-candidate promotion path. Admission only lists the ref; the promotion run validates the candidate itself.

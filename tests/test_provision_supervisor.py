@@ -88,21 +88,73 @@ class TestPinnedCodexCLI:
             bundle.add(tmp_path / "package", arcname="package")
         return archive
 
-    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch):
+    def test_reviewed_darwin_arm64_release_pin(self):
+        pin = provisioner._CODEX_CLI_PINS[("darwin", "arm64")]
+        assert provisioner._CODEX_CLI_VERSION == "0.159.0"
+        assert pin["url"] == (
+            "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-darwin-arm64.tgz"
+        )
+        assert pin["member"] == "package/vendor/aarch64-apple-darwin/bin/codex"
+        assert pin["archive_sha256"] == (
+            "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce"
+        )
+        assert pin["sha256"] == (
+            "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a"
+        )
+
+    @pytest.mark.parametrize("machine", ["arm64", "aarch64"])
+    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch, machine):
         binary = b"#!/bin/sh\necho codex-cli-test\n"
+        archive = self._archive(tmp_path, binary)
+        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: machine)
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "sha256",
+            provisioner.hashlib.sha256(binary).hexdigest(),
+        )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        config = provisioner._install_pinned_codex_cli(destination, archive)
+        installed = destination / "bin/codex"
+        assert installed.read_bytes() == binary
+        assert stat.S_IMODE(installed.stat().st_mode) == 0o755
+        assert config == {
+            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "version": "0.159.0",
+            "sha256": hashlib.sha256(binary).hexdigest(),
+            "path": str(installed),
+        }
+        identity = destination / "codex-cli.json"
+        assert json.loads(identity.read_text()) == config
+        assert stat.S_IMODE(identity.stat().st_mode) == 0o444
+
+    def test_archive_hash_mismatch_fails_before_install(self, tmp_path, monkeypatch):
+        binary = b"reviewed binary in an unreviewed archive"
         archive = self._archive(tmp_path, binary)
         monkeypatch.setattr(provisioner.sys, "platform", "darwin")
         monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
         monkeypatch.setitem(
             provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
             "sha256",
-            provisioner.hashlib.sha256(binary).hexdigest(),
+            hashlib.sha256(binary).hexdigest(),
+        )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            "0" * 64,
         )
         destination = tmp_path / "runtime"
         destination.mkdir()
-        config = provisioner._install_pinned_codex_cli(destination, archive)
-        assert (destination / "bin/codex").read_bytes() == binary
-        assert config["sha256"] == provisioner.hashlib.sha256(binary).hexdigest()
+        with pytest.raises(SystemExit, match="archive sha256 mismatch"):
+            provisioner._install_pinned_codex_cli(destination, archive)
+        assert not (destination / "bin").exists()
+        assert not (destination / "codex-cli.json").exists()
 
     def test_hash_mismatch_hard_fails_and_removes_binary(self, tmp_path, monkeypatch):
         archive = self._archive(tmp_path, b"tampered")
@@ -113,11 +165,17 @@ class TestPinnedCodexCLI:
             "sha256",
             "0" * 64,
         )
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "archive_sha256",
+            hashlib.sha256(archive.read_bytes()).hexdigest(),
+        )
         destination = tmp_path / "runtime"
         destination.mkdir()
         with pytest.raises(SystemExit, match="sha256 mismatch"):
             provisioner._install_pinned_codex_cli(destination, archive)
         assert not (destination / "bin/codex").exists()
+        assert not (destination / "codex-cli.json").exists()
 
 
 class TestRpathComponentInside:
@@ -1125,6 +1183,186 @@ class TestTrustedGit:
             )
             == []
         )
+
+    def test_installed_wrapper_admits_the_encoder_guard_identity_queries(
+        self, tmp_path, monkeypatch
+    ):
+        # Under the supervisor, `git` is this wrapper. Every query the guard's
+        # encoder identity and ancestry checks make must pass through it, and
+        # the checks must still find grafts and replacement refs.
+        from axiom_encode.cli import (
+            _encoder_git_history_admission_issue,
+            _guard_encoder_git_metadata_issue,
+        )
+
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "axiom-encode"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+
+        def commit(message: str) -> str:
+            (repository / "file.txt").write_text(message)
+            subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+            subprocess.run(
+                [
+                    git,
+                    "-c",
+                    "user.name=Axiom test",
+                    "-c",
+                    "user.email=test@axiom.invalid",
+                    "-C",
+                    str(repository),
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    message,
+                ],
+                check=True,
+            )
+            return subprocess.check_output(
+                [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+            ).strip()
+
+        pin = commit("pin")
+        producer = commit("producer")
+        real_path = os.environ["PATH"]
+        monkeypatch.setenv("PATH", str(destination))
+        assert shutil.which("git") == str(destination / "git")
+
+        assert _guard_encoder_git_metadata_issue(repository) is None
+        assert (
+            _encoder_git_history_admission_issue(repository, pin=pin, producer=producer)
+            is None
+        )
+        assert _encoder_git_history_admission_issue(
+            repository, pin=producer, producer=pin
+        ) == ("the pinned encoder commit is not an ancestor of the producer")
+
+        grafts = repository / ".git/info/grafts"
+        grafts.parent.mkdir(exist_ok=True)
+        grafts.write_text(f"{producer}\n")
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden graft metadata"
+        )
+        grafts.unlink()
+
+        monkeypatch.setenv("PATH", real_path)
+        subprocess.run(
+            [git, "-C", str(repository), "replace", producer, pin], check=True
+        )
+        monkeypatch.setenv("PATH", str(destination))
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden replacement refs"
+        )
+
+    def test_installed_wrapper_refuses_with_its_own_status_and_is_quiet(self, tmp_path):
+        # A refusal must never read as a Git answer that exits 1 ("not a
+        # symbolic ref", "no matches"), and a commit walk must not print the
+        # graft-file deprecation advice that the wrapper's GIT_GRAFT_FILE triggers.
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+        (repository / "file.txt").write_text("content\n")
+        subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        head = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+        environment = {"HOME": str(tmp_path), "PATH": str(destination)}
+
+        for refused in (
+            ["push", "origin", "main"],
+            ["symbolic-ref", "refs/heads/main", "refs/heads/feature"],
+            ["for-each-ref", "refs/heads/"],
+        ):
+            result = subprocess.run(
+                [str(wrapper), "-C", str(repository), *refused],
+                capture_output=True,
+                env=environment,
+            )
+            assert result.returncode == 126, refused
+            assert b"trusted git wrapper refused" in result.stderr
+
+        walked = subprocess.run(
+            [str(wrapper), "-C", str(repository), "rev-list", "--first-parent", head],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        assert walked.returncode == 0
+        assert walked.stdout.split() == [head]
+        assert walked.stderr == ""
+
+    def test_installed_wrapper_refuses_when_git_cannot_run(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        vanished = tmp_path / "vanished-git"
+        vanished.write_text("#!/bin/sh\n")
+        vanished.chmod(0o755)
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination, Path(sys.executable).resolve(), vanished
+        )
+        vanished.unlink()
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+
+        result = subprocess.run(
+            [
+                str(wrapper),
+                "-C",
+                str(repository),
+                "rev-parse",
+                "--is-shallow-repository",
+            ],
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+
+        assert result.returncode == 126
+        assert b"trusted git wrapper could not run git" in result.stderr
 
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
         git = shutil.which("git")

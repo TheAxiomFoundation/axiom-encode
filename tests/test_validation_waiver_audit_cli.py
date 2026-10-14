@@ -52,12 +52,14 @@ class _FakePipeline:
         *,
         policy_repo_path,
         axiom_rules_path,
+        axiom_compose_path=None,
         enable_oracles,
         local_corpus_release,
         rulespec_dependency_roots=(),
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self.axiom_compose_path = axiom_compose_path
         self.enable_oracles = enable_oracles
         self.local_corpus_release = local_corpus_release
         self.rulespec_dependency_roots = tuple(rulespec_dependency_roots)

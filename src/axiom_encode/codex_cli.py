@@ -6,6 +6,17 @@ import os
 import shutil
 from pathlib import Path
 
+DEFAULT_CODEX_REASONING_EFFORT = "low"
+
+
+def validate_codex_reasoning_effort(effort: str) -> str:
+    """Validate Codex's extensible, nonempty reasoning-effort string."""
+    if not isinstance(effort, str) or not effort or effort != effort.strip():
+        raise ValueError(
+            "Codex reasoning effort must be a nonempty string without surrounding whitespace"
+        )
+    return effort
+
 
 def resolve_codex_cli() -> str:
     """Return the Codex executable, preferring the Desktop-bundled CLI."""
@@ -34,22 +45,23 @@ _CHATGPT_ACCOUNT_MODEL_REJECTION = (
 
 
 def with_codex_model_availability_hint(error: str | None) -> str | None:
-    """Name the explicit-model workaround when ChatGPT-account Codex rejects a model.
+    """Suggest account-specific checks only when Codex actually rejects a model.
 
     ChatGPT-account Codex answers an unserved model with HTTP 400 "The '<model>'
-    model is not supported when using Codex with a ChatGPT account" (observed for
-    gpt-6-luna and gpt-6-sol on 2026-09-24). That is not a validator rejection,
-    so encode escalation never retries it. Keyed on the returned text rather than
-    the auth mode, so the hint stops appearing once that auth path serves the model.
+    model is not supported when using Codex with a ChatGPT account". That is not
+    a validator rejection, so encode escalation never retries it. Keyed on the
+    returned text rather than a model family or auth mode, so successful GPT-6
+    calls receive no availability warning.
     """
     if not error or _CHATGPT_ACCOUNT_MODEL_REJECTION not in error:
         return error
     return (
-        f"{error}\nChatGPT-account Codex does not serve this model. Pass a model "
-        "it serves explicitly: `encode --model gpt-5.6-terra --escalation-model "
-        "gpt-5.6-sol`, `eval --runner claude:opus --runner codex:gpt-5.6-terra`, "
-        "or AXIOM_ENCODE_REVIEWER_CODEX_MODEL=gpt-5.6-terra for the Codex "
-        "reviewer."
+        f"{error}\nThe signed-in Codex account rejected the requested model. "
+        "Update the Codex CLI and check the models available to that account. "
+        "Select an available model with `encode --model MODEL "
+        "--escalation-model MODEL`, `eval --runner claude:opus "
+        "--runner codex:MODEL`, or AXIOM_ENCODE_REVIEWER_CODEX_MODEL=MODEL "
+        "for the Codex reviewer."
     )
 
 

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import islice
@@ -19,8 +20,17 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
 
+from axiom_encode.corpus_materialize import (
+    CorpusMaterializationError,
+    corpus_uses_lock_files,
+    fetch_disabled,
+    materialize_release_artifacts,
+    present_file_note,
+    release_sources,
+)
 from axiom_encode.corpus_release import (
     CorpusReleaseObjectError,
+    VerifiedCorpusReleaseObject,
     VerifiedReleaseArtifact,
     verify_release_object,
 )
@@ -33,7 +43,11 @@ MAX_LOCAL_CORPUS_ROWS = 1_000_000
 MAX_COMPOSED_CORPUS_BYTES = 64 * 1024 * 1024
 MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
+# A 25.2 MiB pretty-printed size (1,042 scopes, 45,880 artifacts) was reported
+# for the us-rulespec-2026-09-14-wave4-r2-union object. At that reported size,
+# 64 MiB provides ~2.5x headroom.
+# The current verification API constructs complete canonical byte strings.
+MAX_RELEASE_OBJECT_BYTES = 64 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
 PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
@@ -117,6 +131,10 @@ class InvalidCorpusReleaseError(CorpusResolutionError):
 
 class UnsafeCorpusPathError(CorpusResolutionError):
     """A corpus path is indirect, unbounded, or escapes the explicit root."""
+
+
+class UnmaterializedCorpusReleaseError(CorpusResolutionError):
+    """A lock-file corpus checkout cannot supply a release's exact artifact bytes."""
 
 
 class CorpusSourceSliceError(CorpusResolutionError):
@@ -315,6 +333,11 @@ class LocalCorpusRelease:
     scopes: tuple[ReleaseScope, ...] = field(init=False)
     artifacts: tuple[VerifiedReleaseArtifact, ...] = field(init=False)
     release_object_path: Path = field(init=False)
+    # Artifacts a lock-file checkout could not hold, with the reason; a read
+    # of one fails and repeats the reason.
+    unplaced: Mapping[str, str] = field(init=False, repr=False, compare=False)
+    uses_corpus_locks: bool = field(init=False, repr=False, compare=False)
+    release_commit: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         name = validate_corpus_release_name(self.name)
@@ -322,11 +345,16 @@ class LocalCorpusRelease:
             raise InvalidCorpusReleaseError(
                 "Corpus release content_sha256 must be a lowercase sha256 digest"
             )
-        root, provisions_root, repository_root = _resolve_corpus_layout(self.root)
-        if repository_root != root:
-            raise CorpusLayoutError(
-                "Local corpus releases require the canonical repository root"
-            )
+        root = _resolve_corpus_root(self.root)
+        # A checkout with .axiom/corpus-locks/ keeps corpus bytes outside git,
+        # so data/corpus may be absent until the verified release is placed.
+        uses_corpus_locks = corpus_uses_lock_files(root)
+        if not uses_corpus_locks:
+            root, provisions_root, repository_root = _resolve_corpus_layout(root)
+            if repository_root != root:
+                raise CorpusLayoutError(
+                    "Local corpus releases require the canonical repository root"
+                )
         release_object_path = root / "releases" / name / f"{self.content_sha256}.json"
         release_object_file = _safe_file(
             root,
@@ -362,6 +390,18 @@ class LocalCorpusRelease:
             raise InvalidCorpusReleaseError(
                 "Corpus release object does not match its configured name and content digest"
             )
+        unplaced: Mapping[str, str] = {}
+        if uses_corpus_locks:
+            unplaced = _materialize_release_provisions(root, verified)
+            canonical = root / "data" / "corpus" / "provisions"
+            if unplaced and (
+                _safe_directory(root, canonical, label="corpus provisions root") is None
+            ):
+                # Every provisions artifact was skipped, so nothing was placed;
+                # a read of any scope fails with its reason instead.
+                provisions_root = canonical
+            else:
+                root, provisions_root, repository_root = _resolve_corpus_layout(root)
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "provisions_root", provisions_root)
@@ -380,6 +420,9 @@ class LocalCorpusRelease:
         )
         object.__setattr__(self, "artifacts", verified.artifacts)
         object.__setattr__(self, "release_object_path", release_object_file)
+        object.__setattr__(self, "unplaced", MappingProxyType(dict(unplaced)))
+        object.__setattr__(self, "uses_corpus_locks", uses_corpus_locks)
+        object.__setattr__(self, "release_commit", verified.git_commit)
 
 
 @dataclass(frozen=True)
@@ -909,7 +952,73 @@ def _resolved_source(
     )
 
 
-def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
+def _materialize_release_provisions(
+    root: Path, verified: VerifiedCorpusReleaseObject
+) -> dict[str, str]:
+    """Place the release's provisions artifacts, the only bytes this module reads.
+
+    Every placed file hashes to the signed release's sha256 and byte count,
+    and lands only where the checkout's own lock pins those bytes. Returns
+    why the checkout may not hold the release's bytes at other paths (the
+    lock does not pin them, or the file differs from a lock that does);
+    reading one fails, as it did before the switch. Anything the lock pins
+    that no source can supply fails closed here.
+    """
+
+    if fetch_disabled():
+        return {}
+    try:
+        report = materialize_release_artifacts(
+            root,
+            (a for a in verified.artifacts if a.artifact_class == "provisions"),
+            sources=lambda: release_sources(
+                root, git_commit=verified.git_commit, r2_bucket=verified.r2_bucket
+            ),
+            release_commit=verified.git_commit,
+            # Present files are checked against their locks only if a read
+            # finds other bytes (_unplaced_note), not on every bind.
+            note_present=False,
+        )
+    except CorpusMaterializationError as exc:
+        raise UnmaterializedCorpusReleaseError(str(exc)) from exc
+    if report.materialized:
+        print(
+            f"axiom-encode: placed {len(report.materialized)} corpus release "
+            f"artifact(s) ({report.bytes_materialized:,} bytes) for {verified.name} "
+            "from " + ", ".join(f"{k} {v}" for k, v in report.source_counts().items()),
+            file=sys.stderr,
+        )
+    if report.skipped:
+        print(
+            f"axiom-encode: left {len(report.skipped)} provisions artifact(s) of "
+            f"corpus release {verified.name} unplaced in {root}: the checkout's "
+            "locks do not pin the release's bytes there, so reading those "
+            "scopes fails. To read them, use a corpus worktree at "
+            f"{verified.git_commit} (docs/corpus-bytes-outside-git.md).\n"
+            + report.describe_skipped(limit=5),
+            file=sys.stderr,
+        )
+    if report.modified:
+        print(
+            f"axiom-encode: left {len(report.modified)} modified provisions "
+            f"file(s) untouched in {root}; they differ from the release bytes "
+            "their locks pin, so reading those scopes fails.\n"
+            + report.describe_modified(limit=5),
+            file=sys.stderr,
+        )
+    if not report.ok:
+        raise UnmaterializedCorpusReleaseError(
+            f"Cannot place {len(report.failed)} of {report.selected} provisions "
+            f"artifact(s) of corpus release {verified.name} in {root}:\n"
+            + report.describe_failures()
+            + "\nWhere no source had the bytes, run `axiom-corpus-ingest corpus "
+            f"fetch --release {verified.name}` or `axiom-encode corpus-fetch` "
+            "with R2 read credentials."
+        )
+    return report.unplaced
+
+
+def _resolve_corpus_root(corpus_root: Path) -> Path:
     raw_root = Path(os.path.abspath(Path(corpus_root).expanduser()))
     if raw_root.is_symlink():
         raise UnsafeCorpusPathError(f"corpus root is a symlink: {raw_root}")
@@ -919,6 +1028,11 @@ def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
         raise CorpusLayoutError(f"corpus root does not exist: {raw_root}") from exc
     if not root.is_dir():
         raise UnsafeCorpusPathError(f"corpus root is not a directory: {raw_root}")
+    return root
+
+
+def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
+    root = _resolve_corpus_root(corpus_root)
     provisions_root = _safe_directory(
         root,
         root / "data" / "corpus" / "provisions",
@@ -965,6 +1079,7 @@ def _candidate_provision_files(
         if candidate is None:
             raise CorpusResolutionError(
                 f"Verified corpus release artifact is missing: {artifact.path}"
+                + _unplaced_note(release, artifact.path)
             )
         candidates.append(candidate)
     if len(candidates) != len(scopes):
@@ -973,6 +1088,21 @@ def _candidate_provision_files(
             f"artifact per requested scope: {jurisdiction}/{document_class}"
         )
     return tuple(candidates)
+
+
+def _unplaced_note(
+    release: LocalCorpusRelease, relative_path: str, *, present: bool = False
+) -> str:
+    reason = release.unplaced.get(relative_path)
+    if reason is None and present and release.uses_corpus_locks:
+        # A file present by size that holds other bytes: say whether its
+        # lock pins those (a same-size re-ingest).
+        artifact = next(
+            (item for item in release.artifacts if item.path == relative_path), None
+        )
+        if artifact is not None:
+            reason = present_file_note(release.root, artifact, release.release_commit)
+    return f" ({reason})" if reason else ""
 
 
 def _read_corpus_artifact(
@@ -1001,6 +1131,7 @@ def _read_corpus_artifact(
     if expected.sha256 != file_sha256 or expected.byte_count != len(raw):
         raise CorpusResolutionError(
             f"Corpus provision bytes do not match the verified release: {relative_path}"
+            + _unplaced_note(release, relative_path, present=True)
         )
     try:
         text = raw.decode("utf-8")
@@ -1512,6 +1643,11 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             return successful_slice
         if errors:
             raise errors[0]
+        pinned_slice = _pinned_cfr_273_11_c_slice(
+            text, requested_path=requested_path, resolved_path=resolved_path
+        )
+        if pinned_slice is not None:
+            return pinned_slice
         missing = "/".join(fragments)
         raise CorpusSourceSliceError(
             f"Could not isolate {requested_path!r} from active parent "
@@ -1530,6 +1666,46 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
             f"{resolved_path!r}; missing structural marker path {missing!r}"
         )
     return sliced.strip()
+
+
+_PINNED_CFR_273_11_PARENT_SHA256 = (
+    "6808e0468eac7a775882c2abf9218c810347ba9edcddaa5c0c58dc694fe3dbce"
+)
+
+
+def _pinned_cfr_273_11_c_slice(
+    text: str, *, requested_path: str, resolved_path: str
+) -> str | None:
+    """Recover one independently checked parent span without generalizing ambiguity."""
+
+    if (
+        requested_path != "us/regulation/7/273/11/c"
+        or resolved_path != "us/regulation/7/273/11"
+        or hashlib.sha256(text.encode("utf-8")).hexdigest()
+        != _PINNED_CFR_273_11_PARENT_SHA256
+    ):
+        return None
+    c_heading = re.compile(
+        r"(?m)^\(c\) Treatment of income and resources of certain "
+        r"nonhousehold members\."
+    )
+    d_heading = re.compile(
+        r"(?m)^\(d\) Treatment of income and resources of other "
+        r"nonhousehold members\."
+    )
+    c_matches = tuple(c_heading.finditer(text))
+    d_matches = tuple(d_heading.finditer(text))
+    if len(c_matches) != 1 or len(d_matches) != 1:
+        raise CorpusSourceSliceError(
+            "Pinned 7 CFR 273.11(c) source has ambiguous structural boundaries"
+        )
+    start = c_matches[0].start()
+    end = d_matches[0].start()
+    if not 0 < start < end < len(text):
+        raise CorpusSourceSliceError(
+            "Pinned 7 CFR 273.11(c) source has invalid structural order"
+        )
+    return text[start:end].strip()
 
 
 def _us_legal_hierarchy_fragments(

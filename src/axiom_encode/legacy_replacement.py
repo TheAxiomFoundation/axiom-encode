@@ -35,7 +35,8 @@ RECEIPT_SCHEMA_V3: Final = "axiom-encode/legacy-fresh-reencode-receipt/v3"
 RECEIPT_SCHEMA_V4: Final = "axiom-encode/legacy-fresh-reencode-receipt/v4"
 RECEIPT_SCHEMA_V5: Final = "axiom-encode/legacy-fresh-reencode-receipt/v5"
 RECEIPT_SCHEMA_V6: Final = "axiom-encode/legacy-fresh-reencode-receipt/v6"
-RECEIPT_SCHEMA: Final = "axiom-encode/legacy-fresh-reencode-receipt/v7"
+RECEIPT_SCHEMA_V7: Final = "axiom-encode/legacy-fresh-reencode-receipt/v7"
+RECEIPT_SCHEMA: Final = "axiom-encode/legacy-fresh-reencode-receipt/v8"
 RECEIPT_SCHEMAS: Final = frozenset(
     {
         RECEIPT_SCHEMA_V1,
@@ -44,6 +45,7 @@ RECEIPT_SCHEMAS: Final = frozenset(
         RECEIPT_SCHEMA_V4,
         RECEIPT_SCHEMA_V5,
         RECEIPT_SCHEMA_V6,
+        RECEIPT_SCHEMA_V7,
         RECEIPT_SCHEMA,
     }
 )
@@ -52,6 +54,7 @@ RECEIPT_SCHEMAS_WITH_RETAINED_SUCCESSORS: Final = frozenset(
         RECEIPT_SCHEMA_V4,
         RECEIPT_SCHEMA_V5,
         RECEIPT_SCHEMA_V6,
+        RECEIPT_SCHEMA_V7,
         RECEIPT_SCHEMA,
     }
 )

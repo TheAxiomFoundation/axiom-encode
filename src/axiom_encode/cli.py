@@ -36,6 +36,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
+from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
@@ -98,9 +99,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
+from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
-from .codex_cli import codex_auth_error
+from .codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
+    codex_auth_error,
+    validate_codex_reasoning_effort,
+)
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -139,6 +152,17 @@ from .corpus_resolver import (
     resolve_local_corpus_source,
     split_proof_evidence_text,
     validate_corpus_release_name,
+)
+from .encode_timing import (
+    PHASE_APPLY_REPAIR,
+    PHASE_APPLY_WRITE,
+    PHASE_OVERLAY_VALIDATION,
+    PHASE_PREPARE,
+    PHASE_RETRY_HANDOFF,
+    EncodeLoopTimer,
+    activate_encode_loop_timer,
+    mark_encode_phase,
+    timed_phase,
 )
 from .engine_binding import (
     ENGINE_PIN_FIELD,
@@ -196,9 +220,11 @@ from .harness.evals import (
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
     _git_checkout_execution_identity,
+    _github_repository_identity,
     _load_eval_suite_resume_state,
     _open_secure_eval_parent,
     _preserves_companion_test_cases,
+    _read_only_git_environment,
     _render_eval_result_verdict_evidence,
     _resolve_eval_output_path,
     _rulespec_root_execution_identity,
@@ -243,11 +269,16 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
-from .harness.source_completeness import _rulespec_target_base
+from .harness.source_completeness import (
+    _deferred_coverage,
+    _rulespec_target_base,
+    recognize_source_structure,
+)
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
+    ExistingTargetOracleContract,
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
@@ -263,10 +294,13 @@ from .harness.validator_pipeline import (
     _normalize_validation_staging_text,
     _numeric_profile_for_citation_path,
     _parse_rulespec_target,
+    _resolve_rulespec_import_file_static,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
+    _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_import_prefix_static,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -334,6 +368,9 @@ from .legacy_replacement import (
     RECEIPT_SCHEMA_V6 as APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
 )
 from .legacy_replacement import (
+    RECEIPT_SCHEMA_V7 as APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+)
+from .legacy_replacement import (
     RETAINED_SUCCESSOR_TOOL as APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
 )
 from .legacy_replacement import (
@@ -389,6 +426,7 @@ from .legacy_replacement_overlay import (
     stage_legacy_replacement_overlay as _stage_legacy_replacement_overlay,
 )
 from .live_run_telemetry import LiveRunTelemetry, telemetry_blocked_for_tests
+from .numeric_equality import rulespec_numeric_values_equal
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
     apply_pending_to_report,
@@ -688,6 +726,23 @@ def _resolve_explicit_existing_directory(raw_path: Path, *, label: str) -> Path:
     return resolved
 
 
+def _resolve_optional_axiom_compose_path(raw_path: object) -> Path | None:
+    """Resolve an explicitly supplied composer executable, when present."""
+
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, (str, Path)):
+        # argparse supplies only strings or None. Some embedders and older
+        # tests pass dynamic namespace mocks whose missing attributes create a
+        # MagicMock instead of returning None; that is an absent option, not a
+        # filesystem authority.
+        return None
+    resolved = Path(raw_path).resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ValueError("--axiom-compose-path must name an executable regular file")
+    return resolved
+
+
 def _load_policyengine_runtime_for_rulespec_roots(
     raw_runtime_root: object,
     policy_repo_roots: Sequence[Path],
@@ -883,8 +938,8 @@ def _add_expected_encoder_checkout_argument(
         type=Path,
         default=None,
         help=(
-            "Clean axiom-encode checkout whose HEAD identity must match manifests "
-            "and the running package version"
+            "Clean pinned axiom-encode checkout matching the running package version; "
+            "its complete main history proves admission of newer signed producers"
         ),
     )
 
@@ -1661,6 +1716,11 @@ def main():
         help="Fail oracle validation when oracle coverage reports unclassified legal IDs",
     )
     _add_complete_source_unit_argument(validate_parser)
+    validate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(validate_parser)
 
     validation_waivers_parser = subparsers.add_parser(
@@ -1705,6 +1765,11 @@ def main():
         "--json",
         action="store_true",
         help="Output deterministic outcomes and fingerprints as JSON",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_fingerprint_parser)
 
@@ -1758,6 +1823,11 @@ def main():
         "--json",
         action="store_true",
         help="Output the complete audit report as JSON",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_audit_parser)
 
@@ -2430,6 +2500,11 @@ def main():
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
+    refresh_applied_manifest_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
+    )
     _add_required_corpus_path_argument(refresh_applied_manifest_parser)
     _add_rulespec_dependency_root_argument(refresh_applied_manifest_parser)
     refresh_applied_manifest_parser.add_argument(
@@ -2473,6 +2548,11 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
     )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
@@ -2725,6 +2805,11 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     test_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    test_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(test_parser)
 
     # compile command
@@ -2754,6 +2839,11 @@ def main():
             "Full 40-hex axiom-rules-engine commit that overrides the "
             "toolchain-declared engine pin"
         ),
+    )
+    compile_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(compile_parser)
 
@@ -2848,12 +2938,22 @@ def main():
         help=(
             "Backend (default: codex): 'codex' uses the Codex CLI with "
             f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
-            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
-            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "OPENAI_API_KEY; use --model/--escalation-model to override, "
+            "including gpt-6.1-sol), "
             "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
+        ),
+    )
+    encode_parser.add_argument(
+        "--codex-reasoning-effort",
+        type=validate_codex_reasoning_effort,
+        default=DEFAULT_CODEX_REASONING_EFFORT,
+        help=(
+            "Reasoning effort for Codex encoding, including retries "
+            f"(e.g., low, medium, high; default: {DEFAULT_CODEX_REASONING_EFFORT}). "
+            "Other backends ignore this option."
         ),
     )
     encode_parser.add_argument(
@@ -2869,6 +2969,14 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    encode_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help=(
+            "Explicit axiom-compose executable required when validating a "
+            "module with module.kind: composition"
+        ),
     )
     encode_parser.add_argument(
         "--policy-repo-path",
@@ -3771,6 +3879,9 @@ def _cmd_validate_with_resolution_cache(args):
             pipeline = ValidatorPipeline(
                 policy_repo_path=policy_repo_root,
                 axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=_resolve_optional_axiom_compose_path(
+                    getattr(args, "axiom_compose_path", None)
+                ),
                 enable_oracles=enable_oracles,
                 oracle_validators=oracle_validators,
                 policyengine_runtime=policyengine_runtime,
@@ -4012,6 +4123,7 @@ def _validation_waiver_companion_outcome(
     root: Path,
     policy_repo_path: Path,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -4038,6 +4150,7 @@ def _validation_waiver_companion_outcome(
         result = _execute_rulespec_test_file(
             companion,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=axiom_rules_path,
             env=env,
             rulespec_roots=rulespec_roots,
@@ -4113,6 +4226,10 @@ def _validation_waiver_path_replacements(
     for binary in binaries:
         add_path(binary, "<engine-binary>", override=True)
     add_path(tmp_path, "<tmp>", override=True)
+    for pipeline in pipelines:
+        compose_path = getattr(pipeline, "axiom_compose_path", None)
+        if compose_path is not None:
+            add_path(compose_path, "<axiom-compose>", override=True)
     return dict(sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0])))
 
 
@@ -4122,6 +4239,7 @@ def _fingerprint_validation_waiver_modules(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4147,6 +4265,7 @@ def _fingerprint_validation_waiver_modules(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
         )
@@ -4158,6 +4277,7 @@ def _fingerprint_validation_waiver_modules_impl(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4192,6 +4312,7 @@ def _fingerprint_validation_waiver_modules_impl(
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
             axiom_rules_path=engine_root,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             local_corpus_release=corpus_release,
             rulespec_dependency_roots=rulespec_dependency_roots,
@@ -4239,6 +4360,7 @@ def _fingerprint_validation_waiver_modules_impl(
                 root=root,
                 policy_repo_path=content_root,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=engine_root,
                 env=env,
                 rulespec_roots=rulespec_roots,
@@ -4296,6 +4418,7 @@ def _fingerprint_waiver_chunk(
     axiom_rules_path: str,
     rulespec_dependency_roots: tuple[str, ...],
     release_identity: tuple[str, str, str, object],
+    axiom_compose_path: str | None = None,
 ) -> list[dict[str, Any]]:
     """Worker entrypoint: fingerprint one chunk against a pre-attested release.
 
@@ -4316,6 +4439,7 @@ def _fingerprint_waiver_chunk(
         root=Path(root),
         corpus_path=Path(corpus_path),
         axiom_rules_path=Path(axiom_rules_path),
+        axiom_compose_path=Path(axiom_compose_path) if axiom_compose_path else None,
         rulespec_dependency_roots=tuple(
             Path(path) for path in rulespec_dependency_roots
         ),
@@ -4329,13 +4453,16 @@ def _fingerprint_validation_waiver_modules_parallel(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over a contiguous slice of
-    the sorted module list with its own pipelines, temporary directory, and
-    compile cache; fingerprints are stable across the split because outcome
+    Each worker runs the unchanged serial executor over an interleaved slice
+    of the sorted module list with its own pipelines, temporary directory, and
+    compile cache. Interleaving prevents adjacent expensive modules from
+    landing on the same worker (for example tariff chapters in a validation
+    shard). Fingerprints are stable across the split because outcome
     canonicalization replaces every process-specific path. A worker failure
     fails the whole audit; results are re-sorted so output order matches the
     serial code path exactly.
@@ -4348,6 +4475,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
         )
 
@@ -4360,11 +4488,7 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
-    chunks = [
-        ordered[start : start + chunk_size]
-        for start in range(0, len(ordered), chunk_size)
-    ]
+    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
@@ -4378,6 +4502,7 @@ def _fingerprint_validation_waiver_modules_parallel(
                 str(axiom_rules_path),
                 dependency_roots,
                 release_identity,
+                str(axiom_compose_path) if axiom_compose_path else None,
             )
             for chunk in chunks
         ]
@@ -4456,6 +4581,9 @@ def _cmd_validation_waivers_fingerprint(args) -> int:
         root=root,
         corpus_path=args.corpus_path,
         axiom_rules_path=args.axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
     )
     if args.json:
@@ -4618,6 +4746,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         if executable_paths
@@ -4668,6 +4799,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         for result in rechecked:
@@ -5119,6 +5253,9 @@ def cmd_test(args):
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -5137,6 +5274,7 @@ def cmd_test(args):
             result = _execute_rulespec_test_file(
                 test_file,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=Path(axiom_rules_path),
                 env=rulespec_env,
                 rulespec_roots=rulespec_roots,
@@ -5234,6 +5372,7 @@ def _execute_rulespec_test_file(
     test_file: Path,
     *,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -5267,14 +5406,25 @@ def _execute_rulespec_test_file(
             else program_file
         )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
-        result = run_rulespec_compile(
-            binary=binary,
-            program=compile_file,
-            rulespec_roots=rulespec_roots,
-            output=compiled_path,
-            cwd=axiom_rules_path if axiom_rules_path.exists() else None,
-            env=env,
-        )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        if isinstance(module, dict) and module.get("kind") == "composition":
+            if pipeline is None:
+                raise ValueError(
+                    "composition companion requires an explicit validation pipeline"
+                )
+            result, _artifact = pipeline._compile_rulespec_to_artifact(
+                program_file, compiled_path
+            )
+        else:
+            result = run_rulespec_compile(
+                binary=binary,
+                program=compile_file,
+                rulespec_roots=rulespec_roots,
+                output=compiled_path,
+                cwd=axiom_rules_path if axiom_rules_path.exists() else None,
+                env=env,
+            )
         if result.returncode != 0:
             return {
                 "cases": 0,
@@ -5321,6 +5471,7 @@ def _execute_rulespec_test_file(
         for relation in artifact.get("program", {}).get("relations", [])
         if isinstance(relation, dict) and relation.get("name")
     }
+    declared_relation_slots = _rulespec_declared_relation_slots(artifact)
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -5338,7 +5489,10 @@ def _execute_rulespec_test_file(
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
+                    declared_relation_slots=declared_relation_slots,
+                    compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
+                    rulespec_roots=rulespec_roots,
                 )
             )
         except Exception as error:
@@ -5376,15 +5530,74 @@ def _execute_rulespec_test_case(
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
+    declared_relation_slots: dict[str, tuple[str, ...]],
+    compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
+    rulespec_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
+    expected = case.get("output") or {}
+    expected_entities = {
+        str(derived_by_id[str(output)].get("entity") or "Case")
+        for output in expected
+        if str(output) in derived_by_id
+    }
+    if len(expected_entities) > 1:
+        raise ValueError(
+            "mixes derived output entities "
+            f"({', '.join(sorted(expected_entities))}); put outputs for each "
+            "entity in separate test cases."
+        )
+    query_entity = next(
+        (
+            str(derived_by_id[str(output)].get("entity") or "Case")
+            for output in expected
+            if str(output) in derived_by_id
+        ),
+        "Case",
+    )
+    executable_directions = executable_relation_directions(
+        derived_by_id,
+        list(expected),
+        period,
+        query_entity,
+        declared_relation_slots,
+        compiled_relations,
+    )
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
+    flat_input_records: list[dict] = []
+    generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    occupied_entity_ids = {root_entity_id: {query_entity}}
+    module_file = _rulespec_program_for_test_file(test_file)
+    input_entities = declared_input_entities(
+        module_file,
+        (
+            str(key)
+            for key, value in (case.get("input") or {}).items()
+            if not isinstance(value, (dict, list))
+        ),
+        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+            key,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
+            target,
+            rules_file=current,
+            policy_repo_path=(
+                policy_repo_path
+                if _rulespec_import_prefix_static(target)
+                else find_policy_repo_root(current) or policy_repo_path
+            ),
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+    )
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -5403,15 +5616,52 @@ def _execute_rulespec_test_case(
                     and unqualified_name not in relation_names
                 ):
                     relation_names.append(unqualified_name)
+            slots = declared_relation_slots.get(
+                relation_name
+            ) or declared_relation_slots.get(
+                unqualified_name if "#relation." in relation_name else relation_name
+            )
+            current_slot = None
+            if slots is not None:
+                matching_slots = [
+                    slot for slot, entity in enumerate(slots) if entity == query_entity
+                ]
+                if not matching_slots:
+                    raise ValueError(
+                        f"relation `{key}` has declared slots {slots!r}, "
+                        f"neither of which matches query entity `{query_entity}`"
+                    )
+                if len(matching_slots) == 1:
+                    current_slot = matching_slots[0]
+            related_entity = (
+                slots[1 - current_slot]
+                if slots is not None and current_slot is not None
+                else query_entity
+                if slots is not None
+                else "Entity"
+            )
+            matches = {
+                executable_directions[name]
+                for name in relation_names
+                if name in executable_directions
+            }
+            if len(matches) > 1:
+                raise ValueError(f"conflicting executable relation aliases for {key}")
+            direction = next(iter(matches), None)
+            if direction is not None:
+                current_slot, executable_entity = direction
+                if executable_entity is not None:
+                    related_entity = executable_entity
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
-                # The current relation slot convention is related entity first,
-                # enclosing entity second.
+                relation_tuple = [related_id, root_entity_id]
+                if current_slot == 0:
+                    relation_tuple.reverse()
                 for current_relation_name in relation_names:
                     relations.append(
                         {
                             "name": current_relation_name,
-                            "tuple": [related_id, root_entity_id],
+                            "tuple": relation_tuple,
                             "interval": interval,
                         }
                     )
@@ -5424,28 +5674,38 @@ def _execute_rulespec_test_case(
                         }
                     )
                     continue
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     inputs.append(
                         {
                             "name": str(row_key),
-                            "entity": "Entity",
+                            "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                generated_relation_rows.append(
+                    (
+                        related_entity,
+                        relation_tuple,
+                        1 if current_slot == 0 else 0,
+                        inputs[input_start:],
+                    )
+                )
         else:
-            inputs.append(
-                {
-                    "name": key,
-                    "entity": "Entity",
-                    "entity_id": root_entity_id,
-                    "interval": interval,
-                    "value": _rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(key, query_entity)
+            record = {
+                "name": key,
+                "entity": input_entity,
+                "entity_id": root_entity_id,
+                "interval": interval,
+                "value": _rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
-    table_rows_by_entity: dict[str, list[tuple[str, dict]]] = {}
+    table_rows_by_entity: dict[str, list[tuple[list[str], dict]]] = {}
     tables = case.get("tables")
     if tables is not None:
         if not isinstance(tables, dict):
@@ -5468,7 +5728,8 @@ def _execute_rulespec_test_case(
                     }
                 )
                 return failures
-            resolved_rows: list[tuple[str, dict]] = []
+            resolved_rows: list[tuple[list[str], dict]] = []
+            row_id_keys = {"id", "entity_id", f"{_snake_case(table_entity)}_id"}
             for row_index, row in enumerate(rows, 1):
                 if not isinstance(row, dict):
                     failures.append(
@@ -5483,9 +5744,16 @@ def _execute_rulespec_test_case(
                     )
                     return failures
                 row_id = _rulespec_table_row_entity_id(table_entity, row, row_index)
-                resolved_rows.append((row_id, row))
+                row_ids = [row_id]
+                resolved_rows.append((row_ids, row))
+                explicit_id = any(key in row for key in row_id_keys)
+                if explicit_id:
+                    occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     key = str(row_key)
+                    if key in row_id_keys:
+                        continue
                     flat_inputs[key] = row_value
                     inputs.append(
                         {
@@ -5496,9 +5764,33 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                if not explicit_id:
+                    generated_table_rows.append(
+                        (table_entity, row_ids, 0, inputs[input_start:])
+                    )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    expected = case.get("output") or {}
+    require_distinct_entity_ids(occupied_entity_ids)
+    assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+    assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+    flat_entity_ids: dict[str, str] = {}
+    for record in flat_input_records:
+        input_entity = record["entity"]
+        if input_entity not in flat_entity_ids:
+            entity_id = flat_input_entity_id(
+                input_entity,
+                query_entity,
+                root_entity_id,
+                reserved_entity_ids=(
+                    entity_id
+                    for entity_id, entities in occupied_entity_ids.items()
+                    if entities - {input_entity}
+                ),
+            )
+            flat_entity_ids[input_entity] = entity_id
+            occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+        record["entity_id"] = flat_entity_ids[input_entity]
+
     parameter_expected = {
         str(key): value
         for key, value in expected.items()
@@ -5578,7 +5870,7 @@ def _execute_rulespec_test_case(
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
     if table_rows:
-        query_entity_ids = [row_id for row_id, _row in table_rows]
+        query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]
             if len(expected_value) != len(table_rows):
@@ -5633,11 +5925,20 @@ def _execute_rulespec_test_case(
     )
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
+        findings = cross_entity_input_findings(
+            message,
+            case.get("input") or {},
+            input_entities,
+            output_entities,
+            declared_relation_slots,
+        )
         failures.append(
             {
                 "file": str(test_file),
                 "case": case_name,
-                "message": _translate_rulespec_engine_envelope_error(message),
+                "message": " ".join(
+                    [_translate_rulespec_engine_envelope_error(message), *findings]
+                ),
             }
         )
         return failures
@@ -5893,7 +6194,12 @@ def _rulespec_scalar_matches(actual_value: dict, expected) -> bool:
         and isinstance(expected, (int, float))
         and not isinstance(expected, bool)
     ):
-        return abs(Decimal(str(value)) - Decimal(str(expected))) <= Decimal("1e-18")
+        return rulespec_numeric_values_equal(
+            Decimal(str(value)),
+            Decimal(str(expected)),
+            actual_kind=kind,
+            expected_kind="integer" if isinstance(expected, int) else "decimal",
+        )
     if kind == "date" and isinstance(expected, date):
         return value == expected.isoformat()
     if isinstance(expected, date):
@@ -5951,6 +6257,9 @@ def cmd_compile(args):
         pipeline = ValidatorPipeline(
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             local_corpus_release=None,
             enable_oracles=False,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -7478,6 +7787,7 @@ def cmd_concepts_audit(args):
                 "site_paths": [str(p) for p in f.site_paths],
                 "detail": f.detail,
                 "nearby_producers": list(f.nearby_producers),
+                "accepted_producers": list(f.accepted_producers),
             }
             for f in findings
         ]
@@ -7498,7 +7808,10 @@ def cmd_concepts_audit(args):
             continue
         print(f"\n[{kind}] {len(items)}")
         for f in items:
-            anchor = f" @ {f.anchor}" if f.anchor else ""
+            if len(f.accepted_producers) > 1 and kind != "anchored_ref_miss":
+                anchor = " @ one of " + ", ".join(f.accepted_producers)
+            else:
+                anchor = f" @ {f.anchor}" if f.anchor else ""
             nearby = (
                 f" (nearby: {', '.join(f.nearby_producers[:4])})"
                 if f.nearby_producers
@@ -7712,6 +8025,9 @@ def cmd_refresh_applied_manifest(args):
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
         label="Axiom Corpus",
@@ -7830,6 +8146,7 @@ def cmd_refresh_applied_manifest(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
                     )
@@ -7919,6 +8236,9 @@ def cmd_promote_reviewed_candidate(args):
     axiom_rules_path = _resolve_explicit_existing_directory(
         args.axiom_rules_path,
         label="Axiom rules engine",
+    )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
     )
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
@@ -8087,6 +8407,7 @@ def cmd_promote_reviewed_candidate(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
                         require_complete_source_unit=True,
@@ -9791,6 +10112,7 @@ def _legacy_replacement_pending_paths(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -9857,6 +10179,7 @@ def _legacy_replacement_pending_paths(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         } and _legacy_destination_predecessor_issues(
             repo_path,
@@ -10039,6 +10362,7 @@ def _legacy_replacement_pending_paths(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -10266,6 +10590,7 @@ def _emit_run_log_events_safe(
     outcome,
     *,
     total_duration_ms: int | None = None,
+    iterations: Sequence[Iteration] | None = None,
 ):
     """Emit run-log events for a just-completed encode run; never fatal.
 
@@ -10281,6 +10606,7 @@ def _emit_run_log_events_safe(
             run_id,
             outcome or {},
             total_duration_ms=total_duration_ms,
+            iterations=iterations,
         )
     except Exception:  # noqa: BLE001 - run-log emission must never break a run
         pass
@@ -17473,11 +17799,13 @@ def _rulespec_companion_test_failures(
     *,
     root: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=rulespec_dependency_roots,
@@ -17489,6 +17817,7 @@ def _rulespec_companion_test_failures(
         result = _execute_rulespec_test_file(
             test_file,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=Path(axiom_rules_path),
             env=rulespec_env,
             rulespec_roots=rulespec_roots,
@@ -18340,8 +18669,11 @@ def _append_generated_derived_output_tests_if_missing(
     repo_path: Path,
     relative_output: Path,
     issues: list[str],
+    test_failure_checker=None,
 ) -> list[str]:
     """Append deterministic companion cases for local derived outputs."""
+    if test_failure_checker is None:
+        return []
     if not issues or not test_file.exists() or not rules_file.exists():
         return []
     output_targets = _missing_derived_output_targets_from_issues(issues)
@@ -18383,13 +18715,15 @@ def _append_generated_derived_output_tests_if_missing(
         for input_name in sorted(factual_inputs)
     }
 
+    original_bytes = test_file.read_bytes()
+    generated_cases: list[dict] = []
     repaired: list[str] = []
     existing_case_names = {
         str(test_case.get("name") or "").strip()
         for test_case in test_payload
         if isinstance(test_case, dict)
     }
-    for target in output_targets:
+    for target in output_targets[:50]:
         if target in existing_outputs:
             continue
         rule = derived_rules_by_target.get(target)
@@ -18399,7 +18733,7 @@ def _append_generated_derived_output_tests_if_missing(
         case_name = f"auto_output_{_safe_test_name(output_name)}"
         if case_name in existing_case_names:
             continue
-        test_payload.append(
+        generated_cases.append(
             {
                 "name": case_name,
                 "period": _generated_test_period_for_rule(rule),
@@ -18417,8 +18751,26 @@ def _append_generated_derived_output_tests_if_missing(
 
     if not repaired:
         return []
+    # Screen only new worlds: an existing failure cannot mask a new failure.
+    # One bounded batch, with no trial writes to the caller's companion file.
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            candidate_file = Path(tmpdir) / test_file.name
+            candidate_file.write_text(
+                yaml.safe_dump(generated_cases, sort_keys=False, allow_unicode=True)
+            )
+            failures = test_failure_checker(candidate_file)
+            if not isinstance(failures, list) or failures:
+                return []
+    except Exception:
+        # Unavailable engines, compilation and setup errors leave coverage pending.
+        return []
+    if test_file.read_bytes() != original_bytes:
+        return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(
+            test_payload + generated_cases, sort_keys=False, allow_unicode=True
+        )
     )
     return repaired
 
@@ -19628,19 +19980,50 @@ def _remove_invalid_test_input_refs(
         invalid_refs,
     )
 
-    changed = False
+    removed_refs: set[str] = set()
     for test_case in test_payload:
         if not isinstance(test_case, dict):
             continue
         inputs = test_case.get("input")
-        if _remove_mapping_keys_recursive(inputs, removable_refs):
-            changed = True
-    if not changed:
+        retained_refs = _invalid_refs_solely_populating_relation_rows(
+            inputs, removable_refs
+        )
+        case_removable_refs = removable_refs - retained_refs
+        present_refs = {
+            str(key) for key in _mapping_keys_recursive(inputs)
+        } & case_removable_refs
+        if _remove_mapping_keys_recursive(inputs, case_removable_refs):
+            removed_refs.update(present_refs)
+    if not removed_refs:
         return []
     test_file.write_text(
         yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
-    return sorted(removable_refs)
+    return sorted(removed_refs)
+
+
+def _invalid_refs_solely_populating_relation_rows(
+    inputs: object, invalid_refs: set[str]
+) -> set[str]:
+    """Keep a concrete invalid-input diagnostic instead of creating an empty row.
+
+    A generated relation row whose only child fact is an invalid reference needs
+    model repair. Deleting that fact turns a precise input-slot error into an
+    opaque missing-assignment error and can leave a misleading ``- {}`` row.
+    """
+    if not isinstance(inputs, dict):
+        return set()
+    retained: set[str] = set()
+    for relation_ref, rows in inputs.items():
+        if "#relation." not in str(relation_ref) or not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or not row:
+                continue
+            row_keys = {str(key) for key in row}
+            if row_keys <= invalid_refs:
+                retained.update(row_keys)
+    return retained
 
 
 def _rewrite_import_output_test_input_refs(
@@ -22670,14 +23053,11 @@ def _model_apply_validation_execution_issues(
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
     encoder = execution.get("axiom_encode")
-    # identity_source is informational and may differ between the writing mode
-    # and the verifying mode, so bind on repository + commit + version only.
-    if _encoder_identity_binding_core(encoder) != _encoder_identity_binding_core(
-        dict(expected_encoder_identity)
-    ):
-        issues.append(
-            f"{prefix}.axiom_encode does not match the running pinned encoder"
-        )
+    producer_issue = _encoder_producer_admission_issue(
+        encoder, expected_encoder_identity
+    )
+    if producer_issue:
+        issues.append(f"{prefix}.axiom_encode {producer_issue}")
     payload_encoder = payload.get("axiom_encode_git")
     if isinstance(encoder, dict) and isinstance(payload_encoder, dict):
         if encoder.get("commit") != payload_encoder.get("commit"):
@@ -22817,6 +23197,29 @@ def _applied_manifest_tool_execution_issues(
     backend = payload.get("backend")
     tool = payload.get("tool")
     issues: list[str] = []
+
+    def check_producer(contract: str) -> None:
+        provenance = payload.get("axiom_encode_git")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("dirty_tracked") is not False
+        ):
+            issues.append(
+                f"{manifest_label} {contract} does not match the running pinned encoder: "
+                "producer provenance must be clean"
+            )
+            return
+        producer_issue = _encoder_producer_admission_issue(
+            {
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": provenance.get("commit"),
+                "version": provenance.get("version"),
+            },
+            expected_encoder_identity,
+        )
+        if producer_issue:
+            issues.append(f"{manifest_label} {contract} {producer_issue}")
+
     if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         if tool != APPLIED_ENCODING_MODEL_TOOL:
             issues.append(
@@ -22835,16 +23238,7 @@ def _applied_manifest_tool_execution_issues(
             or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
         ):
             issues.append(f"{manifest_label} reviewed RuleSpec ref is invalid")
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} reviewed candidate promotion does not match "
-                "the running pinned encoder"
-            )
+        check_producer("reviewed candidate promotion")
         if "deterministic_execution" in payload:
             issues.append(
                 f"{manifest_label} reviewed candidate promotion must carry "
@@ -22871,16 +23265,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} exact dependent migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} exact dependent migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("exact dependent migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -22913,16 +23298,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} retained successor migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} retained successor migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("retained successor migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL:
             replacement_manifest = payload.get("replacement_manifest")
@@ -22946,16 +23322,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} legacy replacement must preserve nested model "
                     "provenance instead of claiming deterministic generation"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} legacy replacement does not match the "
-                    "running pinned encoder"
-                )
+            check_producer("legacy replacement")
             return issues
         if tool == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -22988,16 +23355,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} path migration must preserve prior provenance "
                     "instead of claiming new execution"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} path migration does not match the running "
-                    "pinned encoder"
-                )
+            check_producer("path migration")
             return issues
         if tool != APPLIED_ENCODING_RETIRE_TOOL or not isinstance(applied_files, list):
             issues.append(f"{manifest_label} has no allowlisted tool/backend contract")
@@ -23022,15 +23380,7 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} retire tool must preserve prior provenance instead "
                 "of claiming new execution"
             )
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} retirement does not match the running pinned encoder"
-            )
+        check_producer("retirement")
         return issues
     issues.append(f"{manifest_label} backend is not canonical")
     return issues
@@ -24238,6 +24588,7 @@ def _legacy_replacement_manifest_issues(
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
     }:
         identity_deleted_files.extend(
@@ -24291,6 +24642,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -24303,6 +24655,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -24319,6 +24672,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -24334,6 +24688,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -24345,6 +24700,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -24367,6 +24723,7 @@ def _legacy_replacement_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -24470,6 +24827,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24485,6 +24843,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24496,6 +24855,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24542,6 +24902,7 @@ def _legacy_replacement_manifest_issues(
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
     }:
         issues.extend(
@@ -24831,7 +25192,10 @@ def _legacy_replacement_manifest_issues(
         issues.append(f"{manifest_label} exact dependents are malformed")
         exact_dependents = []
     receipt_retained_modules: list[tuple[Path, Path, bytes, bytes]] = []
-    if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+    if receipt_schema in {
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+    }:
         for successor in receipt_retained_successors:
             if not isinstance(successor, dict):
                 continue
@@ -24874,10 +25238,14 @@ def _legacy_replacement_manifest_issues(
         if receipt_schema in {
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }:
             expected_dependent_fields.add("source_verification_migration")
-        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+        if receipt_schema in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+        }:
             expected_dependent_fields.add("concept_replacements")
         if (
             not isinstance(dependent, dict)
@@ -24896,6 +25264,7 @@ def _legacy_replacement_manifest_issues(
             in {
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -25025,7 +25394,10 @@ def _legacy_replacement_manifest_issues(
             base_primary_citations = _legacy_primary_source_citations(base_primary_raw)
         exact_authoritative_replacements = authoritative_replacements
         exact_concept_replacements: dict[str, str] = {}
-        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+        if receipt_schema in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+        }:
             try:
                 derived_concept_replacements = (
                     derive_exact_dependent_parameter_replacements(
@@ -25129,6 +25501,7 @@ def _legacy_replacement_manifest_issues(
                 if path == primary_path and receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     rewritten, source_verification_migration = (
@@ -25137,6 +25510,7 @@ def _legacy_replacement_manifest_issues(
                 proof_excerpt_reanchors: tuple[dict[str, object], ...] = ()
                 if path == primary_path and receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     receipt_rewrite = rewrite_by_path.get(path)
@@ -25280,6 +25654,7 @@ def _legacy_replacement_manifest_issues(
                 }
                 if receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     expected_rewrite_fields.add("proof_excerpt_reanchors")
@@ -25294,6 +25669,7 @@ def _legacy_replacement_manifest_issues(
                         receipt_schema
                         in {
                             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                         }
                         and rewrite.get("proof_excerpt_reanchors")
@@ -25321,6 +25697,7 @@ def _legacy_replacement_manifest_issues(
             in {
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and receipt_source_verification_migration is not None
@@ -25581,6 +25958,12 @@ def _legacy_replacement_manifest_issues(
         if old.endswith(RULESPEC_FILE_SUFFIX)
         and not old.endswith(RULESPEC_TEST_FILE_SUFFIX)
     ]
+    in_place_waiver_modules = (
+        frozenset({str(replacement["source"])})
+        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA
+        and replacement.get("source") == replacement.get("destination")
+        else frozenset()
+    )
     post_migration_waiver_sha256: str | None = None
     try:
         base_waiver_raw = _rulespec_migration_base_blob(
@@ -25593,13 +25976,17 @@ def _legacy_replacement_manifest_issues(
                 Path("known-validation-gaps.yaml"),
                 base_waiver_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
             )
         )
         post_migration_waiver_sha256 = hashlib.sha256(rewritten_waiver_raw).hexdigest()
     except (RuntimeError, ValueError):
         pass
     retired_schema_count_transition: tuple[int, int] | None = None
-    if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+    if receipt_schema in {
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+    }:
         try:
             base_retired_freeze_raw = _rulespec_migration_base_blob(
                 repo_path,
@@ -25611,6 +25998,7 @@ def _legacy_replacement_manifest_issues(
                     Path(".axiom/retired-schema-freeze.json"),
                     base_retired_freeze_raw,
                     moves=primary_moves,
+                    in_place_waiver_modules=in_place_waiver_modules,
                     retired_schema_modules=frozenset(
                         exact_metadata_retired_schema_modules
                     ),
@@ -25640,6 +26028,11 @@ def _legacy_replacement_manifest_issues(
         issues.append(
             f"{manifest_label} replacement index postimage is unverifiable: {exc}"
         )
+    allowed_metadata_paths = (
+        frozenset({Path("known-validation-gaps.yaml"), Path(".axiom/toolchain.toml")})
+        if in_place_waiver_modules and not primary_moves
+        else _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS
+    )
     listed_metadata_paths: set[Path] = set()
     for reconciliation in metadata_reconciliations:
         if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -25652,10 +26045,7 @@ def _legacy_replacement_manifest_issues(
             continue
         path_raw = reconciliation.get("path")
         path = Path(path_raw) if isinstance(path_raw, str) else Path()
-        if (
-            path not in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS
-            or path in listed_metadata_paths
-        ):
+        if path not in allowed_metadata_paths or path in listed_metadata_paths:
             issues.append(
                 f"{manifest_label} metadata reconciliation path is unauthorized"
             )
@@ -25674,6 +26064,7 @@ def _legacy_replacement_manifest_issues(
                 path,
                 base_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
                 validation_waiver_set_sha256=post_migration_waiver_sha256,
                 retired_manifest_paths=frozenset(exact_metadata_manifest_paths),
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
@@ -25701,13 +26092,14 @@ def _legacy_replacement_manifest_issues(
             {"path": path.as_posix(), "sha256": hashlib.sha256(live_raw).hexdigest()}
         )
     expected_metadata_paths: set[Path] = set()
-    for path in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS:
+    for path in allowed_metadata_paths:
         try:
             base_raw = _rulespec_migration_base_blob(repo_path, base_commit, path)
             expected_raw, _operations = _legacy_metadata_reconciliation_bytes(
                 path,
                 base_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
                 validation_waiver_set_sha256=post_migration_waiver_sha256,
                 retired_manifest_paths=frozenset(exact_metadata_manifest_paths),
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
@@ -25942,6 +26334,7 @@ def _legacy_exact_dependent_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -26114,6 +26507,7 @@ def _legacy_retained_successor_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -26961,12 +27355,14 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
 def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            [shutil.which("git") or "git", "-C", str(repo), "show", f"{ref}:{path}"],
             capture_output=True,
             check=True,
             text=True,
+            timeout=30,
+            env=_read_only_git_environment(),
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
 
 
@@ -27075,12 +27471,224 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
     return provenance
 
 
+class _GuardEncoderIdentity(dict[str, str]):
+    """Portable pin identity with verifier-owned, out-of-band Git context.
+
+    The mapping remains the existing repository/commit/version record. Keeping
+    the checkout out of its keys prevents paths from entering signed records or
+    census reports, and prevents a manifest from choosing its own history. Each
+    resolver creates a fresh instance for one guard operation. Historical nested
+    identities remain plain mappings and retain their existing exact binding.
+    """
+
+    def __init__(
+        self,
+        identity: Mapping[str, str],
+        *,
+        history_checkout: Path | None,
+    ) -> None:
+        super().__init__(identity)
+        self.history_checkout = history_checkout
+        self.producer_admission_cache: dict[tuple[str, str], str | None] = {}
+
+
+def _encoder_producer_admission_issue(
+    producer: object,
+    expected_encoder_identity: Mapping[str, str],
+) -> str | None:
+    """Admit an exact pin or a signed producer on newer first-parent main.
+
+    Called only after production-signature verification by the manifest loader.
+    Versions still bind the exact identity and the manifest's internal blocks;
+    they never establish ordering between different commits.
+    """
+
+    mismatch = "does not match the running pinned encoder"
+    core = _encoder_identity_binding_core(producer)
+    expected = _encoder_identity_binding_core(dict(expected_encoder_identity))
+    if core == expected:
+        return None
+    if (
+        not isinstance(core, dict)
+        or set(core) != {"repository", "commit", "version"}
+        or core.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or expected.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or not isinstance(core.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", core["commit"]) is None
+        or not isinstance(expected.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", expected["commit"]) is None
+        or not isinstance(core.get("version"), str)
+        or not core["version"]
+    ):
+        return f"{mismatch}: producer identity is malformed"
+    if core["commit"] == expected["commit"]:
+        return f"{mismatch}: the pinned commit's version disagrees"
+    if (
+        not isinstance(expected_encoder_identity, _GuardEncoderIdentity)
+        or expected_encoder_identity.history_checkout is None
+    ):
+        return f"{mismatch}: encoder history is unavailable to prove producer ancestry"
+
+    cache_key = (expected["commit"], core["commit"])
+    cache = expected_encoder_identity.producer_admission_cache
+    if cache_key not in cache:
+        cache[cache_key] = _encoder_git_history_admission_issue(
+            expected_encoder_identity.history_checkout,
+            pin=expected["commit"],
+            producer=core["commit"],
+        )
+    history_issue = cache[cache_key]
+    return f"{mismatch}: {history_issue}" if history_issue else None
+
+
+def _guard_encoder_git_run(
+    checkout: Path, *args: str
+) -> subprocess.CompletedProcess[str]:
+    # `-C` first: the provisioned verification runtime's trusted git wrapper
+    # accepts only `git -C <checkout> <command>`. Replacement objects, grafts and
+    # the commit graph are disabled by _read_only_git_environment() here and by
+    # the wrapper's own environment under the supervisor.
+    return subprocess.run(
+        [shutil.which("git") or "git", "-C", str(checkout), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_read_only_git_environment(),
+    )
+
+
+def _guard_encoder_git_metadata_issue(checkout: Path) -> str | None:
+    """Refuse graph-rewriting metadata, including shared worktree metadata."""
+
+    try:
+        graft_path = _guard_encoder_git_run(
+            checkout, "rev-parse", "--path-format=absolute", "--git-common-dir"
+        )
+        if graft_path.returncode != 0 or not graft_path.stdout.strip():
+            return "encoder Git metadata is unavailable: git rev-parse failed"
+        # --git-path info/grafts follows GIT_GRAFT_FILE=/dev/null; inspect the
+        # common directory directly so the neutralizer cannot hide metadata.
+        grafts = Path(graft_path.stdout.strip()) / "info/grafts"
+        if grafts.exists() or grafts.is_symlink():
+            return "encoder history contains forbidden graft metadata"
+        replacements = _guard_encoder_git_run(
+            checkout, "for-each-ref", "--format=%(refname)", "refs/replace/"
+        )
+        if replacements.returncode != 0:
+            return "encoder Git metadata is unavailable: git for-each-ref failed"
+        if replacements.stdout.strip():
+            return "encoder history contains forbidden replacement refs"
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        return f"cannot verify encoder Git metadata: {exc}"
+    return None
+
+
+def _encoder_git_history_admission_issue(
+    checkout: Path,
+    *,
+    pin: str,
+    producer: str,
+) -> str | None:
+    """Prove ancestry using complete, already fetched canonical main history."""
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return _guard_encoder_git_run(checkout, *args)
+
+    def require_success(*args: str) -> str:
+        result = run(*args)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"encoder history is unavailable: git {args[0]} exited {result.returncode}"
+            )
+        return result.stdout.strip()
+
+    try:
+        metadata_issue = _guard_encoder_git_metadata_issue(checkout)
+        if metadata_issue:
+            return metadata_issue
+        shallow = require_success("rev-parse", "--is-shallow-repository")
+        if shallow != "false":
+            return (
+                "encoder history is shallow or unavailable; fetch complete main history"
+            )
+        for label, commit in (("pin", pin), ("producer", producer)):
+            if (
+                require_success("rev-parse", "--verify", f"{commit}^{{commit}}")
+                != commit
+            ):
+                return f"encoder history does not contain the {label} commit"
+
+        # FETCH_HEAD is a Git-written fetch record, not a ref that can redirect
+        # to another branch. Callers authenticate its source and freshness.
+        # Keep Git paths lexical: absolute path formatting resolves filesystem
+        # symlinks before the no-follow checks can inspect them.
+        fetch_head = checkout / require_success("rev-parse", "--git-path", "FETCH_HEAD")
+        if fetch_head.is_symlink():
+            return "encoder fetched main record must not be symbolic"
+        try:
+            fetch_head.lstat()
+        except FileNotFoundError:
+            fetched = None
+        else:
+            raw, _metadata = _read_bounded_nofollow_regular_file(
+                fetch_head,
+                label="encoder fetched main record",
+                max_bytes=4096,
+                require_private=False,
+            )
+            fetched = raw.decode("utf-8")
+        if fetched is not None:
+            record = re.fullmatch(
+                r"([0-9a-f]{40})\t(?:not-for-merge)?\tbranch 'main' of ([^\n]+)\n?",
+                fetched,
+            )
+            if (
+                record is None
+                or _github_repository_identity(record[2])
+                != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+            ):
+                return (
+                    "encoder fetched main record is ambiguous or is not official main"
+                )
+            main_ref, main_commit = "FETCH_HEAD", record[1]
+        else:
+            main_ref = "refs/heads/main"
+            main_path = checkout / require_success("rev-parse", "--git-path", main_ref)
+            if main_path.is_symlink():
+                return "encoder canonical main ref must not be a filesystem symlink"
+            symbolic = run("symbolic-ref", "--quiet", main_ref)
+            if symbolic.returncode == 0:
+                return "encoder canonical main ref must not be symbolic"
+            if symbolic.returncode != 1:
+                return "encoder history is unavailable: git symbolic-ref failed"
+            main_commit = require_success("show-ref", "--verify", "--hash", main_ref)
+        if (
+            require_success("rev-parse", "--verify", f"{main_commit}^{{commit}}")
+            != main_commit
+        ):
+            return "encoder main history does not identify a direct commit"
+        first_parent_main = require_success("rev-list", "--first-parent", main_commit)
+        if producer not in first_parent_main.splitlines():
+            return f"producer is not on the first-parent history of {main_ref}"
+        ancestry = run("merge-base", "--is-ancestor", pin, producer)
+        if ancestry.returncode == 1:
+            return "the pinned encoder commit is not an ancestor of the producer"
+        if ancestry.returncode != 0:
+            return (
+                "encoder history is unavailable: git merge-base exited "
+                f"{ancestry.returncode}"
+            )
+    except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
+        return f"cannot prove encoder producer ancestry: {exc}"
+    return None
+
+
 def _current_guard_encoder_execution_identity() -> dict[str, str]:
     """Return the clean official encoder identity executing this guard/writer.
 
     This is deliberately derived from the running checkout rather than from a
-    manifest claim.  It makes every accepted apply manifest specific to the
-    exact encoder commit and version pinned by the consumer workflow.
+    manifest claim. Git-backed identities also carry the checkout needed to
+    prove whether a signed producer descends from the consumer workflow's pin.
     """
 
     try:
@@ -27117,6 +27725,9 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     repo_root = checkout_identity.get("path")
     if not isinstance(repo_root, str):
         raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    metadata_issue = _guard_encoder_git_metadata_issue(Path(repo_root))
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
@@ -27125,11 +27736,14 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             "running axiom-encode version does not match pyproject.toml, "
             "src/axiom_encode/__init__.py, and uv.lock at HEAD"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": __version__,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": __version__,
+        },
+        history_checkout=Path(repo_root),
+    )
 
 
 def _read_only_guard_encoder_execution_identity(
@@ -27157,6 +27771,9 @@ def _read_only_guard_encoder_execution_identity(
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
+    metadata_issue = _guard_encoder_git_metadata_issue(repo_root)
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
     checkout_version = versions.get("pyproject")
     if not checkout_version or any(
@@ -27171,11 +27788,14 @@ def _read_only_guard_encoder_execution_identity(
             f"provisioned runtime version {__version__} does not match expected "
             f"encoder checkout version {checkout_version}"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": checkout_version,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": checkout_version,
+        },
+        history_checkout=repo_root,
+    )
 
 
 # =========================================================================
@@ -28563,6 +29183,14 @@ def _line_preserving_yaml_mapping_removal(
     rewritten = "".join(
         line for index, line in enumerate(lines) if index not in remove_indexes
     ).encode("utf-8")
+    if isinstance(expected, dict) and expected.get("validate_failures") == {}:
+        rewritten = re.sub(
+            rb"(?m)^(validate_failures:[ \t]*)(#[^\n]*)?$",
+            lambda match: (
+                b"validate_failures: {}" + (b" " + match[2] if match[2] else b"")
+            ),
+            rewritten,
+        )
     try:
         actual = yaml.safe_load(rewritten.decode("utf-8"))
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
@@ -28776,6 +29404,7 @@ def _legacy_metadata_reconciliation_bytes(
     retired_schema_count_transition: tuple[int, int] | None = None,
     reindexed_modules: Mapping[str, bytes] | None = None,
     new_destination_modules: Mapping[str, bytes] | None = None,
+    in_place_waiver_modules: frozenset[str] = frozenset(),
 ) -> tuple[bytes, tuple[dict[str, object], ...]]:
     """Apply one audited metadata cleanup from an explicit move set."""
 
@@ -28956,7 +29585,9 @@ def _legacy_metadata_reconciliation_bytes(
             },
         )
     elif path == Path("known-validation-gaps.yaml"):
-        rewritten, count = _line_preserving_yaml_mapping_removal(raw, keys=old_modules)
+        rewritten, count = _line_preserving_yaml_mapping_removal(
+            raw, keys=old_modules | set(in_place_waiver_modules)
+        )
         operations = ({"operation": "remove_legacy_validation_gaps", "count": count},)
     elif path == Path("oracle-coverage-pending.yaml"):
         relocated, moved_count, removal_moves = (
@@ -29018,10 +29649,11 @@ def _legacy_metadata_reconciliations(
     moves: Sequence[PlannedMove],
     exact_dependents: Sequence[_LegacyReplacementExactDependent] = (),
     deferred_index: bool = False,
+    in_place_waiver_modules: frozenset[str] = frozenset(),
 ) -> tuple[_LegacyReplacementRewrite, ...]:
     """Build audited path-move metadata and its derived toolchain binding."""
 
-    if not moves:
+    if not moves and not in_place_waiver_modules:
         return ()
     old_modules = {move.source.as_posix() for move in moves}
     old_identities = {rulespec_identity(move.source) for move in moves}
@@ -29056,6 +29688,7 @@ def _legacy_metadata_reconciliations(
             retired_freeze_path,
             retired_freeze_raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
             retired_schema_modules=retired_schema_modules,
         )
         before_retired_count = len(json.loads(retired_freeze_raw)["artifacts"])
@@ -29071,7 +29704,7 @@ def _legacy_metadata_reconciliations(
         Path(".axiom/pending-validation-fingerprints.json"): old_modules,
         Path(".axiom/retired-schema-freeze.json"): old_modules
         | set(retired_schema_modules),
-        Path("known-validation-gaps.yaml"): old_modules,
+        Path("known-validation-gaps.yaml"): old_modules | set(in_place_waiver_modules),
         Path("oracle-coverage-pending.yaml"): old_identities,
         Path("tests/test_encoding_manifests.py"): old_manifests,
         _RETIRED_SCHEMA_COUNT_TEST_PATH: set(),
@@ -29090,6 +29723,7 @@ def _legacy_metadata_reconciliations(
             waiver_path,
             waiver_raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
         )
         post_migration_waiver_sha256 = hashlib.sha256(waiver_rewritten).hexdigest()
     reconciliations: list[_LegacyReplacementRewrite] = []
@@ -29097,6 +29731,11 @@ def _legacy_metadata_reconciliations(
         _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS,
         key=Path.as_posix,
     ):
+        if not moves and path not in {
+            Path("known-validation-gaps.yaml"),
+            Path(".axiom/toolchain.toml"),
+        }:
+            continue
         if path not in tracked:
             continue
         if deferred_index and path == Path(".axiom/index/provisions_to_rules.json"):
@@ -29127,6 +29766,7 @@ def _legacy_metadata_reconciliations(
             path,
             raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
             validation_waiver_set_sha256=post_migration_waiver_sha256,
             retired_manifest_paths=retired_manifest_paths,
             retired_schema_modules=retired_schema_modules,
@@ -29994,6 +30634,9 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        in_place_waiver_modules=frozenset({source.as_posix()})
+        if in_place
+        else frozenset(),
         deferred_index=provision_index_base is not None,
     )
     excluded.update(item.path for item in preliminary_metadata_reconciliations)
@@ -30251,6 +30894,9 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        in_place_waiver_modules=frozenset({source.as_posix()})
+        if in_place
+        else frozenset(),
         exact_dependents=exact_dependents,
         deferred_index=provision_index_base is not None,
     )
@@ -30812,20 +31458,68 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             backend=args.backend,
             model=config.escalation_model,
         )
-    with LiveRunTelemetry(
-        citation=str(args.citation),
-        backend=str(getattr(args, "backend", "") or ""),
-        model=str(config.initial_model or ""),
-        encoder_version=__version__,
-        enabled=getattr(args, "sync", True) is True,
-    ) as live_run:
+    with (
+        activate_encode_loop_timer(EncodeLoopTimer()) as loop_timer,
+        LiveRunTelemetry(
+            citation=str(args.citation),
+            backend=str(getattr(args, "backend", "") or ""),
+            model=str(config.initial_model or ""),
+            encoder_version=__version__,
+            enabled=getattr(args, "sync", True) is True,
+        ) as live_run,
+    ):
         return _run_encode_attempts_with_retries(
             args,
             config=config,
             live_run=live_run,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            loop_timer=loop_timer,
         )
+
+
+def _stamp_encode_loop_timing(
+    run: EncodingRun,
+    outcome: dict,
+    *,
+    loop_timer: EncodeLoopTimer,
+    db_path: Path,
+) -> None:
+    """Copy each try's wall time and phases onto the run, and the loop totals
+    into its outcome, before the outcome is recorded and synced.
+
+    Telemetry only: a failure here is reported and never fails the encode.
+    """
+    try:
+        tries = {timing.attempt: timing for timing in loop_timer.tries}
+        stamps = {
+            attempt: {
+                "started_at": timing.started_at,
+                "finished_at": timing.finished_at,
+                "wall_duration_ms": timing.wall_duration_ms,
+                "phases": timing.phase_dicts(),
+            }
+            for attempt, timing in tries.items()
+        }
+        loop_timing = loop_timer.loop_timing()
+        # The local row is written first: the run and its outcome take the
+        # timing only once it is stored, so a failed write leaves the local
+        # row, the Supabase sync and the run log all without it.
+        EncodingDB(db_path).update_run_iterations(
+            run.id,
+            [
+                dataclass_replace(iteration, **stamps[iteration.attempt])
+                if iteration.attempt in stamps
+                else iteration
+                for iteration in run.iterations
+            ],
+        )
+        for iteration in run.iterations:
+            for name, value in stamps.get(iteration.attempt, {}).items():
+                setattr(iteration, name, value)
+        outcome["encode_loop_timing"] = loop_timing
+    except Exception as exc:  # noqa: BLE001 - timing must never fail an encode
+        print(f"  encode_timing=failed:{type(exc).__name__}")
 
 
 def _run_encode_attempts_with_retries(
@@ -30835,8 +31529,13 @@ def _run_encode_attempts_with_retries(
     live_run: LiveRunTelemetry,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    loop_timer: EncodeLoopTimer | None = None,
 ):
     """Bounded validator-retry loop for one encode invocation."""
+    if loop_timer is None:
+        # Callers outside ``_cmd_encode_with_authoritative_rulespec_roots``
+        # still get per-try wall time; phases need an active timer.
+        loop_timer = EncodeLoopTimer()
     raw_emit_destination = getattr(args, "emit_final_rejected_candidate", None)
     emit_destination = (
         _resolve_final_rejected_candidate_destination(raw_emit_destination)
@@ -30850,6 +31549,8 @@ def _run_encode_attempts_with_retries(
     current_model = config.initial_model
 
     while True:
+        # A try runs until the next one starts or the loop stops judging it.
+        loop_timer.start_try(len(failed_attempts) + 1)
         execution = _run_encode_attempt(
             args,
             model=current_model,
@@ -30860,6 +31561,7 @@ def _run_encode_attempts_with_retries(
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
         )
+        loop_timer.mark(PHASE_RETRY_HANDOFF)
         next_model = None
         if _encode_attempt_was_validator_rejected(
             execution.result,
@@ -30919,6 +31621,8 @@ def _run_encode_attempts_with_retries(
                 live_run.set_attempt(len(failed_attempts) + 1, str(current_model))
                 continue
 
+        # The last candidate is judged; what follows is the loop's finalization.
+        loop_timer.finish_try()
         outcome = execution.outcome
         final_validator_rejected = _encode_attempt_was_validator_rejected(
             execution.result,
@@ -30986,6 +31690,12 @@ def _run_encode_attempts_with_retries(
                 final_attempt_error=final_attempt_error,
             )
             print(f"  run_id={logged_run.id}")
+        _stamp_encode_loop_timing(
+            logged_run,
+            outcome,
+            loop_timer=loop_timer,
+            db_path=db_path,
+        )
         repair_manifest = _record_encode_outcome(
             db_path=db_path,
             result=execution.result,
@@ -30997,6 +31707,7 @@ def _run_encode_attempts_with_retries(
             logged_run.id,
             outcome,
             total_duration_ms=logged_run.total_duration_ms,
+            iterations=logged_run.iterations,
         )
         apply_requested = getattr(args, "apply", False) is True
         if apply_requested:
@@ -31048,8 +31759,14 @@ def _run_encode_attempt(
         raise RuntimeError(
             "encode --apply requires its signing key to be isolated before generation"
         )
+    # Phases advance inside run_model_eval (model_call, stage_candidate,
+    # candidate_validation, record_result) and below under --apply.
+    mark_encode_phase(PHASE_PREPARE)
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     if args.backend == "codex":
         auth_error = codex_auth_error()
         if auth_error:
@@ -31126,6 +31843,7 @@ def _run_encode_attempt(
     deferred_output_review_contract = getattr(args, "review_contract_json", None)
     amendment_source_texts: dict[str, str] | None = None
 
+    @timed_phase(PHASE_OVERLAY_VALIDATION)
     def _validate_generated_encoding_in_policy_overlay(
         result,
         *,
@@ -31153,6 +31871,7 @@ def _run_encode_attempt(
             output_root=output_root,
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             local_corpus_release=corpus_release,
             validate_dependents=validate_dependents,
             scheduled_dependent_rulespec_paths=tuple(
@@ -31193,9 +31912,13 @@ def _run_encode_attempt(
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
+        codex_reasoning_effort=getattr(
+            args, "codex_reasoning_effort", DEFAULT_CODEX_REASONING_EFFORT
+        ),
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         corpus_release=corpus_release,
         mode=args.mode,
         extra_context_paths=extra_context_paths,
@@ -31380,6 +32103,9 @@ def _run_encode_attempt(
             ci_issues,
         )
     if apply_requested:
+        # Overlay validations run as nested phases; the rest of this branch
+        # is apply-time repairs and checks until the signed apply starts.
+        mark_encode_phase(PHASE_APPLY_REPAIR)
         if not _can_attempt_apply(result):
             detail = str(getattr(result, "error", None) or "generation failed")
             outcome["status"] = "apply_blocked_generation"
@@ -31605,6 +32331,34 @@ def _run_encode_attempt(
                 )
             )
             outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_invalid_source_verification_values = (
+                    _try_repair_generated_invalid_source_verification_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_invalid_source_verification_values:
+                    outcome["auto_repaired_invalid_source_verification_values"] = (
+                        repaired_invalid_source_verification_values
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_source_verification_values:"
+                        + ",".join(repaired_invalid_source_verification_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
                 repaired_source_relation_types = (
                     _try_repair_generated_invalid_source_relation_types_for_apply(
@@ -33283,6 +34037,8 @@ def _run_encode_attempt(
                             result,
                             output_root=args.output,
                             policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            rulespec_dependency_roots=rulespec_dependency_roots,
                             issues=apply_issues,
                         )
                     )
@@ -34148,6 +34904,7 @@ def _run_encode_attempt(
                     outcome["final_success"] = False
                     print(f"  apply=blocked_validation:{detail}")
                 else:
+                    mark_encode_phase(PHASE_APPLY_WRITE)
                     try:
                         applied = _apply_generated_encoding_result(
                             result,
@@ -39294,7 +40051,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         if (parsed := _parse_scalar_relation_row_issue(str(issue))) is not None
     ]
     try:
-        _relative_generated_output_path(result, output_root=output_root)
+        relative_output = _relative_generated_output_path(
+            result, output_root=output_root
+        )
     except RuntimeError:
         return []
 
@@ -39312,6 +40071,9 @@ def _try_repair_generated_scalar_relation_rows_for_apply(
         test_file=test_file,
         policy_repo_path=policy_repo_path,
         parsed_issues=parsed_issues,
+        generated_anchor=_relative_output_to_anchor(
+            relative_output, policy_repo_path=policy_repo_path
+        ),
     )
 
 
@@ -39613,6 +40375,7 @@ def _repair_scalar_relation_rows(
     test_file: Path,
     policy_repo_path: Path,
     parsed_issues: list[tuple[str, str, int]],
+    generated_anchor: str | None = None,
 ) -> list[str]:
     if not test_file.exists():
         return []
@@ -39647,17 +40410,34 @@ def _repair_scalar_relation_rows(
                 scalar_value = rows[list_index]
                 if isinstance(scalar_value, dict):
                     continue
-                replacement = _relation_row_replacement_from_companion_tests(
+                companion_replacement = _relation_row_replacement_from_companion_tests(
                     relation_key,
                     scalar_value,
                     policy_repo_path=policy_repo_path,
                 )
-                if replacement is None:
-                    replacement = _relation_row_replacement_from_generated_rules(
-                        relation_key,
-                        scalar_value,
-                        rules_file=rules_file,
-                    )
+                generated_replacement = _relation_row_replacement_from_generated_rules(
+                    relation_key,
+                    scalar_value,
+                    rules_file=rules_file,
+                )
+                generated_owns_relation = _generated_file_defines_relation(
+                    rules_file,
+                    relation_key,
+                    generated_anchor=generated_anchor,
+                )
+                # A protected replacement can rename the relation's child input.
+                # An older companion test then has a plausible row shape whose
+                # input is no longer declared by the generated module. Prefer
+                # the generated formula's single child fact in that case.
+                if (
+                    companion_replacement is not None
+                    and generated_replacement is not None
+                    and generated_owns_relation
+                    and not generated_replacement.keys() <= companion_replacement.keys()
+                ):
+                    replacement = generated_replacement
+                else:
+                    replacement = companion_replacement or generated_replacement
                 if replacement is None:
                     continue
                 rows[list_index] = replacement
@@ -39850,12 +40630,11 @@ def _relation_row_replacement_from_companion_tests(
             return copy.deepcopy(row)
     if isinstance(scalar_value, bool):
         template = copy.deepcopy(exemplar_rows[0])
-        changed = False
-        for key, value in list(template.items()):
-            if isinstance(value, bool):
-                template[key] = scalar_value
-                changed = True
-        if changed:
+        boolean_keys = [
+            key for key, value in template.items() if isinstance(value, bool)
+        ]
+        if len(boolean_keys) == 1:
+            template[boolean_keys[0]] = scalar_value
             return template
     return None
 
@@ -39890,6 +40669,34 @@ def _relation_row_replacement_from_generated_rules(
     relation_base = relation_ref.split("#", 1)[0].strip()
     child_ref = f"{relation_base}#input.{next(iter(child_names))}"
     return {child_ref: copy.deepcopy(scalar_value)}
+
+
+def _generated_file_defines_relation(
+    rules_file: Path | None,
+    relation_ref: str,
+    *,
+    generated_anchor: str | None,
+) -> bool:
+    """Whether the generated module owns the relation being repaired."""
+    if rules_file is None or not rules_file.exists():
+        return False
+    module_ref = relation_ref.split("#", 1)[0].strip()
+    if generated_anchor != module_ref:
+        return False
+    relation_name = _relation_name_from_relation_ref(relation_ref)
+    if not relation_name:
+        return False
+    try:
+        payload = yaml.safe_load(rules_file.read_text()) or {}
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    return isinstance(rules, list) and any(
+        isinstance(rule, dict)
+        and rule.get("name") == relation_name
+        and rule.get("kind") == "data_relation"
+        for rule in rules
+    )
 
 
 def _relation_name_from_relation_ref(relation_ref: str) -> str:
@@ -39945,7 +40752,8 @@ def _relation_row_matches_scalar_value(
     scalar_value: object,
 ) -> bool:
     if isinstance(scalar_value, bool):
-        return any(value is scalar_value for value in row.values())
+        boolean_values = [value for value in row.values() if isinstance(value, bool)]
+        return len(boolean_values) == 1 and boolean_values[0] is scalar_value
     return False
 
 
@@ -43237,7 +44045,7 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
     policy_repo_path: Path,
     issues: list[str],
 ) -> list[str]:
-    """Add deferred outputs for unsupported source gaps in otherwise encoded modules."""
+    """Add only source-corroborated deferrals for gaps in encoded modules."""
     source_gaps = [
         gap
         for issue in issues
@@ -43271,8 +44079,26 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         return []
     module = payload.get("module")
     if not isinstance(module, dict):
-        module = {}
-        payload["module"] = module
+        return []
+    verification = module.get("source_verification")
+    citation_path = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if not isinstance(citation_path, str) or not citation_path.strip():
+        return []
+    try:
+        source_text = _read_eval_source_text(
+            getattr(result, "context_manifest_file", "")
+        )
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not source_text:
+        return []
+    branches = recognize_source_structure(
+        source_text, corpus_citation_path=citation_path
+    )
     deferred_outputs = module.get("deferred_outputs")
     if deferred_outputs is None:
         deferred_outputs = []
@@ -43296,18 +44122,28 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         output = f"{output_path}#{symbol}"
         if output in existing_outputs:
             continue
-        deferred_outputs.append(
-            {
-                "output": output,
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
+        record = {
+            "output": output,
+            "reason": (
+                "Generated module encodes the supported rules from this "
+                "source, but this source subparagraph depends on policy "
+                "surfaces or entities that are not available in the current "
+                "RuleSpec context. It is deferred instead of being modeled "
+                "as a caller-supplied input or an unsupported local entity."
+            ),
+        }
+        # Coverage is not evidence of a missing capability. Authenticate the
+        # proposed record with the same precise-deferral gate before writing it.
+        proposed = {**payload, "module": {**module, "deferred_outputs": [record]}}
+        covered, deferral_issues = _deferred_coverage(
+            proposed,
+            corpus_citation_path=citation_path,
+            source_text=source_text,
+            branches=branches,
         )
+        if not covered or deferral_issues:
+            continue
+        deferred_outputs.append(record)
         existing_outputs.add(output)
         repaired.append(output)
 
@@ -47785,6 +48621,8 @@ def _try_repair_generated_derived_output_tests_for_apply(
     output_root: Path,
     policy_repo_path: Path,
     issues: list[str],
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Append deterministic coverage tests for unasserted local derived outputs."""
     if not _only_pending_missing_derived_output_coverage_issues(issues):
@@ -47799,10 +48637,12 @@ def _try_repair_generated_derived_output_tests_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _append_generated_derived_output_tests_if_missing(
+    return _append_generated_derived_output_tests_in_overlay(
         rules_file=rules_file,
         test_file=test_file,
-        repo_path=policy_repo_path,
+        policy_repo_path=policy_repo_path,
+        axiom_rules_path=axiom_rules_path,
+        rulespec_dependency_roots=rulespec_dependency_roots,
         relative_output=relative_output,
         issues=issues,
     )
@@ -47846,6 +48686,61 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
         relative_output=relative_output,
         issues=issues,
     )
+
+
+def _append_generated_derived_output_tests_in_overlay(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[str]:
+    """Screen one generated-only batch in a canonical temporary checkout."""
+    if not _missing_derived_output_targets_from_issues(issues):
+        return []
+    try:
+        content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
+        checkout = _rulespec_apply_checkout_root(policy_repo_path, relative_output)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir).resolve(strict=True)
+            overlay = parent / checkout.name
+            dependencies = _stage_apply_overlay_dependency_roots(
+                overlay_parent=parent,
+                policy_repo_path=checkout,
+                overlay_repo_name=checkout.name,
+                rulespec_dependency_roots=rulespec_dependency_roots,
+            )
+            _stage_apply_overlay_dependency_root(source=checkout, target=overlay)
+            root = overlay / content_root.name
+            if canonical_rulespec_root_identity(root) is None:
+                return []
+            policy = root / relative_output
+            policy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(rules_file, policy)
+            companion = _rulespec_test_path(policy)
+
+            def check(candidate: Path):
+                shutil.copy2(candidate, companion)
+                return _rulespec_companion_test_failures(
+                    companion,
+                    root=root,
+                    axiom_rules_path=axiom_rules_path,
+                    rulespec_dependency_roots=dependencies,
+                )
+
+            return _append_generated_derived_output_tests_if_missing(
+                rules_file=rules_file,
+                test_file=test_file,
+                repo_path=policy_repo_path,
+                relative_output=relative_output,
+                issues=issues,
+                test_failure_checker=check,
+            )
+    except Exception:
+        return []
 
 
 def _append_generated_judgment_positive_tests_in_overlay(
@@ -56625,6 +57520,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -56940,6 +57836,12 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
 
         supplemental_files: dict[Path, str] = {}
+        mapped_shape_repairs = _repair_existing_target_oracle_shape_contracts(
+            rules_file=overlay_target,
+            contract=existing_target_oracle_contract,
+        )
+        if mapped_shape_repairs:
+            supplemental_files[relative_output] = overlay_target.read_text()
         repaired_import_symbols = _repair_generated_import_symbol_near_misses(
             rules_file=overlay_target,
             repo_path=overlay_content_root,
@@ -56950,6 +57852,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
             local_corpus_release=local_corpus_release,
@@ -56982,6 +57885,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_pipeline=ValidatorPipeline(
                     policy_repo_path=overlay_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -56990,6 +57894,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 baseline_pipeline=ValidatorPipeline(
                     policy_repo_path=policy_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -57513,6 +58418,20 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                     validator_name=validator_name,
                 ):
                     issues.append(issue)
+        # Report the exact contract against the same final overlay bytes even
+        # when unrelated validators fail. The success-path admission gate above
+        # remains mandatory; this only makes missing obligations visible to retry.
+        issues.extend(
+            f"{relative_output}: {issue}"
+            for issue in _required_deferred_output_contract_issues(
+                overlay_target,
+                deferred_output_review_contract,
+                citation=str(getattr(result, "citation", "") or ""),
+                rulespec_path=policy_content_root.name
+                + "/"
+                + relative_output.as_posix(),
+            )
+        )
         return False, issues, {}
 
 
@@ -57555,6 +58474,7 @@ def _run_generated_encoding_overlay_validation(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -57571,6 +58491,7 @@ def _run_generated_encoding_overlay_validation(
         output_root=output_root,
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=local_corpus_release,
         validate_dependents=validate_dependents,
         scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,
@@ -57610,6 +58531,85 @@ def _stage_apply_overlay_dependency_roots(
         staged_names.add(dependency_root.name)
         staged.append(target)
     return tuple(staged)
+
+
+def _repair_existing_target_oracle_shape_contracts(
+    *,
+    rules_file: Path,
+    contract: ExistingTargetOracleContract | None,
+) -> list[str]:
+    """Restore exact mapped schemas while leaving generated policy logic intact.
+
+    Replacement generation may legitimately rewrite formulas, but an exact oracle
+    mapping makes the exported rule schema immutable except for a validator-proven
+    ``replacement_entity``.  Repair those mechanical fields deterministically so
+    a model cannot accidentally migrate an otherwise valid mapped helper while
+    correcting a neighbouring legacy entity defect.
+    """
+
+    if contract is None or not rules_file.exists():
+        return []
+    try:
+        payload = _safe_load_unique_keys(rules_file.read_text())
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return []
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    repaired: list[str] = []
+    for expected in contract.surfaces:
+        rule = rules.get(expected.name)
+        if not isinstance(rule, dict):
+            continue
+        if len(expected.indexed_by) > 1:
+            raise ValueError(
+                f"Cannot restore mapped rule {expected.name!r}: "
+                "multiple indexed_by dimensions are unsupported"
+            )
+        changed = False
+        protected_fields: dict[str, object] = {
+            "kind": expected.kind,
+            "entity": expected.replacement_entity or expected.entity,
+            "dtype": expected.dtype,
+            "period": expected.period,
+            "unit": expected.unit,
+            "indexed_by": expected.indexed_by[0] if expected.indexed_by else "",
+        }
+        for field, value in protected_fields.items():
+            if value == "" or value == () or value == []:
+                if field in rule:
+                    rule.pop(field, None)
+                    changed = True
+                continue
+            if rule.get(field) != value:
+                rule[field] = value
+                changed = True
+        metadata = rule.get("metadata")
+        if expected.private:
+            if not isinstance(metadata, dict):
+                metadata = {}
+                rule["metadata"] = metadata
+            if metadata.get("private") is not True:
+                metadata["private"] = True
+                changed = True
+        elif isinstance(metadata, dict) and "private" in metadata:
+            metadata.pop("private", None)
+            changed = True
+        if changed:
+            repaired.append(expected.name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return repaired
 
 
 _APPLY_OVERLAY_IGNORED_NAMES = frozenset(
@@ -59455,7 +60455,7 @@ def _resolve_scheduled_proof_hash_dependents(
     overlay_content_root: Path,
     dependents: Sequence[Path],
 ) -> set[Path]:
-    """Authenticate dependents deferred to separately source-bound apply lanes."""
+    """Authenticate proof-pinned dependents for separately source-bound lanes."""
 
     if not scheduled_paths:
         return set()
@@ -59498,10 +60498,42 @@ def _resolve_scheduled_proof_hash_dependents(
             repo_path=overlay_content_root,
         )
         if repair_count <= 0 or repaired == content:
-            raise ValueError(
-                "Scheduled dependent has no stale proof import hash after target "
-                f"replacement: {path}"
-            )
+            if len(scheduled) != 1:
+                raise ValueError(
+                    "Scheduled dependent has no stale proof import hash after target "
+                    f"replacement: {path}"
+                )
+            first = next(iter(scheduled))
+            first_relative = first.relative_to(overlay_content_root)
+            first_import = _relative_rulespec_import_target(first_relative)
+            if not _rulespec_file_imports_target(
+                candidate,
+                target=first_import,
+                jurisdiction=overlay_content_root.name,
+            ):
+                raise ValueError(
+                    "Scheduled second dependent is not a direct importer of the "
+                    f"first scheduled proof-hash dependent: {path}"
+                )
+            try:
+                payload = yaml.safe_load(content)
+            except (ValueError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"Cannot inspect scheduled dependent proof: {path}"
+                ) from exc
+            from .prepare_signed_backfill import _payload_has_proof_import_for_target
+
+            if not isinstance(
+                payload, dict
+            ) or not _payload_has_proof_import_for_target(
+                payload,
+                target_import=first_import,
+                canonical_target_import=(f"{overlay_content_root.name}:{first_import}"),
+            ):
+                raise ValueError(
+                    "Scheduled second dependent lacks a proof import pinned to "
+                    f"the first scheduled dependent: {path}"
+                )
         scheduled.add(candidate)
     return scheduled
 
@@ -59745,6 +60777,7 @@ def _finalize_legacy_exact_dependents_from_overlay(
 
 _MISSING_INPUT_RE = re.compile(
     r"(?:Test case `)?(?P<case>[^`:]+)`?(?: execution failed)?: "
+    r"(?:(?!Test case `)[^\n]*\n)*?"
     r"missing input `(?P<input>[^`]+)`"
     r"(?: for entity `(?P<entity>[^`]+)`)?"
 )
@@ -60273,6 +61306,13 @@ def _complete_missing_imported_test_inputs(
     missing_inputs = {assignment["input"] for assignment in missing_assignments}
     if not missing_inputs:
         return False
+    if _copy_case_facts_to_single_empty_relation_row(
+        rules_file=rules_file,
+        test_file=test_file,
+        repo_path=repo_path,
+        assignments=missing_assignments,
+    ):
+        return True
     current_base = _rulespec_base_for_file(rules_file, repo_path=repo_path)
     local_input_refs: dict[str, list[str]] = {}
     if current_base:
@@ -60332,6 +61372,85 @@ def _complete_missing_imported_test_inputs(
         return False
     test_file.write_text(updated)
     return True
+
+
+def _copy_case_facts_to_single_empty_relation_row(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    repo_path: Path,
+    assignments: list[dict[str, str]],
+) -> bool:
+    """Use explicit case facts for an unambiguous generated relation member.
+
+    A generated case may assert Person outputs at the top level and use a
+    single empty Person row for its Household output.  Defaults would turn an
+    explicitly elderly member into a younger one.  Copy only facts declared
+    for the relation's child entity, and only for the exact failing row.
+    """
+    try:
+        rules_payload = yaml.safe_load(rules_file.read_text()) or {}
+        cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return False
+    if not isinstance(rules_payload, dict) or not isinstance(cases, list):
+        return False
+    anchor = _rulespec_base_for_file(rules_file, repo_path=repo_path)
+    if not anchor:
+        return False
+    rules = rules_payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    declared_inputs = rules_payload.get("inputs")
+    input_entities = (
+        {
+            str(item.get("name")): str(item.get("entity"))
+            for item in declared_inputs
+            if isinstance(item, dict) and item.get("name") and item.get("entity")
+        }
+        if isinstance(declared_inputs, list)
+        else {}
+    )
+    relation_children: dict[str, str] = {}
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("kind") != "data_relation":
+            continue
+        relation = rule.get("data_relation")
+        arguments = relation.get("arguments") if isinstance(relation, dict) else None
+        if not isinstance(arguments, list) or len(arguments) != 2:
+            continue
+        child = arguments[1]
+        if isinstance(child, dict) and isinstance(child.get("entity"), str):
+            relation_children[str(rule.get("name"))] = child["entity"]
+    changed = False
+    for assignment in assignments:
+        entity_id = assignment.get("entity", "")
+        for relation_name, child_entity in relation_children.items():
+            relation_ref = f"{anchor}#relation.{relation_name}"
+            if not entity_id.endswith(f"{relation_ref}-1"):
+                continue
+            for case in cases:
+                if not isinstance(case, dict) or case.get("name") != assignment["case"]:
+                    continue
+                inputs = case.get("input")
+                if not isinstance(inputs, dict) or inputs.get(relation_ref) != [{}]:
+                    continue
+                child_facts = {
+                    ref: value
+                    for ref, value in inputs.items()
+                    if isinstance(ref, str)
+                    and ref.startswith(f"{anchor}#input.")
+                    and input_entities.get(ref.rsplit("#input.", 1)[1]) == child_entity
+                }
+                if f"{anchor}#input.{assignment['input']}" not in child_facts:
+                    continue
+                # YAML anchors may share both the input mapping and relation
+                # list across cases. Replace them for this case alone.
+                case["input"] = {**inputs, relation_ref: [child_facts]}
+                changed = True
+    if changed:
+        test_file.write_text(yaml.safe_dump(cases, sort_keys=False, allow_unicode=True))
+    return changed
 
 
 def _complete_missing_local_test_inputs(
@@ -60910,7 +62029,19 @@ def _insert_input_default_in_relation_rows(
                     rendered = rendered_value
                 indent = " " * (item_indent + 2)
                 newline = "\n" if lines[index].endswith("\n") else ""
-                insertions.setdefault(index + 1, []).append(
+                insertion_index = index + 1
+                if (
+                    re.match(r"^\s*-\s+\?\s+", lines[index])
+                    and insertion_index < item_end
+                    and re.match(r"^\s+:\s+", lines[insertion_index])
+                ):
+                    # PyYAML renders canonical RuleSpec references longer than
+                    # 127 characters as an explicit ``? key`` / ``: value``
+                    # pair.  Keep that pair contiguous: inserting between the
+                    # two lines produces invalid YAML on the next validation
+                    # pass.
+                    insertion_index += 1
+                insertions.setdefault(insertion_index, []).append(
                     f"{indent}{input_ref}: {rendered}{newline}"
                 )
             index = item_end

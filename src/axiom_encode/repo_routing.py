@@ -15,6 +15,7 @@ active content root).
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import stat
@@ -750,16 +751,50 @@ def _nearest_git_boundary(path: Path) -> Path | None:
     return None
 
 
+def _git_probe_timeout_seconds() -> float:
+    """Use a per-attempt budget of at most five minutes for loaded hosts."""
+
+    try:
+        timeout = float(os.environ.get("AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS", "10"))
+    except ValueError:
+        timeout = math.nan
+    if not math.isfinite(timeout) or not 0 < timeout <= 300:
+        raise _GitProbeError(
+            "AXIOM_ENCODE_GIT_PROBE_TIMEOUT_SECONDS must be finite, positive, "
+            "and at most 300 seconds",
+            category="invalid-timeout",
+        )
+    return timeout
+
+
+def _run_git_probe(command: list[str]) -> subprocess.CompletedProcess[str]:
+    """Retry one timeout without admitting an unchecked repository identity."""
+
+    timeout = _git_probe_timeout_seconds()
+    try:
+        return subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+
 def _git_top_level(root: str) -> Path | None:
     """Return the exact Git worktree root containing ``root``, when present."""
 
     try:
-        completed = subprocess.run(
+        completed = _run_git_probe(
             ["git", "-C", root, "rev-parse", "--show-toplevel"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _GitProbeError(
@@ -777,12 +812,8 @@ def _git_top_level(root: str) -> Path | None:
 def _git_origin_repo_name(root: str) -> str | None:
     """Best-effort repository basename from Git origin."""
     try:
-        completed = subprocess.run(
+        completed = _run_git_probe(
             ["git", "-C", root, "remote", "get-url", "origin"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _GitProbeError(
@@ -818,7 +849,7 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
         )
     system_config_inputs = _git_system_config_input_paths(root)
     try:
-        completed = subprocess.run(
+        completed = _run_git_probe(
             [
                 "git",
                 "-C",
@@ -828,10 +859,6 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
                 "--null",
                 "--list",
             ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _GitProbeError(
@@ -896,12 +923,8 @@ def _git_system_config_input_paths(root: str) -> tuple[Path, ...]:
     """Return Git's platform-specific system config candidates, even if absent."""
 
     try:
-        completed = subprocess.run(
+        completed = _run_git_probe(
             ["git", "-C", root, "var", "GIT_CONFIG_SYSTEM"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise _GitProbeError(

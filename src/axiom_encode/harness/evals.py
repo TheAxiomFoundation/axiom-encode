@@ -33,7 +33,9 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
 from axiom_encode.codex_cli import (
+    DEFAULT_CODEX_REASONING_EFFORT,
     resolve_codex_cli,
+    validate_codex_reasoning_effort,
     with_codex_model_availability_hint,
 )
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
@@ -47,6 +49,18 @@ from axiom_encode.constants import (
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
+)
+from axiom_encode.encode_timing import (
+    PHASE_ARTIFACT_REPAIR,
+    PHASE_CANDIDATE_VALIDATION,
+    PHASE_MODEL_CALL,
+    PHASE_PREPARE,
+    PHASE_RECORD_RESULT,
+    PHASE_REPAIR_OVERLAY,
+    PHASE_RETAINED_CANDIDATE_PREFLIGHT,
+    PHASE_STAGE_CANDIDATE,
+    mark_encode_phase,
+    timed_phase,
 )
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
@@ -86,6 +100,7 @@ from axiom_encode.toolchain import (
     verify_rulespec_validation_waiver_set,
 )
 
+from .coverage_index import format_coverage_index
 from .dependency_stubs import (
     ResolvedCanonicalConcept,
     ResolvedDefinedTerm,
@@ -776,6 +791,7 @@ class EvalRunnerSpec:
     name: str
     backend: str
     model: str
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT
 
 
 @dataclass
@@ -1580,14 +1596,17 @@ def run_model_eval(
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
+    axiom_compose_path: Path | None = None,
     required_import_targets: Sequence[str] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    codex_reasoning_effort: str = DEFAULT_CODEX_REASONING_EFFORT,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    validate_codex_reasoning_effort(codex_reasoning_effort)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
         raise ValueError(
@@ -1622,6 +1641,12 @@ def run_model_eval(
     )
     results: list[EvalResult] = []
     runners = [parse_runner_spec(spec) for spec in runner_specs]
+    runners = [
+        replace(runner, codex_reasoning_effort=codex_reasoning_effort)
+        if runner.backend == "codex"
+        else runner
+        for runner in runners
+    ]
     resolved_sources = [
         (citation, resolve_corpus_source_unit(citation, corpus_release))
         for citation in citations
@@ -1637,6 +1662,7 @@ def run_model_eval(
                         output_root=output_root,
                         policy_path=policy_path,
                         runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         corpus_release=corpus_release,
                         mode=mode,
                         extra_context_paths=extra_context_paths or [],
@@ -3753,6 +3779,29 @@ def _deterministic_tree_identity(
     }
 
 
+def _read_only_git_environment() -> dict[str, str]:
+    """Keep private child isolation and use only the checkout's real Git graph."""
+
+    environment = {
+        key: value
+        for key, value in scrub_attestation_signing_keys().items()
+        if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return environment
+
+
 def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
     """Return git stdout for one read-only identity query, if available."""
 
@@ -3764,9 +3813,10 @@ def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
             [git_executable, "-C", str(checkout), *args],
             check=False,
             capture_output=True,
-            env=scrub_attestation_signing_keys(),
+            env=_read_only_git_environment(),
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:
         return None
@@ -7286,6 +7336,7 @@ def evaluate_artifact(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -7306,6 +7357,7 @@ def evaluate_artifact(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -7464,6 +7516,7 @@ def _evaluate_artifact_in_scope(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -7500,6 +7553,7 @@ def _evaluate_artifact_in_scope(
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=oracle != "none",
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
@@ -7871,6 +7925,7 @@ def _evaluate_generated_artifact_with_repairs(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -7883,6 +7938,7 @@ def _evaluate_generated_artifact_with_repairs(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -8033,6 +8089,7 @@ _EVAL_SCALAR_REPAIR_MARKERS = (
 )
 
 
+@timed_phase(PHASE_ARTIFACT_REPAIR)
 def _apply_generated_eval_repairs(
     *,
     rulespec_file: Path,
@@ -8131,6 +8188,9 @@ def _apply_generated_eval_repairs(
                 test_file=test_file,
                 policy_repo_path=policy_repo_root,
                 parsed_issues=scalar_relation_issues,
+                generated_anchor=cli_helpers._relative_output_to_anchor(
+                    relative_output, policy_repo_path=policy_repo_root
+                ),
             )
         )
 
@@ -8146,10 +8206,12 @@ def _apply_generated_eval_repairs(
         )
     repairs.extend(
         f"derived_output:{name}"
-        for name in cli_helpers._append_generated_derived_output_tests_if_missing(
+        for name in cli_helpers._append_generated_derived_output_tests_in_overlay(
             rules_file=rulespec_file,
             test_file=test_file,
-            repo_path=policy_repo_root,
+            policy_repo_path=policy_repo_root,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             relative_output=relative_output,
             issues=companion_issues,
         )
@@ -8917,7 +8979,11 @@ def _run_single_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalResult:
+    # Encode-loop phases (no-ops outside `encode`): the workspace and prompt
+    # are preparation; later marks follow the try through the candidate.
+    mark_encode_phase(PHASE_PREPARE)
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -9001,6 +9067,7 @@ def _run_single_eval(
     if accept_valid_retry_candidate:
         assert validation_retry_candidate is not None
         assert validation_retry_candidate.tests is not None
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         preflight_started = time.monotonic()
         _write_eval_artifact_text(
             output_file,
@@ -9023,10 +9090,12 @@ def _run_single_eval(
             workspace,
             protected_paths=protected_paths,
         )
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -9048,6 +9117,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
         )
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
             rulespec_file=output_file,
             relative_output=relative_output,
@@ -9059,10 +9129,12 @@ def _run_single_eval(
                 "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
                 + ",".join(rebound_hashes)
             )
+            mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
             retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
                 axiom_rules_path=runtime_axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
                 source_text=source_text,
                 oracle=oracle,
                 policyengine_runtime=policyengine_runtime,
@@ -9084,6 +9156,7 @@ def _run_single_eval(
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
             )
+            mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
@@ -9127,6 +9200,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
                 runner=runner,
@@ -9144,6 +9218,7 @@ def _run_single_eval(
                 required_test_case_contracts=required_test_case_contracts,
             )
         )
+    mark_encode_phase(PHASE_STAGE_CANDIDATE)
     overlay_validation_issue: str | None = None
     if (
         wrote_artifact
@@ -9228,10 +9303,12 @@ def _run_single_eval(
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
     if wrote_artifact and not retained_candidate_accepted:
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -9253,6 +9330,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
         )
+    mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
         if overlay_validation_issue not in metrics.ci_issues:
@@ -10262,7 +10340,15 @@ companion test file required by the task and deterministic validation.
             "obsolete named input, rule, or companion case from this rejected "
             "candidate, emit an exact YAML item containing only "
             "`name: <existing name>` and `repair_remove: true`; input removal is "
-            "accepted only after no repaired rule or companion case references it. "
+            "accepted only after no repaired rule or companion case references "
+            "it as an input. A same-named derived or parameter rule is not an "
+            "input reference, but companion `#input.<name>` assignments must "
+            "still be replaced with factual inputs. "
+            "To remove an obsolete deferred output, emit an exact YAML item "
+            "containing only `output: <existing output>` and "
+            "`repair_remove: true`. Other deferred-output records may contain "
+            "only `output`, `reason`, `blocked_by`, and `source_values`. "
+            "Source completeness still applies after removal. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -10564,6 +10650,7 @@ Import and context rules:
         source_text,
         workspace,
         rulespec_context_files,
+        target_anchor=target_ref_prefix,
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
@@ -10957,6 +11044,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
@@ -11736,6 +11828,11 @@ RuleSpec requirements:
      may assert every canonical parameter output directly in one source-period
      snapshot case. For other artifacts, do not assert raw `kind: parameter`
      rules directly; assert derived outputs that consume the parameters instead.
+     A local `#input.<fact>` cannot have the same name as a local derived rule:
+     that name resolves to the computed rule, not an independently assignable
+     fact. In a `#relation.<name>` row, assign source-grounded factual child
+     inputs needed by the derived member rule; never put a fabricated
+     `#input.<derived_rule_name>` in the row or declare a duplicate input slot.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale
      imported test inputs from copied files. Do not stub imported derived
@@ -11832,8 +11929,41 @@ rules:
 ```
 
 """
+    coverage_index_section = ""
+    if require_complete_source_unit and not repair_candidate_tests_only:
+        existing_targets = [
+            item for item in context_files if item.kind == "existing_target"
+        ]
+        if len(existing_targets) > 1 or (
+            existing_targets
+            and (
+                not target_ref_prefix
+                or existing_targets[0].import_path != target_ref_prefix
+            )
+        ):
+            raise ValueError(
+                "Complete-source index has ambiguous existing-target context"
+            )
+        baseline_content = None
+        if existing_targets:
+            baseline_content = _corpus_resolver.read_bounded_regular_file(
+                workspace.root,
+                workspace.root / existing_targets[0].workspace_path,
+                label="complete-source existing-target context",
+                max_bytes=VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
+            ).decode("utf-8")
+        coverage_index_section = format_coverage_index(
+            source_text,
+            corpus_citation_path or citation,
+            candidate=(
+                validation_retry_candidate.rulespec
+                if validation_retry_candidate
+                else None
+            ),
+            baseline=baseline_content,
+        )
     dynamic_suffix = f"""\
-{validation_retry_feedback_section}{validation_retry_candidate_section}
+{coverage_index_section}{validation_retry_feedback_section}{validation_retry_candidate_section}
 {output_rules}
 Do not respond with summaries, markdown prose, or file-write confirmations.
 """
@@ -12132,6 +12262,7 @@ def _format_canonical_concept_registry_guidance(
     context_files: list[EvalContextFile],
     *,
     registry: ConceptRegistry | None = None,
+    target_anchor: str | None = None,
 ) -> str:
     """Inject canonical-concept registry directives scoped to mentioned concepts.
 
@@ -12139,6 +12270,11 @@ def _format_canonical_concept_registry_guidance(
     blocked synonym in the registry; emits a terse "use these exact names"
     block for the matched concepts only. Concepts that never appear in any
     text are omitted so the prompt does not pay tokens for irrelevant rules.
+
+    ``target_anchor`` is the RuleSpec anchor of the module being encoded (the
+    prompt's ``target_ref_prefix``). It only changes the line for a concept
+    with several producer vintages: the line then says whether this module
+    is one of those producers. Single-producer lines do not depend on it.
     """
     if registry is None:
         try:
@@ -12178,8 +12314,11 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer:
-            parts.append(f"producer `{concept.producer_anchor}`")
+        producer_guidance = _canonical_concept_producer_guidance(
+            concept, target_anchor=target_anchor
+        )
+        if producer_guidance:
+            parts.append(producer_guidance)
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")
@@ -12190,6 +12329,58 @@ Canonical concept names:
 Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
 {lines}
 """.format(lines="\n".join(lines))
+
+
+def _canonical_concept_producer_guidance(
+    concept: Concept, *, target_anchor: str | None = None
+) -> str | None:
+    """Describe where a registered concept's producer lives, for the prompt.
+
+    One producer: ``producer `<anchor>```, as before vintages existed. Several
+    producers (one per vintage, e.g. per fiscal year): every vintage is
+    listed with its registered period, and when the module being encoded is
+    known the line says whether it is one of them, so a producer encode
+    defines the name locally and any other module references the vintage
+    whose dates it encodes instead of defining it.
+    """
+    if not concept.has_producer:
+        return None
+
+    def labelled(anchor: str) -> str:
+        period = concept.producer_period(anchor)
+        return f"`{anchor}` ({period.describe()})" if period else f"`{anchor}`"
+
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"producer {labelled(anchors[0])}"
+    if concept.accepts_producer_anchor(target_anchor):
+        period = concept.producer_period(target_anchor)
+        vintage = (
+            f"the {period.label} producer ({period.effective_from.isoformat()} "
+            f"to {period.effective_to.isoformat()})"
+            if period
+            else "one of its vintage producers"
+        )
+        others = ", ".join(labelled(a) for a in anchors if a != target_anchor)
+        return (
+            f"this module, `{target_anchor}`, is {vintage}: when this source "
+            "sets it, define it here under this exact name rather than "
+            f"importing another vintage; other vintages: {others}"
+        )
+    listed = ", ".join(labelled(a) for a in anchors)
+    choice = (
+        "when importing it, reference the producer whose period covers the "
+        "dates you encode"
+        if concept.producer_periods
+        else "when importing it, reference the producer of the vintage you mean"
+    )
+    guidance = f"one producer per vintage, only at {listed}; {choice}"
+    if target_anchor is not None:
+        guidance += (
+            "; this module is not one of them, so do not define a rule with "
+            "this name here"
+        )
+    return guidance
 
 
 def _format_existing_target_contract_guidance(
@@ -12213,12 +12404,25 @@ def _format_existing_target_contract_guidance(
             if oracle_contract is not None
             else set()
         )
+        required_surfaces = (
+            {surface.name: surface for surface in oracle_contract.surfaces}
+            if oracle_contract is not None
+            else {}
+        )
         if oracle_contract is not None and oracle_contract.replacement_name_identity:
             replacement_name_identities.add(oracle_contract.replacement_name_identity)
         for name, surface in surfaces.items():
+            required_surface = required_surfaces.get(name)
+            entity_detail = f"entity={surface.get('entity') or ''}"
+            if required_surface is not None and required_surface.replacement_entity:
+                entity_detail = (
+                    f"entity={required_surface.replacement_entity} (required relation-"
+                    "current-slot repair; "
+                    f"legacy {surface.get('entity') or ''} is invalid)"
+                )
             details = [
                 f"kind={surface.get('kind') or ''}",
-                f"entity={surface.get('entity') or ''}",
+                entity_detail,
                 f"dtype={surface.get('dtype') or ''}",
                 f"period={surface.get('period') or ''}",
             ]
@@ -12267,7 +12471,8 @@ def _format_existing_target_contract_guidance(
         required_section = """
 Exact-oracle replacement contract:
 These valid existing names are owned by exact oracle registry entries. Preserve
-each executable name and its listed public/private shape, and preserve each
+each executable name and its listed public/private shape except where an
+explicit entity-repair note requires the listed corrected entity. Preserve each
 listed valid explicit input contract. Repair formulas, proofs, tests, and
 temporal coverage behind those stable surfaces. This exception does not
 preserve any invalid legacy input:
@@ -14708,6 +14913,7 @@ def _run_codex_prompt_eval(
     prompt: str,
 ) -> EvalPromptResponse:
     """Run prompt-only eval via Codex CLI."""
+    reasoning_effort = validate_codex_reasoning_effort(runner.codex_reasoning_effort)
     configured_timeout_seconds, codex_idle_timeout_seconds = _codex_prompt_timeouts(
         workspace
     )
@@ -14733,7 +14939,7 @@ def _run_codex_prompt_eval(
         "-m",
         runner.model,
         "-c",
-        'reasoning_effort="low"',
+        f"model_reasoning_effort={json.dumps(reasoning_effort)}",
         "-C",
         str(workspace.root),
         "-s",
@@ -14890,6 +15096,7 @@ def _run_codex_prompt_eval(
             "provider": "openai",
             "backend": "codex-exec",
             "model": runner.model,
+            "reasoning_effort": reasoning_effort,
             "timed_out": timed_out,
             "timeout_stage": timeout_stage,
             "timeout_reason": timeout_reason,
@@ -17314,11 +17521,20 @@ def _merge_named_yaml_items(
 def _repair_overlay_removed_input_references(
     payload: object,
     removed_inputs: Sequence[str],
+    *,
+    computed_rule_names: set[str] | None = None,
 ) -> list[str]:
     """Return removed input names still referenced by the repaired artifact."""
 
+    computed_rule_names = computed_rule_names or set()
     patterns = {
-        name: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        name: re.compile(
+            (
+                rf"#input\.{re.escape(name)}(?![A-Za-z0-9_])"
+                if name in computed_rule_names
+                else rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])"
+            )
+        )
         for name in removed_inputs
     }
     referenced: set[str] = set()
@@ -17452,6 +17668,7 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+@timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
     *,
@@ -17528,7 +17745,9 @@ def _overlay_validation_retry_candidate(
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
-    if isinstance(generated_module, dict) and isinstance(preserved_module, dict):
+    if isinstance(generated_module, dict):
+        if not isinstance(preserved_module, dict):
+            preserved_module = {}
         preserved_source_verification = preserved_module.get("source_verification")
         corpus_citation_path = (
             preserved_source_verification.get("corpus_citation_path")
@@ -17561,6 +17780,8 @@ def _overlay_validation_retry_candidate(
         ):
             raise ValueError("repair overlay deferred outputs must be lists")
         generated_outputs: set[str] = set()
+        removed_outputs: set[str] = set()
+        deferred: list[dict[str, object]] = []
         for item in generated_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("generated deferred outputs must name an output")
@@ -17570,11 +17791,26 @@ def _overlay_validation_retry_candidate(
                     f"generated deferred outputs contains duplicate output `{output}`"
                 )
             generated_outputs.add(output)
-        deferred = list(generated_deferred)
+            if "repair_remove" in item:
+                if (
+                    set(item) != {"output", "repair_remove"}
+                    or item.get("repair_remove") is not True
+                ):
+                    raise ValueError(
+                        f"generated deferred outputs removal marker for `{output}` "
+                        "must contain only output and repair_remove: true"
+                    )
+                removed_outputs.add(output)
+                continue
+            deferred.append(item)
+        preserved_outputs: set[str] = set()
         for item in preserved_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("preserved deferred outputs must name an output")
             output = item["output"]
+            preserved_outputs.add(output)
+            if output in removed_outputs:
+                continue
             output_name = output.rsplit("#", 1)[-1]
             if output_name in generated_rule_names:
                 repairs.append(f"resolved_deferred_output:{output}")
@@ -17583,8 +17819,31 @@ def _overlay_validation_retry_candidate(
                 deferred.append(item)
                 generated_outputs.add(output)
                 repairs.append(f"deferred_output:{output}")
+        unknown_removals = sorted(removed_outputs - preserved_outputs)
+        if unknown_removals:
+            raise ValueError(
+                "generated deferred outputs removal marker names no preserved item: "
+                + ", ".join(f"`{output}`" for output in unknown_removals)
+            )
+        for item in deferred:
+            unsupported_keys = set(item) - {
+                "output",
+                "reason",
+                "blocked_by",
+                "source_values",
+            }
+            if unsupported_keys:
+                raise ValueError(
+                    f"repair overlay deferred outputs for `{item['output']}` contains "
+                    "unsupported keys: " + ", ".join(sorted(map(str, unsupported_keys)))
+                )
+        repairs.extend(
+            f"removed_deferred_output:{output}" for output in sorted(removed_outputs)
+        )
         if deferred:
             generated_module["deferred_outputs"] = deferred
+        else:
+            generated_module.pop("deferred_outputs", None)
 
     test_file = _rulespec_test_path(rulespec_file)
     merged_test_payload: object | None = None
@@ -17643,6 +17902,13 @@ def _overlay_validation_retry_candidate(
         referenced_removed_inputs = _repair_overlay_removed_input_references(
             reference_payload,
             removed_inputs,
+            computed_rule_names={
+                str(rule.get("name"))
+                for rule in rules
+                if isinstance(rule, dict)
+                and rule.get("kind") in {"derived", "parameter"}
+                and isinstance(rule.get("name"), str)
+            },
         )
         if referenced_removed_inputs:
             raise ValueError(

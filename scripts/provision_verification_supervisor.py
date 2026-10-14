@@ -498,20 +498,27 @@ def _install_trusted_git_wrapper(
         "import subprocess\n"
         "import sys\n"
         f"git = {str(trusted_git)!r}\n"
+        "# Refusals exit with their own status, so a caller never reads one as a\n"
+        "# Git answer such as 'not a symbolic ref' or 'no matches' (both exit 1).\n"
+        "REFUSED = 126\n"
+        "def refuse(message):\n"
+        "    sys.stderr.write(message + '\\n')\n"
+        "    raise SystemExit(REFUSED)\n"
         "args = sys.argv[1:]\n"
         "cursor = 0\n"
         "if args[:1] == ['-C']:\n"
         "    if len(args) < 3:\n"
-        "        raise SystemExit('trusted git wrapper requires a command after -C')\n"
+        "        refuse('trusted git wrapper requires a command after -C')\n"
         "    cursor = 2\n"
         "allowed = {\n"
-        "    'add', 'cat-file', 'diff', 'grep', 'log', 'ls-files', 'ls-tree',\n"
-        "    'merge-base',\n"
-        "    'remote', 'rev-list', 'rev-parse', 'show', 'status',\n"
+        "    'add', 'cat-file', 'diff', 'for-each-ref', 'grep', 'log',\n"
+        "    'ls-files', 'ls-tree', 'merge-base',\n"
+        "    'remote', 'rev-list', 'rev-parse', 'show', 'show-ref', 'status',\n"
+        "    'symbolic-ref',\n"
         "}\n"
         "if cursor >= len(args) or args[cursor] not in allowed:\n"
         "    selected = args[cursor] if cursor < len(args) else '<missing>'\n"
-        "    raise SystemExit(f'trusted git wrapper refused command: {selected}')\n"
+        "    refuse(f'trusted git wrapper refused command: {selected}')\n"
         "command = args[cursor]\n"
         "options = args[cursor + 1:]\n"
         "def safe_ref(value):\n"
@@ -634,7 +641,20 @@ def _install_trusted_git_wrapper(
         "        )\n"
         "    if command == 'remote':\n"
         "        return options == ['get-url', 'origin']\n"
+        "    if command == 'for-each-ref':\n"
+        "        # The encoder guard's replacement-ref check.\n"
+        "        return options == ['--format=%(refname)', 'refs/replace/']\n"
+        "    if command == 'show-ref':\n"
+        "        return options == ['--verify', '--hash', 'refs/heads/main']\n"
+        "    if command == 'symbolic-ref':\n"
+        "        return options == ['--quiet', 'refs/heads/main']\n"
         "    if command == 'rev-list':\n"
+        "        if (\n"
+        "            len(options) == 2\n"
+        "            and options[0] == '--first-parent'\n"
+        "            and re.fullmatch(r'[0-9a-f]{40}', options[1]) is not None\n"
+        "        ):\n"
+        "            return True\n"
         "        return (\n"
         "            len(options) == 4\n"
         "            and options[:3] == ['--parents', '-n', '1']\n"
@@ -645,6 +665,10 @@ def _install_trusted_git_wrapper(
         "            ['HEAD'], ['HEAD^{tree}'], ['--is-inside-work-tree'],\n"
         "            ['--show-prefix'],\n"
         "            ['--show-toplevel'],\n"
+        "            ['--path-format=absolute', '--git-common-dir'],\n"
+        "            ['--is-shallow-repository'],\n"
+        "            ['--git-path', 'FETCH_HEAD'],\n"
+        "            ['--git-path', 'refs/heads/main'],\n"
         "        ):\n"
         "            return True\n"
         "        if (\n"
@@ -675,19 +699,22 @@ def _install_trusted_git_wrapper(
         "        )\n"
         "    return False\n"
         "if not allowed_options():\n"
-        "    raise SystemExit(f'trusted git wrapper refused arguments for {command}')\n"
+        "    refuse(f'trusted git wrapper refused arguments for {command}')\n"
         "for name in tuple(os.environ):\n"
         "    if name.startswith('GIT_') or name == 'SSH_ASKPASS':\n"
         "        os.environ.pop(name, None)\n"
         "os.environ['GIT_ATTR_NOSYSTEM'] = '1'\n"
         "os.environ['GIT_CONFIG_GLOBAL'] = '/dev/null'\n"
         "os.environ['GIT_CONFIG_NOSYSTEM'] = '1'\n"
+        "os.environ['GIT_GRAFT_FILE'] = '/dev/null'\n"
         "os.environ['GIT_NO_LAZY_FETCH'] = '1'\n"
         "os.environ['GIT_NO_REPLACE_OBJECTS'] = '1'\n"
         "os.environ['GIT_OPTIONAL_LOCKS'] = '0'\n"
         "os.environ['GIT_TERMINAL_PROMPT'] = '0'\n"
         "trusted = [\n"
         "    git, '--no-pager',\n"
+        "    '-c', 'core.commitGraph=false',\n"
+        "    '-c', 'advice.graftFileDeprecated=false',\n"
         "    '-c', 'core.fsmonitor=false',\n"
         "    '-c', 'core.hooksPath=/dev/null',\n"
         "    '-c', 'core.autocrlf=false',\n"
@@ -725,7 +752,7 @@ def _install_trusted_git_wrapper(
         "                continue\n"
         "            _metadata, _separator, path = entry.partition(b'\\t')\n"
         "            display = os.fsdecode(path)\n"
-        "            raise SystemExit(\n"
+        "            refuse(\n"
         "                f'trusted git wrapper refused gitlink at {display}'\n"
         "            )\n"
         "        listed = subprocess.run(\n"
@@ -741,14 +768,14 @@ def _install_trusted_git_wrapper(
         "            input=listed, check=True, capture_output=True, env=os.environ,\n"
         "        ).stdout\n"
         "    except (OSError, subprocess.CalledProcessError) as error:\n"
-        "        raise SystemExit(\n"
+        "        refuse(\n"
         "            'trusted git wrapper could not audit worktree attributes'\n"
-        "        ) from error\n"
+        "        )\n"
         "    records = checked.split(b'\\0')\n"
         "    if records and records[-1] == b'':\n"
         "        records.pop()\n"
         "    if len(records) % 3:\n"
-        "        raise SystemExit('trusted git wrapper received invalid attributes')\n"
+        "        refuse('trusted git wrapper received invalid attributes')\n"
         "    for index in range(0, len(records), 3):\n"
         "        path, attribute, value = records[index:index + 3]\n"
         "        if attribute not in {\n"
@@ -758,11 +785,11 @@ def _install_trusted_git_wrapper(
         "            continue\n"
         "        display = os.fsdecode(path)\n"
         "        if attribute == b'filter':\n"
-        "            raise SystemExit(\n"
+        "            refuse(\n"
         "                f'trusted git wrapper refused worktree filter for {display}'\n"
         "            )\n"
         "        attribute_display = os.fsdecode(attribute)\n"
-        "        raise SystemExit(\n"
+        "        refuse(\n"
         "            'trusted git wrapper refused content-transforming attribute '\n"
         "            f'{attribute_display} for {display}'\n"
         "        )\n"
@@ -770,7 +797,10 @@ def _install_trusted_git_wrapper(
         "    assert_safe_worktree_attributes()\n"
         "if command == 'diff':\n"
         "    args[cursor + 1:cursor + 1] = ['--no-ext-diff', '--no-textconv']\n"
-        "os.execv(git, [*trusted, *args])\n"
+        "try:\n"
+        "    os.execv(git, [*trusted, *args])\n"
+        "except OSError as error:\n"
+        "    refuse(f'trusted git wrapper could not run git: {error}')\n"
     )
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -799,12 +829,13 @@ _RUNTIME_ATTESTATION_SCHEMA = "axiom-encode/trusted-runtime-attestation/v1"
 
 # Moving either pin is a reviewed repository change.  The installer never asks
 # npm for "latest" and the runtime disables update checks below.
-_CODEX_CLI_VERSION = "0.144.0"
+_CODEX_CLI_VERSION = "0.159.0"
 _CODEX_CLI_PINS = {
     ("darwin", "arm64"): {
-        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.0-darwin-arm64.tgz",
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.159.0-darwin-arm64.tgz",
         "member": "package/vendor/aarch64-apple-darwin/bin/codex",
-        "sha256": "978740e6bcbd9af2f850823b723fb74f16d8d1e44de05f7dd6737ae631f72017",
+        "archive_sha256": "36034ef21c4fd7992e3ca4d041dff869dbf8c5d742b68e5c9fad0c3636cf61ce",
+        "sha256": "e89718aa1969bfc4a471277bdc4679a3a3529293de0a309909822dfd67ddb77a",
     },
 }
 
@@ -850,6 +881,12 @@ def _install_pinned_codex_cli(
             raise SystemExit(f"could not fetch pinned Codex CLI: {exc}") from exc
         archive = downloaded
     try:
+        actual_archive = _sha256_file(archive)
+        if actual_archive != pin["archive_sha256"]:
+            raise SystemExit(
+                "refusing to provision: pinned Codex CLI archive sha256 mismatch "
+                f"(expected {pin['archive_sha256']}, got {actual_archive})"
+            )
         try:
             with tarfile.open(archive, "r:gz") as bundle:
                 member = bundle.getmember(pin["member"])
