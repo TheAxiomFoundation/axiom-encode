@@ -2261,7 +2261,7 @@ def test_release_cache_never_follows_a_symlink_out_of_the_corpus_checkout(
         (corpus / "releases" / runtime.RELEASE).symlink_to(outside)
     arguments, _payload, _digest = _release_arguments(tmp_path, corpus)
 
-    with pytest.raises(ValueError, match="is a symlink; ci would write"):
+    with pytest.raises(ValueError, match="is a symlink"):
         ci_parity.acquire_workflow_release_object(
             *arguments, offline=offline, fetcher=runtime._never_fetch
         )
@@ -3495,3 +3495,134 @@ def test_runner_environment_is_a_hosted_ubuntu_runners() -> None:
     for sha in SUPPORTED_WORKFLOW_PINS:
         jobs = PinnedWorkflow(sha).payload["jobs"]
         assert jobs["validate"]["runs-on"] == "ubuntu-latest"
+
+
+# ---------------------------------------------------------------------------
+# Round-6 review fixes (GPT-6.1 Sol, executed)
+# ---------------------------------------------------------------------------
+
+
+def test_disposable_checkout_rewrites_a_tracked_file_missing_locally(
+    tmp_path: Path,
+) -> None:
+    source = gates._repo(tmp_path, {"data.txt": "committed\n"}, name="axiom-corpus")
+    commit = _committed(source)
+    (source / "data.txt").unlink()
+
+    destination = tmp_path / "copy"
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-corpus"
+    )
+
+    assert (destination / "data.txt").read_text() == "committed\n"
+    assert not (source / "data.txt").exists()
+
+
+def test_carrying_never_writes_through_a_link_the_commit_tracks(
+    tmp_path: Path,
+) -> None:
+    """The commit tracks releases as a link; the developer's checkout has a
+    real directory there (a recorded ref mismatch)."""
+
+    outside = tmp_path / "private"
+    outside.mkdir()
+    source = gates._repo(tmp_path, {"README.md": "corpus\n"}, name="axiom-corpus")
+    (source / "releases").symlink_to(outside, target_is_directory=True)
+    commit = gates._commit(source, message="releases is a link")
+    (source / "releases").unlink()
+    release = source / "releases" / "us-2026" / f"{'d' * 64}.json"
+    release.parent.mkdir(parents=True)
+    release.write_text("{}\n")
+
+    with pytest.raises(ValueError, match="is not a directory there"):
+        ci_parity._disposable_checkout(
+            source,
+            commit,
+            tmp_path / "copy",
+            "TheAxiomFoundation/axiom-corpus",
+            [f"releases/us-2026/{'d' * 64}.json"],
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_carried_paths_join_the_collision_check(tmp_path: Path) -> None:
+    probe = tmp_path / "Case-Probe"
+    probe.write_text("")
+    if not (tmp_path / "case-probe").exists():
+        pytest.skip("case-sensitive filesystem")
+    name = f"{'d' * 64}.json"
+    source = gates._repo(
+        tmp_path, {f"Releases/us-2026/{name}": "tracked\n"}, name="axiom-corpus"
+    )
+    commit = _committed(source)
+    carried = source / "releases" / "us-2026" / name
+    assert carried.exists()  # the same file here; two on Linux
+
+    with pytest.raises(ValueError, match="collide on this filesystem"):
+        ci_parity._disposable_checkout(
+            source,
+            commit,
+            tmp_path / "copy",
+            "TheAxiomFoundation/axiom-corpus",
+            [f"releases/us-2026/{name}"],
+        )
+
+
+def test_checkouts_ci_makes_ignore_the_developers_git_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    upstream = gates._repo(tmp_path, {"a.txt": "x\n"}, name="upstream")
+    source = tmp_path / "axiom-encode"
+    subprocess.run(["git", "clone", "-q", str(upstream), str(source)], check=True)
+    gates._git(source, "tag", "v1")
+    commit = _committed(source)
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    for hook in ("reference-transaction", "post-checkout"):
+        (hooks / hook).write_text("#!/bin/sh\nexit 1\n")
+        (hooks / hook).chmod(0o755)
+    config = tmp_path / "developer.gitconfig"
+    config.write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    # The developer's own Git now refuses every ref change.
+    refused = subprocess.run(
+        ["git", "-C", str(source), "tag", "v2"], capture_output=True, check=False
+    )
+    assert refused.returncode != 0
+
+    destination = tmp_path / "copy"
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-encode"
+    )
+
+    refs = subprocess.run(
+        ["git", "-C", str(destination), "for-each-ref", "--format=%(refname)"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull},
+    ).stdout.split()
+    assert refs == ["refs/remotes/origin/main"]
+
+
+def test_runner_environment_without_a_pull_request_number() -> None:
+    simulation = PullRequestSimulation(
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        base_branch="main",
+        repository="TheAxiomFoundation/rulespec-us",
+        number=None,
+        base_is_ancestor=True,
+    )
+
+    environment = ci_parity._runner_environment(
+        Path("/work/rulespec-us"), Path("/work/_temp"), simulation
+    )
+
+    assert environment["GITHUB_BASE_REF"] == "main"
+    assert environment["GITHUB_REF_TYPE"] == "branch"
+    assert environment["GITHUB_EVENT_NAME"] == "pull_request"
+    # The ref's name needs the number; ci leaves it unset, as documented.
+    assert "GITHUB_REF_NAME" not in environment
+    assert environment["GITHUB_REF"] == ""
