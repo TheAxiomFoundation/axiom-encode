@@ -570,7 +570,7 @@ named:
 - **Composer build products in sibling entries.** When the composer builds a
   sibling dependency from its path, CI's build products (such as a
   setuptools `.egg-info`) stay in that disposable checkout for later steps;
-  `ci` builds in a fresh clone and removes it afterwards, so later steps see
+  `ci` builds in a disposable copy and removes it afterwards, so later steps see
   the link to the developer's checkout instead.
 - **setup-uv's environment.** setup-uv exports `UV_CACHE_DIR` and
   `UV_PYTHON_INSTALL_DIR` to later steps in CI; `ci` sets `UV_CACHE_DIR` for
