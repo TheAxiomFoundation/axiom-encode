@@ -5200,6 +5200,13 @@ def _report_money_atom_verdict(money_run) -> bool:
 
 def cmd_test(args):
     """Execute companion tests from one exact jurisdiction content root."""
+
+    with _rulespec_routing_cache_scope():
+        return _cmd_test_with_routing_cache(args)
+
+
+def _cmd_test_with_routing_cache(args):
+    """Share routing admissions while isolating each module resolution scope."""
     root = _resolve_explicit_existing_directory(
         args.root,
         label="RuleSpec jurisdiction content root",
@@ -5271,17 +5278,19 @@ def cmd_test(args):
         tmp_path = Path(tmpdir)
         compiled_cache: dict[Path, tuple[Path, dict]] = {}
         for test_file in test_files:
-            result = _execute_rulespec_test_file(
-                test_file,
-                binary=binary,
-                pipeline=pipeline,
-                axiom_rules_path=Path(axiom_rules_path),
-                env=rulespec_env,
-                rulespec_roots=rulespec_roots,
-                tmp_path=tmp_path,
-                compiled_cache=compiled_cache,
-                policy_repo_path=root,
-            )
+            # Keep resolution state local to this module, as in waiver audits.
+            with _rulespec_resolution_cache_scope():
+                result = _execute_rulespec_test_file(
+                    test_file,
+                    binary=binary,
+                    pipeline=pipeline,
+                    axiom_rules_path=Path(axiom_rules_path),
+                    env=rulespec_env,
+                    rulespec_roots=rulespec_roots,
+                    tmp_path=tmp_path,
+                    compiled_cache=compiled_cache,
+                    policy_repo_path=root,
+                )
             case_count += result["cases"]
             compiled_count += result["compiled"]
             failures.extend(result["failures"])
