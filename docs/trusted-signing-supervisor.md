@@ -435,9 +435,13 @@ dispatch this workflow on main can sign allowlisted, reviewed candidates
 without human approval**. The reviewed-head and publication-base allowlists
 (`REVIEWED_RULESPEC_REFS` and `REVIEWED_RULESPEC_PR_BASES` in
 `src/axiom_encode/prepare_signed_backfill.py`) and this workflow change only
-through a pull request to main, so whoever can merge to main controls what
-`apply-signing` signs. Generation still requires a human approval in each
-attempt.
+through main. Branch protection decides who that is: anyone who can merge to
+main, and any administrator who can bypass its protection, controls what
+`apply-signing` signs, because workflow code on main can read the key
+directly. When main requires no approving review and has no code owners for
+these files, a single writer can change them unreviewed. Generation still
+requires a human approval in each attempt of this workflow, but that gate
+holds only while the workflow on main keeps it.
 
 Settings, in this order:
 
