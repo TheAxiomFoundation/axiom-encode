@@ -18527,6 +18527,53 @@ def _selected_formula_structural_source_branches(
     )
 
 
+def _case_execution_may_reach_direct_clamp(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    input_name: str,
+    principal_rules: dict[str, dict[str, Any]],
+    formula_environment: dict[str, Any],
+    dependency_environment: dict[str, Any],
+) -> bool:
+    """Whether the owner's selected formula path for a case holds the clamp.
+
+    The path is resolved from the case's asserted dependency values, then from
+    dependencies computed from its inputs. When neither resolves the path, the
+    case keeps its credit (the engine run of the case stays authoritative); a
+    resolved path without ``max(0, input)`` never witnesses that clamp.
+    """
+
+    environments = [dependency_environment]
+    computed = _case_dependency_environment(
+        principal_rules,
+        case,
+        formula_environment=formula_environment,
+        require_asserted_value=False,
+    )
+    if computed:
+        environments.append({**computed, **dependency_environment})
+    for environment in environments:
+        execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=environment,
+        )
+        if execution is None:
+            continue
+        texts = (
+            execution.leaf,
+            *(selector for step in execution.trace for selector in step.selectors),
+        )
+        return any(
+            match.group("input") == input_name
+            for text in texts
+            for match in _DIRECT_LOCAL_INPUT_NONNEGATIVE_CLAMP.finditer(text)
+        )
+    return True
+
+
 def _negative_local_input_clamp_test_issues(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -19016,6 +19063,17 @@ def _negative_local_input_clamp_test_issues(
                 dependency_environment = asserted_dependencies_by_case[case_key]
                 if owner not in dependency_environment:
                     continue
+                if not _case_execution_may_reach_direct_clamp(
+                    rule,
+                    case,
+                    input_name=input_name,
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                    dependency_environment=dependency_environment,
+                ):
+                    # A negative input on a path the owner never takes (for
+                    # example its `else: 0` branch) does not exercise the clamp.
+                    continue
                 for principal_output in sorted(outputs & principal_outputs):
                     if principal_output == owner:
                         witnessed_contexts.add(context_key)
@@ -19271,7 +19329,9 @@ def _missing_boundary_repair_detail(
         "covering principal output, set the numeric input that its formula "
         "compares with this source value to exactly the listed value, keep the "
         "period and every other input, and assert the covering principal output "
-        "with its executed value. When no principal output covers the branch, "
+        "with the value the source requires at that boundary (whether the "
+        "source includes or excludes the value itself). When no principal "
+        "output covers the branch, "
         "first encode the source comparison in a principal derived rule whose "
         "`versions[N].formula` proof excerpt quotes that branch, with the "
         "threshold as a source-bound parameter or formula constant."
