@@ -1,0 +1,815 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+    source_sha256: 18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3
+  summary: The Division of Taxation has recalculated tax bracket ranges for Tax Year
+    2026, as required by statute. The changes were made to the Rhode Island Personal
+    Income Tax’s uniform tax rate schedule, which is used by all filers.
+rules:
+- name: personal_2025_first_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), first
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ 0 $ 79,900 $ -- 3.75% $ 0
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0375'
+- name: personal_2026_first_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), first
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ 0 $ 82,050 $ -- 3.75% $ 0
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0375'
+- name: trust_2025_second_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 3,200 10,200 120.00 4.75% 3,200
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '3200'
+- name: trust_2025_first_rate
+  kind: parameter
+  dtype: Rate
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), first bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ 0 $ 3,200 $ -- 3.75% $ 0
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0375'
+- name: trust_2026_second_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 3,300 10,450 123.75 4.75% 3,300
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3300'
+- name: trust_2026_first_rate
+  kind: parameter
+  dtype: Rate
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), first bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ 0 $ 3,300 $ -- 3.75% $ 0
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0375'
+- name: personal_income_tax_2026
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax).
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'RHODE ISLAND DIVISION OF TAXATION - PAGE 2 OF 4 Personal Income
+            Tax: uniform rate schedule The Division of Taxation has recalculated tax
+            bracket ranges for Tax Year 2026, as required by statute.'
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax)
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if personal_taxable_income_2026 <= personal_2026_first_bracket_upper:
+      personal_2026_first_rate * personal_taxable_income_2026 else: if personal_taxable_income_2026
+      <= personal_2026_second_bracket_upper: personal_2026_second_bracket_base_tax
+      + personal_2026_second_rate * (personal_taxable_income_2026 - personal_2026_second_bracket_lower)
+      else: personal_2026_third_bracket_base_tax + personal_2026_third_rate * (personal_taxable_income_2026
+      - personal_2026_third_bracket_lower)'
+- name: personal_2025_first_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), first
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 79,900 $ -- 3.75% $ 0 79,900 181,650 2,996.25 4.75%
+            79,900 181,650 -- 7,829.38 5.99% 181,650'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '79900'
+- name: personal_2025_second_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 79,900 181,650
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '79900'
+- name: personal_2025_second_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 181,650
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '181650'
+- name: personal_2025_third_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), third
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 181,650
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '181650'
+- name: personal_2025_first_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), first
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ -- 3.75%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0'
+- name: personal_2025_second_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), second
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 2,996.25
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '2996.25'
+- name: personal_2025_third_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), third
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 79,900 $ -- 3.75% $ 0 79,900 181,650 2,996.25 4.75%
+            79,900 181,650 -- 7,829.38 5.99% 181,650'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '7829.38'
+- name: personal_2025_second_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 4.75%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0475'
+- name: personal_2025_third_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax), third
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 5.99%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0599'
+- name: personal_2026_first_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), first
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 82,050 $ -- 3.75% $ 0 82,050 186,450 3,076.88 4.75%
+            82,050 186,450'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '82050'
+- name: personal_2026_second_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 82,050 186,450
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '82050'
+- name: personal_2026_second_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 186,450
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '186450'
+- name: personal_2026_third_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), third
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 186,450
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '186450'
+- name: personal_2026_first_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), first
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ -- 3.75%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0'
+- name: personal_2026_second_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), second
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 3,076.88
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3076.88'
+- name: personal_2026_third_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), third
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 8,035.88
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '8035.88'
+- name: personal_2026_second_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 4.75%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0475'
+- name: personal_2026_third_rate
+  kind: parameter
+  dtype: Rate
+  source: Uniform tax rate schedule for Tax Year 2026 (Personal Income Tax), third
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 5.99%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0599'
+- name: trust_2025_first_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), first bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,200 $ -- 3.75% $ 0 3,200 10,200 120.00 4.75% 3,200
+            10,200 -- 452.50 5.99% 10,200 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '3200'
+- name: trust_2025_second_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 10,200
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '10200'
+- name: trust_2025_third_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), third bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 10,200
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '10200'
+- name: trust_2025_first_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), first bracket
+    base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ -- 3.75%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0'
+- name: trust_2025_second_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), second
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,200 $ -- 3.75% $ 0 3,200 10,200 120.00 4.75% 3,200
+            10,200 -- 452.50 5.99% 10,200 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '120'
+- name: trust_2025_third_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), third bracket
+    base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,200 $ -- 3.75% $ 0 3,200 10,200 120.00 4.75% 3,200
+            10,200 -- 452.50 5.99% 10,200 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '452.50'
+- name: trust_2025_second_rate
+  kind: parameter
+  dtype: Rate
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 4.75%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0475'
+- name: trust_2025_third_rate
+  kind: parameter
+  dtype: Rate
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), third bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 5.99%
+  versions:
+  - effective_from: '2025-01-01'
+    formula: '0.0599'
+- name: trust_2026_first_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), first bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,300 $ -- 3.75% $ 0 3,300 10,450 123.75 4.75% 3,300
+            10,450 -- 463.38 5.99% 10,450 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '3300'
+- name: trust_2026_second_bracket_upper
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), second
+    bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 10,450
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '10450'
+- name: trust_2026_third_bracket_lower
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), third bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 10,450
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '10450'
+- name: trust_2026_first_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), first bracket
+    base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: $ -- 3.75%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0'
+- name: trust_2026_second_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), second
+    bracket base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,300 $ -- 3.75% $ 0 3,300 10,450 123.75 4.75% 3,300
+            10,450 -- 463.38 5.99% 10,450 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '123.75'
+- name: trust_2026_third_bracket_base_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), third bracket
+    base tax.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 'Taxable income: Over But not over Pay + percent on excess of the
+            amount over $ 0 $ 3,300 $ -- 3.75% $ 0 3,300 10,450 123.75 4.75% 3,300
+            10,450 -- 463.38 5.99% 10,450 Table is for non-grantor trusts and non-bankruptcy
+            estates.'
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '463.38'
+- name: trust_2026_second_rate
+  kind: parameter
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), second
+    bracket.
+  dtype: Rate
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 4.75%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0475'
+- name: trust_2026_third_rate
+  kind: parameter
+  dtype: Rate
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), third bracket.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: 5.99%
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '0.0599'
+- name: personal_income_tax_2025
+  kind: derived
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Uniform tax rate schedule for Tax Year 2025 (Personal Income Tax).
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: Pay + percent on excess of the amount over
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if personal_taxable_income_2025 <= personal_2025_first_bracket_upper:
+      personal_2025_first_bracket_base_tax + personal_2025_first_rate * personal_taxable_income_2025
+      else: if personal_taxable_income_2025 <= personal_2025_second_bracket_upper:
+      personal_2025_second_bracket_base_tax + personal_2025_second_rate * (personal_taxable_income_2025
+      - personal_2025_second_bracket_lower) else: personal_2025_third_bracket_base_tax
+      + personal_2025_third_rate * (personal_taxable_income_2025 - personal_2025_third_bracket_lower)'
+- name: trust_estate_income_tax_2025
+  kind: derived
+  entity: Trust
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2025 (trusts and estates), for non-grantor
+    trusts and non-bankruptcy estates.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: non-grantor trusts and non-bankruptcy estates
+  versions:
+  - effective_from: '2025-01-01'
+    formula: 'if fiduciary_taxable_income_2025 <= trust_2025_first_bracket_upper:
+      trust_2025_first_rate * fiduciary_taxable_income_2025 else: if fiduciary_taxable_income_2025
+      <= trust_2025_second_bracket_upper: trust_2025_second_bracket_base_tax + trust_2025_second_rate
+      * (fiduciary_taxable_income_2025 - trust_2025_second_bracket_lower) else: trust_2025_third_bracket_base_tax
+      + trust_2025_third_rate * (fiduciary_taxable_income_2025 - trust_2025_third_bracket_lower)'
+- name: trust_estate_income_tax_2026
+  kind: derived
+  entity: Trust
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Income tax rate schedule for Tax Year 2026 (trusts and estates), for non-grantor
+    trusts and non-bankruptcy estates.
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-ri/guidance/tax/adv-2025-22/page-2
+          excerpt: non-grantor trusts and non-bankruptcy estates
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 'if fiduciary_taxable_income_2026 <= trust_2026_first_bracket_upper:
+      trust_2026_first_rate * fiduciary_taxable_income_2026 else: if fiduciary_taxable_income_2026
+      <= trust_2026_second_bracket_upper: trust_2026_second_bracket_base_tax + trust_2026_second_rate
+      * (fiduciary_taxable_income_2026 - trust_2026_second_bracket_lower) else: trust_2026_third_bracket_base_tax
+      + trust_2026_third_rate * (fiduciary_taxable_income_2026 - trust_2026_third_bracket_lower)'
+inputs:
+- name: personal_taxable_income_2025
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: personal_taxable_income_2026
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: fiduciary_taxable_income_2025
+  entity: Trust
+  dtype: Money
+  period: Year
+  unit: USD
+- name: fiduciary_taxable_income_2026
+  entity: Trust
+  dtype: Money
+  period: Year
+  unit: USD

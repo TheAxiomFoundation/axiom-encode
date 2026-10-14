@@ -1,0 +1,136 @@
+- name: sponsored_alien_with_income_and_assistance_at_indigence_limit_is_indigent
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.indigence_determination_has_been_made: true
+    us:regulations/7-cfr/273/4#input.eligible_sponsored_alien_household_own_monthly_income: 800
+    us:regulations/7-cfr/273/4#input.monthly_cash_contributions_from_sponsor_and_others: 300
+    us:regulations/7-cfr/273/4#input.monthly_value_of_in_kind_assistance_from_sponsor_and_others: 200
+    us:regulations/7-cfr/273/4#input.poverty_income_guideline_for_household_size: 1000
+  output:
+    us:regulations/7-cfr/273/4#indigent_sponsored_alien_unable_to_obtain_food_and_shelter: holds
+    us:regulations/7-cfr/273/4#alien_is_indigent: holds
+- name: sponsored_alien_above_indigence_limit_is_not_indigent
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.indigence_determination_has_been_made: true
+    us:regulations/7-cfr/273/4#input.eligible_sponsored_alien_household_own_monthly_income: 801
+    us:regulations/7-cfr/273/4#input.monthly_cash_contributions_from_sponsor_and_others: 300
+    us:regulations/7-cfr/273/4#input.monthly_value_of_in_kind_assistance_from_sponsor_and_others: 200
+    us:regulations/7-cfr/273/4#input.poverty_income_guideline_for_household_size: 1000
+  output:
+    us:regulations/7-cfr/273/4#indigent_sponsored_alien_unable_to_obtain_food_and_shelter: not_holds
+    us:regulations/7-cfr/273/4#alien_is_indigent: not_holds
+- name: qualifying_financial_condition_without_state_agency_determination_is_not_indigent
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.indigence_determination_has_been_made: false
+    us:regulations/7-cfr/273/4#input.eligible_sponsored_alien_household_own_monthly_income: 800
+    us:regulations/7-cfr/273/4#input.monthly_cash_contributions_from_sponsor_and_others: 300
+    us:regulations/7-cfr/273/4#input.monthly_value_of_in_kind_assistance_from_sponsor_and_others: 200
+    us:regulations/7-cfr/273/4#input.poverty_income_guideline_for_household_size: 1000
+  output:
+    us:regulations/7-cfr/273/4#indigent_sponsored_alien_unable_to_obtain_food_and_shelter: holds
+    us:regulations/7-cfr/273/4#alien_is_indigent: not_holds
+- name: sponsored_alien_monthly_deemed_income_includes_qualifying_spouse_and_both_reductions
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.sponsor_monthly_earned_income: 500
+    us:regulations/7-cfr/273/4#input.sponsor_monthly_unearned_income: 500
+    us:regulations/7-cfr/273/4#input.sponsor_spouse_monthly_earned_income: 100
+    us:regulations/7-cfr/273/4#input.sponsor_spouse_monthly_unearned_income: 100
+    us:regulations/7-cfr/273/4#input.sponsor_spouse_executed_uscis_form_i_864_or_i_864a: true
+    us:regulations/7-cfr/273/4#input.sponsor_household_monthly_gross_income_eligibility_limit: 300
+  output:
+    us:regulations/7-cfr/273/4#sponsored_alien_monthly_deemed_income: 780
+- name: sponsor_earned_income_reduction_uses_twenty_percent
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.sponsor_monthly_earned_income: 500
+  output:
+    us:regulations/7-cfr/273/4#sponsor_earned_income_reduction: 100
+- name: earlier_less_rigorous_status_preserved_after_limited_adjustment
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.member_has_eligibility_based_on_earlier_less_rigorous_alien_status: true
+    us:regulations/7-cfr/273/4#input.member_subsequently_adjusted_to_more_limited_alien_status: true
+  output:
+    us:regulations/7-cfr/273/4#eligibility_based_on_earlier_less_rigorous_alien_status_preserved: holds
+- name: no_preservation_without_limited_adjustment
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.member_has_eligibility_based_on_earlier_less_rigorous_alien_status: true
+    us:regulations/7-cfr/273/4#input.member_subsequently_adjusted_to_more_limited_alien_status: false
+  output:
+    us:regulations/7-cfr/273/4#eligibility_based_on_earlier_less_rigorous_alien_status_preserved: not_holds
+- name: citizen_with_documentation_is_citizenship_or_alien_status_eligible
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: true
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false
+    us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false
+    us:regulations/7-cfr/273/4#input.member_is_refugee: false
+    us:regulations/7-cfr/273/4#input.member_is_asylee: false
+    us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false
+    us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false
+    us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false
+    us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false
+    us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false
+    us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false
+    us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false
+    us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false
+  output:
+    us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible: holds
+- name: qualified_alien_after_five_year_status_period_is_eligible
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: false
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: false
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false
+    us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien: true
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: false
+    us:regulations/7-cfr/273/4#input.member_is_refugee: false
+    us:regulations/7-cfr/273/4#input.member_is_asylee: false
+    us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false
+    us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false
+    us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false
+    us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false
+    us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false
+    us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false
+    us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: true
+    us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: true
+  output:
+    us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible: holds
+- name: missing_alien_status_documentation_blocks_eligibility
+  period: 2026-01
+  input:
+    us:regulations/7-cfr/273/4#input.alien_status_documentation_missing_or_unwilling: true
+    us:regulations/7-cfr/273/4#input.member_is_us_citizen: false
+    us:regulations/7-cfr/273/4#input.member_is_us_noncitizen_national: false
+    us:regulations/7-cfr/273/4#input.member_is_american_indian_born_in_canada_or_recognized_indian_tribe_member: false
+    us:regulations/7-cfr/273/4#input.member_is_hmong_or_highland_laotian_qualifying_person_or_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_trafficking_victim_or_qualifying_family_member: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien: true
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_with_forty_qualifying_quarters: true
+    us:regulations/7-cfr/273/4#input.member_is_refugee: false
+    us:regulations/7-cfr/273/4#input.member_is_asylee: false
+    us:regulations/7-cfr/273/4#input.member_has_deportation_or_removal_withheld: false
+    us:regulations/7-cfr/273/4#input.member_is_cuban_or_haitian_entrant: false
+    us:regulations/7-cfr/273/4#input.member_is_amerasian_immigrant: false
+    us:regulations/7-cfr/273/4#input.member_has_eligible_military_connection: false
+    us:regulations/7-cfr/273/4#input.member_receives_blindness_or_disability_benefits: false
+    us:regulations/7-cfr/273/4#input.member_was_lawfully_residing_on_1996_08_22_and_born_on_or_before_1931_08_22: false
+    us:regulations/7-cfr/273/4#input.member_is_under_age_eighteen: false
+    us:regulations/7-cfr/273/4#input.member_is_qualified_alien_subject_to_five_year_wait: false
+    us:regulations/7-cfr/273/4#input.qualified_alien_five_year_status_period_met: false
+  output:
+    us:regulations/7-cfr/273/4#snap_member_citizenship_or_alien_status_eligible: not_holds

@@ -49,6 +49,7 @@ import hashlib
 import json
 import re
 import sys
+import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -762,6 +763,12 @@ def extract_fixture(
             if candidate_inventory_sha
             else None
         ),
+        "candidate_matches_recorded_issues": (
+            module.recorded.get("path") == module.module_path
+            and module.recorded.get("rulespec_sha256") == _sha256(case.candidate)
+            and module.recorded.get("tests_sha256")
+            == (_sha256(case.tests) if case.tests is not None else None)
+        ),
         "source_matches_attestation": (
             resolved_text_sha == _sha256(case.source) if resolved_text_sha else None
         ),
@@ -790,7 +797,12 @@ def build_report(
 ) -> dict[str, Any]:
     from axiom_encode import __version__
 
-    results = [replay_case(case, resolve_imports=resolve_imports) for case in cases]
+    results = []
+    for case in cases:
+        started = time.perf_counter()
+        result = replay_case(case, resolve_imports=resolve_imports)
+        result["seconds"] = round(time.perf_counter() - started, 3)
+        results.append(result)
     rule_totals: collections.Counter[str] = collections.Counter()
     cases_with_rule: collections.Counter[str] = collections.Counter()
     for result in results:

@@ -1,0 +1,37 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37047738781",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37047738781",
+  "bundle_citation": "us-mo/statute/143.011",
+  "citation": "us-mo/statute/143.011",
+  "lane": "target",
+  "runner": null,
+  "module_path": "statutes/143/011.yaml",
+  "policy_prefix": "us-mo",
+  "encoder_commit": "4cfffd1d6be78f628dcbd63c5dbc9735f25fce40",
+  "encoder_version": "0.2.2084",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:deferral": 9,
+    "complete-source-unit:formula-output": 5,
+    "complete-source-unit:numeric-recall": 11,
+    "complete-source-unit:structure": 4,
+    "complete-source-unit:tests": 5,
+    "proof:excerpt-not-found": 1
+  },
+  "context_imports": {},
+  "files": {
+    "candidate.test.yaml": "114173e759d7edf2ca71a5a86dc8f8b74c6aa5737480184d27e1c2a8d5c9b542",
+    "candidate.yaml": "71355b0387308d01dacf45e9d27130f98bb6334fdd025da5ace7ba0d622f7c02",
+    "issues.json": "8149b5115fa67fe7fec57430008ddba6f187b7df28ca9cdd0d93fabc1b163e88",
+    "source-metadata.json": "7f09064a8b9dcf73f3ced8fe1f068e559fd54d6ba67755483be24c0ecfa5cdbb",
+    "source.txt": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3"
+  }
+}

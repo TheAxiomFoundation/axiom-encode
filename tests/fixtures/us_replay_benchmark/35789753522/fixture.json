@@ -1,0 +1,38 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "35789753522",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/35789753522",
+  "bundle_citation": "us/statute/42/402/a",
+  "citation": "us/statute/42/402/a",
+  "lane": "target",
+  "runner": "openai-gpt-5.6-terra",
+  "module_path": "statutes/42/402/a.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "e3601afeae15548ad42f2f66f723308556797cfb",
+  "encoder_version": "0.2.2014",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2,
+    "complete-source-unit:deferral": 1,
+    "complete-source-unit:structure": 2,
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {
+    "us:statutes/42/416/l": "context/statutes/42/416/l.yaml"
+  },
+  "files": {
+    "candidate.test.yaml": "4eda4652c5fa55797cf2d800b6dd01f3a22c412a23bb3404814178db59c83e56",
+    "candidate.yaml": "4e77e34cfeb9cd6a3c0c6edf555b1b54e0962d296b40a9a49a37a1983201d679",
+    "context/statutes/42/416/l.yaml": "c49ec29f4805607b10cceb210c1dc444f63efd37e0f692c51ac534855f44820a",
+    "issues.json": "1bce7644841d6b63815bae312fff104f61940a74b2e2e2595ab1e7dadb92fa45",
+    "source-metadata.json": "0248ef0ebf7b8ae838ce7df43c5d10b0bca66e7930842be1a24fd161e9345c2b",
+    "source.txt": "c2212dde94b40bbb9ee85a4a78375aceecba97652af6512e360f74a9d3054c8a"
+  }
+}

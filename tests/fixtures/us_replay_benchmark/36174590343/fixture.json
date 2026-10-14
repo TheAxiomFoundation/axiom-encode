@@ -1,0 +1,35 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36174590343",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36174590343",
+  "bundle_citation": "us/guidance/irs/rev-proc-2025-32/page-14",
+  "citation": "us/guidance/irs/rev-proc-2025-32/page-14",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/irs/rev-proc-2025-32/child-tax-credit.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "06b017082645f2af0504d2a93e4ffd64c45d4c52",
+  "encoder_version": "0.2.2049",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:tests": 1
+  },
+  "context_imports": {
+    "us:policies/irs/rev-proc-2025-32/page-15": "context/policies/irs/rev-proc-2025-32/page-15.yaml"
+  },
+  "files": {
+    "candidate.test.yaml": "25f48526967a3d9db2d4c7bb6ac320b210f5481a82bc59085e4af84fd73a2151",
+    "candidate.yaml": "cd2a236092a8c4356b90ead8b053614d2921ecd527acf99b6a01794327843cf1",
+    "context/policies/irs/rev-proc-2025-32/page-15.yaml": "b032822be996093985f5d04fb64477d613fefd239c133e4c3c45192cc281f58e",
+    "issues.json": "0a1ea9661771d73639f4f23276124fdf6a323d18926d2aabecf9d4f242a972fe",
+    "source-metadata.json": "cc6443dfc6df0244d8c14f95fdb72f6a637b455f0f2b05fcd480ac8c27d56463",
+    "source.txt": "4837f08e036c830b44f43b0bbb064929b060efcc6349427fbc503ac13fd0b903"
+  }
+}

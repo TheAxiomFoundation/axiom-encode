@@ -1,0 +1,34 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "34157534364",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/34157534364",
+  "bundle_citation": "us/statute/7/2015/f",
+  "citation": "us/statute/7/2015/f",
+  "lane": "target",
+  "runner": null,
+  "module_path": "statutes/7/2015/f.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "1daadad265dc9eaa1ab737df87b453a5e5e0cb46",
+  "encoder_version": "0.2.1764",
+  "attempt_count": 4,
+  "corpus_ref": "620527d7ad55adc19e05aa71cecea1d5bd0a6b2f",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:structure": 1,
+    "complete-source-unit:tests": 1,
+    "tests:wrong-expected-value": 1
+  },
+  "context_imports": {},
+  "files": {
+    "candidate.test.yaml": "13113f1d062e6ce938fb13f6a4ead7fcda152aadaa7a4852085793484897d8c2",
+    "candidate.yaml": "fde817d9b6a283b26fb8d8afb5f657151400be5c93545a594cd14cf0b0596010",
+    "issues.json": "a12e0725ea224c689ad538c1c3656a1d1af661c71b067b2f8c0cfc39fbd79f2a",
+    "source-metadata.json": "f514d5274cc48d84d701f450874cf01ac199a7ce4da0ca4406272f6beeda7d69",
+    "source.txt": "239cc65999d115055d13b7b3a72ef1a4c83da4fdbab9ab71d0ea33536d2b96c2"
+  }
+}

@@ -1,0 +1,130 @@
+- name: exclusion_adjusted_bases_and_capital_gain_excess
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/f#input.taxable_income: 50000
+    us:statutes/26/911/f#input.taxable_excess: 40000
+    us:statutes/26/911/a#input.individual_is_qualified_individual: true
+    us:statutes/26/911/a#input.election_made_for_foreign_earned_income: true
+    us:statutes/26/911/a#input.election_made_for_housing_cost_amount: false
+    us:statutes/26/911/a#input.foreign_earned_income_of_individual: 10000
+    us:statutes/26/911/a#input.housing_cost_amount_of_individual: 0
+    us:statutes/26/911/d/6#input.deduction_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.deduction_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/d/6#input.exclusion_from_gross_income_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.exclusion_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/f#input.net_capital_gain: 60000
+    us:statutes/26/911/f#input.qualified_dividend_income: 10000
+    us:statutes/26/911/f#input.capital_gains_28_percent_rate: 2000
+    us:statutes/26/911/f#input.unrecaptured_section_1250_gain: 3000
+  output:
+    us:statutes/26/911/f#section_911_f_excluded_amount: 10000
+    us:statutes/26/911/f#taxable_income_increased_by_section_911_exclusion: 60000
+    us:statutes/26/911/f#section_911_capital_gain_excess: 10000
+    us:statutes/26/911/f#section_911_net_capital_gain: 50000
+    us:statutes/26/911/f#section_911_qualified_dividend_income: 10000
+    us:statutes/26/911/f#section_911_28_percent_rate_gain: 0
+    us:statutes/26/911/f#section_911_unrecaptured_section_1250_gain: 3000
+    us:statutes/26/911/f#section_911_adjusted_net_capital_gain: 47000
+    us:statutes/26/911/f#section_911_f_applies_to_section_1_tax: holds
+    us:statutes/26/911/f#amt_taxable_excess_increased_by_section_911_exclusion: 50000
+    us:statutes/26/911/f#amt_section_911_capital_gain_excess: 20000
+    us:statutes/26/911/f#amt_section_911_net_capital_gain: 40000
+    us:statutes/26/911/f#amt_section_911_qualified_dividend_income: 10000
+    us:statutes/26/911/f#amt_section_911_28_percent_rate_gain: 0
+    us:statutes/26/911/f#amt_section_911_unrecaptured_section_1250_gain: 3000
+    us:statutes/26/911/f#amt_section_911_adjusted_net_capital_gain: 37000
+- name: no_exclusion_means_no_section_1_stack_and_no_capital_gain_excess
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/f#input.taxable_income: 50000
+    us:statutes/26/911/f#input.taxable_excess: 40000
+    us:statutes/26/911/a#input.individual_is_qualified_individual: false
+    us:statutes/26/911/a#input.election_made_for_foreign_earned_income: false
+    us:statutes/26/911/a#input.election_made_for_housing_cost_amount: false
+    us:statutes/26/911/a#input.foreign_earned_income_of_individual: 0
+    us:statutes/26/911/a#input.housing_cost_amount_of_individual: 0
+    us:statutes/26/911/d/6#input.deduction_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.deduction_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/d/6#input.exclusion_from_gross_income_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.exclusion_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/f#input.net_capital_gain: 60000
+    us:statutes/26/911/f#input.qualified_dividend_income: 10000
+    us:statutes/26/911/f#input.capital_gains_28_percent_rate: 2000
+    us:statutes/26/911/f#input.unrecaptured_section_1250_gain: 3000
+  output:
+    us:statutes/26/911/f#section_911_f_excluded_amount: 0
+    us:statutes/26/911/f#taxable_income_increased_by_section_911_exclusion: 50000
+    us:statutes/26/911/f#section_911_capital_gain_excess: 0
+    us:statutes/26/911/f#section_911_net_capital_gain: 50000
+    us:statutes/26/911/f#section_911_qualified_dividend_income: 10000
+    us:statutes/26/911/f#section_911_28_percent_rate_gain: 2000
+    us:statutes/26/911/f#section_911_unrecaptured_section_1250_gain: 3000
+    us:statutes/26/911/f#section_911_adjusted_net_capital_gain: 45000
+    us:statutes/26/911/f#section_911_f_applies_to_section_1_tax: not_holds
+    us:statutes/26/911/f#amt_taxable_excess_increased_by_section_911_exclusion: 40000
+    us:statutes/26/911/f#amt_section_911_capital_gain_excess: 0
+    us:statutes/26/911/f#amt_section_911_net_capital_gain: 50000
+    us:statutes/26/911/f#amt_section_911_qualified_dividend_income: 10000
+    us:statutes/26/911/f#amt_section_911_28_percent_rate_gain: 2000
+    us:statutes/26/911/f#amt_section_911_unrecaptured_section_1250_gain: 3000
+    us:statutes/26/911/f#amt_section_911_adjusted_net_capital_gain: 45000
+- name: exclusion_with_nonpositive_tax_bases
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/f#input.taxable_income: 0
+    us:statutes/26/911/f#input.taxable_excess: 0
+    us:statutes/26/911/a#input.individual_is_qualified_individual: true
+    us:statutes/26/911/a#input.election_made_for_foreign_earned_income: true
+    us:statutes/26/911/a#input.election_made_for_housing_cost_amount: false
+    us:statutes/26/911/a#input.foreign_earned_income_of_individual: 10000
+    us:statutes/26/911/a#input.housing_cost_amount_of_individual: 0
+    us:statutes/26/911/d/6#input.deduction_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.deduction_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/d/6#input.exclusion_from_gross_income_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.exclusion_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/f#input.net_capital_gain: 0
+    us:statutes/26/911/f#input.qualified_dividend_income: 0
+    us:statutes/26/911/f#input.capital_gains_28_percent_rate: 0
+    us:statutes/26/911/f#input.unrecaptured_section_1250_gain: 0
+  output:
+    us:statutes/26/911/f#section_911_f_excluded_amount: 10000
+    us:statutes/26/911/f#section_911_f_applies_to_section_1_tax: not_holds
+    us:statutes/26/911/f#amt_taxable_excess_increased_by_section_911_exclusion: 0
+    us:statutes/26/911/f#section_911_capital_gain_excess: 0
+    us:statutes/26/911/f#amt_section_911_capital_gain_excess: 0
+- name: exclusion_tax_and_amt_taxable_excess_not_positive
+  period:
+    period_kind: tax_year
+    start: '2026-01-01'
+    end: '2026-12-31'
+  input:
+    us:statutes/26/911/f#input.taxable_income: 0
+    us:statutes/26/911/f#input.taxable_excess: 0
+    us:statutes/26/911/a#input.individual_is_qualified_individual: true
+    us:statutes/26/911/a#input.election_made_for_foreign_earned_income: true
+    us:statutes/26/911/a#input.election_made_for_housing_cost_amount: false
+    us:statutes/26/911/a#input.foreign_earned_income_of_individual: 10000
+    us:statutes/26/911/a#input.housing_cost_amount_of_individual: 0
+    us:statutes/26/911/d/6#input.deduction_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.deduction_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/d/6#input.exclusion_from_gross_income_under_subtitle_before_section_911_double_benefit_denial: 0
+    us:statutes/26/911/d/6#input.exclusion_properly_allocable_or_chargeable_to_amounts_excluded_under_subsection_a: 0
+    us:statutes/26/911/f#input.net_capital_gain: 0
+    us:statutes/26/911/f#input.qualified_dividend_income: 0
+    us:statutes/26/911/f#input.capital_gains_28_percent_rate: 0
+    us:statutes/26/911/f#input.unrecaptured_section_1250_gain: 0
+  output:
+    us:statutes/26/911/f#section_911_f_excluded_amount: 10000
+    us:statutes/26/911/f#section_911_f_applies_to_section_1_tax: not_holds
+    us:statutes/26/911/f#amt_taxable_excess_increased_by_section_911_exclusion: 0
+    us:statutes/26/911/f#section_911_capital_gain_excess: 0
+    us:statutes/26/911/f#amt_section_911_capital_gain_excess: 0
