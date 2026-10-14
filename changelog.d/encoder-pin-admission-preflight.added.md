@@ -1,0 +1,1 @@
+Targeted signed re-encodes now refuse, before the signing approval and any model call, a dispatch whose encoder the target RuleSpec repository's pinned encoder cannot admit (not the exact pin, and not a first-parent `main` descendant of a pin that contains #1859). `ENCODER_PIN_ADMISSION_OVERRIDE=true` reports without blocking.

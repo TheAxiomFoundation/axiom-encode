@@ -57,3 +57,32 @@ dependent receives its own source-complete native generation and validation.
 Diagnostics record the prior run, selected candidate lane and hashes separately
 from the requested dependent citations. This does not certify the new dependents
 as part of the old artifact or waive any signing or publication check.
+
+## Encoder pin admission
+
+A signed RuleSpec pull request lands only when the target repository's CI
+admits the encoder that signed it. That CI runs the encoder pinned in
+`.axiom/workflow-toolchain.toml` (`axiom_encode_ref`). A pin admits its exact
+commit. A pin that contains axiom-encode #1859 also admits a producer that
+descends from the pin on the first-parent history of encoder `main`
+(`docs/signed-manifest-encoder-admission.md`).
+
+The unprotected `Check RuleSpec encoder pin admission` job makes the same
+decision before the `production-signing` environment asks for approval and
+before any model call, for queue and ad hoc runs. It reads the pin from the
+target repository at `rulespec_ref` and the dispatch commit's history from a
+full axiom-encode checkout (`scripts/check_encoder_pin_admission.py`). A run
+whose encoder the pin cannot admit fails there, and the encode job is skipped.
+A refused run does not count against the failed-attempt budget.
+
+To unblock, move the target repository's `axiom_encode_ref` to an admissible
+encoder first. To generate anyway, for example while a pin bump is in review,
+set the repository variable `ENCODER_PIN_ADMISSION_OVERRIDE=true`; the check
+then reports without blocking. Remove it afterwards. A target repository that
+declares no `axiom_encode_ref` is reported and not blocked. Missing history, an
+unknown pin or an unreadable toolchain blocks the run.
+
+Known gap: the check mirrors the admission rule, not every CI defect. Draft
+axiom-encode #1879 reports that pins from #1859 up to that fix cannot run the
+ancestry proof under the supervised Git wrapper, so their CI rejects every
+changed signed manifest. The check does not model that window.
