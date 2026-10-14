@@ -125,6 +125,26 @@ isolates the temporal rule gap; it does not match the complete household input
 model or use the CI-pinned Axiom engine. Repair the dated RuleSpec parameter
 and affected companion fixture only through signed, source-bound generation.
 
+The adjacent basic categorical eligibility (BCE) module is also not ready for
+independent household composition. Its four budgetary-unit judgments, including
+`na_basic_categorical_eligibility`, remain declared on `Person` in current
+RuleSpec `main`; [RuleSpec #1429](https://github.com/TheAxiomFoundation/rulespec-us/pull/1429)
+merged a regression contract that demonstrates the unit-scope defect. The
+protected BCE [run 36628613155](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36628613155)
+produced signed [RuleSpec #1448](https://github.com/TheAxiomFoundation/rulespec-us/pull/1448),
+but that PR merged into `codex/az-nested-engine-pin`, not `main`. It is not a
+released BCE repair. A fresh protected promotion against current pins must
+precede any claim that ECE consumes an independent BCE result.
+
+The earlier ECE [run 37153765280](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37153765280)
+also rejected aggregate inputs that obscured separately stated source gates,
+proof coverage for AZTECS deeming of resources and the gross/net income tests,
+and companion evidence for that formula branch. The invalid `Person` shape
+freeze has since been removed, but that alone does not clear these other
+findings. The next source-bound run must use the signed March amendment,
+preserve `Household` unit scope, and generate executable February/March 2026
+boundary cases for the ECE rate and its dependent deeming behavior.
+
 A **matched medical-deduction amount boundary**, not end-to-end household
 parity: for January 2026 in Arizona, PolicyEngine US
 `d89439134c1bac8add0c8261c8a075c33c39401a` with a 65-year-old member
