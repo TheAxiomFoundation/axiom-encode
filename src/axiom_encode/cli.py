@@ -30954,8 +30954,11 @@ def _admit_retired_replacement_source_verification(
     )
     if not isinstance(verification, dict):
         raise ValueError("replacement legacy source verification must be a mapping")
-    singular = verification.get("corpus_citation_path")
+    declared_singular = verification.get("corpus_citation_path")
     plural = verification.get("corpus_citation_paths")
+    requested = source_unit.resolved_source
+    composed_parent = declared_singular is None
+    singular = source_unit.requested if composed_parent else declared_singular
     if (
         not isinstance(singular, str)
         or singular != source_unit.requested
@@ -30975,6 +30978,26 @@ def _admit_retired_replacement_source_verification(
             )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
+    if composed_parent:
+        # A bodyless parent can be the sole source of a fresh replacement only
+        # when the historical siblings are exactly its attested text-bearing
+        # components. A partial page list must not silently shed source text.
+        component_paths = [row.citation_path for row in requested.component_rows]
+        if (
+            requested.requested != singular
+            or requested.citation_path != singular
+            or not isinstance(requested.row, CorpusRowIdentity)
+            or requested.row.citation_path != singular
+            or requested.slice_required
+            or not component_paths
+            or len(set(component_paths)) != len(component_paths)
+            or set(plural) != set(component_paths)
+            or any(not path.startswith(singular + "/") for path in plural)
+        ):
+            raise ValueError(
+                "replacement plural-only source verification requires the exact "
+                "complete composed parent and its attested descendant rows"
+            )
 
     # Check other locations without changing the input handed to generation.
     # Copy each mapping on this path rather than mutating YAML aliases.
@@ -30982,6 +31005,8 @@ def _admit_retired_replacement_source_verification(
     remaining["module"] = dict(module)
     remaining_verification = dict(verification)
     del remaining_verification["corpus_citation_paths"]
+    if composed_parent:
+        remaining_verification["corpus_citation_path"] = singular
     remaining["module"]["source_verification"] = remaining_verification
     other_issues = find_plural_corpus_citation_path_issues(remaining)
     if other_issues:
@@ -30990,7 +31015,6 @@ def _admit_retired_replacement_source_verification(
             + "; ".join(other_issues)
         )
 
-    requested = source_unit.resolved_source
     admitted_sources = []
     required_unchanged_rules = {}
     for path in dict.fromkeys((singular, *plural)):
@@ -31084,6 +31108,28 @@ def _admit_retired_replacement_source_verification(
                 )
             )
         )
+        exact_composed_descendant = (
+            composed_parent
+            and path != singular
+            and isinstance(historical.row, CorpusRowIdentity)
+            and historical.requested
+            == historical.citation_path
+            == historical.row.citation_path
+            == path
+            and historical.row in requested.component_rows
+            and not historical.component_rows
+            and not historical.slice_required
+            and all(
+                getattr(historical, field) == getattr(requested, field)
+                for field in (
+                    "release_name",
+                    "release_content_sha256",
+                    "release_selector_sha256",
+                    "provision_file",
+                    "provision_file_sha256",
+                )
+            )
+        )
         from .retired_source_evidence import match_contained_segment
 
         containment = []
@@ -31111,9 +31157,9 @@ def _admit_retired_replacement_source_verification(
                     ).hexdigest(),
                 }
             )
-        if not (same_provenance or exact_contained_descendant) or len(
-            containment
-        ) != len(historical.proof_evidence_segments):
+        if not (
+            same_provenance or exact_contained_descendant or exact_composed_descendant
+        ) or len(containment) != len(historical.proof_evidence_segments):
             raise ValueError(
                 f"replacement legacy citation {path} is not fully covered by the "
                 "requested resolver evidence; encode it separately and import it"
@@ -31260,6 +31306,8 @@ def _resolve_encode_replacement_target(
         if isinstance(verification, dict)
         else []
     )
+    if not citation_paths and retired_source_admission is not None:
+        citation_paths = (source_unit.requested,)
     if len(citation_paths) != 1:
         raise ValueError(
             "replacement RuleSpec must declare exactly one corpus citation path"
