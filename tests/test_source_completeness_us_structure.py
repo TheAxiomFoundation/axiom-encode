@@ -358,3 +358,54 @@ def test_english_structure_and_formula_locators_still_pair_for_retry():
     assert _validation_retry_branch_locator(structure) != (
         _validation_retry_branch_locator(other)
     )
+
+
+def test_us_citation_lists_and_ranges_name_each_listed_branch():
+    paths = completeness._paths_from_source_reference(
+        "7 CFR 273.4(a)(4)(iii), (a)(5)(ii), and (c)(3)(vi)-(vii)",
+        corpus_citation_path="us/regulation/7/273/4",
+    )
+    assert paths == {
+        ("a", "4", "iii"),
+        ("a", "5", "ii"),
+        ("c", "3", "vi"),
+        ("c", "3", "vii"),
+    }
+    assert completeness._paths_from_source_reference(
+        "26 USC 2(a)(1)(A)-(C)", corpus_citation_path="us/statute/26/2/a"
+    ) == {("1", "a"), ("1", "b"), ("1", "c")}
+    assert completeness._paths_from_source_reference(
+        "42 USC 416(l)(1), (3)", corpus_citation_path="us/statute/42/416/l"
+    ) == {("1",), ("3",)}
+    # A parenthetical gloss, a different section, and German citations are
+    # not read as further designations.
+    assert completeness._paths_from_source_reference(
+        "7 CFR 273.4(a) (citizenship) and 7 CFR 273.10(c)",
+        corpus_citation_path="us/regulation/7/273/4",
+    ) == {("a",)}
+    assert completeness._paths_from_source_reference(
+        "de/statute/estg/32a(1), (2)", corpus_citation_path="de/statute/estg/32a"
+    ) == {("1",)}
+
+
+def test_cited_range_covers_only_its_own_branches():
+    source = """\
+(a) A person is eligible only if the person is:
+(1) A U.S. citizen;
+(2) A U.S. non-citizen national;
+(3) A qualified alien; or
+(4) A Hmong or Highland Laotian tribal member.
+(b) Reporting requirements apply.
+"""
+    citation = "us/regulation/7/273/4"
+    result = _analyze(_module(citation, "7 CFR 273.4(a)(1)-(3)"), source, citation)
+    structure = _structure_issues(result)
+
+    for covered in ("(a)(1) ", "(a)(2) ", "(a)(3) "):
+        assert not any(f"273/4{covered}" in issue for issue in structure), covered
+    # Negative control: the omitted sibling outside the range still fails.
+    assert any(
+        "Source branch (4) at us/regulation/7/273/4(a)(4) [paragraph (a)(4)]" in issue
+        for issue in structure
+    ), structure
+    assert any("273/4(b) [paragraph (b)]" in issue for issue in structure)

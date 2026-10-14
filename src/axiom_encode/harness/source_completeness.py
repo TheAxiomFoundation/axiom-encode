@@ -2641,8 +2641,12 @@ def _us_code_outline_levels(corpus_citation_path: str) -> tuple[str, ...] | None
     return _US_CODE_OUTLINE_LEVELS[depth:]
 
 
-def _us_code_reference_label_classes(label: str) -> frozenset[str]:
-    """Classify one designation for reference-list continuation only."""
+def _us_designation_classes(label: str) -> frozenset[str]:
+    """Classify a U.S. designation: numeric, letter or roman, by case.
+
+    A single letter is roman only as `i`, `v` or `x`; `(c)` or `(D)` is a
+    letter, never 100 or 500.
+    """
 
     if label[0].isdigit():
         return frozenset({"numeric"})
@@ -2650,9 +2654,15 @@ def _us_code_reference_label_classes(label: str) -> frozenset[str]:
     classes = set()
     if len(label) == 1:
         classes.add(f"{case}-letter")
-    if _is_roman_outline_label(label):
+    if _is_outline_roman_designation(label):
         classes.add(f"{case}-roman")
     return frozenset(classes)
+
+
+def _is_outline_roman_designation(label: str) -> bool:
+    return _is_roman_outline_label(label) and (
+        len(label) > 1 or label.lower() in {"i", "v", "x"}
+    )
 
 
 def _restore_flattened_us_code_outline(
@@ -2705,7 +2715,7 @@ def _restore_flattened_us_code_outline(
     def record_structural(chain_end: int, labels: Sequence[str]) -> None:
         structural_ends.add(chain_end)
         for label in labels:
-            for label_class in _us_code_reference_label_classes(label):
+            for label_class in _us_designation_classes(label):
                 last_structural[label_class] = label
 
     line_chains = {
@@ -2771,7 +2781,7 @@ def _restore_flattened_us_code_outline(
             )
             previous_classes = frozenset().union(
                 *(
-                    _us_code_reference_label_classes(label)
+                    _us_designation_classes(label)
                     for label in re.findall(
                         r"\(([A-Za-z0-9]+)\)", previous_chain.group(0)
                     )
@@ -2779,7 +2789,7 @@ def _restore_flattened_us_code_outline(
             )
             continues_reference = bool(
                 (previous_end in reference_ends or attached)
-                and previous_classes & _us_code_reference_label_classes(labels[0])
+                and previous_classes & _us_designation_classes(labels[0])
             )
             # An enumerated item may itself end in a citation: the next item
             # is the open sibling's successor and starts item text.
@@ -2790,7 +2800,7 @@ def _restore_flattened_us_code_outline(
                     labels[0],
                     _US_CODE_LABEL_CLASS_CATEGORY[label_class],
                 )
-                for label_class in _us_code_reference_label_classes(labels[0])
+                for label_class in _us_designation_classes(labels[0])
             ) and not _US_CODE_REFERENCE_CONTINUATION_FOLLOWER.match(
                 source_text, chain_end
             )
@@ -3733,7 +3743,7 @@ def _parenthesized_legal_outline_categories(raw_label: str) -> tuple[str, ...]:
     if raw_label.isupper():
         # Only the U.S. Code hierarchy has an upper-roman (subclause) level;
         # the other level tables never select it.
-        if _is_roman_outline_label(raw_label):
+        if _is_outline_roman_designation(raw_label):
             return ("upper-alpha", "upper-roman")
         return ("upper-alpha",)
     categories = ["lower-alpha"]
@@ -6369,6 +6379,7 @@ def _paths_from_source_reference(
     ):
         return set()
     paths: set[tuple[str, ...]] = set()
+    us_source = _US_CORPUS_CITATION_PATH.match(corpus_citation_path) is not None
     reference_aliases = _authoritative_source_unit_aliases(corpus_citation_path)
     for reference in reference_aliases:
         escaped_reference = re.escape(reference)
@@ -6397,6 +6408,12 @@ def _paths_from_source_reference(
                         *_keyword_path_components(trailing, base_components),
                     )
                 )
+                if not suffix.startswith("/") and us_source:
+                    paths.update(
+                        _us_designation_list_continuations(
+                            value, match.end(), components
+                        )
+                    )
 
     keyword_components = _keyword_path_components(value)
     if keyword_components:
@@ -6420,8 +6437,108 @@ def _paths_from_source_reference(
             paths.add(
                 (*base_components, *_keyword_path_components(trailing, base_components))
             )
+            if us_source:
+                paths.update(
+                    _us_designation_list_continuations(value, match.end(), components)
+                )
     if not paths:
         paths.add(())
+    return paths
+
+
+_US_DESIGNATION_LIST_CONTINUATION = re.compile(
+    r"[ \t]*(?P<separator>,[ \t]*(?:(?:and|or)[ \t]+)?|[ \t]+(?:and|or)[ \t]+|"
+    r"[ \t]*(?:-|–|—|through|thru|to)[ \t]*)"
+    r"(?P<chain>(?:\([A-Za-z0-9]{1,6}\))+)"
+)
+
+
+def _us_designation_range(
+    first: str, last: str, label_class: str
+) -> tuple[str, ...] | None:
+    """Expand `(3)-(5)`, `(A)-(C)`, `(vi)-(vii)` to the listed designations."""
+
+    if label_class == "numeric":
+        if not (first.isdigit() and last.isdigit()):
+            return None
+        values = range(int(first), int(last) + 1)
+        labels = tuple(str(value) for value in values)
+    elif label_class.endswith("letter"):
+        labels = tuple(chr(code) for code in range(ord(first), ord(last) + 1))
+    else:
+        first_value = _roman_outline_value(first)
+        last_value = _roman_outline_value(last)
+        if first_value is None or last_value is None:
+            return None
+        numerals = (
+            (10, "x"),
+            (9, "ix"),
+            (5, "v"),
+            (4, "iv"),
+            (1, "i"),
+        )
+        labels = []
+        for value in range(first_value, last_value + 1):
+            rendered = ""
+            for size, numeral in numerals:
+                while value >= size:
+                    rendered += numeral
+                    value -= size
+            labels.append(rendered.upper() if first.isupper() else rendered)
+        labels = tuple(labels)
+    return labels if 2 <= len(labels) <= 26 else None
+
+
+def _us_designation_list_continuations(
+    source: str,
+    position: int,
+    components: Sequence[str],
+) -> set[tuple[str, ...]]:
+    """Read the rest of `7 CFR 273.4(a)(1)-(2), (c)(3)(vi)-(vii)`.
+
+    U.S. citations list and range sibling designations after the first one.
+    Each continuation replaces the designation of its own class at the
+    deepest matching level of the previous one (`(a)(5)(iii)-(iv)` cites
+    (a)(5)(iii) and (a)(5)(iv); `(a)(4)(iii), (a)(5)(ii)` restarts at the
+    root). A range of single siblings names each sibling it spans. Reading
+    stops at the first continuation that is not a designation of a level
+    already cited, so `(a)(1) (as amended)` and later citations are unaffected.
+    """
+
+    paths: set[tuple[str, ...]] = set()
+    previous = list(components)
+    while True:
+        continuation = _US_DESIGNATION_LIST_CONTINUATION.match(source, position)
+        if continuation is None:
+            break
+        labels = re.findall(r"\(([A-Za-z0-9]+)\)", continuation.group("chain"))
+        if not all(_is_parenthesized_outline_label(label) for label in labels):
+            break
+        classes = _us_designation_classes(labels[0])
+        depth = next(
+            (
+                index
+                for index in range(len(previous) - 1, -1, -1)
+                if _us_designation_classes(previous[index]) & classes
+            ),
+            None,
+        )
+        if depth is None:
+            break
+        current = [*previous[:depth], *labels]
+        separator = continuation.group("separator").strip()
+        if separator in {"-", "–", "—", "through", "thru", "to"} and len(labels) == 1:
+            shared = sorted(_us_designation_classes(previous[depth]) & classes)
+            expanded = (
+                _us_designation_range(previous[depth], labels[0], shared[-1])
+                if shared
+                else None
+            )
+            for label in expanded or ():
+                paths.add(tuple(part.lower() for part in (*previous[:depth], label)))
+        paths.add(tuple(part.lower() for part in current))
+        previous = current
+        position = continuation.end()
     return paths
 
 
@@ -7026,7 +7143,13 @@ def _resolved_definition_deferral_clauses(
             continue
         clauses.append(
             SourceStructureBranch(
-                owner.path, "deferred-definition", owner.label, text, start, end
+                owner.path,
+                "deferred-definition",
+                owner.label,
+                text,
+                start,
+                end,
+                display_path=owner.display_path,
             )
         )
     return tuple(clauses)
@@ -15892,6 +16015,11 @@ def _flattened_inline_dotted_list_ownership(
                 source_text[start:end].strip(),
                 start,
                 end,
+                display_path=(
+                    (*parent.display_path, match.group("label"))
+                    if parent.display_path is not None
+                    else None
+                ),
             )
         )
     return tuple(branches), False
@@ -18340,6 +18468,7 @@ def _source_formula_branches(
                 for label_start, label_end in worksheet_labels
                 if start <= label_start < label_end <= end
             ),
+            display_path=owner.display_path,
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -26612,6 +26741,7 @@ def _source_exception_branches(
                     branch_text,
                     branch_start,
                     branch_end,
+                    display_path=owner.display_path,
                 )
             )
     return tuple(
@@ -27304,6 +27434,7 @@ def _source_rounding_obligations(
             clause_text,
             clause_start,
             clause_end,
+            display_path=owner.display_path,
         )
         obligations.append((obligation_branch, direction))
     return tuple(obligations)
