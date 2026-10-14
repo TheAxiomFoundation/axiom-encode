@@ -244,6 +244,24 @@ def propose_companion_cases(
         keys = tuple(output_keys) if output_keys is not None else tuple(case["output"])
         return CompanionCaseProposal(obligation, proposed, tuple(map(str, keys)))
 
+    def scoped_output_keys(case: dict[str, Any], rule_name: str) -> list[str]:
+        """Keep the case's local outputs on the rule's entity, plus the rule.
+
+        One executed case queries one entity, so outputs of other entities
+        (or parameters) in a model-written case are dropped from the clone.
+        """
+
+        target = entity(rule_name)
+        keys = [
+            str(key)
+            for key in case["output"]
+            if _local_name(key) in principal_rules
+            and entity(_local_name(key)) == target
+        ]
+        if not any(_local_name(key) == rule_name for key in keys):
+            keys.append(_output_key_like(case, rule_name))
+        return keys
+
     per_obligation: list[list[CompanionCaseProposal]] = []
     for obligation in obligations:
         proposals: list[CompanionCaseProposal] = []
@@ -262,24 +280,22 @@ def propose_companion_cases(
                 proposals.append(proposal)
 
         rule_cases = [
-            case
+            (rule_name, case)
             for rule_name in obligation.rule_names
             for case in asserted.get(rule_name, [])[:_CASES_PER_RULE]
         ]
         if obligation.kind in {"boundary", "formula-branch", "clamp"}:
             targets = set(obligation.input_names)
-            candidates = rule_cases
-            if obligation.kind == "clamp":
-                owner = obligation.rule_names[0] if obligation.rule_names else ""
-                candidates = rule_cases + [
-                    case
+            candidates = list(rule_cases)
+            if obligation.kind == "clamp" and obligation.rule_names:
+                owner = obligation.rule_names[0]
+                candidates += [
+                    (owner, case)
                     for case in cases
-                    if case not in rule_cases
+                    if all(case is not other for _name, other in rule_cases)
                     and any(_local_name(key) in targets for key in case["input"])
-                    and {entity(_local_name(key)) for key in case["output"]}
-                    <= {entity(owner)}
                 ]
-            for case in candidates:
+            for rule_name, case in candidates:
                 for key, value in case["input"].items():
                     if _local_name(key) not in targets or not _is_number(value):
                         continue
@@ -288,26 +304,18 @@ def propose_companion_cases(
                             continue
                         inputs = dict(case["input"])
                         inputs[key] = _yaml_number(target)
-                        output_keys = list(case["output"])
-                        if obligation.kind == "clamp" and not any(
-                            _local_name(output) in obligation.rule_names
-                            for output in output_keys
-                        ):
-                            output_keys.append(
-                                _output_key_like(case, obligation.rule_names[0])
-                            )
                         add(
                             clone(
                                 obligation,
                                 case,
                                 f"{_local_name(key)}_{target:g}",
                                 inputs=inputs,
-                                output_keys=output_keys,
+                                output_keys=scoped_output_keys(case, rule_name),
                             )
                         )
         if obligation.kind == "formula-branch":
             toggles = set(obligation.toggle_input_names)
-            for case in rule_cases:
+            for rule_name, case in rule_cases:
                 for key, value in case["input"].items():
                     if _local_name(key) in toggles and isinstance(value, bool):
                         inputs = dict(case["input"])
@@ -318,31 +326,32 @@ def propose_companion_cases(
                                 case,
                                 f"{_local_name(key)}_{not value}",
                                 inputs=inputs,
+                                output_keys=scoped_output_keys(case, rule_name),
                             )
                         )
-            for rule_name in obligation.rule_names:
+            for rule_name, case in rule_cases:
                 versions = (principal_rules.get(rule_name) or {}).get("versions")
                 for version in versions if isinstance(versions, list) else []:
                     start = str((version or {}).get("effective_from") or "")
                     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
                         continue
-                    for case in asserted.get(rule_name, [])[:_CASES_PER_RULE]:
-                        period = _period_like(case.get("period"), start)
-                        if period is None or str(period) == str(case.get("period")):
-                            continue
-                        add(
-                            clone(
-                                obligation,
-                                case,
-                                f"{rule_name}_{start}",
-                                period=period,
-                            )
+                    period = _period_like(case.get("period"), start)
+                    if period is None or str(period) == str(case.get("period")):
+                        continue
+                    add(
+                        clone(
+                            obligation,
+                            case,
+                            f"{rule_name}_{start}",
+                            period=period,
+                            output_keys=scoped_output_keys(case, rule_name),
                         )
+                    )
         if obligation.kind == "principal-output" and obligation.rule_names:
             output_name = obligation.rule_names[0]
             for case in cases:
-                if {entity(_local_name(key)) for key in case["output"]} != {
-                    entity(output_name)
+                if entity(output_name) not in {
+                    entity(_local_name(key)) for key in case["output"]
                 }:
                     continue
                 add(
