@@ -5148,6 +5148,8 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "row_key" in prompt
     assert "column_key" in prompt
     assert "kind: derived_relation" in prompt
+    assert "data_relation.arguments" in prompt
+    assert "arguments: [Person, Household]" in prompt
     assert "derived_relation:" in prompt
     assert "arity: 2" in prompt
     assert "source_relation: member_of_household" in prompt
