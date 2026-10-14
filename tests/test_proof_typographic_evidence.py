@@ -101,9 +101,30 @@ def _evidence_issues(excerpt: str, source_text: str, **kwargs) -> list[str]:
         ),
         ("as provided in § 273.4 of this part", "as provided in §273.4"),
         # No-break and thin spaces after a sign; a soft hyphen inside a word.
-        ("as provided in § 273.4 of this part", "as provided in §273.4"),
-        ("limited to $  4,000 per account", "$4,000 per account"),
-        ("income from self-employ­ment is counted", "income from self-employment"),
+        ("as provided in \u00a7\u00a0273.4 of this part", "as provided in §273.4"),
+        ("limited to $\u2009 4,000 per account", "$4,000 per account"),
+        ("income from self-employ\u00adment is counted", "income from self-employment"),
+        # A non-ASCII hyphen or a soft hyphen at a line wrap.
+        (
+            "not more than twenty\u2010 \ufb01ve dollars ($25)",
+            "twenty-five dollars ($25)",
+        ),
+        (
+            "income from self\u2011\nemployment is counted",
+            "income from self-employment",
+        ),
+        (
+            "income from self\u2013\nemployment is counted",
+            "income from self-employment",
+        ),
+        (
+            "income from self-employ\u2010\nment is counted",
+            "income from self-employment",
+        ),
+        (
+            "income from self-employ\u00ad\nment is counted",
+            "income from self-employment",
+        ),
         # Curly and straight apostrophes and quotation marks.
         (
             "unless the taxpayer includes with the taxpayer’s return",
@@ -191,9 +212,12 @@ def test_proof_evidence_accepts_typographic_spelling(source_text, excerpt):
         ("Group—5 percent of the amount", "-5 percent of the amount"),
         # A dash in sign position keeps its own spelling: no excerpt may add,
         # drop or swap the sign the source prints.
-        ("The adjustment factor is -500 for each household.", "−500 for each"),
-        ("The adjustment factor is –500 for each household.", "-500 for each"),
-        ("The adjustment factor is −500 for each household.", "-500 for each"),
+        ("The adjustment factor is -500 for each household.", "\u2212500 for each"),
+        ("The adjustment factor is \u2013500 for each household.", "-500 for each"),
+        ("The adjustment factor is \u2212500 for each household.", "-500 for each"),
+        # A dash between a letter and a digit is not folded either.
+        ("The adjustment is Group-500 for each household.", "Group\u2212500 for each"),
+        ("The adjustment is Group\u2013500 for each household.", "Group-500 for each"),
     ],
 )
 def test_proof_evidence_rejects_changed_text(source_text, excerpt):
@@ -245,9 +269,10 @@ def test_numeric_evidence_binding_reads_typographic_spelling():
 @pytest.mark.parametrize(
     ("source_text", "excerpt"),
     [
-        ("The adjustment factor is -500 for each household.", "−500 for each"),
-        ("The adjustment factor is –500 for each household.", "-500 for each"),
-        ("The adjustment factor is −500 for each household.", "-500 for each"),
+        ("The adjustment factor is -500 for each household.", "\u2212500 for each"),
+        ("The adjustment factor is \u2013500 for each household.", "-500 for each"),
+        ("The adjustment factor is \u2212500 for each household.", "-500 for each"),
+        ("The adjustment is Group-500 for each household.", "Group\u2212500 for each"),
     ],
 )
 def test_numeric_evidence_binding_keeps_the_printed_sign(source_text, excerpt):

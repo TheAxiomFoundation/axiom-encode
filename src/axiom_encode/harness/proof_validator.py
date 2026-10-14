@@ -722,15 +722,15 @@ _PROOF_TYPOGRAPHIC_CHARACTER_MAP = {
     "\u201d": '"',
     "\u201e": '"',
     "\u201f": '"',
-    # A soft hyphen is an invisible break opportunity, not a printed character.
-    "\u00ad": "",
 }
-# Hyphen, non-breaking hyphen, figure dash, en dash and minus sign read as one
-# hyphen only between two letters or digits ("90.1\u20132004", "self\u2010help").
-# A dash in sign position stays as printed, so "\u2212500" never matches "-500"
-# and an excerpt cannot add or drop the sign of a number. An em dash or
-# horizontal bar is clause punctuation ("who\u2014(i)") and is never folded.
-_PROOF_TYPOGRAPHIC_INFIX_DASHES = frozenset("\u2010\u2011\u2012\u2013\u2212")
+# Hyphen, non-breaking hyphen, figure dash and en dash read as one hyphen only
+# between two letters or between two digits ("90.1\u20132004", "self\u2010help"),
+# or between two letters across a line wrap. A dash in sign position, or
+# between a letter and a digit, stays as printed, so no excerpt can add, drop
+# or swap the sign of a number. A minus sign (U+2212) is never folded; an em
+# dash or horizontal bar is clause punctuation ("who\u2014(i)").
+_PROOF_TYPOGRAPHIC_INFIX_DASHES = frozenset("\u2010\u2011\u2012\u2013")
+_PROOF_WRAP_DASH = "[-\u2010\u2011\u2012\u2013]"
 # Horizontal space of any width (never an information separator) and one
 # line wrap.
 _PROOF_HORIZONTAL_SPACE = "[ \\t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
@@ -744,18 +744,21 @@ _PROOF_WRAP_GAP = (
     + _PROOF_HORIZONTAL_SPACE
     + "*)"
 )
-# "twenty- five" / "self-\nemployment": keep the hyphen, drop the wrap.
+_PROOF_LINE_WRAP = (
+    _PROOF_HORIZONTAL_SPACE + "*" + LINE_END_FRAGMENT + _PROOF_HORIZONTAL_SPACE + "*"
+)
+# "twenty- five" / "self\u2010\nemployment": keep one hyphen, drop the wrap.
 _PROOF_COMPOUND_HYPHEN_WRAP_PATTERN = re.compile(
-    r"(?<=[^\W\d_])-(" + _PROOF_WRAP_GAP + r")(?=[^\W\d_])"
+    r"(?<=[^\W\d_])(" + _PROOF_WRAP_DASH + ")(" + _PROOF_WRAP_GAP + r")(?=[^\W\d_])"
 )
 # "employ-\nment": a line-end hyphen between lowercase letters splits a word.
 _PROOF_SOFT_HYPHEN_WRAP_PATTERN = re.compile(
-    r"(?<=[a-z])(-"
-    + _PROOF_HORIZONTAL_SPACE
-    + "*"
-    + LINE_END_FRAGMENT
-    + _PROOF_HORIZONTAL_SPACE
-    + r"*)(?=[a-z])"
+    r"(?<=[a-z])(" + _PROOF_WRAP_DASH + _PROOF_LINE_WRAP + r")(?=[a-z])"
+)
+# A soft hyphen (U+00AD) is an invisible break opportunity, never printed: it
+# goes, with the line wrap it may sit at between two letters.
+_PROOF_SOFT_HYPHEN_CHARACTER_PATTERN = re.compile(
+    r"(\u00ad(?:(?<=[^\W\d_]\u00ad)" + _PROOF_LINE_WRAP + r"(?=[^\W\d_]))?)"
 )
 _PROOF_SIGN_DIGIT_GAP_PATTERN = re.compile(
     r"[$\u00a2-\u00a5\u20a0-\u20cf\u00a7\u00b6](" + _PROOF_WRAP_GAP + r")(?=\d)"
@@ -769,6 +772,20 @@ _PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN = re.compile(
     + _PROOF_WRAP_GAP
     + r"[^\W\d_]|$))"
 )
+# Whether a record has a line-end hyphen that the joined view would read
+# differently; most records do not, and need only the one view.
+_PROOF_LINE_END_HYPHEN_PATTERN = re.compile(
+    r"[a-z]" + _PROOF_WRAP_DASH + _PROOF_LINE_WRAP + "[a-zﬀ-ﬆ]"
+)
+
+
+def _is_folded_infix_dash(text: str, index: int) -> bool:
+    if not 0 < index < len(text) - 1:
+        return False
+    before, after = text[index - 1], text[index + 1]
+    return (before.isalpha() and after.isalpha()) or (
+        before.isdecimal() and after.isdecimal()
+    )
 
 
 def _typographic_evidence_view(
@@ -783,16 +800,9 @@ def _typographic_evidence_view(
     """
     characters: list[str] = []
     offsets: list[int] = []
-    last = len(text) - 1
     for index, character in enumerate(text):
         if character in _PROOF_TYPOGRAPHIC_INFIX_DASHES:
-            mapped_text = (
-                "-"
-                if 0 < index < last
-                and text[index - 1].isalnum()
-                and text[index + 1].isalnum()
-                else character
-            )
+            mapped_text = "-" if _is_folded_infix_dash(text, index) else character
         else:
             mapped_text = _PROOF_TYPOGRAPHIC_CHARACTER_MAP.get(character, character)
         for mapped in mapped_text:
@@ -800,20 +810,25 @@ def _typographic_evidence_view(
             offsets.append(index)
     translated = "".join(characters)
     deleted: set[int] = set()
-    patterns = [
-        _PROOF_COMPOUND_HYPHEN_WRAP_PATTERN,
+    if join_soft_hyphens:
+        for match in _PROOF_SOFT_HYPHEN_WRAP_PATTERN.finditer(translated):
+            deleted.update(range(match.start(1), match.end(1)))
+    for match in _PROOF_COMPOUND_HYPHEN_WRAP_PATTERN.finditer(translated):
+        if match.start(1) in deleted:
+            continue
+        characters[match.start(1)] = "-"
+        deleted.update(range(match.start(2), match.end(2)))
+    for pattern in (
+        _PROOF_SOFT_HYPHEN_CHARACTER_PATTERN,
         _PROOF_SIGN_DIGIT_GAP_PATTERN,
         _PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN,
-    ]
-    if join_soft_hyphens:
-        patterns.insert(0, _PROOF_SOFT_HYPHEN_WRAP_PATTERN)
-    for pattern in patterns:
+    ):
         for match in pattern.finditer(translated):
             deleted.update(range(match.start(1), match.end(1)))
     kept = [
         (character, offset)
         for position, (character, offset) in enumerate(
-            zip(translated, offsets, strict=True)
+            zip(characters, offsets, strict=True)
         )
         if position not in deleted
     ]
@@ -841,13 +856,13 @@ def _typographic_evidence_view(
     while view and view[-1].isspace():
         view.pop()
         view_offsets.pop()
-    return "".join(view), array("L", view_offsets)
+    return "".join(view), array("I", view_offsets)
 
 
 # A source record's view is reused across every excerpt that misses it
-# literally; excerpt views are small and computed per call. Offsets are kept
-# as a compact unsigned array, so a cached view costs a few bytes a character.
-_typographic_segment_view = functools.lru_cache(maxsize=4)(_typographic_evidence_view)
+# literally; excerpt views are small and computed per call. Offsets are a
+# compact unsigned array (about 4 bytes a character beside the text itself).
+_typographic_segment_view = functools.lru_cache(maxsize=32)(_typographic_evidence_view)
 
 
 _PROOF_ENCLOSING_QUOTATION_PAIRS = (
@@ -914,15 +929,16 @@ def _typographic_source_evidence_spans(
     spans: set[tuple[int, int]] = set()
     base = 0
     for segment in split_proof_evidence_text(source_text):
-        seen_views: set[str] = set()
-        for join_soft_hyphens in (False, True):
+        joins = (
+            (False, True)
+            if _PROOF_LINE_END_HYPHEN_PATTERN.search(segment)
+            else (False,)
+        )
+        for join_soft_hyphens in joins:
             view, offsets = _typographic_segment_view(
                 segment,
                 join_soft_hyphens=join_soft_hyphens,
             )
-            if view in seen_views:
-                continue
-            seen_views.add(view)
             for variant in variants:
                 for match in re.finditer(re.escape(variant), view):
                     # The view's whitespace is collapsed, so a bounded window
