@@ -3192,6 +3192,7 @@ def _runner_environment(
     files (GITHUB_ENV, GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY,
     GITHUB_EVENT_PATH), GITHUB_HEAD_REF (the head branch's name, which a
     commit does not carry), RUNNER_NAME, RUNNER_DEBUG and RUNNER_TOOL_CACHE.
+    Without --pull-request, GITHUB_REF is empty and GITHUB_REF_NAME unset.
     """
 
     environment = {
@@ -3213,11 +3214,13 @@ def _runner_environment(
             environment["GITHUB_REPOSITORY_OWNER"] = simulation.repository.split(
                 "/", 1
             )[0]
-        if simulation.number is not None:
-            # A pull_request run's ref is refs/pull/<n>/merge.
-            environment["GITHUB_REF_NAME"] = f"{simulation.number}/merge"
-            environment["GITHUB_REF_TYPE"] = "branch"
+        # A pull_request run's ref is a branch, refs/pull/<n>/merge; its name
+        # needs the pull request's number (--pull-request).
+        environment["GITHUB_REF_TYPE"] = "branch"
+        if simulation.base_branch:
             environment["GITHUB_BASE_REF"] = simulation.base_branch
+        if simulation.number is not None:
+            environment["GITHUB_REF_NAME"] = f"{simulation.number}/merge"
     if runner_temp is not None:
         environment["RUNNER_TEMP"] = str(runner_temp)
     return environment
@@ -3567,14 +3570,7 @@ def _release_cache_path(corpus_path: Path, release: str, content_sha256: str) ->
     for name, value in (("release", release), ("content digest", content_sha256)):
         if not value or value in {".", ".."} or "/" in value or os.sep in value:
             raise ValueError(f"Corpus {name} {value!r} is not a single path component")
-    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
-    for path in (corpus_path / "releases", destination.parent, destination):
-        if path.is_symlink():
-            raise ValueError(
-                f"Corpus release cache path {path} is a symlink; ci would write "
-                "the release object outside the corpus checkout"
-            )
-    return destination
+    return _release_cache_destination(corpus_path, release, content_sha256)
 
 
 def acquire_workflow_release_object(
@@ -6286,6 +6282,46 @@ def _copy_on_write(source: Path, target: Path) -> None:
     shutil.copy2(source, target, follow_symlinks=False)
 
 
+def _isolated_git_environment() -> dict[str, str]:
+    """Git with no global or system configuration, attributes or prompts.
+
+    What committed_checkout and _disposable_checkout give Git, so neither a
+    developer's hooks (core.hooksPath) nor their aliases, filters or
+    templates touch a checkout ci made.
+    """
+
+    return {
+        **_git_environment(),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
+def _isolated_git(
+    repo: Path, *arguments: str, stdin: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
+            f"core.attributesFile={os.devnull}",
+            "-C",
+            str(repo),
+            *arguments,
+        ],
+        input=stdin,
+        text=True,
+        check=check,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_isolated_git_environment(),
+    )
+
+
 def _ci_dependency_refs(checkout: Path, source: Path) -> None:
     """Leave ``checkout`` with the refs CI's dependency checkouts hold.
 
@@ -6294,40 +6330,38 @@ def _ci_dependency_refs(checkout: Path, source: Path) -> None:
     branch, with --no-tags (92ccb0f2 L1543-1567). So there are no tags, no
     local branches and one remote-tracking ref, and `git describe --tags`
     and the version schemes built on it (setuptools-scm, hatch-vcs) see what
-    they see in CI. HEAD stays detached at the commit.
+    they see in CI. HEAD stays detached at the commit. Every Git command runs
+    without the developer's global or system configuration or hooks.
     """
 
     default = (
-        _git(
+        _isolated_git(
             source, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False
         ).stdout.strip()
         or "refs/remotes/origin/main"
     )
-    tip = _git(
+    tip = _isolated_git(
         source, "rev-parse", "--verify", "-q", default, check=False
     ).stdout.strip()
-    refs = _git(checkout, "for-each-ref", "--format=%(refname)").stdout.split()
+    refs = _isolated_git(checkout, "for-each-ref", "--format=%(refname)").stdout.split()
     if refs:
-        subprocess.run(
-            ["git", "-C", str(checkout), "update-ref", "--stdin"],
+        _isolated_git(
+            checkout,
+            "update-ref",
+            "--stdin",
             # no-deref: refs/remotes/origin/HEAD goes, not what it names.
-            input="".join(f"option no-deref\ndelete {ref}\n" for ref in refs),
-            text=True,
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=_git_environment(),
+            stdin="".join(f"option no-deref\ndelete {ref}\n" for ref in refs),
         )
     if tip:
         # A transport clone holds only what it fetched; the default branch's
         # tip may be newer than every local ref of the source.
-        if _git(
+        if _isolated_git(
             checkout, "cat-file", "-e", f"{tip}^{{commit}}", check=False
         ).returncode:
-            _git(
+            _isolated_git(
                 checkout, "fetch", "--quiet", "--no-tags", str(source), tip, check=False
             )
-        _git(checkout, "update-ref", default, tip, check=False)
+        _isolated_git(checkout, "update-ref", default, tip, check=False)
 
 
 def _git_blob_digest(path: Path, algorithm: str) -> str:
@@ -6381,18 +6415,14 @@ def _disposable_checkout(
     before the step (the corpus release object), copied from ``source``.
     """
 
-    environment = {
-        **_git_environment(),
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_ATTR_NOSYSTEM": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    environment = _isolated_git_environment()
 
     def git(*arguments: str, stdin: bytes | None = None) -> bytes:
         result = subprocess.run(
             [
                 "git",
+                "-c",
+                f"core.hooksPath={os.devnull}",
                 "-c",
                 f"core.attributesFile={os.devnull}",
                 "-C",
@@ -6430,7 +6460,14 @@ def _disposable_checkout(
             meta, _, raw = record.partition(b"\t")
             mode, _kind, blob = meta.split()
             tree.append((mode, blob.decode(), os.fsdecode(raw)))
-    if collisions := _colliding_paths([path for *_, path in tree], destination):
+    for relative in carried:
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError(f"Cannot carry {relative!r} into a disposable checkout")
+    # CI places the carried files beside the committed ones (the release
+    # object at L1880-1896), so both sets have to fit on this filesystem.
+    if collisions := _colliding_paths(
+        [*(path for *_, path in tree), *carried], destination
+    ):
         raise ValueError(
             f"Cannot make a disposable {destination.name} checkout at {commit}: "
             "committed paths collide on this filesystem (case or Unicode "
@@ -6519,12 +6556,26 @@ def _disposable_checkout(
             )
         os.chmod(target, 0o755 if executable else 0o644)
     for relative in carried:
-        if Path(relative).is_absolute() or ".." in Path(relative).parts:
-            raise ValueError(f"Cannot carry {relative!r} into a disposable checkout")
         if not stat.S_ISREG(os.lstat(source / relative).st_mode):
             raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
+        # The copy is the commit, which may track a link where the developer's
+        # checkout has a directory; never write through one.
+        current = destination
+        for part in Path(relative).parts[:-1]:
+            current = current / part
+            if current.is_symlink() or (current.exists() and not current.is_dir()):
+                raise ValueError(
+                    f"Cannot carry {relative!r} into the disposable checkout: "
+                    f"{current.relative_to(destination)} is not a directory there"
+                )
+            current.mkdir(exist_ok=True)
         target = destination / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(
+                f"Cannot carry {relative!r} into the disposable checkout: the "
+                "commit holds something other than a file there"
+            )
+        target.unlink(missing_ok=True)
         _copy_on_write(source / relative, target)
         if not stat.S_ISREG(os.lstat(target).st_mode):
             raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
