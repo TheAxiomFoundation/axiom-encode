@@ -1268,6 +1268,71 @@ class TestTrustedGit:
             == "encoder history contains forbidden replacement refs"
         )
 
+    def test_installed_wrapper_refuses_with_its_own_status_and_is_quiet(self, tmp_path):
+        # A refusal must never read as a Git answer that exits 1 ("not a
+        # symbolic ref", "no matches"), and a commit walk must not print the
+        # graft-file deprecation advice that the wrapper's GIT_GRAFT_FILE triggers.
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+        (repository / "file.txt").write_text("content\n")
+        subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        head = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+        environment = {"HOME": str(tmp_path), "PATH": str(destination)}
+
+        for refused in (
+            ["push", "origin", "main"],
+            ["symbolic-ref", "refs/heads/main", "refs/heads/feature"],
+            ["for-each-ref", "refs/heads/"],
+        ):
+            result = subprocess.run(
+                [str(wrapper), "-C", str(repository), *refused],
+                capture_output=True,
+                env=environment,
+            )
+            assert result.returncode == 126, refused
+            assert b"trusted git wrapper refused" in result.stderr
+
+        walked = subprocess.run(
+            [str(wrapper), "-C", str(repository), "rev-list", "--first-parent", head],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        assert walked.returncode == 0
+        assert walked.stdout.split() == [head]
+        assert walked.stderr == ""
+
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
         git = shutil.which("git")
         if git is None:
