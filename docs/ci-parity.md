@@ -156,13 +156,17 @@ Python. The scripts cover:
   the built view replaces it), as CI relocates every checkout before "Build
   protected axiom-compose runtime", so a composer lock that names a sibling
   by path resolves it. In CI every entry is a disposable checkout, and uv
-  may build a path dependency's metadata in its source tree (setuptools
-  writes `.egg-info` there). So each sibling the composer's `uv.lock`, its
-  `[tool.uv.sources]` paths or its workspace members reach is swapped for a
-  fresh clone at its pin while the composer builds, then removed and linked
-  again; the developer's checkouts are never a build directory. A local
-  source that resolves outside the dependency root, where no runner has a
-  checkout, fails resolution. `ci` also points the
+  may build a dependency it reaches by path in that dependency's source tree
+  (setuptools writes `.egg-info` there), whether the path comes from the
+  composer's lock, the rules checkout's uv configuration or a link inside
+  another dependency. So while the composer builds, the encoder, engine and
+  corpus entries are disposable copies too: Git objects shared read-only
+  through alternates, the committed files cloned copy-on-write (APFS
+  `clonefile`, Linux `FICLONE`, else copied) from the verified checkout, the
+  result compared file by file with the pin by Git, and HEAD detached at the
+  pin. Afterwards each copy is removed and its link restored, also on
+  failure; the developer's checkouts are never a build directory. `ci` also
+  points the
   `../axiom-rules-engine`, `../axiom-corpus` and, for other repositories,
   `../rulespec-us` sibling links at those entries, as "Link axiom-rules-engine
   as sibling checkout" does. No `_axiom` is created, and a committed `_axiom`
@@ -184,8 +188,11 @@ Python. The scripts cover:
   those requirements. Like the step, they run in the rules checkout and read
   the committed project configuration there and in the composer project;
   user and system configuration directories point at an empty directory, as
-  a fresh runner has none, and ambient `UV_*`, `PIP_*` and `PYTHON*` values
-  are removed. uv still reads `/etc/uv/uv.toml` when no system configuration
+  a fresh runner has none, and ambient `UV_*`, `PIP_*`, `PYTHON*` and
+  `AXIOM_*` values are removed. The commands see what the step sees in CI:
+  `AXIOM_DEPENDENCY_ROOT` and `AXIOM_DEPENDENCY_STAGE` for the run's
+  dependency root, and `AXIOM_COMPOSE_REF`, so committed configuration that
+  names `${AXIOM_DEPENDENCY_ROOT}` resolves as on the runner. uv still reads `/etc/uv/uv.toml` when no system configuration
   is found there, and from a directory with no uv configuration of its own it
   reads a `uv.toml` or `[tool.uv]` table above it. So that file, or
   either of those in any directory above `ci`'s temporary checkout or
@@ -416,6 +423,13 @@ the environment.
   requires, every root must be distinct across the corpus, retired, apply and
   eval roles.
 - **Capabilities.** It acquires no signing capability and never runs `--apply`.
+- **The checkout's own code.** Like CI, `ci` runs code and configuration the
+  rules checkout commits: its repository tests and, from `92ccb0f2`, the uv
+  configuration the composer build reads. It runs them with the developer's
+  privileges and no sandbox. A path they name outside `ci`'s temporary
+  directories (an absolute path in uv configuration, say) is the same path
+  on this machine that it is on a runner, where it usually does not exist.
+  Run `ci` only on checkouts whose code you would run.
 - **Writes.** It writes temporary report inputs, the private engine snapshot
   and target directory, the temporary engine view, the repository-test venv,
   and, from `92ccb0f2`, the dependency root, the empty staging directory in the
@@ -586,11 +600,11 @@ named:
   runner does not have: `/etc/uv/uv.toml`, or a `uv.toml` or `[tool.uv]`
   table above the temporary directory (the message names the file). For the
   second, point `TMPDIR` outside the uv project.
-- **"composer path source ... outside the dependency root".** The
-  composer's lock or `pyproject.toml` names a local path outside
-  `$AXIOM_DEPENDENCY_ROOT` (or leaves its checkout through a symlink). No
-  runner has a checkout there, so `ci` will not build from one on this
-  machine.
+- **"Cannot make a disposable ... checkout" or "Disposable ... checkout
+  still differs".** `ci` could not copy a verified encoder, engine or corpus
+  checkout at its pin for the composer build (the pin is missing from its
+  object store, or a file kept differing from the commit). The message
+  carries Git's output.
 - **"Corpus release cache path ... is a symlink".** The corpus checkout's
   `releases` directory, the release's directory or the object path is a
   symlink, so the release object would be written outside the checkout.
