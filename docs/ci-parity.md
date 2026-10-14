@@ -167,7 +167,9 @@ Python. The scripts cover:
   ref, so `git describe --tags` and the version schemes built on it
   (setuptools-scm, hatch-vcs) see what they see on the runner; the
   `rulespec-us` entry is reduced the same way, while the composer keeps its
-  tags, since "Checkout axiom-compose" fetches with `fetch-depth: 0`. Only
+  tags, since "Checkout axiom-compose" fetches with `fetch-depth: 0` (see
+  "Composer tags" under "Known differences"). Git runs on these copies
+  without the developer's global or system configuration or hooks. Only
   the paths tracked at the pin are placed, and paths this filesystem would
   merge (case or Unicode normalization) fail resolution. A path that is a
   regular file in the verified checkout is cloned copy-on-write from it
@@ -180,7 +182,10 @@ Python. The scripts cover:
   clean even when its bytes differ. Every other file's raw bytes are hashed
   against its blob and rewritten the same way if they differ, and modes are a
   fresh checkout's. The corpus copy also receives the release object `ci` has
-  fetched, as CI's corpus holds it by then (L1870-1938). Afterwards each copy
+  fetched, as CI's corpus holds it by then (L1870-1938). Its path joins the
+  collision check, and it is never written through a link: if the commit
+  tracks a link where the developer's checkout has a directory, resolution
+  fails. Afterwards each copy
   is removed and its link restored, also on failure; the developer's
   checkouts are never a build directory. `ci` also
   points the
@@ -612,14 +617,23 @@ named:
   `GITHUB_REF`, `GITHUB_REF_NAME`, `GITHUB_REF_TYPE`, `GITHUB_BASE_REF`,
   `GITHUB_REPOSITORY`, `GITHUB_REPOSITORY_OWNER`, `GITHUB_SHA`,
   `GITHUB_WORKSPACE`, `RUNNER_OS` (`Linux`), `RUNNER_ARCH` (`X64`),
-  `RUNNER_ENVIRONMENT` (`github-hosted`) and `RUNNER_TEMP`. Values tied to
-  one run are not set: `GITHUB_RUN_ID`, `GITHUB_RUN_NUMBER`,
+  `RUNNER_ENVIRONMENT` (`github-hosted`) and `RUNNER_TEMP`. `GITHUB_REF` and
+  `GITHUB_REF_NAME` name `refs/pull/<n>/merge`, which needs
+  `--pull-request`; without it `GITHUB_REF` is empty and `GITHUB_REF_NAME`
+  unset. Values tied to one run are not set: `GITHUB_RUN_ID`, `GITHUB_RUN_NUMBER`,
   `GITHUB_RUN_ATTEMPT`, the actor and id values, `GITHUB_WORKFLOW` and its
   ref and sha, the runner's files (`GITHUB_ENV`, `GITHUB_PATH`,
   `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, `GITHUB_EVENT_PATH`),
   `GITHUB_HEAD_REF` (a branch name the head commit does not carry),
   `RUNNER_NAME`, `RUNNER_DEBUG` and `RUNNER_TOOL_CACHE`. Committed content
   that names one of them resolves differently than in CI.
+- **Composer tags.** CI's composer checkout carries the upstream
+  repository's tags (`fetch-depth: 0`); `ci`'s fresh clone carries the tags
+  of the local checkout it is cloned from. A tag that exists only locally,
+  or one missing locally, changes what `git describe --tags` (and a
+  setuptools-scm or hatch-vcs version built on it) reports there. To match
+  CI, fetch the composer checkout's tags from GitHub and delete local-only
+  ones before a run.
 - **The composer build's platform.** uv resolves and installs the composer's
   requirements for the host: environment markers such as
   `sys_platform == "linux"` and the wheels it picks follow this machine's
