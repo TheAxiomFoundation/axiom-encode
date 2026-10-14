@@ -475,7 +475,11 @@ jobs:
         working-directory: axiom-encode
         run: |
           set -euo pipefail
-          uv sync --locked --python 3.13 --extra api --no-dev
+          # --no-config: no uv.toml or [tool.uv] from the runner's user config or a
+          # parent directory reaches these calls. Without it uv merges the user
+          # uv.toml into the project's settings, and uses a parent's when this
+          # pyproject has no [tool.uv]; either can change what gets built.
+          uv sync --no-config --locked --python 3.13 --extra api --no-dev
           # The protected verification tree is exactly the uv.lock set. A resolving
           # `uv pip install --target ... ".[api]"` re-resolves every `>=`
           # dependency against the index at run time (targeted run 36174590343
@@ -485,23 +489,38 @@ jobs:
           # and the project itself, all --no-deps so nothing is resolved here.
           site_packages="$RUNNER_TEMP/axiom-verification-site-packages"
           locked="$RUNNER_TEMP/axiom-verification-locked-requirements.txt"
+          build_constraints="$RUNNER_TEMP/axiom-verification-build-constraints.txt"
           rm -rf "$site_packages"
-          uv export --locked --no-dev --extra api --no-emit-project \
+          uv export --no-config --locked --no-dev --extra api --no-emit-project \
             --no-emit-package axiom-oracles --format requirements-txt \
             --output-file "$locked"
-          oracles="$(uv export --locked --no-dev --extra api --no-emit-project \
+          # uv.lock alone pins no build backend, and three kinds of thing are
+          # built here: locked sdists with no wheel for this interpreter
+          # (pyiceberg on 3.13), the git dependency and the project. The lock's
+          # `build` group pins their backends with hashes, and uv verifies every
+          # build dependency the export lists. uv does not reject one the export
+          # omits; scripts/check_locked_builds.py proves in CI that it omits none.
+          # --no-cache makes each build run here: uv reuses a cached wheel
+          # whatever the build constraints say, and setup-uv's cache keeps wheels
+          # built from source between runs.
+          uv export --no-config --locked --only-group build --no-emit-project \
+            --format requirements-txt --output-file "$build_constraints"
+          oracles="$(uv export --no-config --locked --no-dev --extra api --no-emit-project \
             --no-hashes --no-annotate --no-header --format requirements-txt \
             | grep -xE 'axiom-oracles @ git\+https://github\.com/TheAxiomFoundation/axiom-oracles@[0-9a-f]{40}')"
-          uv pip install --python .venv/bin/python --target "$site_packages" \
+          uv pip install --no-config --python .venv/bin/python --target "$site_packages" \
+            --no-cache --build-constraints "$build_constraints" \
             --require-hashes --no-deps -r "$locked"
-          uv pip install --python .venv/bin/python --target "$site_packages" \
+          uv pip install --no-config --python .venv/bin/python --target "$site_packages" \
+            --no-cache --build-constraints "$build_constraints" \
             --no-deps "$oracles"
-          uv pip install --python .venv/bin/python --target "$site_packages" \
+          uv pip install --no-config --python .venv/bin/python --target "$site_packages" \
+            --no-cache --build-constraints "$build_constraints" \
             --no-deps .
           # Differential check: the staged tree must equal the locked .venv.
-          uv pip freeze --python .venv/bin/python --exclude-editable \
+          uv pip freeze --no-config --python .venv/bin/python --exclude-editable \
             > "$RUNNER_TEMP/axiom-verification-locked.freeze"
-          uv pip freeze --python .venv/bin/python --target "$site_packages" \
+          uv pip freeze --no-config --python .venv/bin/python --target "$site_packages" \
             --exclude axiom-encode > "$RUNNER_TEMP/axiom-verification-staged.freeze"
           test -s "$RUNNER_TEMP/axiom-verification-locked.freeze"
           diff -u "$RUNNER_TEMP/axiom-verification-locked.freeze" \
@@ -513,8 +532,9 @@ jobs:
           AXIOM_COMPOSE_REF: ${{ steps.axiom_compose.outputs.ref }}
         run: |
           set -euo pipefail
-          uv venv --python 3.14 "$RUNNER_TEMP/axiom-compose-build"
+          uv venv --no-config --python 3.14 "$RUNNER_TEMP/axiom-compose-build"
           uv export \
+            --no-config \
             --project ./axiom-compose \
             --locked \
             --no-dev \
@@ -522,11 +542,14 @@ jobs:
             --format requirements.txt \
             --output-file "$RUNNER_TEMP/axiom-compose-requirements.txt"
           # Exactly the locked set: every exported requirement is hash-pinned,
-          # and --no-deps keeps uv from resolving anything beyond it.
+          # and --no-deps keeps uv from resolving anything beyond it. The export
+          # (no extras) is wheels only (pyyaml at the pinned compose refs), and
+          # --no-build keeps it so: axiom-compose's lock pins no build backend.
           uv pip install \
+            --no-config \
             --python "$RUNNER_TEMP/axiom-compose-build/bin/python" \
             --target "$RUNNER_TEMP/axiom-compose-site-packages" \
-            --require-hashes --no-deps \
+            --require-hashes --no-deps --no-build \
             --requirement "$RUNNER_TEMP/axiom-compose-requirements.txt"
           sudo rm -rf /opt/axiom-compose-verification
           sudo "$RUNNER_TEMP/axiom-compose-build/bin/python" \

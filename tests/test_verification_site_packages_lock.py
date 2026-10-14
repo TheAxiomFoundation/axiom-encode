@@ -19,6 +19,15 @@ axiom-compose's lock. Every production provision must consume either that
 staged tree or the purelib of a ``uv sync --locked``/``--frozen`` environment
 nothing else installs into. The staging steps are then executed against a fake
 ``uv`` to prove their fail-closed paths.
+
+Nothing in a ``--target`` install may build with backends ``uv.lock`` does not
+pin. Each one either passes ``--no-build`` or builds uncached (``--no-cache``)
+against ``--build-constraints``, which must name the hash-pinned export of the
+lock's ``build`` group written earlier in the same step. The one exception is
+signed-apply-reusable.yml, whose pinned encoder predates that group, and
+``test_signed_apply_builds_against_its_encoder_build_group`` ends it when the
+pin moves. Every one also passes ``--no-config``, so no user or parent-directory
+uv.toml can change how it installs or builds.
 """
 
 from __future__ import annotations
@@ -29,6 +38,7 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 from collections import defaultdict
 from pathlib import Path
 
@@ -45,12 +55,14 @@ PIP = re.compile(r"pip[0-9.]*")
 PYTHON = re.compile(r"python[0-9.]*t?")
 PROVISIONER = "provision_verification_supervisor.py"
 
-# The provisioner's own selftest stages a throwaway tree (pyyaml plus hostile
+# The provisioner's own selftest provisions a throwaway tree (pyyaml plus hostile
 # startup-hook fixtures) under a stand-in supervisor with test-only trust roots;
-# nothing it provisions verifies or signs anything.
+# nothing it provisions verifies or signs anything. It is exempt from the
+# provision rule only: its one --target install is locked like the rest.
 EXEMPT_WORKFLOWS = frozenset({"provision-selftest.yml"})
 
 SITE_PACKAGES = "$RUNNER_TEMP/axiom-verification-site-packages"
+BUILD_CONSTRAINTS = "$RUNNER_TEMP/axiom-verification-build-constraints.txt"
 ORACLES_PATTERN = (
     r"axiom-oracles @ git\+https://github\.com/TheAxiomFoundation/"
     r"axiom-oracles@[0-9a-f]{40}"
@@ -60,35 +72,50 @@ LOCKED_GIT_LINE = (
     "axiom-oracles@e1374eb30c582639f8f71f9bf9c22ba93b6e36f4"
 )
 
-# workflow -> (interpreter the staged tree is installed for, extra flag, sync)
+# workflow -> (interpreter the staged tree is installed for, extra flag, sync,
+# whether its builds take the lock's `build` group). The first three stage the
+# axiom-encode commit the workflow runs from. signed-apply-reusable.yml stages
+# the encoder its AXIOM_ENCODE_REF pins, whose lock predates the group, so its
+# export would fail; test_signed_apply_builds_against_its_encoder_build_group
+# demands the constraints there as soon as that pin reaches a ref with the group.
 STAGING = {
     "bulk-encode.yml": (
         ".venv/bin/python",
         "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
+        "uv sync --no-config --locked --python 3.13 --extra api --no-dev",
+        True,
     ),
     "golden-regeneration.yml": (
         ".venv/bin/python",
         "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
+        "uv sync --no-config --locked --python 3.13 --extra api --no-dev",
+        True,
     ),
     "targeted-signed-reencode.yml": (
         ".venv/bin/python",
         "--extra api",
-        "uv sync --locked --python 3.13 --extra api --no-dev",
+        "uv sync --no-config --locked --python 3.13 --extra api --no-dev",
+        True,
     ),
     "signed-apply-reusable.yml": (
         '"$PYBIN"',
         "",
-        'uv sync --locked --no-dev --python "$PYBIN"',
+        'uv sync --no-config --locked --no-dev --python "$PYBIN"',
+        False,
     ),
 }
+CONSTRAINED = sorted(workflow for workflow, row in STAGING.items() if row[3])
+# Staging workflows whose staging step may still build with unpinned backends.
+# Only that step: any other install in the workflow is held to the build rule,
+# and the step itself to its exact text (test_staging_step_is_exactly_...).
+UNPINNED_BUILDS = frozenset(w for w, row in STAGING.items() if not row[3])
 # Non-vacuity: every --target install the discovery must see. Each staging
 # workflow has three (locked set, git requirement, project); targeted also
-# stages the axiom-compose runtime.
+# stages the axiom-compose runtime, and the provisioner selftest its pyyaml.
 EXPECTED_TARGET_INSTALLS = {
     "bulk-encode.yml": 3,
     "golden-regeneration.yml": 3,
+    "provision-selftest.yml": 1,
     "signed-apply-reusable.yml": 3,
     "targeted-signed-reencode.yml": 4,
 }
@@ -223,8 +250,74 @@ def _locked_exports(commands: list[Command]) -> set[str]:
     return exported
 
 
+def _locked_build_exports(commands: list[Command]) -> set[str]:
+    """Output files of hash-pinned exports of the lock's `build` group."""
+    exported = set()
+    for command in commands:
+        parsed = _uv_arguments(command)
+        if parsed is None or parsed[0] != "export":
+            continue
+        _, values, _ = parsed
+        if (
+            "--locked" in values
+            and values.get("--only-group") == ["build"]
+            and values.keys().isdisjoint({"--group", "--all-groups", "--extra"})
+            and "--no-hashes" not in values
+            and "--output-file" in values
+        ):
+            exported.add(values["--output-file"][-1])
+    return exported
+
+
+def _build_constraints_tampered(
+    commands: list[Command], build_exported: set[str]
+) -> bool:
+    """Whether anything but the locked export writes or swaps the constraints.
+
+    The file may be named by its variable or by its literal path. Any command
+    that mentions either must be its single assignment, the export, or an
+    install that reads it through ``--build-constraints``; and none of them
+    may redirect, since ``> "$RUNNER_TEMP/...-build-constraints.txt"`` on any
+    command, even the install that reads it, empties it first.
+    """
+    names = {out.lstrip("$").strip("{}") for out in build_exported}
+    literals = set()
+    assignments = 0
+    for command in commands:
+        for assignment in command.assignments:
+            name, _, value = assignment.partition("=")
+            if name in names:
+                assignments += 1
+                literals.add(value.rpartition("/")[2])
+    if assignments > 1:
+        return True
+    for command in commands:
+        if not any(token in command.line for token in names | literals):
+            continue
+        if command.assignments and not command.words:
+            continue
+        if re.search(r"[<>]", command.line):
+            return True
+        parsed = _uv_arguments(command)
+        if parsed is None:
+            return True
+        subcommand, values, _ = parsed
+        if subcommand == "export" and set(values.get("--output-file", [])) <= (
+            build_exported
+        ):
+            continue
+        if (
+            subcommand == "pip install"
+            and values.get("--build-constraints")
+            and not any(literal in command.line for literal in literals)
+        ):
+            continue
+        return True
+    return False
+
+
 def _target_install_violations(
-    workflows: dict[str, dict], exempt: frozenset[str] = EXEMPT_WORKFLOWS
+    workflows: dict[str, dict], exempt: frozenset[str] = frozenset()
 ) -> tuple[list[str], dict[str, int]]:
     violations: list[str] = []
     found: dict[str, int] = defaultdict(int)
@@ -234,6 +327,8 @@ def _target_install_violations(
         where = f"{name}:{job}[{index}]"
         commands = _commands(step["run"])
         exported = _locked_exports(commands)
+        build_exported = _locked_build_exports(commands)
+        tampered = _build_constraints_tampered(commands, build_exported)
         for command in commands:
             if _runs_pip(command) and "install" in command.words:
                 install = command.words.index("install")
@@ -266,7 +361,7 @@ def _target_install_violations(
                     problem = f"mixes {positionals} with requirement files"
                 elif "--require-hashes" not in values:
                     problem = "installs a requirement file without --require-hashes"
-                elif not set(requirements) <= exported:
+                elif not set(requirements) <= exported - build_exported:
                     problem = (
                         f"{requirements} is not a hash-pinned `uv export --locked` "
                         "output written in this step"
@@ -276,9 +371,45 @@ def _target_install_violations(
                     problem = "$oracles is not the commit-pinned axiom-oracles line"
             elif positionals != ["."]:
                 problem = f"installs unpinned requirements {positionals}"
+            if problem is None and "--no-config" not in values:
+                problem = "reads user or parent-directory uv config (no --no-config)"
+            if problem is None:
+                staging = f'site_packages="{SITE_PACKAGES}"' in step["run"]
+                problem = _build_problem(
+                    name if staging else "", values, build_exported, tampered
+                )
             if problem:
                 violations.append(f"{where}: {problem}: {command.line}")
     return violations, dict(found)
+
+
+def _build_problem(
+    staging_workflow: str,
+    values: dict[str, list[str]],
+    build_exported: set[str],
+    tampered: bool = False,
+) -> str | None:
+    """Why this install could build with backends uv.lock does not pin, if so.
+
+    ``staging_workflow`` is the workflow when the install is in its staging
+    step, else "".
+    """
+    constraints = values.get("--build-constraints", [])
+    if constraints:
+        if not set(constraints) <= build_exported:
+            return (
+                f"--build-constraints {constraints} is not the locked `build` "
+                "group export written in this step"
+            )
+        if "--no-cache" not in values:
+            # uv reuses a cached wheel whatever the build constraints say.
+            return "--build-constraints without --no-cache"
+        if tampered:
+            return "the build constraints are written outside their locked export"
+        return None
+    if "--no-build" in values or staging_workflow in UNPINNED_BUILDS:
+        return None
+    return "may build with unpinned backends (no --build-constraints or --no-build)"
 
 
 def _option_value(words: tuple[str, ...], option: str) -> str | None:
@@ -300,12 +431,14 @@ def _installs_anything(commands: list[Command]) -> bool:
     return False
 
 
-def _provision_violations(workflows: dict[str, dict]) -> tuple[list[str], int]:
+def _provision_violations(
+    workflows: dict[str, dict], exempt: frozenset[str] = EXEMPT_WORKFLOWS
+) -> tuple[list[str], int]:
     violations: list[str] = []
     provisions = 0
     steps = list(_steps(workflows))
     for name, job, index, step in steps:
-        if name in EXEMPT_WORKFLOWS:
+        if name in exempt:
             continue
         run = step["run"]
         for command in _commands(run):
@@ -370,27 +503,40 @@ def _provision_step(workflow: str, workflows: dict[str, dict]) -> dict:
     return steps[0]
 
 
-def _canonical_staging(python: str, extra: str, sync: str) -> list[str]:
+def _canonical_staging(
+    python: str, extra: str, sync: str, constrained: bool
+) -> list[str]:
     extra = f" {extra}" if extra else ""
-    install = f'uv pip install --python {python} --target "$site_packages"'
+    install = f'uv pip install --no-config --python {python} --target "$site_packages"'
+    if constrained:
+        install += ' --no-cache --build-constraints "$build_constraints"'
     return [
         "set -euo pipefail",
         sync,
         f'site_packages="{SITE_PACKAGES}"',
         'locked="$RUNNER_TEMP/axiom-verification-locked-requirements.txt"',
+        *([f'build_constraints="{BUILD_CONSTRAINTS}"'] if constrained else []),
         'rm -rf "$site_packages"',
-        f"uv export --locked --no-dev{extra} --no-emit-project"
+        f"uv export --no-config --locked --no-dev{extra} --no-emit-project"
         " --no-emit-package axiom-oracles --format requirements-txt"
         ' --output-file "$locked"',
-        f'oracles="$(uv export --locked --no-dev{extra} --no-emit-project'
+        *(
+            [
+                "uv export --no-config --locked --only-group build --no-emit-project"
+                ' --format requirements-txt --output-file "$build_constraints"'
+            ]
+            if constrained
+            else []
+        ),
+        f'oracles="$(uv export --no-config --locked --no-dev{extra} --no-emit-project'
         " --no-hashes --no-annotate --no-header --format requirements-txt"
         f" | grep -xE '{ORACLES_PATTERN}')\"",
         f'{install} --require-hashes --no-deps -r "$locked"',
         f'{install} --no-deps "$oracles"',
         f"{install} --no-deps .",
-        "uv pip freeze --python .venv/bin/python --exclude-editable"
+        "uv pip freeze --no-config --python .venv/bin/python --exclude-editable"
         ' > "$RUNNER_TEMP/axiom-verification-locked.freeze"',
-        f'uv pip freeze --python {python} --target "$site_packages"'
+        f'uv pip freeze --no-config --python {python} --target "$site_packages"'
         ' --exclude axiom-encode > "$RUNNER_TEMP/axiom-verification-staged.freeze"',
         'test -s "$RUNNER_TEMP/axiom-verification-locked.freeze"',
         'diff -u "$RUNNER_TEMP/axiom-verification-locked.freeze"'
@@ -408,10 +554,66 @@ def test_every_workflow_target_install_is_locked():
 def test_the_selftest_exemption_is_still_needed():
     workflows = _load_workflows()
     for workflow in EXEMPT_WORKFLOWS:
-        violations, _ = _target_install_violations(
+        violations, _ = _provision_violations(
             {workflow: workflows[workflow]}, exempt=frozenset()
         )
         assert violations, f"{workflow} no longer needs its exemption"
+
+
+def test_the_selftest_stages_the_locked_pyyaml():
+    # Its one install is the hash-pinned export of uv.lock's
+    # `provision-selftest` group, from a wheel (`--no-build`).
+    [step] = [
+        step
+        for name, _job, _index, step in _steps(_load_workflows())
+        if name == "provision-selftest.yml" and "selftest_locked" in step["run"]
+    ]
+    lines = _logical_lines(step["run"])
+    assignment = 'selftest_locked="$RUNNER_TEMP/selftest-locked-requirements.txt"'
+    export = (
+        "uv export --no-config --locked --only-group provision-selftest"
+        " --no-emit-project --format requirements-txt"
+        ' --output-file "$selftest_locked"'
+    )
+    install = (
+        'uv pip install --no-config --python "$PYBIN" --target "$RUNNER_TEMP/staged"'
+        ' --require-hashes --no-deps --no-build -r "$selftest_locked"'
+    )
+
+    assert lines.count(assignment) == lines.count(export) == lines.count(install) == 1
+    assert lines.index(assignment) < lines.index(export) < lines.index(install)
+    assert sum("selftest_locked" in line for line in lines) == 3
+
+
+def test_signed_apply_builds_against_its_encoder_build_group():
+    """signed-apply's builds take the `build` group once its pinned encoder has one.
+
+    The step stages the encoder that AXIOM_ENCODE_REF pins, from that ref's
+    uv.lock, which has no `build` group yet: exporting one would fail closed for
+    every caller. This test flips when the pin moves to a ref whose lock has the
+    group, so the change that moves it must also add the constraints (and set
+    the STAGING flag, which also ends its UNPINNED_BUILDS exception).
+    """
+    workflow = yaml.safe_load(
+        (WORKFLOWS / "signed-apply-reusable.yml").read_text(encoding="utf-8")
+    )
+    ref = workflow["env"]["AXIOM_ENCODE_REF"]
+    assert re.fullmatch(r"[0-9a-f]{40}", ref), ref
+    shown = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{ref}:pyproject.toml"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if shown.returncode != 0:
+        # CI checks out full history, so the pinned commit must be there.
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail(f"AXIOM_ENCODE_REF {ref} is not in this clone: {shown.stderr}")
+        pytest.skip(f"AXIOM_ENCODE_REF {ref} is not in this clone")
+    has_group = "build" in tomllib.loads(shown.stdout).get("dependency-groups", {})
+
+    assert STAGING["signed-apply-reusable.yml"][3] == has_group
+    assert ("signed-apply-reusable.yml" in UNPINNED_BUILDS) == (not has_group)
 
 
 @pytest.mark.parametrize("workflow", sorted(STAGING))
@@ -453,6 +655,24 @@ UNLOCKED_INSTALLS = {
     "uv-pip-sync": f'uv pip sync --target "{SITE_PACKAGES}" requirements.txt',
     "eval-pip": f"eval 'pip install --target \"{SITE_PACKAGES}\" requests'",
     "variable-interpreter": f'"$PYBIN" -m pip install --quiet --target "{SITE_PACKAGES}" .',
+    "uv-reads-config": (
+        f'uv pip install --no-build --target "{SITE_PACKAGES}" --no-deps .'
+    ),
+    "uv-builds-unpinned": (
+        f'uv pip install --no-config --target "{SITE_PACKAGES}" --no-deps .'
+    ),
+    "uv-handwritten-build-constraints": (
+        f'uv pip install --no-config --no-cache --target "{SITE_PACKAGES}"'
+        " --no-deps --build-constraints /tmp/hatchling.txt ."
+    ),
+    "uv-build-constraints-on-a-warm-cache": (
+        f'uv pip install --no-config --target "{SITE_PACKAGES}" --no-deps'
+        ' -b "$build_constraints" .'
+    ),
+    "uv-installs-the-build-backends": (
+        f'uv pip install --no-config --target "{SITE_PACKAGES}" --no-deps'
+        ' --no-build --require-hashes -r "$build_constraints"'
+    ),
 }
 
 
@@ -472,6 +692,18 @@ def test_an_unlocked_install_after_staging_is_rejected(workflow, mutation, place
     baseline, _ = _target_install_violations(_load_workflows())
     violations, _ = _target_install_violations(workflows)
 
+    if (
+        workflow in UNPINNED_BUILDS
+        and placement == "end-of-staging"
+        and mutation == "uv-builds-unpinned"
+    ):
+        # Inside the one step whose builds may float, the step's exact text
+        # is the guard, not the build rule.
+        python, extra, sync, constrained = STAGING[workflow]
+        lines = _logical_lines(step["run"])
+        del lines[1 : lines.index("esac") + 1]
+        assert lines != _canonical_staging(python, extra, sync, constrained)
+        return
     assert set(violations) - set(baseline), f"{line!r} was not caught"
 
 
@@ -492,6 +724,55 @@ def test_the_compose_runtime_install_must_stay_hash_required():
     violations, _ = _target_install_violations(workflows)
 
     assert any("axiom-compose-site-packages" in v for v in violations), violations
+
+
+TAMPERING = {
+    "truncate-literal": f': > "{BUILD_CONSTRAINTS}"',
+    "copy-over-literal": f'cp /tmp/hatchling.txt "{BUILD_CONSTRAINTS}"',
+    "install-redirects-literal": (
+        f'uv pip install --no-config --python .venv/bin/python --target "{SITE_PACKAGES}"'
+        ' --no-cache --build-constraints "$build_constraints" --no-deps .'
+        f' > "{BUILD_CONSTRAINTS}"'
+    ),
+    "append-variable": 'echo "hatchling==0" >> "$build_constraints"',
+    "reassign": 'build_constraints="$RUNNER_TEMP/other.txt"',
+}
+
+
+@pytest.mark.parametrize("workflow", CONSTRAINED)
+@pytest.mark.parametrize("form", sorted(TAMPERING))
+def test_writes_to_the_build_constraints_are_rejected(workflow, form):
+    workflows = copy.deepcopy(_load_workflows())
+    step = _staging_step(workflow, workflows)
+    step["run"] = f"{step['run']}{TAMPERING[form]}\n"
+
+    violations, _ = _target_install_violations(workflows)
+
+    assert any("written outside their locked export" in v for v in violations), (
+        violations
+    )
+
+
+def test_the_compose_runtime_install_builds_nothing():
+    # axiom-compose's lock pins no build backend; its no-extras export is wheels
+    # only, and --no-build makes a future sdist fail instead of building.
+    workflows = copy.deepcopy(_load_workflows())
+    [step] = [
+        step
+        for job in workflows["targeted-signed-reencode.yml"]["jobs"].values()
+        for step in job["steps"]
+        if "axiom-compose-site-packages" in step.get("run", "")
+        and "uv export" in step["run"]
+    ]
+    assert "--require-hashes --no-deps --no-build" in step["run"]
+    step["run"] = step["run"].replace("--no-deps --no-build", "--no-deps")
+
+    violations, _ = _target_install_violations(workflows)
+
+    assert any(
+        "axiom-compose-site-packages" in v and "unpinned backends" in v
+        for v in violations
+    ), violations
 
 
 @pytest.mark.parametrize(
@@ -532,20 +813,29 @@ argv = sys.argv[1:]
 with open(os.environ["FAKE_UV_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(argv) + "\\n")
 if argv[:1] == ["export"]:
-    if os.environ.get("FAKE_EXPORT_FAIL"):
+    building = "--only-group" in argv
+    if os.environ.get("FAKE_BUILD_EXPORT_FAIL" if building else "FAKE_EXPORT_FAIL"):
         sys.exit(2)
     if "--no-hashes" in argv:
         sys.stdout.write(os.environ["FAKE_UNHASHED_EXPORT"])
     else:
         target = argv[argv.index("--output-file") + 1]
         with open(target, "w", encoding="utf-8") as handle:
-            handle.write("requests==2.32.5 \\\\\\n    --hash=sha256:" + "0" * 64 + "\\n")
+            handle.write(os.environ["FAKE_BUILD_EXPORT" if building else "FAKE_EXPORT"])
+elif argv[:2] == ["pip", "install"] and "--build-constraints" in argv:
+    # What each install was given as its build constraints, read at call time.
+    path = argv[argv.index("--build-constraints") + 1]
+    seen = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+    with open(os.environ["FAKE_UV_BUILD_LOG"], "a", encoding="utf-8") as log:
+        log.write(json.dumps(seen) + "\\n")
 elif argv[:2] == ["pip", "freeze"]:
     key = "FAKE_STAGED_FREEZE" if "--target" in argv else "FAKE_LOCKED_FREEZE"
     sys.stdout.write(os.environ[key])
 """
 
 LOCKED_FREEZE = f"claude-agent-sdk==0.1.47\n{LOCKED_GIT_LINE}\nrequests==2.32.5\n"
+LOCKED_EXPORT = "requests==2.32.5 \\\n    --hash=sha256:" + "0" * 64 + "\n"
+BUILD_EXPORT = "hatchling==1.32.4 \\\n    --hash=sha256:" + "1" * 64 + "\n"
 
 
 def _run_staging_step(
@@ -555,6 +845,7 @@ def _run_staging_step(
     unhashed_export: str | None = None,
     staged_freeze: str = LOCKED_FREEZE,
     export_fails: bool = False,
+    build_export_fails: bool = False,
 ):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -565,6 +856,7 @@ def _run_staging_step(
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
     log = tmp_path / "uv-argv.jsonl"
+    build_log = tmp_path / "uv-build-constraints.jsonl"
     env = {
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
@@ -572,6 +864,9 @@ def _run_staging_step(
         "RUNNER_TOOL_CACHE": str(toolcache),
         "PYBIN": f"{toolcache}/Python/3.14.4/x64/bin/python",
         "FAKE_UV_LOG": str(log),
+        "FAKE_UV_BUILD_LOG": str(build_log),
+        "FAKE_EXPORT": LOCKED_EXPORT,
+        "FAKE_BUILD_EXPORT": BUILD_EXPORT,
         "FAKE_UNHASHED_EXPORT": (
             unhashed_export
             if unhashed_export is not None
@@ -582,6 +877,8 @@ def _run_staging_step(
     }
     if export_fails:
         env["FAKE_EXPORT_FAIL"] = "1"
+    if build_export_fails:
+        env["FAKE_BUILD_EXPORT_FAIL"] = "1"
     result = subprocess.run(
         ["/bin/bash", "-e", "-c", _staging_step(workflow)["run"]],
         cwd=tmp_path,
@@ -595,23 +892,42 @@ def _run_staging_step(
         if log.exists()
         else []
     )
-    return result, calls, runner_temp
+    seen = (
+        [json.loads(line) for line in build_log.read_text().splitlines()]
+        if build_log.exists()
+        else []
+    )
+    return result, calls, runner_temp, seen
 
 
 @pytest.mark.parametrize("workflow", sorted(STAGING))
 def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
-    result, calls, runner_temp = _run_staging_step(tmp_path, workflow)
+    result, calls, runner_temp, seen = _run_staging_step(tmp_path, workflow)
 
     assert result.returncode == 0, result.stderr
-    python, extra, sync = STAGING[workflow]
+    python, extra, sync, constrained = STAGING[workflow]
     python = python.replace(
         '"$PYBIN"', f"{tmp_path}/toolcache/Python/3.14.4/x64/bin/python"
     )
     extra_args = extra.split()
     site_packages = str(runner_temp / "axiom-verification-site-packages")
     locked = str(runner_temp / "axiom-verification-locked-requirements.txt")
-    install = ["pip", "install", "--python", python, "--target", site_packages]
-    export = ["export", "--locked", "--no-dev", *extra_args, "--no-emit-project"]
+    build_constraints = str(runner_temp / "axiom-verification-build-constraints.txt")
+    install = [
+        *("pip", "install", "--no-config", "--python", python),
+        *("--target", site_packages),
+    ]
+    if constrained:
+        install += ["--no-cache", "--build-constraints", build_constraints]
+    export = [
+        *("export", "--no-config", "--locked", "--no-dev"),
+        *(*extra_args, "--no-emit-project"),
+    ]
+    build_export = [
+        *("export", "--no-config", "--locked", "--only-group", "build"),
+        *("--no-emit-project", "--format", "requirements-txt"),
+        *("--output-file", build_constraints),
+    ]
     sync_argv = sync.split()[1:]
     if "$PYBIN" in sync:
         sync_argv[sync_argv.index('"$PYBIN"')] = python
@@ -626,6 +942,7 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
             "--output-file",
             locked,
         ],
+        *([build_export] if constrained else []),
         [
             *export,
             "--no-hashes",
@@ -637,10 +954,14 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
         [*install, "--require-hashes", "--no-deps", "-r", locked],
         [*install, "--no-deps", LOCKED_GIT_LINE],
         [*install, "--no-deps", "."],
-        ["pip", "freeze", "--python", ".venv/bin/python", "--exclude-editable"],
+        [
+            *("pip", "freeze", "--no-config", "--python", ".venv/bin/python"),
+            "--exclude-editable",
+        ],
         [
             "pip",
             "freeze",
+            "--no-config",
             "--python",
             python,
             "--target",
@@ -649,6 +970,8 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
             "axiom-encode",
         ],
     ]
+    # Each of the three installs read the build backends the lock exported.
+    assert seen == ([BUILD_EXPORT] * 3 if constrained else [])
 
 
 @pytest.mark.parametrize("workflow", sorted(STAGING))
@@ -671,7 +994,7 @@ def test_staging_step_runs_the_locked_sequence(tmp_path, workflow):
 def test_staging_step_refuses_an_unpinned_git_dependency(
     tmp_path, workflow, unhashed_export
 ):
-    result, calls, _ = _run_staging_step(
+    result, calls, _, _ = _run_staging_step(
         tmp_path, workflow, unhashed_export=unhashed_export
     )
 
@@ -684,16 +1007,31 @@ def test_staging_step_fails_when_the_staged_tree_drifts_from_the_lock(
     tmp_path, workflow
 ):
     drifted = LOCKED_FREEZE.replace("0.1.47", "0.2.159")
-    result, calls, _ = _run_staging_step(tmp_path, workflow, staged_freeze=drifted)
+    result, calls, _, _ = _run_staging_step(tmp_path, workflow, staged_freeze=drifted)
 
     assert result.returncode != 0
     assert "+claude-agent-sdk==0.2.159" in result.stdout
     assert calls[-1][:2] == ["pip", "freeze"]
 
 
+@pytest.mark.parametrize("workflow", CONSTRAINED)
+def test_staging_step_fails_when_the_build_backends_cannot_be_exported(
+    tmp_path, workflow
+):
+    # An old lock without the `build` group, or any export failure, must stop
+    # the step before anything is built with unpinned backends.
+    result, calls, _, seen = _run_staging_step(
+        tmp_path, workflow, build_export_fails=True
+    )
+
+    assert result.returncode != 0
+    assert not any(call[:2] == ["pip", "install"] for call in calls)
+    assert seen == []
+
+
 @pytest.mark.parametrize("workflow", sorted(STAGING))
 def test_staging_step_fails_when_the_lock_cannot_be_exported(tmp_path, workflow):
-    result, calls, _ = _run_staging_step(tmp_path, workflow, export_fails=True)
+    result, calls, _, _ = _run_staging_step(tmp_path, workflow, export_fails=True)
 
     assert result.returncode != 0
     assert not any(call[:2] == ["pip", "install"] for call in calls)

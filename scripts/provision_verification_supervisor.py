@@ -38,10 +38,27 @@ installed. The repository workflows stage it from ``uv.lock``: ``uv export
 --no-deps``, then the commit-pinned ``axiom-oracles`` git dependency and the
 project itself with ``--no-deps``, then a diff against the ``uv sync --locked``
 environment (enforced by ``tests/test_verification_site_packages_lock.py``).
-``uv.lock`` does not pin build backends, so the sdists it pins, the git
-dependency and the project are built with whatever backend versions the index
-serves at run time; when the ``--encoder-*`` attestation arguments are given,
-the staged ``axiom_encode`` package is replaced by the attested commit's bytes.
+That staging builds three kinds of input: the sdists the lock pins with no wheel
+for the interpreter (pyiceberg 0.10.0; pyroaring 1.0.3 on 3.14), the git
+dependency and the project. In bulk-encode, golden-regeneration and
+targeted-signed-reencode each build runs uncached (``--no-cache``) with
+``--build-constraints`` set to the hash-pinned export of the lock's ``build``
+dependency group, so uv verifies every build backend it installs against
+``uv.lock``. uv would still build with a backend that export omits, unpinned;
+``scripts/check_locked_builds.py`` (the ``locked-builds`` CI job) builds each
+of those inputs on 3.13 and 3.14 with ``uv build --require-hashes``, which
+refuses an omitted or unhashed one. signed-apply-reusable.yml stages the
+encoder its ``AXIOM_ENCODE_REF`` pins, whose lock predates the ``build`` group,
+so its builds still take whatever backends the index serves until that pin
+moves; ``tests/test_verification_site_packages_lock.py`` then requires the
+constraints there. Every uv call in the staging passes ``--no-config``, so
+neither the runner's user ``uv.toml`` nor a parent directory's uv config can
+change what it installs or builds. What remains unpinned everywhere is the
+runner's C toolchain, which compiles pyiceberg's and pyroaring's extensions
+(pyiceberg's build drops its Cython extension silently if compiling it fails).
+When the
+``--encoder-*`` attestation arguments are given, the staged ``axiom_encode``
+package is replaced by the attested commit's bytes.
 A pinned dependency carrying hostile ELF metadata (an absolute ``DT_NEEDED``, a
 ``DT_AUDIT`` hook, a decoy section) is NOT statically audited here — such a
 dependency already executes its own code inside the signer, so metadata-level

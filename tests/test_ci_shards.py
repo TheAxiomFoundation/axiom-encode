@@ -655,12 +655,20 @@ def test_required_check_is_the_gate_over_all_shards():
     # Nothing here may let the gate pass after a failure either.
     assert gate.keys() == {"name", "if", "needs", "runs-on", "steps"}
     assert gate["if"] == "always()"
-    assert gate["needs"] == "test"
+    # The locked-builds job (scripts/check_locked_builds.py) is required too.
+    assert gate["needs"] == ["test", "locked-builds"]
+    assert {
+        f"locked builds ({version})"
+        for version in CI["jobs"]["locked-builds"]["strategy"]["matrix"][
+            "python-version"
+        ]
+    } == {"locked builds (3.13)", "locked builds (3.14)"}
     checkout, check = gate["steps"]
     assert checkout.keys() == {"uses"}
     assert check.keys() == {"name", "env", "run"}
     assert check["env"] == {
         "SHARDS_RESULT": "${{ needs.test.result }}",
+        "LOCKED_BUILDS_RESULT": "${{ needs.locked-builds.result }}",
         **{
             f"SHARD_{shard}": f"${{{{ needs.test.outputs.shard_{shard} }}}}"
             for shard in shards
@@ -671,5 +679,52 @@ def test_required_check_is_the_gate_over_all_shards():
         'if [ "$SHARDS_RESULT" != "success" ]; then '
         "echo \"error: the test shards finished as '$SHARDS_RESULT'\" >&2 "
         "exit 1 fi "
+        'if [ "$LOCKED_BUILDS_RESULT" != "success" ]; then '
+        "echo \"error: the locked builds finished as '$LOCKED_BUILDS_RESULT'\" >&2 "
+        "exit 1 fi "
         f"python3 -I tests/ci_shards.py check {arguments}"
     )
+
+
+@pytest.mark.parametrize(
+    ("shards", "locked_builds", "reaches_check"),
+    [
+        ("success", "success", True),
+        ("success", "failure", False),
+        ("success", "cancelled", False),
+        ("success", "skipped", False),
+        ("success", "", False),
+        ("failure", "success", False),
+    ],
+)
+def test_the_gate_requires_the_locked_builds(
+    tmp_path, shards, locked_builds, reaches_check
+):
+    # Run the gate's own script with a stand-in python3 that records the
+    # shard check it would have run.
+    [_, check] = CI["jobs"]["test-gate"]["steps"]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "shard-check-ran"
+    stand_in = bin_dir / "python3"
+    stand_in.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+    stand_in.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "SHARDS_RESULT": shards,
+        "LOCKED_BUILDS_RESULT": locked_builds,
+        **{f"SHARD_{shard}": "{}" for shard in range(1, 9)},
+    }
+
+    result = subprocess.run(
+        ["bash", "-e", "-c", check["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert (result.returncode == 0) == reaches_check, result.stderr
+    assert marker.exists() == reaches_check
+    if shards == "success" and not reaches_check:
+        assert f"the locked builds finished as '{locked_builds}'" in result.stderr
