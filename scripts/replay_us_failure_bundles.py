@@ -533,12 +533,15 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
             declared = _declared_citations(content)
 
             def workspace_for(citation: str) -> list[Path]:
+                dashed = _dashed(citation)
+                if not SAFE_SEGMENT.fullmatch(dashed) or not workspaces_root.is_dir():
+                    return []
                 return sorted(
-                    candidate
-                    for candidate in workspaces_root.glob(
-                        f"*/{_dashed(citation)}/workspace"
-                    )
-                    if (candidate / "source.txt").is_file()
+                    runner_dir / dashed / "workspace"
+                    for runner_dir in workspaces_root.iterdir()
+                    if SAFE_SEGMENT.fullmatch(runner_dir.name)
+                    and not runner_dir.is_symlink()
+                    and (runner_dir / dashed / "workspace" / "source.txt").is_file()
                 )
 
             ordered = ([bundle_citation] if bundle_citation in declared else []) + [
@@ -551,12 +554,13 @@ def discover_bundle_modules(path: Path) -> list[BundleModule]:
             runner = None
             for workspace in workspaces:
                 runner_name = workspace.parent.parent.name
-                generated_copy = lane_dir / runner_name / module_path
-                if (
-                    generated_copy.is_file()
-                    and not generated_copy.is_symlink()
-                    and generated_copy.read_bytes() == content.encode()
-                ):
+                try:
+                    generated_copy = _read_inside(
+                        lane_dir, f"{runner_name}/{module_path}"
+                    )
+                except UnsafeBundlePath:
+                    continue
+                if generated_copy == content.encode():
                     runner = runner_name
                     break
             chosen = next(
@@ -956,7 +960,8 @@ def snapshot_deviations(
             continue
         old, new = pinned[case_id], current[case_id]
         if new["error"] != old["error"]:
-            increases.append(f"{case_id}: replay error changed to {new['error']!r}")
+            message = f"{case_id}: replay error changed to {new['error']!r}"
+            (increases if new["error"] else decreases).append(message)
         for rule in sorted(old["rules"].keys() | new["rules"].keys()):
             before, after = old["rules"].get(rule, 0), new["rules"].get(rule, 0)
             message = f"{case_id} ({new['citation']}) {rule}: {before} -> {after}"
