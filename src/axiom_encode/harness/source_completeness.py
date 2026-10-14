@@ -12779,20 +12779,28 @@ def _regulation_runtime_gap_descendants_are_administrative(
 ) -> bool:
     """Keep a regulation runtime gap from covering operative rules.
 
-    A runtime-gap deferral covers every descendant of its branch. For a
-    federal or state regulation each covered leaf must itself name an
-    administrative artifact or action and state no computation and no mandated
-    eligibility or income consequence. So `7 CFR 273.4(b)` (a USCIS notice
-    duty in (b)(1) beside the ineligible-alien classification in (b)(2)) cannot
-    be deferred whole, while (b)(1) still can, and `7 CFR 273.4(c)(4)`, which
-    makes the agency attribute the sponsor's entire income until information
-    is provided, cannot be deferred as a runtime gap. Statute behavior is
-    unchanged.
+    A runtime-gap deferral covers its branch and every descendant. For a
+    federal or state regulation no covered text, chapeau, leaf, or trailing
+    flush text, may state an amount, computation, or eligibility, benefit, or
+    income consequence, and each covered leaf must state a finite
+    administrative act itself or inherit one from its nearest ancestor chapeau
+    (`must contain the following information: (i) ...`). So `7 CFR 273.4(b)`
+    (a USCIS notice duty in (b)(1) beside the ineligible-alien classification
+    in (b)(2)) cannot be deferred whole, while (b)(1) still can, and
+    `7 CFR 273.4(c)(4)`, which makes the agency attribute the sponsor's entire
+    income until information is provided, cannot be deferred as a runtime gap.
+    Statute behavior is unchanged.
     """
 
     parts = [part for part in corpus_citation_path.strip("/").split("/") if part]
     if len(parts) < 2 or parts[1].lower() != "regulation":
         return True
+    owners = [branch for branch in branches if branch.path == path]
+    if not owners:
+        return False
+    owner = max(owners, key=lambda branch: len(branch.text))
+    if _regulation_leaf_states_operative_rule(owner.text):
+        return False
     covered = [
         branch
         for branch in branches
@@ -12807,37 +12815,88 @@ def _regulation_runtime_gap_descendants_are_administrative(
             for other in covered
         )
     ]
-    # The whole branch already names an administrative artifact and action;
-    # each covered leaf must itself state an administrative act on an
-    # administrative artifact or recipient (`submit ... the data`, `inform the
-    # local USCIS office`) and no amount, computation, or consequence.
     return all(
-        _REGULATION_ADMINISTRATIVE_ACT.search(_collapse_text(leaf.text))
-        and not _regulation_leaf_states_operative_rule(leaf.text)
+        _regulation_branch_states_administrative_act(leaf, branches=branches)
         for leaf in leaves
     )
 
 
+def _regulation_branch_states_administrative_act(
+    leaf: SourceStructureBranch,
+    *,
+    branches: Sequence[SourceStructureBranch],
+) -> bool:
+    """Find a leaf's finite administrative act, or inherit its chapeau's act.
+
+    A noun-phrase list item (`(i) The name of the applicant;`) takes the act of
+    its nearest ancestor chapeau that states one. Every chapeau on the way up
+    must itself be free of amounts, computations, and consequences.
+    """
+
+    if _REGULATION_ADMINISTRATIVE_ACT.search(_collapse_text(leaf.text)):
+        return True
+    ancestors: dict[tuple[str, ...], SourceStructureBranch] = {}
+    for branch in branches:
+        if (
+            branch.path
+            and len(branch.path) < len(leaf.path)
+            and leaf.path[: len(branch.path)] == branch.path
+            and (
+                branch.path not in ancestors
+                or len(branch.text) > len(ancestors[branch.path].text)
+            )
+        ):
+            ancestors[branch.path] = branch
+    for ancestor_path in sorted(ancestors, key=len, reverse=True):
+        chapeau = _source_branch_direct_text(
+            ancestors[ancestor_path], branches=branches
+        )
+        if _regulation_leaf_states_operative_rule(chapeau):
+            return False
+        if _REGULATION_ADMINISTRATIVE_ACT.search(_collapse_text(chapeau)):
+            return True
+    return False
+
+
 # An administrative act on an administrative artifact or recipient, stated
-# with a finite verb: after a modal or `is required to`, or as the imperative
-# that opens a list item (`(iv) Provide for a combined eligibility notice`). A
-# participle such as `approved AFDC plan` is not an act.
+# with a finite verb: after a modal, `is required to`, `will be required to`,
+# or `shall be instructed ... to`, as the imperative or gerund that opens a list
+# item (`(iv) Provide for a combined eligibility notice`, `(2) Conducting
+# planning activities`), or as an artifact that must contain or include
+# something. A participle such as `approved AFDC plan` is not an act.
 _REGULATION_ADMINISTRATIVE_VERB = (
-    r"(?:submit|file|notify|inform|report|publish|send|transmit|mail|issue|"
-    r"maintain|retain|document|record|review|request|develop|post|provide|"
-    r"furnish|forward|conduct|hold|schedule|explain|advise)"
+    r"(?:submit|file|notif|inform|report|publish|send|transmit|mail|issu|"
+    r"maintain|retain|document|record|review|request|develop|post|provid|"
+    r"furnish|forward|conduct|hold|schedul|explain|advis|contain|includ|"
+    r"establish|employ|implement|adopt|designat|ensur|monitor|train|coordinat|"
+    r"collect|compil|prepar|perform|keep|giv|sign|complet|obtain|verif|"
+    r"mak|accept|process|evaluat|assess|identif|describ|specif|plan|updat|"
+    r"enter)[a-z]*"
 )
-_REGULATION_ADMINISTRATIVE_ACT = re.compile(
-    r"(?:\b(?:must|shall|will|may|should|(?:is|are)\s+required\s+to)\s+"
-    r"(?:not\s+)?(?:also\s+)?(?:[a-z]+ly\s+)?"
-    r"|^\s*(?:\(\s*[A-Za-z0-9]+\s*\)\s*)*)"
-    rf"{_REGULATION_ADMINISTRATIVE_VERB}\s+"
-    r"(?:[\w'-]+\s+){0,8}?"
+_REGULATION_ADMINISTRATIVE_ARTIFACT = (
     r"(?:reports?|notices?|records?|plans?|data|documentation|documents?|"
     r"forms?|requests?|information|applications?|waivers?|certifications?|"
     r"hearings?|interviews?|appeals?|letters?|statements?|procedures?|"
-    r"policies|reviews?|samples?|audits?|files?|office|agency|CMS|FNS|SSA|"
-    r"Secretary|Commissioner|Administrator|Department|USCIS)\b",
+    r"policies|reviews?|samples?|audits?|files?|controls?|activities|systems?|"
+    r"contracts?|agreements?|budgets?|accounts?|methods?|copy|copies|evidence|"
+    r"verification|instructions?|guidance|schedules?|deadlines?|decisions?|"
+    r"determinations?|training|staff|personnel|office|agency|CMS|FNS|SSA|"
+    r"Secretary|Commissioner|Administrator|Department|USCIS)"
+)
+_REGULATION_ADMINISTRATIVE_ACT = re.compile(
+    r"(?:"
+    r"(?:\b(?:must|shall|will|may|should|(?:is|are)\s+required\s+to|"
+    r"(?:must|shall|will|may|should)\s+be\s+(?:required|instructed|directed|"
+    r"asked)\s+(?:[\w'-]+\s+){0,6}?to)\s+"
+    r"(?:not\s+)?(?:also\s+)?(?:[a-z]+ly\s+)?"
+    r"|^\s*(?:\(\s*[A-Za-z0-9]+\s*\)\s*)*)"
+    rf"{_REGULATION_ADMINISTRATIVE_VERB}\s+"
+    rf"(?:[\w'-]+\s+){{0,8}}?{_REGULATION_ADMINISTRATIVE_ARTIFACT}"
+    rf"|\b{_REGULATION_ADMINISTRATIVE_ARTIFACT}\s+(?:must|shall|will|should)\s+"
+    r"(?:also\s+)?(?:contain|include|specify|describe|state|explain|identify|"
+    r"list|show|be\s+(?:submitted|filed|sent|mailed|maintained|retained|"
+    r"signed|posted|published))"
+    r")\b",
     flags=re.IGNORECASE,
 )
 
@@ -12850,19 +12909,26 @@ _REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
     r"\b(?:must|shall|will|may)\b[^.;:]{0,60}?\b(?:not\s+)?(?:be\s+)?"
     r"(?:attribut|classif|consider|count|deduct|deem|den(?:y|ied)|disqualif|"
     r"disregard|discontinu|divid|exclud|increas|presum|prorat|reduc|suspend|"
-    r"terminat|treat|withh(?:o|e)ld)[a-z]*\b|"
+    r"terminat|treat|withh(?:o|e)ld|sanction|shorten|lengthen|charg|recover)"
+    r"[a-z]*\b|"
     r"\b(?:must|shall|will|may)\s+(?:not\s+)?(?:provide|pay|furnish|issue)\b"
     r"[^.;:]{0,40}?\b(?:Medicaid|CHIP|SSI|SNAP|benefits?|assistance|coverage|"
     r"payments?|allotments?|opportunity\s+to\s+participate)\b|"
     r"\b(?:eligibility|income|resources?)\s+(?:standards?|methodolog[a-z]*|"
     r"limits?|criteria)\b|"
+    r"\beligibility\s+(?:(?:shall|must|will|may)\s+(?:not\s+)?be|is|are)\s+"
+    r"determined\b|"
+    r"\bact\s+on\s+(?:[\w'-]+\s+){0,3}?(?:eligibility|benefits?|allotments?)\b|"
     r"\b(?:must|shall|will|may)\s+(?:not\s+)?apply\s+(?:the\s+)?(?:[\w-]+\s+){0,3}"
     r"(?:standards?|limits?|deductions?|rates?)\b|"
-    r"\b(?:is|are)\s+(?:not\s+)?(?:included|excluded|counted|disregarded)\s+"
-    r"(?:in|from|as)\b|"
+    r"\b(?:is|are|(?:will|shall|must|may)\s+(?:not\s+)?be)\s+(?:not\s+)?"
+    r"(?:included|excluded|counted|disregarded)\b|"
     r"\b(?:is|are|was|were|be|been|becomes?|remains?)\s+(?:not\s+)?"
     r"(?:in)?(?:eligible|entitled|barred|disqualified|suspended|terminated|"
-    r"denied|excluded)\b|"
+    r"denied|excluded|sanctioned)\b|"
+    r"\b(?:is|are|was|were|be|been|becomes?|remains?)\s+(?:not\s+)?"
+    r"(?:jointly\s+and\s+severally\s+)?liable\b|"
+    r"\bmay\s+not\s+participate\b|"
     r"\b(?:lose|loses|losing|lost)\s+(?:[\w-]+\s+){0,2}?"
     r"(?:eligibility|benefits?|entitlement|coverage|allotments?)\b|"
     r"\bqualif(?:y|ies)\s+for\b|"
@@ -12880,9 +12946,25 @@ _REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
     r"\b(?:deeming|benefits?|eligibility|payments?|assistance|allotments?|"
     r"coverage)\s+(?:is|are|(?:will|shall|must|may)\s+(?:not\s+)?be)\s+"
     r"(?:reduced|terminated|denied|suspended|stopped|withheld|discontinued)\b|"
+    r"\b(?:allotments?|benefits?|payments?)\b[^.;:]{0,60}?\b(?:is|are|will\s+be)"
+    r"\s+(?:zero|\$?0)\b|"
+    r"\bsuspend(?:s|ed|ing)?\s+(?:[\w'-]+\s+){0,3}?(?:coverage|benefits?|"
+    r"payments?|issuance|eligibility|participation|allotments?)\b|"
+    r"\badjust[a-z]*\s+(?:[\w'-]+\s+){0,4}?(?:allotments?|benefits?|payments?|"
+    r"benefit\s+levels?)\b|"
+    r"\bwaiv[a-z]*\b[^.;:]{0,80}?\brequirements?\b|"
+    r"\bclaims?\s+against\b|"
+    r"\b(?:overpayments?|overissuances?)\b|"
+    r"\bcertification\s+periods?\b|"
+    r"\b(?:not\s+(?:to\s+)?)?exceed\s+\d+\s+months?\b|"
     r"\bclos(?:e|es|ing)\s+(?:the|its|a)\s+case\b|"
     r"\b(?:re)?certif(?:y|ies|ying)\s+(?:the|a|each)\s+household\b|"
-    r"\breceives?\s+no\s+(?:allotment|benefits?|payments?)\b",
+    r"\breceives?\s+no\s+(?:allotment|benefits?|payments?)\b|"
+    r"\b(?:status|eligibility|entitlement)\b[^.;:]{0,40}?\b(?:is|are)\s+(?:not\s+)?"
+    r"(?:automatically\s+)?(?:retained|lost|continued|restored)\b|"
+    r"\b(?:payments?|benefits?|eligibility)\b[^.;:]{0,60}?\b(?:will\s+be|is|are)\s+"
+    r"(?:dependent|conditioned|contingent)\s+(?:on|upon)\b|"
+    r"\bmeets?\s+the\s+definition\s+of\b",
     flags=re.IGNORECASE,
 )
 _SPELLED_AMOUNT = re.compile(
@@ -12899,24 +12981,34 @@ def _regulation_text_states_consequence(text: str) -> bool:
     """Find a consequence phrase outside the clause of a determination.
 
     In `... personnel determine that any member of a household is ineligible
-    ...` the phrase is the object of the determination that triggers an
-    administrative duty. Once a comma, semicolon, or colon closes that clause
-    (`If the State agency determines that ..., the household is ineligible`),
-    the phrase is the consequence itself.
+    ...` the modal-free phrase is the object of the determination that
+    triggers an administrative duty. It still counts when a comma, semicolon,
+    or colon closes that clause (`If the State agency determines that ..., the
+    household is ineligible`), when the phrase carries its own modal
+    (`determines that ... the State agency must terminate`), or when the
+    determination is itself the duty (`The State agency must determine that a
+    household ... is ineligible`).
     """
 
     for match in _REGULATION_OPERATIVE_CONSEQUENCE.finditer(text):
         sentence_start = max(text.rfind(stop, 0, match.start()) for stop in ".;\n") + 1
+        before = text[sentence_start : match.start()]
         determinations = list(
             re.finditer(
                 r"\bdetermin[a-z]*\s+(?:that|whether)\b",
-                text[sentence_start : match.start()],
+                before,
                 flags=re.IGNORECASE,
             )
         )
-        if determinations and not re.search(
-            r"[,;:]",
-            text[sentence_start + determinations[-1].end() : match.start()],
+        if (
+            determinations
+            and not re.search(r"[,;:]", before[determinations[-1].end() :])
+            and not re.match(r"(?:must|shall|will|may)\b", match.group(0), re.I)
+            and not re.search(
+                r"\b(?:must|shall|will|may|should)\s+(?:[\w-]+\s+){0,2}$",
+                before[: determinations[-1].start()],
+                flags=re.IGNORECASE,
+            )
         ):
             continue
         return True

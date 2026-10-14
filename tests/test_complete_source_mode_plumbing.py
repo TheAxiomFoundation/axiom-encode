@@ -110,7 +110,10 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     )
     assert "The output path\n  is not a source citation" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
-    assert "the display form `7 CFR 273.10(a)(1)` names the same branch" in (
+    assert "in a repeal, runtime-gap, or non-operative reason the display form" in (
+        complete_prompt
+    )
+    assert "a missing-dependency reason\n  must use the canonical citation" in (
         complete_prompt
     )
     assert "display-style" not in complete_prompt
@@ -286,7 +289,10 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
     )
     assert "The output path\n  is not a source citation" in complete_prompt
     assert "`us/regulation/7/273/10(a)(1)`" in complete_prompt
-    assert "the display form `7 CFR 273.10(a)(1)` names the same branch" in (
+    assert "in a repeal, runtime-gap, or non-operative reason the display form" in (
+        complete_prompt
+    )
+    assert "a missing-dependency reason\n  must use the canonical citation" in (
         complete_prompt
     )
     assert "display-style" not in complete_prompt

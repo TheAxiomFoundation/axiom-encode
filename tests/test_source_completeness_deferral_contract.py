@@ -1096,6 +1096,56 @@ def _regulation_leaf_source(leaf: str) -> str:
         "benefits on the basis authorized before the notice was sent.",
         "Recertify the household in accordance with the certification notice "
         "and submit the case record to the State office.",
+        # Round-3 review shapes (`r3/scripts/adv5.py`).
+        "The State agency must record the quarterly report in the case file, and "
+        "earnings shown on a late quarterly report are not counted.",
+        "The State agency must record the quarterly report in the case file. "
+        "Earnings shown on a late quarterly report will be disregarded.",
+        "The State agency must record the quarterly report in the case file. "
+        "Payments reported on the quarterly report shall be excluded from income.",
+        "The State agency must send a notice to each household that does not "
+        "submit the quarterly report and must act on the household's eligibility "
+        "as provided in the related section.",
+        "The State agency must review the quarterly report, and the household's "
+        "eligibility shall be determined in accordance with the reported "
+        "information.",
+        "The State agency must review the quarterly report and must establish a "
+        "claim against any household whose report shows unreported earnings.",
+        "The State agency must send a notice to a household member who does not "
+        "submit the quarterly report; that member may not participate in the "
+        "program until the report is submitted.",
+        "The State agency must review each quarterly report and must adjust the "
+        "household's allotment for the following month.",
+        "The State agency must send a notice to each household that does not "
+        "submit the quarterly report and must shorten its certification period.",
+        "If the State agency determines that the household did not submit the "
+        "quarterly report the State agency must terminate certification and send "
+        "a notice.",
+        "The State agency must determine that a household that does not submit "
+        "the quarterly report is ineligible and must send the household a notice.",
+        "Send a notice to each beneficiary who does not submit the quarterly "
+        "report and suspend coverage for the following month.",
+        "The State agency must send a notice to each member who does not submit "
+        "the quarterly report and must sanction that member.",
+        "We will send you a notice if you do not submit the quarterly report, and "
+        "we will charge you with an overpayment for the following month.",
+        "The State agency must send a notice to each household that does not "
+        "submit the quarterly report; such a household is liable for any "
+        "overissuance.",
+        "The State agency must send a notice to each household that does not "
+        "submit the quarterly report. The household's allotment for the "
+        "following month is zero.",
+        # Round-3 corpus texts the review found accepted.
+        "Lengthening certification periods. State agencies may lengthen a "
+        "household's current certification period once it is established, as "
+        "long as the total months do not exceed 24 months, and must advise the "
+        "household of the new certification period in a notice.",
+        "Provide waivers, pursuant to a determination of good cause, of normal "
+        "program requirements to such individuals for so long as necessary, as "
+        "documented in the case record.",
+        "Essential person status is not automatically retained upon the death of "
+        "the qualified individual. A review of the State records will provide "
+        "the basis for a determination.",
     ],
 )
 @pytest.mark.parametrize(
@@ -1144,6 +1194,109 @@ def test_regulation_runtime_gap_still_accepts_administrative_duty(leaf):
 
     assert ("a", "1") in covered
     assert not issues
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # A chapeau consequence over administrative leaves.
+        "(a) Quarterly report. A household that does not submit the quarterly "
+        "report is ineligible for the following month, and the State agency "
+        "must:\n\n(1) Send a notice to the household; and\n\n(2) Document the "
+        "quarterly report in the case file.\n\n(b) Other text.",
+        "(a) Quarterly report. The State agency must deny the application of a "
+        "household that does not submit the quarterly report and must:\n\n"
+        "(1) Send a notice to the household; and\n\n(2) Document the quarterly "
+        "report in the case file.\n\n(b) Other text.",
+        # A consequence in flush text after the last child.
+        "(a) Quarterly report. The State agency must:\n\n(1) Send a notice to the "
+        "household; and\n\n(2) Document the quarterly report in the case file."
+        "\n\nA household that does not submit the quarterly report is ineligible "
+        "for the following month.\n\n(b) Other text.",
+    ],
+)
+def test_regulation_runtime_gap_screens_every_covered_text(source):
+    covered, issues = _covered(
+        "us/regulation/7/273/99",
+        source,
+        "us:regulations/7-cfr/273/99/a",
+        "7 CFR 273.99(a) requires the quarterly report submission record, which "
+        "is not available at runtime.",
+    )
+
+    assert ("a",) not in covered and issues
+
+
+@pytest.mark.parametrize(
+    ("chapeau", "accepted"),
+    [
+        # Noun-phrase list items inherit their chapeau's administrative act.
+        ("A notice of appeal must contain the following information:", True),
+        ("The State shall submit to FNS a report that includes:", True),
+        # They do not inherit through a chapeau that states a consequence.
+        (
+            "A household is ineligible unless its notice of appeal contains the "
+            "following information:",
+            False,
+        ),
+        # Nor from a chapeau without an administrative act.
+        ("The following items are relevant:", False),
+    ],
+)
+def test_regulation_runtime_gap_leaf_inherits_chapeau_act(chapeau, accepted):
+    # The leaf names a filed notice and record but states no finite act.
+    source = (
+        f"(a) Appeals. {chapeau}\n\n(1) The date the State agency filed the "
+        "notice and the record number;\n\n(2) The reasons for the appeal.\n\n"
+        "(b) Other text."
+    )
+    covered, issues = _covered(
+        "us/regulation/7/283/99",
+        source,
+        "us:regulations/7-cfr/283/99/a/1",
+        "7 CFR 283.99(a)(1) requires the filed notice date and record number "
+        "information, which is not available at runtime.",
+    )
+
+    assert (("a", "1") in covered) is accepted
+    assert bool(issues) is not accepted
+
+
+@pytest.mark.parametrize(
+    ("leaf", "reason"),
+    [
+        # Finite administrative acts the round-3 review found rejected.
+        (
+            "The independent auditor shall be instructed by the Administrator to "
+            "submit a draft of the audit report to the Audit Staff.",
+            "requires the independent auditor draft audit report submission record",
+        ),
+        (
+            "The participant will be required to submit initial and annual "
+            "reports to the Bureau.",
+            "requires the participant initial and annual reports submission record",
+        ),
+        (
+            "Establish and employ internal controls to ensure compliance with the "
+            "procedures; and",
+            "requires the internal controls and procedures compliance records",
+        ),
+        (
+            "Conducting planning activities or entering into contractual "
+            "agreements for the necessary planning services;",
+            "requires the planning activities and contractual agreements records",
+        ),
+    ],
+)
+def test_regulation_runtime_gap_reads_more_administrative_act_forms(leaf, reason):
+    covered, issues = _covered(
+        "us/regulation/7/273/94",
+        _regulation_leaf_source(leaf),
+        "us:regulations/7-cfr/273/94/a/1",
+        f"7 CFR 273.94(a)(1) {reason}, which are not available at runtime.",
+    )
+
+    assert ("a", "1") in covered and not issues
 
 
 @pytest.mark.parametrize(

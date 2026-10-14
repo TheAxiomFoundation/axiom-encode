@@ -11046,9 +11046,11 @@ Complete-source-unit mode is enabled for this request:
   is not a source citation.
   For a U.S. regulation branch, use the resolver-attested canonical citation
   in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
-  the display form `7 CFR 273.10(a)(1)` names the same branch. Follow the
-  citation with the concrete missing input or runtime capability; do not infer
-  a citation beyond the supplied source.
+  in a repeal, runtime-gap, or non-operative reason the display form
+  `7 CFR 273.10(a)(1)` names the same branch, but a missing-dependency reason
+  must use the canonical citation. Follow the citation with the concrete
+  missing input or runtime capability; do not infer a citation beyond the
+  supplied source.
   Never guess a blocker target.
 - A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
