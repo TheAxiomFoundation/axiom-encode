@@ -236,6 +236,63 @@ release bytes the lock pins (`modified`); 2 when the release cannot be loaded.
 automatic placement off; these are the values axiom-corpus accepts.
 `axiom-encode ci --offline` uses only the cache and local git objects.
 
+## Signed SNAP queues
+
+`scripts/prepare_signed_queue.py build-snap` and `build-snap-all-states` read
+provisions files directly, so they place them first. In a checkout with
+`.axiom/corpus-locks/`:
+
+1. `build-snap` lists `data/corpus/provisions/us-or/manual/` and
+   `us-ut/manual/` on disk and from the checkout's locks
+   (`corpus_materialize.locked_directory_listing`): every
+   `.axiom/corpus-locks/<state>/manual/<version>.json` that pins a
+   `<version>.jsonl` there. A pre-switch checkout lists the same files once
+   they are fetched. So a locked scope that the release omits fails the build
+   ("signed release omits queue source artifact"), as a tracked one does
+   before the switch. A release artifact that the checkout neither locks nor
+   holds is not listed, as before. `build-snap-all-states` takes its paths
+   from the state inventory and the release manifest, as before.
+2. The provenance checks run unchanged: the checkout's `HEAD` is the queue's
+   `corpus_ref`, the checkout is clean, and the release manifest names each
+   source's scope. The release object is then verified, its signature
+   included, and its `git.commit` must be `corpus_ref`.
+3. Every source must be a release artifact. Each one that is missing is
+   placed from the [sources](#sources) above, only where the checkout's lock
+   pins the release's bytes. If any source is skipped, modified or cannot be
+   placed, the build fails before it hashes or reads a source. With
+   `AXIOM_CORPUS_NO_FETCH`, nothing is placed; every source must already be
+   in place.
+4. Each source is then hashed against the release and read, as before.
+
+A checkout without lock files runs the old code path and is never written to.
+`tests/test_signed_queue_lock_checkouts.py` builds each corpus in real git
+repositories before and after a switch. A Hypothesis property checks that both
+builds give the same queue or both fail. Its corpora are random, and so is one
+perturbation: a release that omits a scope or lists one the corpus lacks, an
+untracked file in a manual directory, or a committed file that differs from
+the signed bytes.
+
+The queue's `corpus_ref` equals the release's `git.commit`, so after the
+switch that commit's tree holds no provisions. The bytes come from a lock's
+`git_blob` in older history, the cache, or R2:
+
+- `validate-snap-queue-activation.yml` checks the corpus out with
+  `fetch-depth: 0`, so git history supplies every file committed before the
+  switch.
+- `prepare-all-state-snap-queue.yml` checks the corpus out at depth 1. A depth-1
+  clone holds no older blobs, so after a re-pin past the switch that workflow
+  needs `fetch-depth: 0` or a placement step with the read-only R2 token
+  (`R2_CORPUS_READ_ACCESS_KEY_ID`, `R2_CORPUS_READ_SECRET_ACCESS_KEY`, as in
+  [In CI](#in-ci)).
+- A scope ingested after the switch has no `git_blob`; only the cache or R2
+  holds it. Every workflow that pins a release with such a scope needs the R2
+  step. At corpus `main` on 2026-10-14,
+  `us-ut/manual/2026-10-06-w6-tanf-ccdf-manual-ut` is one such scope.
+
+Both workflows pin corpus commits from before the switch today
+(`0fd35bfb`, `d9d6fba0`), so neither reaches the lock-file path until it is
+re-pinned.
+
 ## Invariants
 
 For every release, every checkout lock state and every set of sources, under
