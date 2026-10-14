@@ -273,6 +273,23 @@ has a bodyless parent at
 and page-2 descendants. The corpus resolver composes a bodyless parent's active
 descendants under the singular requested citation, so the protected replacement
 should target that parent rather than one page or a removed plural field.
+However, the existing income-standards module declares **only** the two
+sibling page citations, not a singular parent. The current encoder's retired
+replacement admission requires an existing exact singular citation alongside
+the plural history, and the draft deterministic migration in
+[axiom-encode #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
+admits a plural collapse only when one cited path is an ancestor of all the
+others. Neither route currently admits this module. The values-only deductions
+and maximum-allotments modules are candidates for #1811's narrower signed
+transaction, subject to its review, waiver, and signing gates; that transaction
+alone would not make Arizona composition compile. A canceled parent-source
+[attempt 38425793435](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38425793435)
+did not reach encoding and is not evidence that replacement succeeds.
+The same pinned engine also fails to compile the existing FAA6 Arizona utility
+amount module on this RuleSpec tree, reporting the retired `values` field while
+following its 7 CFR 273.9 import closure. The tabulated $323/$438 and
+$149/$201 matches are therefore source-amount comparisons, not executed
+RuleSpec-versus-PolicyEngine parity.
 
 The later protected 7 USC 2012(j) repair run
 [`38264620667`](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38264620667)
@@ -352,14 +369,13 @@ except for two audited California successor scopes. Its
 signed and registered the release object with content SHA-256
 `c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121`;
 serving activation is separate. The scope's signed ingest manifest and locked
-PDF were verified independently. [Draft RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
-now pins this corrected release and corpus provenance commit. After
+PDF were verified independently. [RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
+merged on 2026-10-14 and pins this corrected release and corpus provenance commit. After
 [the pending-waiver stage PR #1762](https://github.com/TheAxiomFoundation/rulespec-us/pull/1762)
 merged, #1759 consumed exactly 12 preapproved pending fingerprints and removed
 four stale active waivers for modules that now pass; no generated RuleSpec or
-signed manifest changed. Its independent review found no actionable issue,
-51 focused tests passed on the current head, and exact-head repository CI is
-running. Do not merge or use the new pin as established until CI passes.
+signed manifest changed. Its independent review found no actionable issue;
+51 focused tests and all exact-head repository CI checks passed before merge.
 The earlier W6 union release was broader and failed exact-head validation due
 waiver fingerprint drift outside SNAP, so it is not the selected pin. The
 corrected source route does not repair the
