@@ -2997,7 +2997,24 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "core.hooksPath=/dev/null" in publish_command
     assert "fetch --no-tags origin \\\n" in publish_command
     assert "refs/remotes/origin/${PR_BASE_BRANCH}" in publish_command
-    assert '" = "$RULESPEC_REF"' in publish_command
+    assert (
+        "axiom-encode/scripts/prepare_signed_backfill.py \\\n"
+        "  advance-publication-base \\\n"
+        '  "$RULESPEC_CHECKOUT" "$RULESPEC_REF" "$PR_BASE_BRANCH" \\\n'
+        '  > "$publication_base"'
+    ) in publish_command
+    assert (
+        'publication_base="$RUNNER_TEMP/targeted-reencode/publication-base.json"'
+        in publish_command
+    )
+    assert '" = "$published_base"' in publish_command
+    assert '" = "$published_head"' in publish_command
+    assert '"$RULESPEC_REF" "$published_base"' in publish_command
+    assert publish_command.index("advance-publication-base") < publish_command.index(
+        " push "
+    )
+    assert "Base commit: \\`${RULESPEC_REF}\\`" in publish_command
+    assert "Published base commit: \\`${published_base}\\`" in publish_command
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
@@ -3006,7 +3023,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "Queue item:" in publish_command
     assert "Queue generation SHA-256:" in publish_command
     assert "Queue manifest SHA-256:" in publish_command
-    assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
+    assert '--arg sha "$published_base"' in publish_command
+    assert '--arg head "$published_head"' in publish_command
+    assert (
+        "'.base.ref == $branch and .base.sha == $sha and .head.sha == $head'"
+        in publish_command
+    )
     assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
     assert '":refs/heads/${branch}"' in publish_command
