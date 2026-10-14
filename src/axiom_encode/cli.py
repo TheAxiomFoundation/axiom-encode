@@ -14255,11 +14255,15 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
+    # Header line index of each `imports:` block and whether an item survived.
+    import_blocks: list[list[int | bool]] = []
+
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
+            import_blocks.append([len(repaired_lines), False])
             repaired_lines.append(line)
             continue
 
@@ -14273,10 +14277,17 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
                     if item in unused:
                         removed.append(item)
                         continue
+                    import_blocks[-1][1] = True
                 elif indent <= imports_indent:
                     in_imports = False
 
         repaired_lines.append(line)
+
+    # Pruning every import must drop the header too: a bare `imports:` loads as
+    # null, which the rules engine rejects ("expected a sequence").
+    for header_index, has_items in reversed(import_blocks):
+        if removed and not has_items:
+            del repaired_lines[int(header_index)]
 
     return "".join(repaired_lines), removed
 
