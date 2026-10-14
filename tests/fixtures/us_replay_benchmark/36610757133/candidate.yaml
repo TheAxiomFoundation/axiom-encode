@@ -1,0 +1,431 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-dc/statute/47/47-1807.02
+    source_sha256: 50bedd5792c29e7c43c32151a09508c781ca1aa73819d56ecbe646813f150e14
+  summary: “Except as exempted under subchapter II of this chapter,” a tax is levied
+    on the taxable income of every corporation. Paragraphs (3A) and (3B) impose separate
+    surtaxes. “The minimum tax payable under this section shall be $250”; it is $1,000
+    if District gross receipts exceed $1 million. Subsection (c) subjects taxes during
+    the stated three tax years to § 47-2507 transition rules.
+  deferred_outputs:
+  - output: us-dc:statutes/47/47-1807/02/a/6#corporation_tax_under_paragraph_6
+    reason: us-dc/statute/47/47-1807.02(a)(6) requires the applicable funded rate
+      to be determined in accordance with § 47-181; that cited rate determination
+      is not supplied in the available context.
+    source_values:
+    - us-dc:statutes/47/47-1807/02#paragraph_6_rate_9_percent
+    - us-dc:statutes/47/47-1807/02#paragraph_6_rate_8_75_percent
+    - us-dc:statutes/47/47-1807/02#paragraph_6_rate_8_5_percent
+    - us-dc:statutes/47/47-1807/02#paragraph_6_rate_8_25_percent
+  - output: us-dc:statutes/47/47-1807/02/c#transition_adjusted_corporation_tax
+    reason: us-dc/statute/47/47-1807.02(c) requires the transition rules provided
+      in § 47-2507; that section's transition computation is not supplied in the available
+      context.
+  - output: us-dc:statutes/47/47-1807/02#corporation_tax_under_paragraph_6
+    reason: D.C. Official Code § 47-1807.02(a)(6) makes the rate subject to availability
+      of funding and requires application in accordance with § 47-181; the exact funding
+      availability and the rate determined in accordance with § 47-181 are not supplied
+      in the available context.
+    source_values:
+    - us-dc:statutes/47/47-1807/02#corporation_tax_rate_under_paragraph_6
+rules:
+- name: paragraph_2_tax
+  kind: derived
+  entity: Corporation
+  dtype: Money
+  unit: USD
+  period: Year
+  source: D.C. Official Code § 47-1807.02(a), (a)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: Except as exempted under subchapter II of this chapter
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: a tax at the rate of 9% upon the taxable income of every corporation
+  versions:
+  - effective_from: '1976-01-01'
+    formula: 'if corporation_exempt_under_subchapter_ii: 0 else: corporation_tax_rate
+      * taxable_income'
+- name: corporation_tax_rate
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(1)-(5)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: a tax at the rate of 12%
+      - path: versions[1].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: a tax at the rate of 9%
+      - path: versions[2].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: effective October 1, 1984, the rate of tax shall be 10%
+      - path: versions[3].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: for taxable years beginning after December 31, 1994, the rate of
+            tax shall be 9.5%
+      - path: versions[4].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: For the taxable years beginning after December 31, 2002, a tax
+            at the rate of 9.5%
+      - path: versions[5].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: For the taxable years beginning after December 31, 2003, a tax
+            at the rate of 9.975%
+      - path: versions[6].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: For the taxable year beginning after December 31, 2014, a tax at
+            the rate of 9.4%
+  versions:
+  - effective_from: '1975-01-01'
+    formula: '0.12'
+  - effective_from: '1976-01-01'
+    formula: '0.09'
+  - effective_from: '1984-10-01'
+    formula: '0.10'
+  - effective_from: '1995-01-01'
+    formula: '0.095'
+  - effective_from: '2003-01-01'
+    formula: '0.095'
+  - effective_from: '2004-01-01'
+    formula: '0.09975'
+  - effective_from: '2015-01-01'
+    formula: '0.094'
+- name: first_surtax_rate
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(3A)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: effective_period
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: for any tax period beginning after September 30, 1992
+      - path: versions[1].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: A surtax at the rate of 2.5% on the tax determined under paragraph
+            (2) or (3)
+      - path: versions[2].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: on the tax determined under paragraph (2) or (3)
+  versions:
+  - effective_from: '1975-01-01'
+    formula: '0'
+  - effective_from: '1992-10-01'
+    formula: '0.025'
+  - effective_from: '2004-01-01'
+    formula: '0'
+- name: second_surtax_rate
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(3B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: effective_period
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: for any tax period beginning after September 30, 1994
+      - path: versions[1].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: A surtax at the rate of 2.5%, separate from and in addition to
+      - path: versions[2].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: on the tax determined under paragraph (2) or (3)
+  versions:
+  - effective_from: '1975-01-01'
+    formula: '0'
+  - effective_from: '1994-10-01'
+    formula: '0.025'
+  - effective_from: '2004-01-01'
+    formula: '0'
+- name: paragraph_6_rate_9_percent
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: a tax at the rate of 9%, 8.75%, 8.5%, or 8.25%
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.09'
+- name: paragraph_6_rate_8_75_percent
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: 9%, 8.75%, 8.5%, or 8.25%
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.0875'
+- name: paragraph_6_rate_8_5_percent
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: 9%, 8.75%, 8.5%, or 8.25%
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.085'
+- name: paragraph_6_rate_8_25_percent
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(6)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: 9%, 8.75%, 8.5%, or 8.25%
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '0.0825'
+- name: minimum_corporation_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  source: D.C. Official Code § 47-1807.02(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: The minimum tax payable under this section shall be $250.
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '250'
+- name: high_receipts_minimum_corporation_tax
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  source: D.C. Official Code § 47-1807.02(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: the minimum tax payable shall be $1,000
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '1000'
+- name: district_gross_receipts_threshold
+  kind: parameter
+  dtype: Money
+  unit: USD
+  period: Year
+  source: D.C. Official Code § 47-1807.02(b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: District gross receipts are greater than $1 million
+  versions:
+  - effective_from: '0001-01-01'
+    formula: '1000000'
+- name: transition_tax_year_count
+  kind: parameter
+  dtype: Count
+  source: D.C. Official Code § 47-1807.02(c)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: during the 3 tax years beginning after June 30, 1981
+  versions:
+  - effective_from: '1981-07-01'
+    formula: '3'
+- name: paragraph_1_taxable_year_count
+  kind: parameter
+  dtype: Count
+  source: D.C. Official Code § 47-1807.02(a)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: For 1 taxable year beginning after December 31, 1974
+  versions:
+  - effective_from: '1975-01-01'
+    formula: '1'
+- name: corporation_tax
+  kind: derived
+  entity: Corporation
+  dtype: Money
+  unit: USD
+  period: Year
+  source: D.C. Official Code § 47-1807.02(a), (b)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: Except as exempted under subchapter II of this chapter
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: upon the taxable income of every corporation
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: separate from and in addition to, the surtax imposed by paragraph
+            (3A)
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: If District gross receipts are greater than $1 million, the minimum
+            tax payable shall be $1,000.
+      - path: versions[0].formula
+        kind: exception
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: shall not be exempt from the minimum tax payable under this section
+  versions:
+  - effective_from: '1975-01-01'
+    formula: "if corporation_exempt_under_subchapter_ii: 0 else:\n  max(\n    corporation_tax_rate\
+      \ * taxable_income * (1 + first_surtax_rate + second_surtax_rate),\n    if district_gross_receipts\
+      \ > district_gross_receipts_threshold:\n      high_receipts_minimum_corporation_tax\n\
+      \    else: minimum_corporation_tax\n  )"
+- name: transition_rules_apply
+  kind: derived
+  entity: Corporation
+  dtype: Judgment
+  period: Year
+  source: D.C. Official Code § 47-1807.02(c)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: during the 3 tax years beginning after June 30, 1981
+  versions:
+  - effective_from: '1981-07-01'
+    formula: tax_year_is_in_transition_window
+- name: corporation_surtax_rate
+  kind: parameter
+  dtype: Rate
+  source: D.C. Official Code § 47-1807.02(a)(3A)-(3B)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us-dc/statute/47/47-1807.02
+          excerpt: A surtax at the rate of 2.5%
+  versions:
+  - effective_from: '1992-10-01'
+    formula: '0.025'
+inputs:
+- name: taxable_income
+  entity: Corporation
+  dtype: Money
+  period: Year
+- name: district_gross_receipts
+  entity: Corporation
+  dtype: Money
+  period: Year
+- name: corporation_exempt_under_subchapter_ii
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: tax_year_is_in_transition_window
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: first_surtax_period_applies
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: second_surtax_period_applies
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: tax_year_is_one_of_the_three_tax_years_beginning_after_june_30_1981
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: taxable_year_begins_after_1994
+  entity: Corporation
+  dtype: Boolean
+  period: Year
+- name: taxable_year_begins_after_1994_and_on_or_before_2002
+  entity: Corporation
+  dtype: Boolean
+  period: Year

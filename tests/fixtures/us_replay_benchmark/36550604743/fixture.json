@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "36550604743",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/36550604743",
+  "bundle_citation": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+  "citation": "us/guidance/usda/fns/snap-fy2024-cola/page-2",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/usda/snap/fy-2024-cola/income-eligibility-standards.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "a09abf42c8b880697b8b9fcf0b0eec650ace5d0c",
+  "encoder_version": "0.2.2065",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2
+  },
+  "context_imports": {},
+  "files": {
+    "candidate.test.yaml": "ae6915709b63bdfe9d4354f8967d43befcc8d74d14ac0d17593d1ae8dffdfbb2",
+    "candidate.yaml": "23438dec0aaa00847665ee5413571856e02afe4f9961f83381fc56eed69d8649",
+    "issues.json": "d51050f41fc1c2d0cdb57298ad6f38da2073447271a22a71ac6730d0d3b7ab2d",
+    "source-metadata.json": "5fd0b94c30b4c909b47f86c9b30f6d4b5e5232070b3e5b926cf27a7b6096882f",
+    "source.txt": "a3bbb6b3c5a09419403486d40f2836bcdcea5fff3ef042cd87195d0c953000cb"
+  }
+}

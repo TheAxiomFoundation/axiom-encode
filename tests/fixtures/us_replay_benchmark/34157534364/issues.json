@@ -1,0 +1,14 @@
+{
+  "attempt_count": 4,
+  "citation": "us/statute/7/2015/f",
+  "encoder_version": "0.2.1764",
+  "issues": [
+    "statutes/7/2015/f.yaml: ci: Test case `otherwise_eligible_nonmember_is_not_subject_to_disqualification` output `us:statutes/7/2015/f#person_meets_snap_residency_requirement` expected not_holds, got holds.",
+    "statutes/7/2015/f.yaml: ci: [complete-source-unit:structure] Source branch (A) at us/statute/7/2015/f(2) [Absatz 2, Buchstabe a] is neither encoded nor precisely deferred.",
+    "statutes/7/2015/f.yaml: ci: [complete-source-unit:tests] Direct nonnegative clamp companion evidence is missing for `max(0, individual_financial_resources)` in `ineligible_individual_financial_resources_considered`, `max(0, individual_income)` in `ineligible_individual_income_considered`. Each requires an executed companion case in every distinct selected temporal owner/downstream claimant context, with the input below zero, that asserts the clamped rule and, when downstream consumers exist, an unambiguous authoritative principal output with selected-version formula proof whose matching assertion and selected formula path reach it through a resolved dependency chain. A zero-valued case does not exercise the negative clamp."
+  ],
+  "path": "statutes/7/2015/f.yaml",
+  "rulespec_sha256": "fde817d9b6a283b26fb8d8afb5f657151400be5c93545a594cd14cf0b0596010",
+  "schema": "axiom-encode/failed-encode-candidate/v1",
+  "tests_sha256": "13113f1d062e6ce938fb13f6a4ead7fcda152aadaa7a4852085793484897d8c2"
+}

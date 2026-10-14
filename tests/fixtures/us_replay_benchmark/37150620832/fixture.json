@@ -1,0 +1,44 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37150620832",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37150620832",
+  "bundle_citation": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+  "citation": "us-az/manual/des/faa5/na-eligibility-and-benefit-determination/block-9",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "policies/des/faa5/na-eligibility-and-benefit-determination/fy-2026-benefit-calculation.yaml",
+  "policy_prefix": "us-az",
+  "encoder_commit": "39f4e66a97673ede447d59b0e4072571bfdaf86b",
+  "encoder_version": "0.2.2086",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "compile": 2,
+    "complete-source-unit:formula-output": 2,
+    "complete-source-unit:numeric-recall": 1,
+    "complete-source-unit:source-explicit-conditions": 1,
+    "complete-source-unit:tests": 6,
+    "oracle": 1
+  },
+  "context_imports": {
+    "us-az:policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount": "context/policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml",
+    "us-az:policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility": "context/policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.yaml",
+    "us-az:policies/des/faa6/utility-allowance-current-amount": "context/policies/des/faa6/utility-allowance-current-amount.yaml"
+  },
+  "files": {
+    "candidate.test.yaml": "f4dc838d083277c6d194376c40a03c1865951e076707cf79d0336e085ab806ca",
+    "candidate.yaml": "fad3d824f24fe1b246b1056ecaaae1cfbe38fd6f948555c6a2f73b9911cd0629",
+    "context/policies/des/faa5/na-eligibility-and-benefit-determination/benefit-amount.yaml": "10ced7e709c05e5d06c4053e602d95fb8ba147ed161f245eeab5729e60b4dd91",
+    "context/policies/des/faa5/na-utility-expenses-and-allowances/utility-allowance-eligibility.yaml": "26aee41fb081c7eb7c51d897df0199ffa0eb50428137e4007acf0ca4ad956e26",
+    "context/policies/des/faa6/utility-allowance-current-amount.yaml": "9f9f31ad07ac20936781d76d61f6e2c1c39f3ee1327135d58f67463520527e34",
+    "issues.json": "3ed66bea8cf1c54e6c1dab996be08fa9911009a8deb29dd60f0406b5503f90a5",
+    "source-metadata.json": "d01b4fc55b41c086815fe80e757fc0f09dd7b0297d6fc8f0d706e3e7c9ef26bb",
+    "source.txt": "8c6be9a385937493796a80db196d04ad53a54eb5437e383d6e6115f5ec46e15e"
+  }
+}

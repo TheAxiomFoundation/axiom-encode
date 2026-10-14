@@ -1,0 +1,5 @@
+- name: open_manual_may_not_be_saved_or_downloaded
+  period: 2026-07
+  input: {}
+  output:
+    us-or:policies/odhs/open/page-26#open_manual_saving_or_downloading_permitted: not_holds

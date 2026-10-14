@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37047757269",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37047757269",
+  "bundle_citation": "us-ri/guidance/tax/adv-2025-22/page-2",
+  "citation": "us-ri/guidance/tax/adv-2025-22/page-2",
+  "lane": "target",
+  "runner": null,
+  "module_path": "policies/tax/adv-2025-22/page-2.yaml",
+  "policy_prefix": "us-ri",
+  "encoder_commit": "4cfffd1d6be78f628dcbd63c5dbc9735f25fce40",
+  "encoder_version": "0.2.2084",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:tests": 4
+  },
+  "context_imports": {},
+  "files": {
+    "candidate.test.yaml": "1f9679c35d9e0c8d0ebe0a249f0b5e45ebb05f9f11ea41fc172585b0c73f718f",
+    "candidate.yaml": "9c2edcb964598ee8cf33b6ad4609938432a7ea3bc1287fccfc4f2ea4a75c8ba5",
+    "issues.json": "fb240e35a17b412128acd47f02de1cd3f91eaed5423f1ae1fca71eadcc386bfe",
+    "source-metadata.json": "71e045222b626dda087a634b177a7a60ba98c24e6dc66d908ccaaf9d785291a7",
+    "source.txt": "18418d2057512ec336b4de2e07772308e9ea80320426c7fe8d8c9ffc63fbd6b3"
+  }
+}

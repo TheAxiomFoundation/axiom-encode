@@ -1,0 +1,32 @@
+{
+  "schema": "axiom-encode/us-replay-fixture/v1",
+  "run_id": "37175948842",
+  "run_url": "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37175948842",
+  "bundle_citation": "us/statute/42/416/l",
+  "citation": "us/statute/42/416/l",
+  "lane": "target",
+  "runner": "openai-gpt-6-sol",
+  "module_path": "statutes/42/416/l.yaml",
+  "policy_prefix": "us",
+  "encoder_commit": "4956c8305ee155f476a3c0c6dbe8efbd443626a4",
+  "encoder_version": "0.2.2087",
+  "attempt_count": 4,
+  "corpus_ref": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "failed_steps": [
+    "encode_apply"
+  ],
+  "candidate_matches_bundle_inventory": true,
+  "candidate_matches_recorded_issues": true,
+  "source_matches_attestation": true,
+  "recorded_rules": {
+    "complete-source-unit:tests": 2
+  },
+  "context_imports": {},
+  "files": {
+    "candidate.test.yaml": "af8c57a115d5c08585808f711e6d8fdef46ac991a217c100b66274e7e14d8e7c",
+    "candidate.yaml": "0f3d4ef6d7c04b583b573b10343c39f8583ac637c74f83389ad205faf8dd091e",
+    "issues.json": "1dd7c11d7853ae98b7a5b691d07ecaf2a3a29863ff41664ceb522eb0254acb34",
+    "source-metadata.json": "7eea52385a06dd269917d17dcf607db4eb2d257b7e489a8859505a3f24592248",
+    "source.txt": "ee15c76186b3533e280082826ffae74cdb24481ca30ae9e4fa7610410dd723f1"
+  }
+}
