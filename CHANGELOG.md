@@ -1,3 +1,7 @@
+## 0.2.2197
+
+- Publish signed targeted re-encodes onto a rulespec main tip that advanced from the recorded base only through repository plumbing. The lane is replayed onto that tip by object identity, and every signed byte is proven unchanged for each replayed commit. Receipt-bound or deleting lanes, file/directory conflicts, and any other advance still fail closed. The SNAP dispatcher keeps unfinished runs on such an advance instead of cancelling them.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
