@@ -735,9 +735,10 @@ _PROOF_TYPOGRAPHIC_CHARACTER_MAP = {
     "\u2011": "-",
     "\u2012": "-",
     "\u2013": "-",
-    "\u2014": "-",
-    "\u2015": "-",
     "\u2212": "-",
+    # An em dash or horizontal bar is clause punctuation ("who\u2014(i)",
+    # "Group\u20145 percent"), never a minus: reading it as "-" would let an
+    # excerpt bind a negative number the source does not state.
 }
 _PROOF_WRAP_GAP = "(?:[ \\t]+|[ \\t]*" + LINE_END_FRAGMENT + "[ \\t]*)"
 # "twenty- five" / "self-\nemployment": keep the hyphen, drop the wrap.
@@ -751,8 +752,10 @@ _PROOF_SOFT_HYPHEN_WRAP_PATTERN = re.compile(
 _PROOF_SIGN_DIGIT_GAP_PATTERN = re.compile(
     r"[$\u00a2-\u00a5\u20a0-\u20cf\u00a7\u00b6](" + _PROOF_WRAP_GAP + r")(?=\d)"
 )
+# Only a comma or semicolon that a word follows: a spaced colon or stop can be
+# numeric notation ("100 : 200" is a ratio, not a label).
 _PROOF_SPACE_BEFORE_PUNCTUATION_PATTERN = re.compile(
-    r"(?<=\S)([ \t]+)(?=[,;:.](?:\s|$))"
+    r"(?<=\S)([ \t]+)(?=[,;](?:" + _PROOF_WRAP_GAP + r"[^\W\d_]|$))"
 )
 
 

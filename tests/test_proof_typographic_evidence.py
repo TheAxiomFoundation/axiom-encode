@@ -179,6 +179,10 @@ def test_proof_evidence_accepts_typographic_spelling(source_text, excerpt):
         ("Added by Laws 1988, c. 162", "“Laws 1988”, c. 163"),
         # A comma the source does not print.
         ("by September 30 2006 established", "by September 30, 2006, established"),
+        # A spaced colon is ratio notation, not a label to close up.
+        ("The official ratio is 100 : 200 dollars.", "200 dollars"),
+        # An em dash is punctuation, never the minus sign of a number.
+        ("Group—5 percent of the amount", "-5 percent of the amount"),
     ],
 )
 def test_proof_evidence_rejects_changed_text(source_text, excerpt):
