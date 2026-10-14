@@ -2666,6 +2666,25 @@ def test_disposable_checkout_is_the_commit_and_shares_nothing_writable(
     assert not (source / "axiom_corpus.egg-info").exists()
 
 
+def test_disposable_checkout_from_a_detached_worktree(tmp_path: Path) -> None:
+    # Pinned checkouts are often worktrees detached at the pin, whose commit
+    # no branch of the main repository points at.
+    main = gates._repo(tmp_path, {"a.txt": "base\n"}, name="axiom-corpus-main")
+    pin = gates._commit(main, {"a.txt": "pinned\n"}, "pin")
+    gates._git(main, "reset", "-q", "--hard", "HEAD~1")
+    worktree = tmp_path / "axiom-corpus"
+    gates._git(main, "worktree", "add", "-q", "--detach", str(worktree), pin)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        worktree, pin, destination, "TheAxiomFoundation/axiom-corpus"
+    )
+
+    assert (destination / "a.txt").read_text() == "pinned\n"
+    assert gates._git(destination, "rev-parse", "HEAD") == pin
+    assert gates._git(destination, "status", "--porcelain") == ""
+
+
 def test_disposable_checkout_rewrites_a_file_the_copy_got_wrong(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
