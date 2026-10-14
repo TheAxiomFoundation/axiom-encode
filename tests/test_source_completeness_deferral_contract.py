@@ -697,3 +697,133 @@ def test_cfr_dependency_form_is_limited_to_numbered_federal_regulations():
         corpus_citation_path="us-ca/regulation/mpp/63-300",
         path=("a",),
     )
+
+
+REPORTING_273_4_B = (
+    "(a) Household members. No person is eligible unless that person is a U.S. "
+    "citizen.\n\n"
+    "(b) Reporting illegal aliens. (1) The State agency must inform the local "
+    "USCIS office immediately whenever personnel responsible for the "
+    "certification or recertification of households determine that any member "
+    "of a household is ineligible to receive SNAP benefits because the member is "
+    "present in the U.S. in violation of the INA.\n\n"
+    "(2) When a household indicates inability or unwillingness to provide "
+    "documentation of alien status for any household member, the State agency "
+    "must classify that member as an ineligible alien.\n\n"
+    "(c) Sponsored aliens. A sponsored alien is an alien for whom a person has "
+    "executed an affidavit of support."
+)
+
+
+def test_regulation_runtime_gap_cannot_cover_an_operative_child_rule():
+    """A replayed 7 CFR 273.4(b) runtime gap would also have covered (b)(2)."""
+
+    branches = recognize_source_structure(
+        REPORTING_273_4_B, corpus_citation_path="us/regulation/7/273/4"
+    )
+    assert ("b", "1") in {branch.path for branch in branches}
+    assert ("b", "2") in {branch.path for branch in branches}
+
+    whole = (
+        "7 CFR 273.4(b) requires immediate State-agency notice to the local USCIS "
+        "office after a certification or recertification determination; the "
+        "certification event, USCIS routing, and notification workflow are not "
+        "represented."
+    )
+    covered, issues = _covered(
+        "us/regulation/7/273/4",
+        REPORTING_273_4_B,
+        "us:regulations/7-cfr/273/4/b",
+        whole,
+    )
+    assert ("b",) not in covered and issues
+
+    notice_only = whole.replace("7 CFR 273.4(b)", "7 CFR 273.4(b)(1)")
+    covered, issues = _covered(
+        "us/regulation/7/273/4",
+        REPORTING_273_4_B,
+        "us:regulations/7-cfr/273/4/b/1",
+        notice_only,
+    )
+    assert ("b", "1") in covered and not issues
+
+
+def test_regulation_runtime_gap_rejects_mandated_income_consequence():
+    """Replayed 7 CFR 273.4(c)(4) deferral: a duty list plus an attribution rule."""
+
+    source = (
+        "(a) Citizens. No person is eligible unless that person is a U.S. "
+        "citizen.\n\n"
+        "(b) Reporting. The State agency must report each case.\n\n"
+        "(c) Sponsored aliens.\n\n"
+        "(1) Definition. A sponsored alien is an alien for whom a person has "
+        "executed an affidavit of support.\n\n"
+        "(2) Deeming. Income of the sponsor is deemed income of the alien.\n\n"
+        "(3) Exemptions. Deeming does not apply to an indigent alien.\n\n"
+        "(4) Eligible sponsored alien's responsibilities. The eligible sponsored "
+        "alien is responsible for providing the State agency at the time of "
+        "application and at the time of recertification with the information and "
+        "documentation necessary to calculate deemed income. The State agency "
+        "must attribute the entire amount of income and resources to the "
+        "applicant eligible sponsored alien until he or she provides the "
+        "information specified under this paragraph (c)(4). Changes must be "
+        "handled during the certification period.\n\n"
+        "(5) Notice. The State agency must notify the household of each "
+        "certification decision in a written notice.\n\n"
+        "(d) Other provisions."
+    )
+    branches = recognize_source_structure(
+        source, corpus_citation_path="us/regulation/7/273/4"
+    )
+    assert {("c", "4"), ("c", "5")} <= {branch.path for branch in branches}
+    reason = (
+        "7 CFR 273.4(c)({branch}) requires application, recertification, and "
+        "certification-period {topic} workflow not represented by the runtime."
+    )
+    covered, issues = _covered(
+        "us/regulation/7/273/4",
+        source,
+        "us:regulations/7-cfr/273/4/c/4",
+        reason.format(branch="4", topic="documentation"),
+    )
+    assert ("c", "4") not in covered and issues
+
+    covered, issues = _covered(
+        "us/regulation/7/273/4",
+        source,
+        "us:regulations/7-cfr/273/4/c/5",
+        "7 CFR 273.4(c)(5) requires a written certification notice event, which is "
+        "not supplied as a runtime notice record.",
+    )
+    assert ("c", "5") in covered and not issues
+
+
+def test_cfr_dependency_parent_deferral_requires_the_dependency_to_block_it():
+    branches = {
+        branch.path
+        for branch in recognize_source_structure(
+            FMAP_457_622, corpus_citation_path="us/regulation/42/457/622"
+        )
+    }
+    assert {("b",), ("b", "1"), ("b", "2"), ("c",), ("c", "1"), ("c", "2")} <= branches
+
+    # (b) computes the lower of its children, so (b)(1)'s dependency blocks it.
+    covered, issues = _covered(
+        "us/regulation/42/457/622",
+        FMAP_457_622,
+        "us:regulations/42-cfr/457/622/b",
+        "42 CFR 457.622(b) requires the lower of its paragraphs, and the regular "
+        "FMAP determined under section 1905(b) of the Act is not supplied.",
+    )
+    assert ("b",) in covered and not issues
+
+    # (c) lists independent categories; only (c)(2) cites the 457.618(a)(2)
+    # limit, so deferring all of (c) would also hide the (c)(1) category.
+    covered, issues = _covered(
+        "us/regulation/42/457/622",
+        FMAP_457_622,
+        "us:regulations/42-cfr/457/622/c",
+        "42 CFR 457.622(c) subjects its listed expenditures to the 10 percent "
+        "limit under 42 CFR 457.618(a)(2); that limit computation is not supplied.",
+    )
+    assert ("c",) not in covered and issues

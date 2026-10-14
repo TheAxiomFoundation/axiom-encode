@@ -6318,6 +6318,17 @@ def _deferred_coverage(
             if path is not None:
                 output_anchor = anchor
                 break
+        if (
+            path == ()
+            and output_anchor != base_target
+            and output_anchor == _us_encoder_module_root(corpus_citation_path)
+            and not output_anchor.startswith("us:regulations/")
+        ):
+            # A manual, form, or dotted state-regulation record named only at
+            # the encoder module root claims no source branch. It covers
+            # nothing and keeps its earlier treatment (not evaluated); only
+            # branch records at that root are now checked and can cover.
+            continue
         if path is None:
             fragment = output.partition("#")[2]
             jurisdiction = base_target.partition(":")[0].lower()
@@ -6425,11 +6436,24 @@ def _deferred_coverage(
                     path=candidate_path,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
                 )
-                or _reason_names_source_bound_runtime_gap(
+                or _federal_regulation_dependency_blocks_branch(
                     reason,
-                    candidate_scope_text,
                     path=candidate_path,
+                    branches=branches,
                     corpus_citation_path=corpus_citation_path,
+                )
+                or (
+                    _reason_names_source_bound_runtime_gap(
+                        reason,
+                        candidate_scope_text,
+                        path=candidate_path,
+                        corpus_citation_path=corpus_citation_path,
+                    )
+                    and _regulation_runtime_gap_descendants_are_administrative(
+                        candidate_path,
+                        branches=branches,
+                        corpus_citation_path=corpus_citation_path,
+                    )
                 )
                 or _reason_covers_source_authenticated_repeal(
                     reason,
@@ -6506,6 +6530,12 @@ def _deferred_coverage(
                     corpus_citation_path=corpus_citation_path,
                     path=candidate,
                     authenticated_same_act_aliases=authenticated_same_act_aliases,
+                )
+                or _federal_regulation_dependency_blocks_branch(
+                    reason,
+                    path=candidate,
+                    branches=branches,
+                    corpus_citation_path=corpus_citation_path,
                 )
                 for candidate, candidate_scope_text in most_specific_source_scopes.items()
             )
@@ -9028,13 +9058,6 @@ def _reason_dependency_is_source_bound(
         authenticated_same_act_aliases=authenticated_same_act_aliases,
     ):
         return True
-    if _reason_names_missing_federal_regulation_dependency(
-        reason,
-        source_scope_text,
-        corpus_citation_path=corpus_citation_path,
-        path=path,
-    ):
-        return True
 
     louisiana_dependencies = _qualified_louisiana_rs_dependencies(reason)
     if not _MISSING_DEPENDENCY_LANGUAGE.search(reason) and not any(
@@ -9299,6 +9322,71 @@ def _reason_names_missing_federal_regulation_dependency(
             continue
         return True
     return False
+
+
+def _federal_regulation_dependency_blocks_branch(
+    reason: str,
+    *,
+    path: tuple[str, ...],
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+) -> bool:
+    """Accept a CFR/Act dependency deferral only where it blocks the branch.
+
+    A leaf is blocked by a dependency its text cites. A parent is blocked only
+    when its own chapeau cites the dependency, its chapeau computes over its
+    children (`the lower of the following`), or every leaf below it cites the
+    dependency; otherwise the deferral must name the child that cites it, so
+    an independent sibling category is not deferred with it.
+    """
+
+    if not path or _cfr_current_section_identity(corpus_citation_path) is None:
+        return False
+    owners = [branch for branch in branches if branch.path == path]
+    if not owners:
+        return False
+    owner = max(owners, key=lambda branch: len(branch.text))
+
+    def cited_in(text: str) -> bool:
+        return _reason_names_missing_federal_regulation_dependency(
+            reason,
+            text,
+            corpus_citation_path=corpus_citation_path,
+            path=path,
+        )
+
+    descendants = [
+        branch
+        for branch in branches
+        if len(branch.path) > len(path) and branch.path[: len(path)] == path
+    ]
+    if not descendants:
+        return cited_in(owner.text)
+    if not cited_in(owner.text):
+        return False
+    direct_text = _source_branch_direct_text(owner, branches=branches)
+    if (
+        cited_in(direct_text)
+        or source_states_explicit_computation(direct_text)
+        or re.search(
+            r"\b(?:lesser|lower|greater|higher|smaller|larger|least|greatest|"
+            r"minimum|maximum|sum|total|difference|product)\s+of\s+"
+            r"(?:the\s+)?(?:following|amounts?\s+(?:in|under)\s+paragraphs?)\b",
+            direct_text,
+            flags=re.IGNORECASE,
+        )
+    ):
+        return True
+    leaves = [
+        branch
+        for branch in descendants
+        if not any(
+            len(other.path) > len(branch.path)
+            and other.path[: len(branch.path)] == branch.path
+            for other in descendants
+        )
+    ]
+    return all(cited_in(leaf.text) for leaf in leaves)
 
 
 def _reason_names_missing_same_act_dependency(
@@ -12890,6 +12978,61 @@ def _reason_names_source_bound_runtime_gap(
     # Two shared source terms keep an exact self-citation from laundering a vague
     # or invented capability assertion into complete-source coverage.
     return len(substantive_tokens(reason) & substantive_tokens(source_scope_text)) >= 2
+
+
+def _regulation_runtime_gap_descendants_are_administrative(
+    path: tuple[str, ...],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    corpus_citation_path: str,
+) -> bool:
+    """Keep a regulation runtime gap from covering operative rules.
+
+    A runtime-gap deferral covers every descendant of its branch. For a
+    federal or state regulation each covered leaf must itself state an
+    administrative artifact and action, no computation, and no mandated
+    eligibility or income consequence. So `7 CFR 273.4(b)` (a USCIS notice
+    duty in (b)(1) beside the ineligible-alien classification in (b)(2)) cannot
+    be deferred whole, while (b)(1) still can, and `7 CFR 273.4(c)(4)`, which
+    makes the agency attribute the sponsor's entire income until information
+    is provided, cannot be deferred as a runtime gap. Statute behavior is
+    unchanged.
+    """
+
+    parts = [part for part in corpus_citation_path.strip("/").split("/") if part]
+    if len(parts) < 2 or parts[1].lower() != "regulation":
+        return True
+    covered = [
+        branch
+        for branch in branches
+        if len(branch.path) >= len(path) and branch.path[: len(path)] == path
+    ]
+    leaves = [
+        branch
+        for branch in covered
+        if not any(
+            len(other.path) > len(branch.path)
+            and other.path[: len(branch.path)] == branch.path
+            for other in covered
+        )
+    ]
+    return all(
+        _ADMINISTRATIVE_SOURCE_ARTIFACT_LANGUAGE.search(leaf.text)
+        and _ADMINISTRATIVE_SOURCE_ACTION_LANGUAGE.search(leaf.text)
+        and not source_states_explicit_computation(leaf.text)
+        and not _REGULATION_OPERATIVE_CONSEQUENCE.search(leaf.text)
+        for leaf in leaves
+    )
+
+
+# A mandated eligibility, classification, or income/resource consequence. Its
+# branch states an operative rule, not only an administrative workflow.
+_REGULATION_OPERATIVE_CONSEQUENCE = re.compile(
+    r"\b(?:must|shall)\s+(?:not\s+)?(?:be\s+)?"
+    r"(?:attribut|classif|count|deduct|deem|den(?:y|ied)|disqualif|disregard|"
+    r"divid|exclud|includ|prorat|reduc|terminat|treat)[a-z]*\b",
+    flags=re.IGNORECASE,
+)
 
 
 def _reason_covers_source_authenticated_repeal(

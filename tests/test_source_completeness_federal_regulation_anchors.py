@@ -369,6 +369,15 @@ def test_manual_form_and_dotted_state_regulation_deferrals_are_not_dropped(
     )
     assert not covered
 
+    # A record named only at the module root claims no source branch; it keeps
+    # its earlier treatment there (neither coverage nor an issue).
+    root_only = _deferral_payload(
+        citation, [(f"{module_root}#deferred", "Unavailable.")]
+    )
+    assert completeness_module._deferred_coverage(
+        root_only, corpus_citation_path=citation, source_text=source, branches=branches
+    ) == (set(), [])
+
 
 @pytest.mark.parametrize(
     ("citation", "path", "precise"),
