@@ -262,16 +262,19 @@ provisions files directly, so they place them first. In a checkout with
 4. Every source must be a release artifact. A missing one is placed from the
    [sources](#sources) above, only where the checkout's lock pins the
    release's bytes. A present one must have the release's size, and its lock,
-   if it has one, must pin the release's bytes. Otherwise (skipped, modified,
+   if it has one, must pin the release's bytes. Every lock in a source's
+   directory must be valid, so a lock that pins nothing cannot pass for no
+   lock. Otherwise (skipped, modified,
    present over a lock that pins other bytes, or not placeable) the build
    fails before it hashes or reads a source. With `AXIOM_CORPUS_NO_FETCH`,
    nothing is placed and every source must already pass those checks.
 5. Each source is then hashed against the release and read, as before.
 
 A checkout without lock files runs the old code path. It imports nothing from
-`axiom_encode` before its git checks and is never written to. A symlinked
-corpus root is resolved once for placement, as reads followed it before; a
-symlink under the root still fails the build.
+`axiom_encode` before its git checks and is never written to. In a lock-file
+checkout, a symlinked corpus root is resolved once at the start, and every step
+uses the result, as reads followed the link before; a symlink under the root
+still fails the build.
 
 `tests/test_signed_queue_lock_checkouts.py` builds each corpus in real git
 repositories before and after a switch. A Hypothesis property checks that both

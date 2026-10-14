@@ -1111,6 +1111,83 @@ def test_all_state_release_omitting_a_scope_fails_alike_before_and_after(
     assert _provisions_on_disk(corpus.root) == {}
 
 
+@pytest.mark.parametrize(
+    ("lock_state", "builds"),
+    [
+        ("non-canonical", False),
+        ("symlink", False),
+        ("deleted", True),  # no lock: an untracked file, as before the switch
+    ],
+)
+def test_all_state_present_source_over_an_unusable_lock_fails_closed(
+    tmp_path, monkeypatch, lock_state, builds
+):
+    """A lock that pins nothing must not pass for no lock, as in build-snap."""
+
+    states, contents, _ = _all_state_contents()
+    inventory = yaml.safe_dump({"program": "SNAP", "states": states}).encode()
+    jurisdictions = sorted(set(ALL_STATE_EXPECTED_COUNTS) - {"total"})
+    counts = {"total": 52, **dict.fromkeys(jurisdictions, 1), "us-tx": 2}
+    monkeypatch.setattr(signed_queue, "ALL_STATE_EXPECTED_COUNTS", counts)
+    monkeypatch.setattr(
+        signed_queue,
+        "ALL_STATE_INVENTORY_SHA256",
+        hashlib.sha256(inventory).hexdigest(),
+    )
+    corpus = _pre_switch_corpus(
+        tmp_path / "axiom-corpus",
+        contents,
+        tracked={ALL_STATE_INVENTORY_PATH: inventory},
+    )
+    _switch(corpus)
+    lock = corpus.root / cm.LOCK_ROOT / "us-ak/regulation/test-us-ak-snap.json"
+    if lock_state == "non-canonical":
+        lock.write_bytes(lock.read_bytes().replace(b"  ]\n}\n", b"]}\n"))
+    elif lock_state == "symlink":
+        real = corpus.root / ".axiom/real-us-ak-lock.json"
+        real.write_bytes(lock.read_bytes())
+        lock.unlink()
+        lock.symlink_to(real)
+    else:
+        lock.unlink()
+    _git(corpus.root, "add", "-A", ".axiom")
+    _git(corpus.root, "commit", "--quiet", "-m", f"us-ak lock: {lock_state}")
+    corpus.sign()
+    path = "data/corpus/provisions/us-ak/regulation/test-us-ak-snap.jsonl"
+    _write_files(corpus.root, {path: corpus.signed[path]})
+
+    arguments = _build_arguments(corpus, tmp_path)
+    build = lambda: build_all_state_snap_queue(  # noqa: E731
+        arguments.pop("corpus_root"), arguments.pop("rulespec_root"), **arguments
+    )
+    if builds:
+        assert len(build()["items"]) == 52
+    else:
+        with pytest.raises(ValueError, match="cannot place queue sources"):
+            build()
+
+
+def test_lock_mode_checks_the_release_name_first_as_provenance_does(
+    tmp_path, monkeypatch
+):
+    contents = _basic_contents()
+    monkeypatch.setattr(signed_queue, "EXPECTED_COUNTS", _expected_counts(contents))
+    corpus = _pre_switch_corpus(tmp_path / "axiom-corpus", contents)
+
+    def build() -> dict:
+        arguments = _build_arguments(corpus, tmp_path)
+        arguments.update(corpus_ref="d" * 40, release_name="Not A Release")
+        return build_snap_queue(
+            arguments.pop("corpus_root"), arguments.pop("rulespec_root"), **arguments
+        )
+
+    with pytest.raises(ValueError, match="release_name is malformed"):
+        build()
+    _switch(corpus)
+    with pytest.raises(ValueError, match="release_name is malformed"):
+        build()
+
+
 # ------------------------------------------------------------- properties
 
 PERTURBATIONS = ("none", "extra", "omit", "stray", "tamper", "tamper-on-disk")

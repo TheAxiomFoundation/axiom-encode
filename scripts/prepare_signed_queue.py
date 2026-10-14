@@ -315,6 +315,17 @@ def _uses_corpus_lock_files(corpus_root: Path) -> bool:
         return False
 
 
+def _resolved_lock_checkout_root(corpus_root: Path) -> Path:
+    """A lock-file checkout's root with any symlink resolved, used for every step.
+
+    The materializer refuses a symlinked root; reads followed one before the
+    switch. Resolving once means the checks, placement, hashing and reads all
+    see the same directory. Symlinks under the root are still refused.
+    """
+
+    return Path(os.path.realpath(corpus_root))
+
+
 def _manual_source_paths(corpus_root: Path, jurisdiction: str) -> list[Path]:
     """The provisions files a corpus checkout holds in one state's manual directory.
 
@@ -357,6 +368,7 @@ def _place_release_sources(
         CorpusMaterializationError,
         destination_state,
         fetch_disabled,
+        locked_directory_listing,
         materialize_release_artifacts,
         present_file_note,
         release_sources,
@@ -370,9 +382,15 @@ def _place_release_sources(
             raise ValueError(f"signed release omits queue source artifact: {relative}")
         by_path[relative] = artifacts[relative]
     selected = list(by_path.values())
-    # The materializer refuses a symlinked root; resolve it once, as reading
-    # through it did before the switch. Symlinks under the root stay refused.
-    root = Path(os.path.realpath(corpus_root))
+    root = _resolved_lock_checkout_root(corpus_root)
+    # Every source directory's locks must be usable, as build-snap's listing
+    # requires of the manual directories: a present file over a lock that
+    # pins nothing must not pass for one that has no lock.
+    for directory in sorted({tuple(path.split("/")[2:5]) for path in by_path}):
+        try:
+            locked_directory_listing(root, *directory)
+        except CorpusMaterializationError as exc:
+            raise ValueError(f"cannot place queue sources: {exc}") from exc
     unplaced: dict[str, str] = {}
     if fetch_disabled():
         for artifact in selected:
@@ -615,7 +633,11 @@ def build_snap_queue(
     _require_digest(release_content_sha256, "release_content_sha256")
     _require_approved_pr_base_branch(pr_base_branch)
     if _uses_corpus_lock_files(corpus_root):
-        # Read no lock file until the checkout is the queue's exact clean commit.
+        corpus_root = _resolved_lock_checkout_root(corpus_root)
+        # Read no lock file until the checkout is the queue's exact clean
+        # commit, after the same release-name check provenance makes first.
+        if RELEASE_NAME_PATTERN.fullmatch(release_name) is None:
+            raise ValueError("release_name is malformed")
         _verify_corpus_checkout(corpus_root, corpus_ref)
     or_paths = _manual_source_paths(corpus_root, "us-or")
     ut_paths = _manual_source_paths(corpus_root, "us-ut")
@@ -762,6 +784,8 @@ def build_all_state_snap_queue(
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
     _require_approved_pr_base_branch(pr_base_branch)
+    if _uses_corpus_lock_files(corpus_root):
+        corpus_root = _resolved_lock_checkout_root(corpus_root)
 
     inventory_path = corpus_root / ALL_STATE_INVENTORY_PATH
     try:
