@@ -1426,10 +1426,11 @@ def _harness(
     monkeypatch.setattr(ci_parity, "_build_workflow_composer", build)
 
     @contextlib.contextmanager
-    def siblings(layout, checkouts):
+    def siblings(layout, checkouts, carried=None):
         # The harness's checkouts are not repositories; stand in for the
         # disposable copies with empty directories, as the real swap does.
         harness_swaps[id(events)] = dict(checkouts)
+        harness_swaps[(id(events), "carried")] = dict(carried or {})
         for name in checkouts:
             entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
             entry.unlink()
@@ -1497,7 +1498,13 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
         name: (harness.paths[name].resolve(), harness.caller.refs[name])
         for name in ("encode", "engine", "corpus")
     }
+    # The corpus copy gets the release object CI has already fetched.
+    assert set(harness_swaps[(id(events), "carried")]) == {"corpus"}
     assert harness_step_environment[id(events)] == {
+        "CI": "true",
+        "GITHUB_ACTIONS": "true",
+        **run.simulation.github_environment(harness.repo),
+        "RUNNER_TEMP": str(run.runner_temp),
         **run.layout.environment(),
         "AXIOM_COMPOSE_REF": COMPOSE_REF,
     }
@@ -3005,29 +3012,48 @@ def test_real_uv_reaches_a_sibling_through_another_siblings_link_only_as_a_copy(
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+@pytest.mark.parametrize("variable", ["AXIOM_DEPENDENCY_ROOT", "GITHUB_WORKSPACE"])
 def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variable: str
 ) -> None:
-    """Round-3 finding 2: the rules checkout's uv configuration overrides a
-    composer requirement with ${AXIOM_DEPENDENCY_ROOT}/axiom-corpus. CI
-    exports that variable; ci gives the step the run's root, whatever the
-    developer's shell says, and the corpus there is a copy."""
+    """Round-3 finding 2 and round-4 finding 1: the rules checkout's uv
+    configuration overrides a composer requirement with a path under a
+    variable a runner supplies. ci gives the step the run's values, whatever
+    the developer's shell says, and what they name is disposable."""
 
     layout, compose = _composer_layout(tmp_path)
     log = tmp_path / "backend.log"
-    checkouts = _siblings(tmp_path, corpus=_writing_backend(log))
     workspace = tmp_path / "rulespec-us"
+    developer = tmp_path / "developer"
+    developer.mkdir()
+    if variable == "AXIOM_DEPENDENCY_ROOT":
+        checkouts = _siblings(tmp_path, corpus=_writing_backend(log))
+        relative = "axiom-corpus"
+        expected = layout.root / "axiom-corpus"
+        ambient = checkouts["corpus"][0].parent
+    else:
+        # A package the rules checkout itself commits, in ci's temporary
+        # checkout, and a developer checkout holding the same package.
+        checkouts = _siblings(tmp_path)
+        relative = "tests/fixtures/corpus-helper"
+        for root in (workspace, developer / "rulespec-us"):
+            for name, content in _writing_backend(log).items():
+                (root / relative).mkdir(parents=True, exist_ok=True)
+                (root / relative / name).write_text(content)
+        expected = workspace / relative
+        ambient = developer / "rulespec-us"
     (workspace / "uv.toml").write_text(
         "override-dependencies = [\n"
-        '    "axiom-corpus @ file://${AXIOM_DEPENDENCY_ROOT}/axiom-corpus",\n'
+        f'    "axiom-corpus @ file://${{{variable}}}/{relative}",\n'
         "]\n"
     )
     ci_parity._link_dependency_entries(
         layout, {name: path for name, (path, _) in checkouts.items()}
     )
-    # The developer's own value names the original checkouts.
-    monkeypatch.setenv("AXIOM_DEPENDENCY_ROOT", str(checkouts["corpus"][0].parent))
+    # The developer's own value names the originals.
+    monkeypatch.setenv(variable, str(ambient))
     monkeypatch.setenv("AXIOM_ENCODE_SOMETHING", "ambient")
+    monkeypatch.setenv("RUNNER_TEMP", str(developer / "runner-temp"))
     real_run = ci_parity._run_build_command
     results: dict[str, subprocess.CompletedProcess] = {}
     environments: list[dict[str, str]] = []
@@ -3067,6 +3093,10 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
                 workspace=workspace,
                 offline=False,
                 step_environment={
+                    "CI": "true",
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_WORKSPACE": str(workspace),
+                    "RUNNER_TEMP": str(tmp_path / "runner-temp-root"),
                     **layout.environment(),
                     "AXIOM_COMPOSE_REF": COMPOSE_REF,
                 },
@@ -3074,13 +3104,19 @@ def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
 
     assert results["pip"].returncode == 0, results["pip"].stdout
     assert (temp / "axiom-compose-site-packages" / "axiom_corpus_marker.py").exists()
-    # Built from the copy CI's variable names, never the original.
-    assert set(log.read_text().splitlines()) == {str(layout.root / "axiom-corpus")}
+    # Built where the run's variable points, never the original.
+    # (The entry itself is a link again by now; the build saw the copy.)
+    assert set(log.read_text().splitlines()) == {
+        str(expected.parent.resolve() / expected.name)
+    }
     _assert_untouched(checkouts)
+    assert not (developer / "rulespec-us" / relative / "BUILT-BY-BACKEND").exists()
     for environment in environments:
         assert environment["AXIOM_DEPENDENCY_ROOT"] == str(layout.root)
         assert environment["AXIOM_DEPENDENCY_STAGE"] == layout.stage
         assert environment["AXIOM_COMPOSE_REF"] == COMPOSE_REF
+        assert environment["GITHUB_WORKSPACE"] == str(workspace)
+        assert environment["RUNNER_TEMP"] == str(tmp_path / "runner-temp-root")
         assert "AXIOM_ENCODE_SOMETHING" not in environment
 
 
@@ -3130,6 +3166,10 @@ def test_composer_build_drops_ambient_axiom_values_for_the_steps(
 ) -> None:
     monkeypatch.setenv("AXIOM_DEPENDENCY_ROOT", "/Users/dev/dependencies")
     monkeypatch.setenv("AXIOM_ENCODE_TOKEN", "ambient")
+    monkeypatch.setenv("GITHUB_WORKSPACE", "/Users/dev/rulespec-us")
+    monkeypatch.setenv("GITHUB_TOKEN", "ambient")
+    monkeypatch.setenv("RUNNER_TEMP", "/Users/dev/tmp")
+    monkeypatch.setenv("CI", "1")
     seen: list[dict[str, str]] = []
 
     def fake(command, *, cwd, environment):
@@ -3153,4 +3193,125 @@ def test_composer_build_drops_ambient_axiom_values_for_the_steps(
         )
 
     assert seen and seen[0]["AXIOM_DEPENDENCY_ROOT"] == "/runner/temp/root"
-    assert "AXIOM_ENCODE_TOKEN" not in seen[0]
+    for name in (
+        "AXIOM_ENCODE_TOKEN",
+        "GITHUB_WORKSPACE",
+        "GITHUB_TOKEN",
+        "RUNNER_TEMP",
+        "CI",
+    ):
+        assert name not in seen[0]
+
+
+# ---------------------------------------------------------------------------
+# Round-4 review fixes (GPT-6.1 Sol): byte-exact copies, the release object
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("attributes", "committed", "developer", "expected"),
+    [
+        # Git calls the developer's CRLF clean under eol=lf; CI writes LF.
+        ("*.sh text eol=lf\n", b"echo hi\n", b"echo hi\r\n", b"echo hi\n"),
+        # ... and under eol=crlf it calls their LF clean; CI writes CRLF.
+        ("*.sh text eol=crlf\n", b"echo hi\n", b"echo hi\n", b"echo hi\r\n"),
+        # No conversion: the raw bytes must be the blob's.
+        ("*.bin binary\n", b"echo hi\n", b"echo hi\r\n", b"echo hi\n"),
+    ],
+)
+def test_disposable_checkout_writes_the_bytes_a_fresh_checkout_writes(
+    tmp_path: Path, attributes: str, committed: bytes, developer: bytes, expected: bytes
+) -> None:
+    name = "build.sh" if "sh" in attributes else "build.bin"
+    source = gates._repo(
+        tmp_path, {".gitattributes": attributes, name: committed}, name="axiom-encode"
+    )
+    commit = _committed(source)
+    (source / name).write_bytes(developer)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-encode"
+    )
+
+    assert (destination / name).read_bytes() == expected
+    # What a fresh clone of the commit writes, for comparison.
+    fresh = tmp_path / "fresh"
+    subprocess.run(
+        ["git", "clone", "-q", "--no-checkout", str(source), str(fresh)], check=True
+    )
+    gates._git(fresh, "checkout", "-q", "--detach", commit)
+    assert (destination / name).read_bytes() == (fresh / name).read_bytes()
+
+
+def test_disposable_checkout_sets_a_fresh_checkouts_modes(tmp_path: Path) -> None:
+    source = gates._repo(
+        tmp_path, {"run.sh": "#!/bin/sh\n", "data.txt": "x\n"}, name="axiom-encode"
+    )
+    (source / "run.sh").chmod(0o755)
+    commit = gates._commit(source, message="exec")
+    (source / "data.txt").chmod(0o600)
+    (source / "run.sh").chmod(0o700)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-encode"
+    )
+
+    assert stat.S_IMODE((destination / "data.txt").stat().st_mode) == 0o644
+    assert stat.S_IMODE((destination / "run.sh").stat().st_mode) == 0o755
+
+
+def test_disposable_corpus_carries_the_fetched_release_object(tmp_path: Path) -> None:
+    corpus = gates._repo(
+        tmp_path,
+        {"README.md": "corpus\n", ".gitignore": "releases/\n"},
+        name="axiom-corpus",
+    )
+    commit = _committed(corpus)
+    release = corpus / "releases" / "us-2026" / f"{'d' * 64}.json"
+    release.parent.mkdir(parents=True)
+    release.write_text('{"release": "us-2026"}\n')
+    carried = ci_parity._carried_release_object(release, corpus)
+    assert carried == [f"releases/us-2026/{'d' * 64}.json"]
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        corpus, commit, destination, "TheAxiomFoundation/axiom-corpus", carried
+    )
+
+    assert (destination / carried[0]).read_text() == '{"release": "us-2026"}\n'
+    # Nothing else untracked comes along.
+    assert sorted(p.name for p in destination.iterdir()) == [
+        ".git",
+        ".gitignore",
+        "README.md",
+        "releases",
+    ]
+
+
+def test_carried_release_object_outside_the_corpus_is_not_carried(
+    tmp_path: Path,
+) -> None:
+    assert (
+        ci_parity._carried_release_object(
+            tmp_path / "cache" / "x.json", tmp_path / "corpus"
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("relative", ["../escape.json", "/etc/passwd"])
+def test_disposable_checkout_refuses_to_carry_outside_the_checkout(
+    tmp_path: Path, relative: str
+) -> None:
+    source = gates._repo(tmp_path, {"a.txt": "x\n"}, name="axiom-corpus")
+
+    with pytest.raises(ValueError, match="Cannot carry"):
+        ci_parity._disposable_checkout(
+            source,
+            _committed(source),
+            tmp_path / "copy",
+            "TheAxiomFoundation/axiom-corpus",
+            [relative],
+        )
