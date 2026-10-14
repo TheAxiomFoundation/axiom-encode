@@ -28952,8 +28952,9 @@ _ADMINISTRATIVE_CONSEQUENT = re.compile(
     r"|\bsubstitute\s+the\s+next\s+(?:regular\s+)?(?:work|business)\s*day\b",
     flags=re.IGNORECASE,
 )
-# Any of these in the main clause states an outcome (eligibility, an amount, a
-# count, an exclusion, a denial or a penalty), so the sentence stays a control.
+# Any of these after a leading condition states an outcome (eligibility, an
+# amount, a count, an exclusion, an allowance or deduction, coverage, a denial
+# or a penalty), so the sentence stays a control.
 _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"\b(?:in)?eligib(?:le|ility)\b|\bineligib"
     r"|\bqualif(?:y|ies|ied)\b|\bentitle(?:d|ment)\b"
@@ -29026,10 +29027,11 @@ def _administrative_main_clause(clause: str) -> str:
 def _source_condition_is_administrative(text: str) -> bool:
     """Return whether a US condition sentence only administers the program.
 
-    Kept as controls: any sentence that states a numeric limit or a
-    computation, a claimant-facing outcome (`_source_has_operative_policy_effect`),
-    or whose main clause decides eligibility, an amount, a count, an exclusion,
-    a denial or a penalty (`_ADMINISTRATIVE_OPERATIVE_GUARD`).
+    The main clause (without a leading or a trailing condition) must state an
+    administrative action (`_ADMINISTRATIVE_CONSEQUENT`). Kept as controls: any
+    sentence that states a numeric limit or a computation, a claimant-facing
+    outcome (`_source_has_operative_policy_effect`), or an outcome anywhere
+    after its leading condition (`_ADMINISTRATIVE_OPERATIVE_GUARD`).
     """
 
     clause = _strip_source_clause_marker(_collapse_text(text)).strip()
