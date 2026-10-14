@@ -5526,9 +5526,7 @@ def _analyze_rulespec_payload(
         numeric_exception_controls_only=_is_us_manual_citation_path(
             corpus_citation_path
         ),
-        skip_administrative_prose=bool(
-            _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
-        ),
+        skip_administrative_prose=_is_us_federal_citation_path(corpus_citation_path),
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -19350,12 +19348,12 @@ def _companion_test_issues(
         # Manual procedure needs no paired witnesses either.
         numeric_limits_only=_is_us_manual_citation_path(corpus_citation_path),
     )
-    # US administrative prose (notices, verification, ...) needs no paired
-    # witnesses either. It still competes for case pairs in the allocation
+    # Federal US administrative prose (notices, verification, ...) needs no
+    # paired witnesses either. It still competes for case pairs in the allocation
     # below and is only left out of the reported conditions, so dropping it can
     # never hand an operative condition a pair that another sentence on the
     # same path already claimed.
-    report_administrative_conditions = not _US_CORPUS_CITATION_PATH.match(
+    report_administrative_conditions = not _is_us_federal_citation_path(
         corpus_citation_path
     )
     if exception_branches:
@@ -19852,7 +19850,7 @@ def _source_control_branches(
     ``numeric_exception_controls_only=True`` there and only exception
     sentences that state a numeric limit (`unless income exceeds $500`) stay.
 
-    In every US source, ``skip_administrative_prose=True`` also leaves out
+    In federal US sources, ``skip_administrative_prose=True`` also leaves out
     condition sentences that only administer the program (`If an application
     is approved, the State agency shall provide the household with written
     notice ...`); see `_source_condition_is_administrative`.
@@ -28434,8 +28432,9 @@ def _source_exception_branches(
 ) -> tuple[SourceStructureBranch, ...]:
     """Return the active exception and applicability clauses of a source.
 
-    ``skip_administrative_prose`` (US sources) leaves out a condition sentence
-    whose only effect is administration (`_source_condition_is_administrative`):
+    ``skip_administrative_prose`` (federal US sources) leaves out a condition
+    sentence whose only effect is administration
+    (`_source_condition_is_administrative`):
     a notice, a verification step, a publication duty, an agency workflow step
     or a form instruction, and the guidance boilerplate that the paired-case
     gate already treats as non-operative. Such a sentence decides neither
@@ -28921,40 +28920,58 @@ def _source_is_guidance_disclaimer(text: str) -> bool:
     )
 
 
-# The main clause of an administrative condition sentence: a notice, a
-# verification or documentation step, a Federal Register publication duty, an
-# agency workflow step, or a form instruction. It says who does what and when.
-_ADMINISTRATIVE_CONSEQUENT = re.compile(
-    r"\bnotices?\s+(?:shall|must|will|should)\s+(?:also\s+)?"
+# The administrative action of a condition sentence: a base-form verb that is
+# the main verb of its main clause, after a modal or as an imperative (`the
+# State agency shall provide the household with written notice`, `it must act
+# on the information`, `the State agency must verify ...`), `other adult
+# members ... are responsible for providing the information`, or a form
+# instruction (`contact the ... at <phone>`). A word
+# such as `notice` or `verify` elsewhere in the sentence (`the provider gives 2
+# weeks written notice of closure`, `E-Verify`, `the date the county agency
+# notifies the individual`) is not an administrative action.
+_ADMINISTRATIVE_NOTICE_OBJECT = (
+    r"(?:(?!(?:benefits?|allotments?|payments?|grants?)\b)[\w'’-]+\s+){0,6}?"
+    r"(?:notices?|letters?|notifications?)\b"
+)
+_ADMINISTRATIVE_ACTION = (
+    r"(?:notify|advise|inform)\b"
+    rf"|(?:send|mail|provide|give)\s+"
+    rf"{_ADMINISTRATIVE_NOTICE_OBJECT}"
+    r"|verify\b"
+    r"|(?:request|obtain)\s+(?:the\s+|any\s+|all\s+)?"
+    r"(?:needed\s+|required\s+|additional\s+)?(?:verification|documentation|proof)\b"
+    r"|publish\b[^.;]{0,60}\bFederal\s+Register\b"
+    r"|act\s+on\s+the\s+(?:information|change|report)\b"
+    r"|follow\s+(?:the\s+)?(?:procedures?|program\s+rules)\b"
+    r"|(?:schedule|conduct|hold|offer|provide)\s+(?:an?\s+|the\s+)?"
+    r"(?:telephone\s+|in-office\s+|face-to-face\s+)?interviews?\b"
+)
+_ADMINISTRATIVE_MAIN_CLAUSE = re.compile(
+    r"\s*(?:"
+    # A subject, a modal and the action: `the State agency shall verify`.
+    r"(?:[\w'’-]+\s+){0,8}?(?:shall|must|will|should|may)\s+(?:not\s+)?"
+    r"(?:also\s+|then\s+|promptly\s+|first\s+)?(?:attempt\s+to\s+)?"
+    rf"(?:{_ADMINISTRATIVE_ACTION})"
+    r"|(?:[\w'’-]+\s+){0,10}?(?:is|are)\s+(?:also\s+)?responsible\s+for\s+"
+    r"(?:obtaining|providing|submitting|reporting)\b"
+    r"|(?:the\s+|this\s+|such\s+|each\s+)?(?:written\s+|adequate\s+)?notices?\s+"
+    r"(?:shall|must|will|should)\s+(?:also\s+)?"
     r"(?:explain|advise|indicate|include|specify|contain|state|inform|list|tell)\b"
-    r"|\b(?:send|sends|sent|mail|mails|mailed|provide|provides|give|gives)\b"
-    r"[^.;]{0,80}?\b(?:notices?|letters?|notifications?)\b"
-    r"|\b(?:advise|advises|inform|informs|notify|notifies)\s+"
-    r"(?:the\s+|a\s+|each\s+|all\s+)?(?:household|client|applicant|recipient|"
-    r"claimant|participant|individual|taxpayer|person)s?\b"
-    r"|\bverif(?:y|ies)\b"
-    r"|\bverification\b[^.;]{0,60}\b(?:is|are)\s+"
+    r"|verification\b[^.;]{0,60}\b(?:is|are)\s+"
     r"(?:required|needed|postponed|requested)\b"
-    r"|\bresponsible\s+for\s+(?:obtaining|providing|submitting|reporting)\b"
-    r"|\b(?:request|requests|provide|provides|providing|submit|submits)\s+"
-    r"(?:the\s+|any\s+|all\s+)?(?:needed\s+|required\s+)?"
-    r"(?:information\s+or\s+)?(?:verification|documentation|proof)\b"
-    r"|\bpublish(?:es|ed)?\b[^.;]{0,60}\bFederal\s+Register\b"
-    r"|\bact\s+on\s+the\s+(?:information|change|report)\b"
-    r"|\bfollow\s+(?:the\s+)?(?:procedures?|program\s+rules)\b"
-    r"|\brefer\s+to\s+(?:policy|WAC|OAR|section|§)"
-    r"|\b(?:schedule|conduct|hold|provide)\s+(?:an?\s+|the\s+)?interviews?\b"
-    r"|\binclude\s+(?:both\s+)?names?\b"
-    r"|\b(?:write|print|enter)\s+your\b"
-    r"|\bmake\s+(?:the\s+check\s+)?payable\s+to\b"
-    r"|\bcontact\s+the\b[^.;]{0,80}\bat\s+\(?\d"
-    r"|\bif\s+you\s+need\s+(?:assistance|help)\b"
-    r"|\bsubstitute\s+the\s+next\s+(?:regular\s+)?(?:work|business)\s*day\b",
+    # An imperative: an agency instruction or a form instruction.
+    rf"|(?:also\s+)?(?:{_ADMINISTRATIVE_ACTION})"
+    r"|(?:write|print|enter)\s+your\b"
+    r"|make\s+(?:the\s+check\s+)?payable\s+to\b"
+    r"|contact\s+the\b[^.;]{0,80}\bat\s+\(?\d"
+    r"|refer\s+to\s+(?:policy|WAC|OAR|section|§)"
+    r")",
     flags=re.IGNORECASE,
 )
 # Any of these after a leading condition states an outcome (eligibility, an
-# amount, a count, an exclusion, an allowance or deduction, coverage, a denial
-# or a penalty), so the sentence stays a control.
+# amount, a count, an inclusion or exclusion, an allowance or deduction,
+# coverage, a denial, a closure, a termination, an effective date or a
+# penalty), so the sentence stays a control.
 _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"\b(?:in)?eligib(?:le|ility)\b|\bineligib"
     r"|\bqualif(?:y|ies|ied)\b|\bentitle(?:d|ment)\b"
@@ -28963,13 +28980,18 @@ _ADMINISTRATIVE_OPERATIVE_GUARD = re.compile(
     r"prorated|budgeted|treated|considered|denied|terminated|reduced|increased|"
     r"decreased|suspended|cancell?ed|classified|subtracted|added|multiplied|"
     r"divided|rounded|refunded|credited|imposed|levied|paid|issued|recouped|"
-    r"disqualified|sanctioned)\b"
-    r"|\b(?:count|exclude|deem|disregard|deduct|allow|disallow|prorate|"
+    r"disqualified|sanctioned|closed|discontinued|certified|approved|"
+    r"withdrawn|exempt(?:ed)?|waived|disabled|liable)\b"
+    r"|\b(?:count|exclude|include|deem|disregard|deduct|allow|disallow|prorate|"
     r"budget|treat|deny|terminate|reduce|increase|decrease|suspend|cancel|"
     r"classify|subtract|add|multiply|divide|round|refund|credit|recoup|"
-    r"recover|disqualify|sanction)s?\b"
-    r"|\bdeem(?:ed|ing)\b|\bprorat|\bexclu(?:ded|ding|sion)"
-    r"|\bcreditable\b|\btaxable\b|\bcountable\b"
+    r"recover|disqualify|sanction|close|discontinue|certify|approve|withdraw|"
+    r"exempt|waive|start|begin|end)s?\b"
+    r"|\b(?:includ(?:ed|ing)|deem(?:ed|ing)|prorat\w*|exclu(?:ded|ding|sion)|"
+    r"denial|denied|terminat(?:ed|ion)|clos(?:ed|ure)|discontinu\w*|certified|"
+    r"approv(?:ed|al)|withdr(?:awn|awal|ew)|exempt(?:ion|ed)?|waive[dr]?|"
+    r"disqualif\w*|effective|began|begun|started|ended|paid|disabled|liable)\b"
+    r"|\bcreditable\b|\btaxable\b|\bcountable\b|\bbenefits?\b"
     r"|\b(?:shall|does|do|will|may)\s+not\s+apply\b|\bappl(?:y|ies)\s+only\b"
     r"|\bin\s+lieu\s+of\b|\bpenalt(?:y|ies)\b"
     r"|\b(?:shall|must|may|will)\s+not\s+use\b|\ballowances?\b|\bdeductions?\b"
@@ -28995,11 +29017,20 @@ _ADMINISTRATIVE_INNER_CUE = re.compile(
 )
 
 
+def _is_us_federal_citation_path(corpus_citation_path: str) -> bool:
+    """A federal US source (`us/...`), the measured administrative-prose scope."""
+
+    return bool(re.match(r"us/", corpus_citation_path, flags=re.IGNORECASE))
+
+
 def _without_leading_condition(clause: str) -> str:
     """Drop a leading condition (`If ..., the State agency shall ...`).
 
     The condition ends at `, then` when the sentence has one, else at its first
-    comma. A sentence that does not open with a condition is returned whole.
+    comma that is outside parentheses and not followed by `and`, `but` or `or`
+    (`When the group reported a change, but the agency did not act on the
+    change, the first month ...`). A sentence that does not open with a
+    condition is returned whole; one whose condition never ends returns empty.
     """
 
     clause = re.sub(
@@ -29013,25 +29044,41 @@ def _without_leading_condition(clause: str) -> str:
     then = re.search(r",\s*then\b", clause, flags=re.IGNORECASE)
     if then is not None:
         return clause[then.end() :]
-    comma = clause.find(",")
-    return clause[comma + 1 :] if comma > 0 else ""
+    depth = 0
+    for index, character in enumerate(clause):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth = max(0, depth - 1)
+        elif (
+            character == ","
+            and depth == 0
+            and not re.match(
+                r"\s*(?:and|but|or|nor)\b", clause[index + 1 :], flags=re.IGNORECASE
+            )
+        ):
+            return clause[index + 1 :]
+    return ""
 
 
 def _administrative_main_clause(clause: str) -> str:
-    """Return the main clause, without a leading or a trailing condition."""
+    """Return the main clause, without a trailing condition."""
 
     cue = _ADMINISTRATIVE_INNER_CUE.search(clause)
     return clause if cue is None else clause[: cue.start()]
 
 
 def _source_condition_is_administrative(text: str) -> bool:
-    """Return whether a US condition sentence only administers the program.
+    """Return whether a federal US condition sentence only administers a program.
 
-    The main clause (without a leading or a trailing condition) must state an
-    administrative action (`_ADMINISTRATIVE_CONSEQUENT`). Kept as controls: any
-    sentence that states a numeric limit or a computation, a claimant-facing
-    outcome (`_source_has_operative_policy_effect`), or an outcome anywhere
-    after its leading condition (`_ADMINISTRATIVE_OPERATIVE_GUARD`).
+    Kept as controls: any sentence that states a numeric limit, a computation,
+    or a claimant-facing outcome (`_source_has_operative_policy_effect`), and any
+    sentence with an outcome after its leading condition
+    (`_ADMINISTRATIVE_OPERATIVE_GUARD`). Of the rest, the guidance-portal
+    disclaimer, the superseded pre-OBBB history, the attachment glossary, the
+    `State agencies must review ...` workflow, a definitions lead-in with nothing
+    after it, and a sentence whose main verb is an administrative action
+    (`_ADMINISTRATIVE_MAIN_CLAUSE`) are administrative.
     """
 
     clause = _strip_source_clause_marker(_collapse_text(text)).strip()
@@ -29041,13 +29088,27 @@ def _source_condition_is_administrative(text: str) -> bool:
         clause,
         flags=re.IGNORECASE,
     )
-    if not clause:
+    if not clause or (
+        _STATED_NUMERIC_LIMIT.search(clause)
+        or source_states_explicit_computation(clause)
+        or _source_has_operative_policy_effect(clause)
+    ):
+        return False
+    consequence = _ADMINISTRATIVE_DOCUMENT_NAME.sub(
+        " ", _without_leading_condition(clause)
+    )
+    if _ADMINISTRATIVE_OPERATIVE_GUARD.search(consequence):
         return False
     if (
         _source_is_guidance_disclaimer(clause)
         or _source_is_superseded_obbb_eligibility_history(clause)
         or _source_is_guidance_glossary_description(clause)
-        or _source_is_nonoperative_guidance_instruction(clause)
+        # `State agencies must use ...` can name a budgeting rule (`must use the
+        # prior month's income when ...`), so only the other workflow verbs.
+        or (
+            _source_is_nonoperative_guidance_instruction(clause)
+            and not re.match(r"State\s+agencies\s+must\s+use\b", clause, re.I)
+        )
     ):
         return True
     if re.fullmatch(
@@ -29061,23 +29122,8 @@ def _source_condition_is_administrative(text: str) -> bool:
     ):
         # A definitions lead-in with no definition after it.
         return True
-    if (
-        _STATED_NUMERIC_LIMIT.search(clause)
-        or source_states_explicit_computation(clause)
-        or _source_has_operative_policy_effect(clause)
-    ):
-        return False
-    # The action is read from the main clause alone; the outcome guard reads
-    # everything after a leading condition, so a trailing `and, if there is no
-    # other basis for eligibility, deny the application` still keeps it.
-    consequence = _ADMINISTRATIVE_DOCUMENT_NAME.sub(
-        " ", _without_leading_condition(clause)
-    )
-    main = _administrative_main_clause(consequence)
     return bool(
-        main.strip()
-        and _ADMINISTRATIVE_CONSEQUENT.search(main)
-        and not _ADMINISTRATIVE_OPERATIVE_GUARD.search(consequence)
+        _ADMINISTRATIVE_MAIN_CLAUSE.match(_administrative_main_clause(consequence))
     )
 
 

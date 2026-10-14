@@ -1,24 +1,30 @@
-"""US administrative condition sentences are not source-stated controls.
+"""Federal US administrative condition sentences are not source-stated controls.
 
-An `if` / `when` / `unless` sentence whose main clause only administers the
+An `if` / `when` / `unless` sentence whose main verb only administers the
 program (a notice, a verification step, a Federal Register publication duty, an
 agency workflow step or a form instruction) decides neither eligibility nor an
-amount. On US paths it no longer asks for a principal derived output
-("Source-stated control") or for paired positive/blocking test cases. The same
-holds for the guidance-portal disclaimer, the superseded pre-OBBB history and
-the attachment glossary, which the paired-case gate already treated as
-non-operative but which still created control demands.
+amount. On federal US paths it no longer asks for a principal derived output
+("Source-stated control") or appears in the paired positive/blocking case
+report. The same holds for the guidance-portal disclaimer, the `State agencies
+must review ...` workflow and a definitions lead-in with nothing after it.
 
-A sentence stays a control when it states a numeric limit or a computation, or
-when anything after its leading condition states an outcome: eligibility, an
-amount, a count, an exclusion, a deduction or allowance, coverage, a denial,
-a termination or a penalty. Non-US sources keep every condition sentence, and
-US manuals keep their numeric-limit scope (#1833).
+A sentence stays a control when it states a numeric limit, a computation or a
+claimant-facing outcome, when anything after its leading condition states an
+outcome (eligibility, an amount, a count, an inclusion or exclusion, an
+allowance or deduction, benefits, coverage, a denial, a closure, a termination,
+an effective date or a penalty), or when the administrative word is not the
+main verb (`the provider gives 2 weeks written notice of closure`, `E-Verify`).
+State, manual and non-US sources keep every condition sentence they kept before
+(US manuals keep their #1833 numeric-limit scope).
 
 The administrative sentences below are from 7 CFR 273.2, 273.4, 273.10 and
 273.12, the FNS OBBB alien-eligibility memo, the Kansas K-40ES voucher and
-C.R.S. 39-22-2003; the kept sentences include the review-round cases from the
-same sources (7 CFR 273.2(f), 273.12, 273.21 and CMS CIB 2025-12-08).
+C.R.S. 39-22-2003. The kept sentences include the review rounds of #1893: the
+7 CFR 273.2(f), 273.12, 273.21, CMS CIB 2025-12-08 and CMS SHO 26-001 tails,
+and the operative sentences an independent corpus probe found (COMAR
+13A.14.06.11F, O.C.G.A. 48-7-40.24, 9 CCR 2503-5 3.581 and 2503-6, Ohio Adm.Code
+5101:4-3-13, 5101:4-4-09 and 5101:4-8-17, 55 Pa. Code 3042, 42 CFR 435.956 and
+the CMS MA enrollment guidance).
 """
 
 from __future__ import annotations
@@ -41,26 +47,24 @@ CONTROL = "[complete-source-unit:formula-output] Source-stated control"
 PAIRED = "require paired positive/blocking cases"
 EMPTY_CANDIDATE = "format: rulespec/v1\nmodule:\n  summary: probe\nrules: []\n"
 
-US_PATHS = (
+FEDERAL_PATHS = (
     "us/regulation/7/273/10",
     "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
     "us/statute/42/415/i",
-    "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
 )
-NON_US_PATHS = (
+# State sources are not measured yet, so they keep every condition sentence.
+OTHER_PATHS = (
+    "us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1",
+    "us-oh/regulation/agency-5101-4/chapter-5101-4-8/rule-5101-4-8-17",
     "uk/guidance/dwp/adm/chapter-1",
     "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
 )
 
 ADMINISTRATIVE = (
-    # 7 CFR 273.10(g)(1): notices of approval and denial.
+    # 7 CFR 273.10(g)(1) and (f)(5): notices.
     "If an application is approved, the State agency shall provide the "
     "household with written notice of the amount of the allotment and the "
     "beginning and ending dates of the certification period.",
-    "If the application is denied, the State agency shall provide the household "
-    "with written notice explaining the basis for the denial, the household's "
-    "right to request a fair hearing, and the telephone number of the SNAP "
-    "office.",
     "If there is an individual or organization available that provides free "
     "legal representation, the notice shall also advise the household of the "
     "availability of the services.",
@@ -83,24 +87,20 @@ ADMINISTRATIVE = (
     # 7 CFR 273.12(a): reminder notice.
     "If a household fails to file a complete report by the specified filing "
     "date, the State agency shall provide the household with a reminder notice.",
-    # FNS guidance-portal disclaimer, history, workflow and glossary.
+    # 7 CFR 273.12(c)(3): `, then` ends the condition.
+    "If, however, the unclear information does not meet the criteria, then the "
+    "State agency shall not act on the information.",
+    # FNS guidance-portal disclaimer and workflow.
     "Guidance documents lack the force and effect of law, unless expressly "
     "authorized by statute or incorporated into a contract.",
     "USDA may not cite, use, or rely on any guidance that is not available "
     "through their guidance portal, except to establish historical facts.",
-    "Prior to the OBBB, certain lawfully present aliens were eligible to "
-    "receive SNAP benefits, provided they met all other SNAP eligibility "
-    "requirements and completed a 5-year waiting period, unless exempted by "
-    "PRWORA.",
     "State agencies must review household circumstances to take appropriate "
     "action when this occurs and follow program rules for acting on changes.",
     # Federal Register publication duty.
     "If the Secretary revises the table, the Secretary shall publish the "
     "revised table in the Federal Register.",
-    # Kansas K-40ES form instructions.
-    "When the due date falls on a Saturday, Sunday, or legal holiday, "
-    "substitute the next regular workday.",
-    "If married filing joint, include both names and social security numbers (SSNs).",
+    # A form instruction (Kansas K-40ES wording).
     "If you need assistance completing your vouchers, contact the Kansas "
     "Department of Revenue at 785-368-8222.",
     # C.R.S. 39-22-2003(1.7): a definitions lead-in with nothing after it.
@@ -121,23 +121,48 @@ OPERATIVE = (
     "If the same sponsor is responsible for the entire household, the entire "
     "household is ineligible until such time as the household provides the "
     "needed sponsor information or verification.",
-    # 7 CFR 273.2(f)(1)(iv): a verification step joined to an allowance rule.
+    # 7 CFR 273.10(g)(1)(ii): a notice that explains a denial stays a control.
+    "If the application is denied, the State agency shall provide the household "
+    "with written notice explaining the basis for the denial, the household's "
+    "right to request a fair hearing, and the telephone number of the SNAP "
+    "office.",
+    # The superseded pre-OBBB history states an outcome (receive SNAP benefits).
+    "Prior to the OBBB, certain lawfully present aliens were eligible to "
+    "receive SNAP benefits, provided they met all other SNAP eligibility "
+    "requirements and completed a 5-year waiting period, unless exempted by "
+    "PRWORA.",
+    # Review round 1 tails: 7 CFR 273.2(f)(1)(iv), CMS CIB 2025-12-08 and
+    # CMS SHO 26-001 (also with `a 90-day ROP` and without the second sentence).
     "If the household wishes to claim expenses for an unoccupied home, the "
     "State agency shall verify the household's actual utility expenses for the "
     "unoccupied home in every case and shall not use the standard utility "
     "allowance.",
-    # CMS CIB 2025-12-08: a notice joined to a denial or termination.
     "The state must then provide written notice and fair hearing rights in "
     "accordance with 42 C.F.R. part 431 subpart E (including advance notice in "
     "the case of an eligibility termination or other adverse action) and, if "
     "there is no other basis for Medicaid eligibility, deny the application or "
     "terminate eligibility by the end of the month following the 30-day period.",
-    # 7 CFR 273.12(c): a notice whose content recalculates the allotment.
+    "If the beneficiary responds with additional information about their "
+    "current immigration status, including a new declaration of satisfactory "
+    "immigration status, and the state is unable to verify such status, the "
+    "state must provide the beneficiary with a 90-day reasonable opportunity "
+    "period (ROP), as required by sections 1137(d), 1902(a)(46), 1902(ee), "
+    "1903(x), and 2105(c)(9) of the Act.41 If the state verifies that the "
+    "beneficiary continues to have a satisfactory immigration status for the "
+    "coverage in which they are enrolled, the beneficiary will retain coverage, "
+    "and the state should notify the beneficiary that they continue to be "
+    "eligible for the coverage in which they are enrolled.",
+    "If the beneficiary responds with additional information about their "
+    "current immigration status, including a new declaration of satisfactory "
+    "immigration status, and the state is unable to verify such status, the "
+    "state must provide the beneficiary with a 90-day ROP, as required by "
+    "sections 1137(d), 1902(a)(46), 1902(ee), 1903(x), and 2105(c)(9) of the Act.",
+    # 7 CFR 273.12(c) and 273.21: notice content that changes the allotment or
+    # terminates the household.
     "However, if a household fails to provide information regarding the "
     "associated changes in shelter costs within 10 days of the report, the "
     "State agency should send a notice to the household that their allotment "
     "will be recalculated without the deduction.",
-    # 7 CFR 273.21: a notice whose content terminates the household.
     "This notice shall also advise the household that, if a complete report is "
     "not filed timely, the household will be terminated.",
     # 26 U.S.C. 32(d)(1) and 25A(g)(1): filing conditions on a credit.
@@ -146,8 +171,68 @@ OPERATIVE = (
     "No credit shall be allowed under subsection (a) to an individual unless "
     "the individual includes on the return of tax the individual's taxpayer "
     "identification number.",
-    # A verification step that states a numeric limit.
+    # Numeric limits and budgeting rules in verification or workflow wording.
     "Verification of income is required if income exceeds $500.",
+    "State agencies must use a standard medical deduction of $155 when the "
+    "household's verified medical expenses exceed $35.",
+    "State agencies must use the prior month's income when the household "
+    "reports a change after the 10th of the month.",
+    # Review round 2 (corpus probe): an administrative word that is not the
+    # main verb, or a condition comma followed by `but`.
+    "(iii) Except in cases of provider or family illness or death, the provider "
+    "gives 2 weeks written notice of closure to the parent and the contractor.",
+    "(1) “Business enterprise” or “taxpayer” means any "
+    "enterprise or organization which is registered and authorized to use the "
+    "federal employment verification system known as “E-Verify” and "
+    "is engaged in or carrying on any business activities within this state, "
+    "except that such term shall not include retail businesses.",
+    "If continued misuse occurs (identified on the quarterly usage report after "
+    "a warning has occurred), the cash grant payment portion of his or her EBT "
+    "card shall be disabled for one month, requiring the county to notify the "
+    "client of additional options for receipt of payment.",
+    "If those identified in a-b above are not available, is a person who "
+    "exercises responsibility for a dependent child within the person's home "
+    "and provides verification of such responsibility such as a court order.",
+    "(ii) When the individual has been satisfying the work requirement by "
+    "participating in a SNAP E&T component, the date the county agency "
+    "notifies the individual that they are no longer meeting the ABA work "
+    "requirement.",
+    "When the assistance group timely reported a change, but the county agency "
+    "did not timely act on the change, the first month affected by the "
+    "county's failure to act is to be the first month the county agency should "
+    "have made the change effective.",
+    "The period of disqualification shall be sent effective with the first "
+    "allotment issued after the adverse notice period has expired, unless the "
+    "assistance group requested a fair hearing and continued benefits.",
+    "if the child is experiencing homelessness or is a foster child, then 90 "
+    "calendar days from the date of enrollment to obtain up to date "
+    "immunizations or provide documentation of exemption from the immunization "
+    "requirement.",
+    "(ii)(A) Ends on the earlier of the date the agency verifies the "
+    "individual's citizenship or satisfactory immigration status or determines "
+    "that the individual did not verify his or her citizenship or satisfactory "
+    "immigration status in accordance with paragraph (a)(2) of this section, or "
+    "90 days after the date described in paragraph (b)(2)(i) of this section, "
+    "except that the agency may extend the period.",
+    "When the disenrollment request is received and processed as outlined "
+    "above, the election period and date the plan received a valid request to "
+    "disenroll will determine the effective date of the disenrollment (refer to "
+    "§ 30.8 for disenrollment effective dates).",
+    # Review round 2 synthetic cases.
+    "If the household fails to provide the requested verification, the State "
+    "agency shall send a notice and close the case.",
+    "The term household does not include an individual whose residence the "
+    "State agency cannot verify, unless the individual is homeless.",
+    "If the parent is absent from the home, the child is a deprived child "
+    "(refer to section 3.604.2).",
+    "If the household reapplies before the end of the month, the State agency "
+    "shall provide benefits back to the date of the notice.",
+    "The State agency shall not certify the household until it verifies the "
+    "identity of the applicant, except for households entitled to expedited "
+    "service.",
+    "If the individual, or payer institution, verifies by writing the "
+    "information on a separate document, the information is not tax "
+    "information.",
 )
 
 
@@ -179,23 +264,27 @@ def _controls(source: str, citation: str) -> list[str]:
     ]
 
 
-@pytest.mark.parametrize("citation", US_PATHS)
+@pytest.mark.parametrize("citation", FEDERAL_PATHS)
 @pytest.mark.parametrize("source", ADMINISTRATIVE)
-def test_administrative_sentence_is_not_a_control_on_us_paths(
+def test_administrative_sentence_is_not_a_control_on_federal_paths(
     source: str, citation: str
 ):
     assert not _controls(source, citation)
 
 
-@pytest.mark.parametrize("citation", NON_US_PATHS)
+@pytest.mark.parametrize("citation", OTHER_PATHS)
 @pytest.mark.parametrize("source", ADMINISTRATIVE)
-def test_administrative_sentence_stays_a_control_outside_us(source: str, citation: str):
+def test_administrative_sentence_stays_a_control_outside_federal_paths(
+    source: str, citation: str
+):
     assert _controls(source, citation)
 
 
-@pytest.mark.parametrize("citation", US_PATHS)
+@pytest.mark.parametrize("citation", FEDERAL_PATHS)
 @pytest.mark.parametrize("source", OPERATIVE)
-def test_operative_condition_stays_a_control_on_us_paths(source: str, citation: str):
+def test_operative_condition_stays_a_control_on_federal_paths(
+    source: str, citation: str
+):
     assert _controls(source, citation)
 
 
@@ -204,12 +293,6 @@ def test_operative_condition_stays_a_control_on_us_paths(source: str, citation: 
     (
         *((source, True) for source in ADMINISTRATIVE),
         *((source, False) for source in OPERATIVE),
-        # `, then` ends a leading condition before its first comma does.
-        (
-            "If, however, the unclear information does not meet the criteria, "
-            "then the State agency shall not act on the information.",
-            True,
-        ),
         # The guard reads everything after the leading condition.
         (
             "If the household voluntarily reports a change in its medical "
@@ -217,13 +300,28 @@ def test_operative_condition_stays_a_control_on_us_paths(source: str, citation: 
             "would increase the household's allotment.",
             False,
         ),
-        # A sentence without an administrative action is never administrative.
+        # A sentence without an administrative main verb is never administrative.
         ("When the household moves, update the address.", False),
         ("", False),
     ),
 )
 def test_source_condition_is_administrative(source: str, expected: bool):
     assert completeness_module._source_condition_is_administrative(source) is expected
+
+
+@pytest.mark.parametrize(
+    ("citation", "expected"),
+    (
+        ("us/regulation/7/273/10", True),
+        ("us/guidance/irs/rev-proc-2025-32/page-14", True),
+        ("us-ks/guidance/department-of-revenue/forms/2026/k-40es/document-1", False),
+        ("us-co/statute/39/39-22-2003", False),
+        ("uk/guidance/dwp/adm/chapter-1", False),
+        ("", False),
+    ),
+)
+def test_is_us_federal_citation_path(citation: str, expected: bool):
+    assert completeness_module._is_us_federal_citation_path(citation) is expected
 
 
 MANUAL_PAGE = "us-or/manual/odhs/open/page-644"
@@ -323,25 +421,26 @@ def _paired_case_issues(sentence: str, citation: str) -> list[str]:
     ]
 
 
-def test_us_administrative_sentence_needs_no_paired_cases():
+def test_federal_administrative_sentence_needs_no_paired_cases():
     # A candidate that encodes the source's limit is not asked for
     # positive/blocking cases for a notice sentence on the same page, while an
     # omitted operative exception on that page still is.
-    regulation = "us-or/regulation/461/135/9999"
+    regulation = "us/regulation/7/273/9999"
     notice = ADMINISTRATIVE[0]
     exception = OPERATIVE[0]
 
     assert not _paired_case_issues(notice, regulation)
     assert _paired_case_issues(exception, regulation)
+    assert _paired_case_issues(notice, "us-or/regulation/461/135/9999")
     assert _paired_case_issues(notice, "uk/regulation/2013/376/9999")
 
 
-def test_us_administrative_sentence_still_competes_for_case_pairs(monkeypatch):
+def test_federal_administrative_sentence_still_competes_for_case_pairs(monkeypatch):
     # The administrative sentence is hidden from the report, not from the
     # allocation of case pairs: a pair that the validator accepts for both a
     # procedural and an operative sentence on one path must not move to the
     # operative sentence only because the procedural one stopped competing.
-    regulation = "us-or/regulation/461/135/9999"
+    regulation = "us/regulation/7/273/9999"
     notice = ADMINISTRATIVE[0]
     allocated: list[str] = []
     allocate = completeness_module._unwitnessed_exception_branches
