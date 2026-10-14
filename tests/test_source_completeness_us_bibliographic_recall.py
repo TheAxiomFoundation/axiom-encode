@@ -7,11 +7,12 @@ Replays of the latest rejected US candidates (2026-10-14) still demanded:
   in 26 U.S.C. 32, and `116`, `134` and `3041` from the note in 26 U.S.C. 25A;
 * `1972`, `1974`, `1980` and `1983` from act titles in 42 U.S.C. 415.
 
-Each mask accepts one complete citation grammar and blanks only the digits
-(and a public-law number's joining dash) of its locator numbers in place. The
-differential tests below compare every input with the same pipeline with the
-four new masks disabled: no occurrence may be added or changed, and every
-removed occurrence must sit on blanked locator digits.
+Each grammar accepts one complete citation. The recall text is not rewritten:
+main's numeric inventory is filtered, dropping only occurrences that lie
+wholly inside a locator's numbers. The differential tests below compare every
+input with the same pipeline with the four grammars disabled: no occurrence
+may be added or changed, and every removed occurrence must lie inside a
+recognized locator span.
 """
 
 from __future__ import annotations
@@ -51,8 +52,13 @@ def _occurrences(text: str, citation: str):
     cleaned = _cleaned(text, citation)
     return [
         (item.value, item.start, item.end, cleaned[item.start : item.end])
-        for item in extract_typed_numeric_inventory_occurrences_from_text(
-            cleaned, profile="legacy"
+        for item in completeness.numeric_occurrences_without_us_bibliographic_locators(
+            cleaned,
+            corpus_citation_path=citation,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text,
+                profile="legacy",
+            ),
         )
     ]
 
@@ -69,30 +75,19 @@ def _main_occurrences(text: str, citation: str):
         return _occurrences(text, citation)
 
 
-def _assert_only_locator_digits_removed(
-    text: str, citation: str, *, allow_restored: bool = False
-):
-    """Every occurrence main reads survives unless it sat on blanked digits.
+def _assert_only_locator_digits_removed(text: str, citation: str):
+    """Main's inventory, in order, minus occurrences inside locator numbers."""
 
-    With `allow_restored`, the masked view may also read an operative token
-    that main's inventory suppressed because a locator shared its leading
-    digits (main drops `124,000` after a `124 Stat.`); such a token's text is
-    untouched by the masks.
-    """
-
-    masked = _occurrences(text, citation)
+    filtered = _occurrences(text, citation)
     main = _main_occurrences(text, citation)
     cleaned = _cleaned(text, citation)
-    added = set(masked) - set(main)
-    if allow_restored:
-        for _value, start, end, raw in added:
-            assert raw.strip() and cleaned[start:end] == raw
-    else:
-        assert not added, "a mask added or changed an occurrence"
-    removed = set(main) - set(masked)
+    spans = completeness.us_bibliographic_locator_spans(
+        cleaned, corpus_citation_path=citation
+    )
+    removed = [item for item in main if item not in filtered]
+    assert filtered == [item for item in main if item not in removed]
     for _value, start, end, _raw in removed:
-        assert not cleaned[start:end].strip(), (cleaned, start, end)
-    return {value for value, *_ in removed}
+        assert any(a <= start and end <= b for a, b in spans), (cleaned, start, end)
     return {value for value, *_ in removed}
 
 
@@ -432,34 +427,109 @@ SEPARATORS = st.sampled_from(
 
 @given(st.lists(st.tuples(LOCATORS, SEPARATORS, OPERATIVE, SEPARATORS), max_size=4))
 @settings(deadline=None, max_examples=300)
-def test_masks_never_remove_or_change_operative_tokens(parts):
+def test_filter_never_adds_changes_or_reorders_operative_tokens(parts):
     source = "".join(f"{a}{b}{c}{d}" for a, b, c, d in parts)
     for citation in (EITC_STATUTE, SNAP_REGULATION):
-        _assert_only_locator_digits_removed(source, citation, allow_restored=True)
+        _assert_only_locator_digits_removed(source, citation)
 
 
-def test_removing_a_locator_restores_a_grouped_amount_main_suppressed():
-    # Main's inventory drops `124,000` because `124` (the Statutes at Large
-    # volume) appears earlier; with the note masked, the amount is demanded.
-    source = (
-        "[(g) Repealed. Pub. L. 111\u2013226, title II, \u00a7 219(a)(2) , Aug. 10, 2010 , "
-        "124 Stat. 2403 ] (h) The limit is 124,000 dollars."
-    )
-    assert 124_000 not in {
-        value for value, *_ in _main_occurrences(source, EITC_STATUTE)
-    }
-    assert 124_000 in _values(source, EITC_STATUTE)
-    _assert_only_locator_digits_removed(source, EITC_STATUTE, allow_restored=True)
+# Review counterexamples against an earlier, text-rewriting version of this
+# change. Each must keep exactly main's inventory apart from locator numbers.
+REVIEW_COUNTEREXAMPLES = (
+    # Main's inventory suppresses a later token that shares an earlier
+    # token's digits; rewriting the locator out of the text changed which
+    # tokens survived (an operative 27,074 was lost behind 27.074).
+    (
+        SNAP_REGULATION,
+        "See 90 Fed. Reg. 27074. The factor is 27.074, and the cap is 27,074 "
+        "households.",
+        {27074},
+    ),
+    (
+        EITC_STATUTE,
+        "[(g) Repealed. Pub. L. 111–226, title II, § 219(a)(2) , Aug. 10, 2010 , "
+        "124 Stat. 2403 ]\n(h) The factor is 2.403, and the limit is 2,403 "
+        "households.",
+        {2403},
+    ),
+    (
+        PIA_STATUTE,
+        "The Social Security Amendments of 1983 applies. The factor is 1.983, "
+        "and 1,983 households qualify.",
+        {1983},
+    ),
+    (
+        EITC_STATUTE,
+        "[(g) Repealed. Pub. L. 111–226, title II, § 219(a)(2) , Aug. 10, 2010 , "
+        "124 Stat. 2403 ] (h) The limit is 124,000 dollars.",
+        set(),
+    ),
+    # Main's edition pattern reads a capitalized unit before the title.
+    (
+        PIA_STATUTE,
+        "The amount is 1,500 Percent with Railroad Retirement Act of 1937 or 1974 "
+        "is the base.",
+        set(),
+    ),
+    (
+        PIA_STATUTE,
+        "The amount is 5 Million\nthe Railroad Retirement Act of 1937 or 1974 applies.",
+        {5},
+    ),
+    # A continuation line that opens with a decimal point.
+    (PIA_STATUTE, "the Social Security Amendments of 1983\n.5% applies", set()),
+    (EITC_STATUTE, "Pub. L. 111-226\n.5% applies", set()),
+    # A glued parenthetical.
+    (SNAP_REGULATION, "62 FR 61344(relating to 5 percent)", set()),
+    # Non-ASCII digits are never part of a locator.
+    (SNAP_REGULATION, "See 62 FR 6１344 the rule", set()),
+    (SNAP_REGULATION, "See 6٢ FR 61344 the rule", set()),
+    (EITC_STATUTE, "See Pub. L. 1１1-226 the rule", set()),
+)
 
 
-@given(st.integers(min_value=1, max_value=999_999))
-@settings(deadline=None)
-def test_new_masks_are_idempotent_and_keep_length(amount):
+@pytest.mark.parametrize("citation, source, kept", REVIEW_COUNTEREXAMPLES)
+def test_review_counterexamples_keep_main_inventory(citation, source, kept):
+    _assert_only_locator_digits_removed(source, citation)
+    assert kept <= _values(source, citation)
+
+
+def test_recall_text_is_not_rewritten():
     source = (
         "(62 FR 61344) Pub. L. 111–226. The Social Security Amendments of 1983 "
-        f"apply. The limit is ${amount}."
+        "apply. The limit is $5."
     )
-    masked = _cleaned(source, EITC_STATUTE)
-    assert len(masked) == len(_cleaned(source, "uk/legislation/ukpga/2012/5"))
-    assert float(amount) in _values(source, EITC_STATUTE)
-    assert _cleaned(masked, EITC_STATUTE) == masked
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(completeness, NEW_LOCATORS, ())
+        main_text = _cleaned(source, EITC_STATUTE)
+    assert _cleaned(source, EITC_STATUTE) == main_text
+
+
+def test_locator_spans_are_linear_in_long_sources():
+    import time
+
+    source = "Benefits for eligible households (62 FR 61344). " * 4000
+    started = time.perf_counter()
+    spans = completeness.us_bibliographic_locator_spans(
+        source, corpus_citation_path=SNAP_REGULATION
+    )
+    assert len(spans) == 8000
+    assert time.perf_counter() - started < 5
+
+
+@pytest.mark.parametrize(
+    "citation, source",
+    (
+        # Main collapses `62,000` into the earlier `62`, so its demand for 62
+        # also carries the operative amount: the inventory stays main's.
+        (SNAP_REGULATION, "See 62 FR 61344. The cap is 62,000 households."),
+        (
+            EITC_STATUTE,
+            "[(g) Repealed. Pub. L. 111–226, title II, § 219(a)(2) , Aug. 10, "
+            "2010 , 124 Stat. 2403 ] (h) The limit is 124,000 dollars.",
+        ),
+        (PIA_STATUTE, "The Social Security Amendments of 1983 and 1,983,000."),
+    ),
+)
+def test_locator_that_shadows_another_token_keeps_main_inventory(citation, source):
+    assert _occurrences(source, citation) == _main_occurrences(source, citation)

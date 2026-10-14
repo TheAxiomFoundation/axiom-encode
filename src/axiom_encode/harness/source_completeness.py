@@ -2187,11 +2187,15 @@ _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION = re.compile(
     flags=re.IGNORECASE,
 )
 # US bibliographic locators that numeric recall reads as values. Each grammar
-# matches one complete citation; only the digits (and a public-law number's
-# joining dash) of its `blank_*` groups are blanked, in place, so the recall
-# view keeps its length and its marker words. A citation never crosses a
-# line, and `_us_locator_is_inert` skips any match whose neighbours could
-# join, split, re-sign or capture a numeric token outside it.
+# matches one complete citation on one line; its `locator_*` groups are the
+# locator numbers. Recall does not rewrite the text: the numeric inventory is
+# tokenized exactly as before, and an occurrence is dropped only when it lies
+# wholly inside a locator group of a citation whose context is bibliographic
+# (`_us_locator_context_is_bibliographic`) and a re-read with the locator
+# numbers blanked agrees on every other occurrence
+# (`numeric_occurrences_without_us_bibliographic_locators`). No other
+# occurrence can change value, sign, text, position or context, and none can
+# be added.
 _US_LOCATOR_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212-"
 _US_LOCATOR_INVISIBLES = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
 # Currency, percentage, sign and arithmetic/comparison marks bind a number to
@@ -2199,13 +2203,14 @@ _US_LOCATOR_INVISIBLES = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
 _US_LOCATOR_NUMERIC_MARKS = (
     "$£€¢%‰+*/×÷·^=<>≤≥" + _US_LOCATOR_DASHES + _US_LOCATOR_INVISIBLES
 )
-_US_LOCATOR_BLANKED_CHARACTERS = frozenset("0123456789" + _US_LOCATOR_DASHES)
 _US_LOCATOR_CONNECTORS = frozenset(
     {"and", "or", "to", "through", "plus", "minus", "less", "times", "by", "x", "&"}
 )
 # Words that may follow a citation without turning one of its numbers into a
 # quantity: function words and the verbs that U.S. Code, CFR and Federal
-# Register prose attaches to a citation.
+# Register prose attaches to a citation. `applica` and `appli` are the first
+# halves of `applica- ble` and `appli- cable` hyphenated across a line in the
+# scanned 1976 U.S. Code edition.
 _US_LOCATOR_FOLLOWING_WORDS = frozenset(
     {
         "a",
@@ -2235,10 +2240,12 @@ _US_LOCATOR_FOLLOWING_WORDS = frozenset(
         "added",
         "amended",
         "amending",
+        "appli",
         "applica",
         "applicable",
-        "appli",
+        "applied",
         "applies",
+        "apply",
         "approved",
         "designated",
         "div",
@@ -2266,32 +2273,34 @@ _US_LOCATOR_DASH_CLASS = r"[\u2010-\u2015\u2212\-]"
 # page. The marker is case-sensitive, so `CFR` and lower-case prose never
 # match.
 _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION = re.compile(
-    r"(?P<blank_volume>[1-9]\d{0,2})[ \t]+(?:FR|Fed\.[ \t]*Reg\.)[ \t]+"
-    r"(?P<blank_page>[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d{0,5})"
+    r"(?P<locator_volume>[1-9][0-9]{0,2})[ \t]+(?:FR|Fed\.[ \t]*Reg\.)[ \t]+"
+    r"(?P<locator_page>[1-9][0-9]{0,2}(?:,[0-9]{3})+|[1-9][0-9]{0,5})",
+    flags=re.ASCII,
 )
 # `Pub. L. 111-226` names the 226th public law of the 111th Congress. Main
 # already removes the `Public Law` and `P.L.` spellings of the same
 # identifier; this is the U.S. Code's own abbreviation.
 _PUB_L_NUMERIC_RECALL_CITATION = re.compile(
     r"\bPub\.[ \t]*L\.[ \t]*(?:No\.[ \t]*)?"
-    r"(?P<blank_law>[1-9]\d{0,2}[ \t]*"
+    r"(?P<locator_law>[1-9][0-9]{0,2}[ \t]*"
     + _US_LOCATOR_DASH_CLASS
-    + r"[ \t]*[1-9]\d{0,3})"
+    + r"[ \t]*[1-9][0-9]{0,3})",
+    flags=re.ASCII,
 )
 # A U.S. Code editorial note recording that a paragraph was repealed,
 # omitted or transferred: `Repealed. Pub. L. 111-226, title II, § 219(a)(2),
 # Aug. 10, 2010, 124 Stat. 2403`. Every element must belong to the note
 # grammar (division, title, subtitle, section designators, the enactment date
 # and the Statutes at Large volume/pages), and the note must end at a
-# bracket, a sentence end or the end of the line. Only the public-law number
-# and the Statutes at Large volume/pages are blanked; the section designators
-# and the date are left to the existing section and date handling, exactly as
-# on main. An unparenthesized `124 Stat. 2403` outside such a note keeps its
-# values.
+# bracket, a sentence end or the end of the line. The recall view has already
+# removed `§ 219`, leaving `(a)(2)`. Only the public-law number and the
+# Statutes at Large volume/pages are locator groups; the section designators
+# and the date keep main's handling. An unparenthesized `124 Stat. 2403`
+# outside such a note keeps its values.
 _US_SESSION_LAW_MONTH_ABBREVIATION = (
     r"(?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.?"
 )
-_US_CODE_NOTE_SECTION = r"\d{1,5}[A-Za-z]?(?:\([A-Za-z0-9]{1,5}\)){0,6}"
+_US_CODE_NOTE_SECTION = r"[0-9]{1,5}[A-Za-z]?(?:\([A-Za-z0-9]{1,5}\)){0,6}"
 _US_CODE_NOTE_ELEMENT = (
     r"(?:div\.[ \t]+[A-Z]{1,2}|(?:sub)?title[ \t]+[IVXL]{1,6}|"
     rf"§[ \t]*{_US_CODE_NOTE_SECTION}|"
@@ -2302,21 +2311,21 @@ _US_CODE_NOTE_ELEMENT = (
 _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION = re.compile(
     r"(?:(?P<bracket>\[)[ \t]*(?:\([A-Za-z0-9]{1,5}\)[ \t]*)?)?"
     r"(?<!\w)(?:Repealed|Omitted|Transferred)\.[ \t]+Pub\.[ \t]*L\.[ \t]*"
-    r"(?P<blank_law>[1-9]\d{0,2}" + _US_LOCATOR_DASH_CLASS + r"[1-9]\d{0,3})"
+    r"(?P<locator_law>[1-9][0-9]{0,2}" + _US_LOCATOR_DASH_CLASS + r"[1-9][0-9]{0,3})"
     rf"(?:[ \t]*,[ \t]*{_US_CODE_NOTE_ELEMENT}){{0,6}}"
-    rf"[ \t]*,[ \t]*{_US_SESSION_LAW_MONTH_ABBREVIATION}[ \t]+\d{{1,2}},"
-    r"[ \t]+(?:17|18|19|20)\d{2}[ \t]*,[ \t]*"
+    rf"[ \t]*,[ \t]*{_US_SESSION_LAW_MONTH_ABBREVIATION}[ \t]+[0-9]{{1,2}},"
+    r"[ \t]+(?:17|18|19|20)[0-9]{2}[ \t]*,[ \t]*"
     # Inside a bracketed note a page list (`90 Stat. 1764, 1795`) ends at the
     # closing bracket. An unbracketed note takes exactly one page, so a
     # following `, 62` is never read as a page.
     r"(?(bracket)"
-    r"(?P<blank_bracketed_statutes_at_large>[1-9]\d{0,2}[ \t]+Stat\.[ \t]+"
-    r"[1-9]\d{0,4}(?:[ \t]*,[ \t]*[1-9]\d{0,4}){0,4})"
+    r"(?P<locator_bracketed_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+"
+    r"[1-9][0-9]{0,4}(?:[ \t]*,[ \t]*[1-9][0-9]{0,4}){0,4})"
     r"(?=[ \t]*\.?[ \t]*\])"
     r"|"
-    r"(?P<blank_statutes_at_large>[1-9]\d{0,2}[ \t]+Stat\.[ \t]+[1-9]\d{0,4})"
+    r"(?P<locator_statutes_at_large>[1-9][0-9]{0,2}[ \t]+Stat\.[ \t]+[1-9][0-9]{0,4})"
     r"(?=[ \t]*(?:\.(?=[ \t]*$|[ \t]+[A-Z(\[])|$)))",
-    flags=re.MULTILINE,
+    flags=re.MULTILINE | re.ASCII,
 )
 # A year inside the title of an amending act (`the Social Security
 # Amendments of 1983`) or in the Railroad Retirement Act's two-year citation
@@ -2328,34 +2337,54 @@ _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION = re.compile(
     r"\b[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
     r"(?:[ \t]+(?:[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
     r"|and|of|the|for|on|to|in)){0,10}"
-    r"[ \t]+(?:Amendments[ \t]+of[ \t]+(?P<blank_amendments_year>(?:18|19|20)\d{2})"
-    r"|Act[ \t]+of[ \t]+(?P<blank_first_year>(?:18|19|20)\d{2})[ \t]+or[ \t]+"
-    r"(?P<blank_second_year>(?:18|19|20)\d{2}))"
+    r"[ \t]+(?:Amendments[ \t]+of[ \t]+"
+    r"(?P<locator_amendments_year>(?:18|19|20)[0-9]{2})"
+    r"|Act[ \t]+of[ \t]+(?P<locator_first_year>(?:18|19|20)[0-9]{2})[ \t]+or[ \t]+"
+    r"(?P<locator_second_year>(?:18|19|20)[0-9]{2}))",
+    flags=re.ASCII,
 )
-# The disposition note owns its `Pub. L.` and `Stat.` numbers, so it is
-# matched whole before the standalone public-law identifier.
 _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
     _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION,
     _PUB_L_NUMERIC_RECALL_CITATION,
     _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION,
     _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION,
 )
+_US_LOCATOR_HORIZONTAL_SPACE = re.compile(r"[ \t]*")
+_US_LOCATOR_SPACE = re.compile(r"\s*")
+_US_LOCATOR_WORD = re.compile(r"[A-Za-z]+|&")
+_US_LOCATOR_PREVIOUS_WORD = re.compile(r"(?:(?<![A-Za-z])[A-Za-z]{1,12}|&)$")
+_US_LOCATOR_PREVIOUS_CURRENCY_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{3}$")
 
 
 def _us_locator_character_is_numeric(character: str) -> bool:
     return character.isdigit() or character in _US_LOCATOR_NUMERIC_MARKS
 
 
-def _us_locator_is_inert(text: str, start: int, end: int) -> bool:
-    """Whether blanking `text[start:end]` can affect no other numeric token.
+def _us_locator_number_starts_at(text: str, index: int) -> bool:
+    """A digit, a numeric mark, or `.5`/`,5`, starting at `index`."""
+
+    if index >= len(text):
+        return False
+    character = text[index]
+    if _us_locator_character_is_numeric(character):
+        return True
+    return character in ".,(" and text[index + 1 : index + 2].isdigit()
+
+
+def _us_locator_context_is_bibliographic(text: str, start: int, end: int) -> bool:
+    """Whether nothing around `text[start:end]` can make its numbers operative.
 
     The citation must not touch a word, number, sign, decimal point, currency
-    mark or invisible formatting character; the previous token on its line
-    must not be numeric (blanking could regroup `5 123`); and the next token,
-    after one optional comma/semicolon/colon or arithmetic/list connector,
-    must not be numeric (a marker such as `FR` or `Reg.` followed by blanks
-    could otherwise capture it as a reference). A closing bracket, a sentence
-    end or a line whose continuation is not numeric ends the check.
+    mark, operator or invisible formatting character. Before it, the previous
+    token on its line must not be numeric, a currency code or, for a citation
+    that starts with a number, an arithmetic word (`x 62`, `of 62`). After it,
+    a closing parenthesis or bracket, a sentence end, or a line break followed
+    by a line that does not open with a number ends the check. Otherwise,
+    after one optional `,`/`;`/`:`, the next token must be a parenthetical
+    that opens with a letter, a list/arithmetic connector followed by a word,
+    or a word from `_US_LOCATOR_FOLLOWING_WORDS`; a unit such as `percent`,
+    `households` or `Percent`, a number, a sign or a quotation fails. Every
+    look-around is bounded, so the check is linear in the number of matches.
     """
 
     if start > 0:
@@ -2367,23 +2396,21 @@ def _us_locator_is_inert(text: str, start: int, end: int) -> bool:
         ):
             return False
         index = start
-        while index > 0 and text[index - 1] in " \t":
+        while index > 0 and start - index < 64 and text[index - 1] in " \t":
             index -= 1
-        if 0 < index < start and _us_locator_character_is_numeric(text[index - 1]):
-            return False
-        # A three-letter currency code (`USD 62 FR 100`) denominates a number,
-        # and an arithmetic word (`x 62`, `times 62`, `of 62`) makes it an
-        # operand.
-        if index < start and re.search(r"(?<![A-Za-z])[A-Z]{3}$", text[:index]):
-            return False
-        previous_word = re.search(r"(?<![A-Za-z])[A-Za-z]+$|&$", text[:index])
-        if (
-            text[start].isdigit()
-            and index < start
-            and previous_word is not None
-            and previous_word.group(0).lower() in _US_LOCATOR_CONNECTORS | {"of"}
-        ):
-            return False
+        if index < start:
+            window = text[max(0, index - 16) : index]
+            if window and _us_locator_character_is_numeric(window[-1]):
+                return False
+            if _US_LOCATOR_PREVIOUS_CURRENCY_CODE.search(window):
+                return False
+            previous_word = _US_LOCATOR_PREVIOUS_WORD.search(window)
+            if (
+                text[start].isdigit()
+                and previous_word is not None
+                and previous_word.group(0).lower() in _US_LOCATOR_CONNECTORS | {"of"}
+            ):
+                return False
     if end < len(text):
         following = text[end]
         if (
@@ -2394,59 +2421,114 @@ def _us_locator_is_inert(text: str, start: int, end: int) -> bool:
             return False
         if following in ".," and text[end + 1 : end + 2].isdigit():
             return False
-    rest = text[end:].lstrip(" \t")
-    if not rest or rest[0] in ")]":
+    position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, end).end()
+    if position >= len(text) or text[position] in ")]":
         return True
-    if rest[0] in "\r\n":
+    if text[position] in "\r\n":
         # A paragraph label such as `(4)` or a word may open the next line; a
-        # bare number or amount may not.
-        continuation = rest.lstrip()
-        return not continuation or not _us_locator_character_is_numeric(continuation[0])
-    if rest[0] == "." and not rest[1:2].isdigit():
+        # number, an amount or `.5` may not.
+        continuation = _US_LOCATOR_SPACE.match(text, position).end()
+        return not _us_locator_number_starts_at(text, continuation)
+    if text[position] == "." and not text[position + 1 : position + 2].isdigit():
         return True
-    if rest[0] in ",;:":
-        rest = rest[1:].lstrip(" \t")
-    if not rest:
+    if text[position] in ",;:":
+        position = _US_LOCATOR_HORIZONTAL_SPACE.match(text, position + 1).end()
+    if position >= len(text):
         return True
-    if rest[0] == "(":
+    if text[position] == "(":
         # A parenthetical such as `(relating to ...)`, never `(1 + rate)`.
-        return rest[1:2].isalpha()
-    # The next word must be one that cannot denominate a quantity: a closed
-    # list of function words and citation verbs. Anything else (a unit such
-    # as `percent`, `households` or `Percent`, a number, a sign, a currency
-    # mark, a quotation) keeps the citation's numbers.
-    word = re.match(r"[A-Za-z]+|&", rest)
+        return text[position + 1 : position + 2].isalpha()
+    word = _US_LOCATOR_WORD.match(text, position)
     if word is None:
         return False
     lowered = word.group(0).lower()
     if lowered in _US_LOCATOR_CONNECTORS:
-        following_word = rest[word.end() :].lstrip(" \t")
-        return bool(following_word) and (
-            following_word[0].isalpha() or following_word[0] == "§"
+        following_word = _US_LOCATOR_HORIZONTAL_SPACE.match(text, word.end()).end()
+        return following_word < len(text) and (
+            text[following_word].isalpha() or text[following_word] == "§"
         )
     return lowered in _US_LOCATOR_FOLLOWING_WORDS
 
 
-def _mask_us_bibliographic_locators(text: str) -> str:
-    """Blank the digits of complete, inert US bibliographic locators."""
+def us_bibliographic_locator_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Spans of the locator numbers of bibliographic US citations in `text`."""
 
+    if not _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
+        return ()
+    spans: list[tuple[int, int]] = []
     for locator in _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS:
-        characters: list[str] | None = None
         for match in locator.finditer(text):
-            if not _us_locator_is_inert(text, match.start(), match.end()):
+            if not _us_locator_context_is_bibliographic(
+                text, match.start(), match.end()
+            ):
                 continue
-            if characters is None:
-                characters = list(text)
-            for name, value in match.groupdict().items():
-                if value is None or not name.startswith("blank_"):
-                    continue
-                group_start, group_end = match.span(name)
-                for index in range(group_start, group_end):
-                    if characters[index] in _US_LOCATOR_BLANKED_CHARACTERS:
-                        characters[index] = " "
-        if characters is not None:
-            text = "".join(characters)
-    return text
+            spans.extend(
+                match.span(name)
+                for name, value in match.groupdict().items()
+                if value is not None and name.startswith("locator_")
+            )
+    return tuple(sorted(set(spans)))
+
+
+def _us_locator_occurrence_key(occurrence: NumericOccurrenceLike) -> tuple[Any, ...]:
+    return (
+        occurrence.value,
+        occurrence.start,
+        occurrence.end,
+        getattr(occurrence, "has_rate_context", None),
+        getattr(occurrence, "has_temporal_context", None),
+        getattr(occurrence, "has_structural_context", None),
+        getattr(occurrence, "requires_rate_context", None),
+        tuple(getattr(occurrence, "alternative_values", ()) or ()),
+    )
+
+
+def numeric_occurrences_without_us_bibliographic_locators(
+    text: str,
+    *,
+    corpus_citation_path: str,
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[NumericOccurrenceLike, ...]:
+    """Extract `text`'s numeric inventory without US locator numbers.
+
+    The inventory is extracted from `text` unchanged. An occurrence is dropped
+    only when it lies wholly inside a locator's numbers, and only when
+    re-reading the text with those numbers blanked yields exactly the kept
+    occurrences, with the same values, positions and context. The extractor
+    reads some tokens in the light of others (a later `124,000` can collapse
+    into an earlier `124`, a capitalized unit can be absorbed into a title),
+    so when any kept occurrence depends on a locator's digits, the whole
+    inventory is returned unchanged, as on main.
+    """
+
+    occurrences = tuple(extract_numeric_occurrences(text))
+    spans = us_bibliographic_locator_spans(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    if not spans:
+        return occurrences
+    kept = tuple(
+        occurrence
+        for occurrence in occurrences
+        if not any(
+            start <= occurrence.start and occurrence.end <= end for start, end in spans
+        )
+    )
+    if len(kept) == len(occurrences):
+        return occurrences
+    characters = list(text)
+    for start, end in spans:
+        for index in range(start, end):
+            if characters[index].isdigit() or characters[index] in _US_LOCATOR_DASHES:
+                characters[index] = " "
+    reread = tuple(extract_numeric_occurrences("".join(characters)))
+    if [_us_locator_occurrence_key(item) for item in reread] != [
+        _us_locator_occurrence_key(item) for item in kept
+    ]:
+        return occurrences
+    return kept
 
 
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
@@ -5827,7 +5909,11 @@ def _analyze_rulespec_payload(
     )
     source_occurrences = tuple(
         occurrence
-        for occurrence in extract_numeric_occurrences(numeric_recall_text)
+        for occurrence in numeric_occurrences_without_us_bibliographic_locators(
+            numeric_recall_text,
+            corpus_citation_path=corpus_citation_path,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+        )
         if not _temporal_occurrence_is_formula_applicability_preface(
             occurrence,
             numeric_recall_text,
@@ -5841,7 +5927,11 @@ def _analyze_rulespec_payload(
         )
         unrepresented_occurrences = tuple(
             occurrence
-            for occurrence in extract_numeric_occurrences(unrepresented_recall_text)
+            for occurrence in numeric_occurrences_without_us_bibliographic_locators(
+                unrepresented_recall_text,
+                corpus_citation_path=corpus_citation_path,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+            )
             if not _temporal_occurrence_is_formula_applicability_preface(
                 occurrence,
                 unrepresented_recall_text,
@@ -14142,7 +14232,6 @@ def authoritative_numeric_recall_text(
             lambda match: re.sub(r"\d", " ", match.group(0)),
             cleaned,
         )
-        cleaned = _mask_us_bibliographic_locators(cleaned)
         if "/manual/" in corpus_citation_path:
             cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub(
                 lambda match: (
