@@ -97,30 +97,38 @@ as part of the old artifact or waive any signing or publication check.
 
 A signed RuleSpec pull request lands only when the target repository's CI
 admits the encoder that signed it. That CI runs the encoder pinned in
-`.axiom/workflow-toolchain.toml` (`axiom_encode_ref`). A pin admits its exact
-commit. A pin that contains axiom-encode #1859 also admits a producer that
-descends from the pin on the first-parent history of encoder `main`
-(`docs/signed-manifest-encoder-admission.md`).
+`.axiom/workflow-toolchain.toml` (`axiom_encode_ref`)
+(`docs/signed-manifest-encoder-admission.md`):
+
+| Pin | RuleSpec CI admits |
+| --- | --- |
+| Older than axiom-encode #1859 | The exact pin only |
+| Contains #1859 but not #1883 | Nothing: the guard cannot run its Git checks under the verification runtime, so every changed signed manifest fails, the exact pin included |
+| Contains #1883 | The exact pin, or a producer that descends from the pin on the first-parent history of encoder `main` |
 
 The unprotected `Check RuleSpec encoder pin admission` job makes the same
 decision before the `production-signing` environment asks for approval and
 before any model call, for queue and ad hoc runs. It reads the pin from the
 target repository at `rulespec_ref` and the dispatch commit's history from a
 full axiom-encode checkout (`scripts/check_encoder_pin_admission.py`). A run
-whose encoder the pin cannot admit fails there, and the encode job is skipped.
-A refused run does not count against the failed-attempt budget.
+that opens a pull request (`open_pr: true`) and whose encoder the pin cannot
+admit fails there, and the encode job is skipped. An artifact-only run is
+reported and not blocked. A refused run does not count against the
+failed-attempt budget, and the SNAP dispatch queue neither counts it as an
+attempt nor dispatches again against the same RuleSpec tip for a day.
 
 To unblock, move the target repository's `axiom_encode_ref` to an admissible
-encoder first. To generate anyway, for example while a pin bump is in review,
-set the repository variable `ENCODER_PIN_ADMISSION_OVERRIDE=true`; the check
-then reports without blocking. Remove it afterwards. A target repository that
-declares no `axiom_encode_ref` is reported and not blocked. Missing history, an
-unknown pin or an unreadable toolchain blocks the run.
+encoder first: today, a commit that contains #1883 (`b5e85ab4`, 0.2.2187) or a
+later `main` commit. To generate anyway, for example while a pin bump is in
+review, set the repository variable `ENCODER_PIN_ADMISSION_OVERRIDE=true`; the
+check then reports without blocking. Remove it afterwards. A target repository
+that declares no `axiom_encode_ref` is reported and not blocked. Missing
+history, an unknown pin or an unreadable toolchain blocks the run.
 
-Known gap: the check mirrors the admission rule, not every CI defect. Draft
-axiom-encode #1879 reports that pins from #1859 up to that fix cannot run the
-ancestry proof under the supervised Git wrapper, so their CI rejects every
-changed signed manifest. The check does not model that window.
+The job reads the target repository with the read-scoped workflow token, not
+the protected repository token, so it needs the RuleSpec repository to be
+public, as every `rulespec-*` repository is today. A private one fails the
+check and blocks its runs.
 
 ## Superseded encoder PRs
 
