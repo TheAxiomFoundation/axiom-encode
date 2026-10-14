@@ -14255,39 +14255,51 @@ def _prune_unused_imports(content: str) -> tuple[str, list[str]]:
     imports_indent = 0
     removed: list[str] = []
 
-    # Header line index of each `imports:` block and whether an item survived.
-    import_blocks: list[list[int | bool]] = []
+    # Per `imports:` block: its header line index, how many items it lost,
+    # and whether any other content (a kept item or a nested key) remains.
+    import_headers: list[int] = []
+    import_removals: list[int] = []
+    import_retained: list[bool] = []
 
     for line in content.splitlines(keepends=True):
         imports_match = re.match(r"^(\s*)imports:\s*$", line)
         if imports_match:
             in_imports = True
             imports_indent = len(imports_match.group(1))
-            import_blocks.append([len(repaired_lines), False])
+            import_headers.append(len(repaired_lines))
+            import_removals.append(0)
+            import_retained.append(False)
             repaired_lines.append(line)
             continue
 
         if in_imports:
             stripped = line.strip()
-            if stripped:
+            # A comment line neither ends the block nor counts as content.
+            if stripped and not stripped.startswith("#"):
                 indent = len(line) - len(line.lstrip())
                 item_match = re.match(r"^\s*-\s+(.+?)\s*$", line)
                 if item_match and indent >= imports_indent:
                     item = _strip_yaml_scalar_quotes(item_match.group(1).strip())
                     if item in unused:
                         removed.append(item)
+                        import_removals[-1] += 1
                         continue
-                    import_blocks[-1][1] = True
+                    import_retained[-1] = True
                 elif indent <= imports_indent:
                     in_imports = False
+                else:
+                    import_retained[-1] = True
 
         repaired_lines.append(line)
 
-    # Pruning every import must drop the header too: a bare `imports:` loads as
-    # null, which the rules engine rejects ("expected a sequence").
-    for header_index, has_items in reversed(import_blocks):
-        if removed and not has_items:
-            del repaired_lines[int(header_index)]
+    # Pruning every item of a block must drop its header too: a bare
+    # `imports:` loads as null, which the rules engine rejects ("expected a
+    # sequence"). A block that lost nothing, or keeps any content, stays.
+    for header_index, removal_count, retained in reversed(
+        list(zip(import_headers, import_removals, import_retained, strict=True))
+    ):
+        if removal_count and not retained:
+            del repaired_lines[header_index]
 
     return "".join(repaired_lines), removed
 

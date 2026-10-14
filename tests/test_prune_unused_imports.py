@@ -81,3 +81,35 @@ def test_pruning_without_unused_imports_leaves_content_unchanged(prune):
     )
 
     assert prune(content) == (content, [])
+
+
+_NESTED_IMPORTS_KEY = """format: rulespec/v1
+imports:
+# Imports used by the formulas below.
+- us:statutes/26/1/h#net_capital_gain
+module:
+  summary: Example.
+  imports:
+    note: An unrelated nested key that is not an import list.
+rules:
+- name: deductible_limit
+  kind: parameter
+  dtype: Money
+  versions:
+  - effective_from: '2026-01-01'
+    formula: '7500'
+"""
+
+
+@pytest.mark.parametrize(
+    "prune", [evals._prune_unused_imports, cli._prune_unused_imports]
+)
+def test_pruning_drops_only_the_emptied_imports_header(prune):
+    repaired, removed = prune(_NESTED_IMPORTS_KEY)
+
+    assert removed == ["us:statutes/26/1/h#net_capital_gain"]
+    payload = yaml.safe_load(repaired)
+    assert "imports" not in payload
+    assert payload["module"]["imports"] == {
+        "note": "An unrelated nested key that is not an import list."
+    }

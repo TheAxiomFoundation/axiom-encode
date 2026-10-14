@@ -16,9 +16,11 @@ from axiom_encode.harness.proof_validator import (
     _located_proof_evidence,
     _source_contains_proof_evidence,
     _source_proof_evidence_spans,
+    source_contains_typographic_proof_evidence,
     validate_rulespec_proofs,
 )
 from axiom_encode.harness.validator_pipeline import (
+    _rule_verified_source_excerpt_pairs_by_path,
     _source_evidence_fragment_is_body_bound,
 )
 
@@ -98,6 +100,10 @@ def _evidence_issues(excerpt: str, source_text: str, **kwargs) -> list[str]:
             "$4,000 per prepaid tuition contract or college savings trust account",
         ),
         ("as provided in § 273.4 of this part", "as provided in §273.4"),
+        # No-break and thin spaces after a sign; a soft hyphen inside a word.
+        ("as provided in § 273.4 of this part", "as provided in §273.4"),
+        ("limited to $  4,000 per account", "$4,000 per account"),
+        ("income from self-employ­ment is counted", "income from self-employment"),
         # Curly and straight apostrophes and quotation marks.
         (
             "unless the taxpayer includes with the taxpayer’s return",
@@ -183,6 +189,11 @@ def test_proof_evidence_accepts_typographic_spelling(source_text, excerpt):
         ("The official ratio is 100 : 200 dollars.", "200 dollars"),
         # An em dash is punctuation, never the minus sign of a number.
         ("Group—5 percent of the amount", "-5 percent of the amount"),
+        # A dash in sign position keeps its own spelling: no excerpt may add,
+        # drop or swap the sign the source prints.
+        ("The adjustment factor is -500 for each household.", "−500 for each"),
+        ("The adjustment factor is –500 for each household.", "-500 for each"),
+        ("The adjustment factor is −500 for each household.", "-500 for each"),
     ],
 )
 def test_proof_evidence_rejects_changed_text(source_text, excerpt):
@@ -204,13 +215,20 @@ def test_typographic_match_reports_exact_source_span():
     assert [source_text[start:end] for start, end in spans] == [
         "twenty- ﬁve dollars ($25)"
     ]
-    assert (
-        _located_proof_evidence(
-            source_text=source_text,
-            evidence_text="twenty-five dollars ($25)",
+    assert _located_proof_evidence(
+        source_text=source_text,
+        evidence_text="twenty-five dollars ($25)",
+    ) == ("twenty- ﬁve dollars ($25)",)
+
+
+def test_empty_excerpt_is_never_typographic_evidence():
+    for excerpt in ("", "   "):
+        assert not source_contains_typographic_proof_evidence(
+            source_text="abc", evidence_text=excerpt
         )
-        == "twenty- ﬁve dollars ($25)"
-    )
+        assert not _source_contains_proof_evidence(
+            source_text="abc", evidence_text=excerpt
+        )
 
 
 def test_numeric_evidence_binding_reads_typographic_spelling():
@@ -222,6 +240,50 @@ def test_numeric_evidence_binding_reads_typographic_spelling():
     assert not _source_evidence_fragment_is_body_bound(
         "$5,000 per prepaid tuition contract", source_text
     )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        ("The adjustment factor is -500 for each household.", "−500 for each"),
+        ("The adjustment factor is –500 for each household.", "-500 for each"),
+        ("The adjustment factor is −500 for each household.", "-500 for each"),
+    ],
+)
+def test_numeric_evidence_binding_keeps_the_printed_sign(source_text, excerpt):
+    assert not _source_evidence_fragment_is_body_bound(excerpt, source_text)
+
+
+def test_verified_excerpt_pairs_read_typographic_spelling():
+    source_text = "shall be limited to $ 4,000 per prepaid tuition contract."
+    rule = {
+        "metadata": {
+            "proof": {
+                "atoms": [
+                    {
+                        "path": "versions[0].formula",
+                        "source": {
+                            "corpus_citation_path": CITATION,
+                            "excerpt": "$4,000 per prepaid tuition contract",
+                        },
+                    },
+                    {
+                        "path": "versions[1].formula",
+                        "source": {
+                            "corpus_citation_path": CITATION,
+                            "excerpt": "$5,000 per prepaid tuition contract",
+                        },
+                    },
+                ]
+            }
+        }
+    }
+
+    pairs = _rule_verified_source_excerpt_pairs_by_path(rule, {CITATION: source_text})
+
+    assert pairs == {
+        "versions[0].formula": (("$4,000 per prepaid tuition contract", source_text),)
+    }
 
 
 def test_proof_evidence_accepts_code_joint_return_parenthetical():
@@ -291,3 +353,61 @@ def test_proof_scope_rejects_alpha_child_of_other_fused_numeric_parent():
     assert any(
         "outside the rule's declared subsection scope" in issue for issue in issues
     )
+
+
+_ORS_TWO_PARAGRAPHS = (
+    "(1)(a) A tax is imposed on every resident.\n"
+    "(b) The department shall adopt a table.\n"
+    "(c) The adjustment is the percentage increase.\n"
+    "(2)(a) A tax is imposed on every part-year resident.\n"
+    "(b) The part-year table applies.\n"
+    "(c) If the part-year amount is not a multiple of $25, it is rounded down.\n"
+    "(3)(a) A tax is imposed on every nonresident.\n"
+)
+
+
+def test_proof_scope_reads_later_fused_numeric_paragraphs():
+    excerpt = "(c) If the part-year amount is not a multiple of $25"
+
+    assert (
+        _evidence_issues(excerpt, _ORS_TWO_PARAGRAPHS, rule_source="ORS 316.037(2)(c)")
+        == []
+    )
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in _evidence_issues(
+            excerpt, _ORS_TWO_PARAGRAPHS, rule_source="ORS 316.037(1)(c)"
+        )
+    )
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        for issue in _evidence_issues(
+            "(c) The adjustment is the percentage increase",
+            _ORS_TWO_PARAGRAPHS,
+            rule_source="ORS 316.037(2)(c)",
+        )
+    )
+
+
+def test_quoted_excerpt_with_several_printed_forms_keeps_scope_check():
+    source_text = (
+        "(1)(a) A tax is imposed.\n"
+        "(b) The base amount is $50.\n"
+        "(2)(a) A second tax applies.\n"
+        "(b) The second amount applies.\n"
+        "(c) The amount is $ 25 per month.\n"
+        "(3)(a) A third tax applies.\n"
+        "(b) The third amount applies.\n"
+        "(c) The amount is $25 per month.\n"
+    )
+
+    for excerpt in (
+        "(c) The amount is $25 per month",
+        "“(c) The amount is $25 per month”",
+    ):
+        assert any(
+            "outside the rule's declared subsection scope" in issue
+            for issue in _evidence_issues(
+                excerpt, source_text, rule_source="ORS 316.037(1)(b)"
+            )
+        ), excerpt
