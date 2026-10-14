@@ -1,3 +1,8 @@
+## 0.2.2192
+
+- Label U.S. and other non-German complete-source branches in English with their full designation (`us/regulation/7/273/4(a)(4) [paragraph (a)(4)]`); German labels are unchanged.
+- Stop reading German sentence markers in U.S. sources (`K-40ES`, `42CFR`, `22VAC40` were "Satz" branches), and let a principal output citing a U.S. list or range such as `7 CFR 273.4(a)(3)-(5)` cover each named branch. A list counts only when nothing after it qualifies it (`in 7 CFR 273.9`, `of section 152`), and an out-of-order roman (`(a)(1)(ii), (i)`) never reaches a top-level letter.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
