@@ -30284,7 +30284,14 @@ rules:
 
     assert not _has_issue(correct, "formula branch")
     assert _has_issue(misbound_principal_proof, "formula branch", "(ii)")
-    assert _has_issue(wrong_citation_principal_proof, "formula branch", "(ii)")
+    # A wrong-citation proof leaves (ii) without a bound principal output. The
+    # formula-output finding rejects it once; no duplicate tests finding.
+    assert _has_issue(
+        wrong_citation_principal_proof,
+        "[complete-source-unit:formula-output]",
+        "explicit source computation (ii)",
+    )
+    assert not _has_issue(wrong_citation_principal_proof, "formula branch", "(ii)")
     assert _has_issue(repeated_rate, "formula branch", "(ii)")
     assert _has_issue(missing_later_case, "formula branch", "(ii)")
     assert _has_issue(unrelated_cap_masks_repeated_rate, "formula branch", "(ii)")
@@ -30648,7 +30655,14 @@ rules:
         numeric_value_is_grounded=numeric_value_is_grounded,
     )
 
-    assert _has_issue(result, "formula branch")
+    # The wrong multiplier cannot bind the source computation, so the
+    # formula-output finding rejects it (without a duplicate tests finding).
+    assert _has_issue(
+        result,
+        "[complete-source-unit:formula-output]",
+        "explicit source computation",
+    )
+    assert not _has_issue(result, "formula branch")
 
 
 @pytest.mark.parametrize(
