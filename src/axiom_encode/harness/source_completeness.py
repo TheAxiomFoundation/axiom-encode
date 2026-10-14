@@ -2186,6 +2186,269 @@ _STATUTES_AT_LARGE_NUMERIC_RECALL_CITATION = re.compile(
     r"\([ \t]*[1-9]\d{0,3}[ \t]+Stat\.[ \t]+[1-9]\d{0,5}[ \t]*\)",
     flags=re.IGNORECASE,
 )
+# US bibliographic locators that numeric recall reads as values. Each grammar
+# matches one complete citation; only the digits (and a public-law number's
+# joining dash) of its `blank_*` groups are blanked, in place, so the recall
+# view keeps its length and its marker words. A citation never crosses a
+# line, and `_us_locator_is_inert` skips any match whose neighbours could
+# join, split, re-sign or capture a numeric token outside it.
+_US_LOCATOR_DASHES = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212-"
+_US_LOCATOR_INVISIBLES = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+# Currency, percentage, sign and arithmetic/comparison marks bind a number to
+# its neighbour, as do invisible formatting characters.
+_US_LOCATOR_NUMERIC_MARKS = (
+    "$£€¢%‰+*/×÷·^=<>≤≥" + _US_LOCATOR_DASHES + _US_LOCATOR_INVISIBLES
+)
+_US_LOCATOR_BLANKED_CHARACTERS = frozenset("0123456789" + _US_LOCATOR_DASHES)
+_US_LOCATOR_CONNECTORS = frozenset(
+    {"and", "or", "to", "through", "plus", "minus", "less", "times", "by", "x", "&"}
+)
+# Words that may follow a citation without turning one of its numbers into a
+# quantity: function words and the verbs that U.S. Code, CFR and Federal
+# Register prose attaches to a citation.
+_US_LOCATOR_FOLLOWING_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "is",
+        "of",
+        "on",
+        "shall",
+        "that",
+        "the",
+        "under",
+        "was",
+        "were",
+        "which",
+        "with",
+        "added",
+        "amended",
+        "amending",
+        "applica",
+        "applicable",
+        "appli",
+        "applies",
+        "approved",
+        "designated",
+        "div",
+        "effective",
+        "enacted",
+        "inserted",
+        "issued",
+        "means",
+        "provided",
+        "provides",
+        "published",
+        "redesignated",
+        "relating",
+        "repealed",
+        "see",
+        "set",
+        "struck",
+        "subtitle",
+        "substituted",
+        "title",
+    }
+)
+_US_LOCATOR_DASH_CLASS = r"[\u2010-\u2015\u2212\-]"
+# `62 FR 61344` and `90 Fed. Reg. 27074` cite a Federal Register volume and
+# page. The marker is case-sensitive, so `CFR` and lower-case prose never
+# match.
+_FEDERAL_REGISTER_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?P<blank_volume>[1-9]\d{0,2})[ \t]+(?:FR|Fed\.[ \t]*Reg\.)[ \t]+"
+    r"(?P<blank_page>[1-9]\d{0,2}(?:,\d{3})+|[1-9]\d{0,5})"
+)
+# `Pub. L. 111-226` names the 226th public law of the 111th Congress. Main
+# already removes the `Public Law` and `P.L.` spellings of the same
+# identifier; this is the U.S. Code's own abbreviation.
+_PUB_L_NUMERIC_RECALL_CITATION = re.compile(
+    r"\bPub\.[ \t]*L\.[ \t]*(?:No\.[ \t]*)?"
+    r"(?P<blank_law>[1-9]\d{0,2}[ \t]*"
+    + _US_LOCATOR_DASH_CLASS
+    + r"[ \t]*[1-9]\d{0,3})"
+)
+# A U.S. Code editorial note recording that a paragraph was repealed,
+# omitted or transferred: `Repealed. Pub. L. 111-226, title II, § 219(a)(2),
+# Aug. 10, 2010, 124 Stat. 2403`. Every element must belong to the note
+# grammar (division, title, subtitle, section designators, the enactment date
+# and the Statutes at Large volume/pages), and the note must end at a
+# bracket, a sentence end or the end of the line. Only the public-law number
+# and the Statutes at Large volume/pages are blanked; the section designators
+# and the date are left to the existing section and date handling, exactly as
+# on main. An unparenthesized `124 Stat. 2403` outside such a note keeps its
+# values.
+_US_SESSION_LAW_MONTH_ABBREVIATION = (
+    r"(?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.?"
+)
+_US_CODE_NOTE_SECTION = r"\d{1,5}[A-Za-z]?(?:\([A-Za-z0-9]{1,5}\)){0,6}"
+_US_CODE_NOTE_ELEMENT = (
+    r"(?:div\.[ \t]+[A-Z]{1,2}|(?:sub)?title[ \t]+[IVXL]{1,6}|"
+    rf"§[ \t]*{_US_CODE_NOTE_SECTION}|"
+    rf"§§[ \t]*{_US_CODE_NOTE_SECTION}"
+    rf"(?:[ \t]*(?:,|and)[ \t]*{_US_CODE_NOTE_SECTION}){{1,8}}|"
+    r"(?:\([A-Za-z0-9]{1,5}\)){1,6})"
+)
+_US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION = re.compile(
+    r"(?:(?P<bracket>\[)[ \t]*(?:\([A-Za-z0-9]{1,5}\)[ \t]*)?)?"
+    r"(?<!\w)(?:Repealed|Omitted|Transferred)\.[ \t]+Pub\.[ \t]*L\.[ \t]*"
+    r"(?P<blank_law>[1-9]\d{0,2}" + _US_LOCATOR_DASH_CLASS + r"[1-9]\d{0,3})"
+    rf"(?:[ \t]*,[ \t]*{_US_CODE_NOTE_ELEMENT}){{0,6}}"
+    rf"[ \t]*,[ \t]*{_US_SESSION_LAW_MONTH_ABBREVIATION}[ \t]+\d{{1,2}},"
+    r"[ \t]+(?:17|18|19|20)\d{2}[ \t]*,[ \t]*"
+    # Inside a bracketed note a page list (`90 Stat. 1764, 1795`) ends at the
+    # closing bracket. An unbracketed note takes exactly one page, so a
+    # following `, 62` is never read as a page.
+    r"(?(bracket)"
+    r"(?P<blank_bracketed_statutes_at_large>[1-9]\d{0,2}[ \t]+Stat\.[ \t]+"
+    r"[1-9]\d{0,4}(?:[ \t]*,[ \t]*[1-9]\d{0,4}){0,4})"
+    r"(?=[ \t]*\.?[ \t]*\])"
+    r"|"
+    r"(?P<blank_statutes_at_large>[1-9]\d{0,2}[ \t]+Stat\.[ \t]+[1-9]\d{0,4})"
+    r"(?=[ \t]*(?:\.(?=[ \t]*$|[ \t]+[A-Z(\[])|$)))",
+    flags=re.MULTILINE,
+)
+# A year inside the title of an amending act (`the Social Security
+# Amendments of 1983`) or in the Railroad Retirement Act's two-year citation
+# (`Railroad Retirement Act of 1937 or 1974`) names a law. The tokenizer
+# already reads `<Title> Act of 1937` this way; these are the two title forms
+# it does not cover. Every title word before `Amendments` is capitalized or a
+# short connector.
+_US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION = re.compile(
+    r"\b[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"(?:[ \t]+(?:[A-Z][A-Za-z'’.]*(?:-[A-Z][A-Za-z'’.]*)*"
+    r"|and|of|the|for|on|to|in)){0,10}"
+    r"[ \t]+(?:Amendments[ \t]+of[ \t]+(?P<blank_amendments_year>(?:18|19|20)\d{2})"
+    r"|Act[ \t]+of[ \t]+(?P<blank_first_year>(?:18|19|20)\d{2})[ \t]+or[ \t]+"
+    r"(?P<blank_second_year>(?:18|19|20)\d{2}))"
+)
+# The disposition note owns its `Pub. L.` and `Stat.` numbers, so it is
+# matched whole before the standalone public-law identifier.
+_US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS = (
+    _US_CODE_DISPOSITION_NOTE_NUMERIC_RECALL_CITATION,
+    _PUB_L_NUMERIC_RECALL_CITATION,
+    _FEDERAL_REGISTER_NUMERIC_RECALL_CITATION,
+    _US_LEGAL_TITLE_YEAR_NUMERIC_RECALL_CITATION,
+)
+
+
+def _us_locator_character_is_numeric(character: str) -> bool:
+    return character.isdigit() or character in _US_LOCATOR_NUMERIC_MARKS
+
+
+def _us_locator_is_inert(text: str, start: int, end: int) -> bool:
+    """Whether blanking `text[start:end]` can affect no other numeric token.
+
+    The citation must not touch a word, number, sign, decimal point, currency
+    mark or invisible formatting character; the previous token on its line
+    must not be numeric (blanking could regroup `5 123`); and the next token,
+    after one optional comma/semicolon/colon or arithmetic/list connector,
+    must not be numeric (a marker such as `FR` or `Reg.` followed by blanks
+    could otherwise capture it as a reference). A closing bracket, a sentence
+    end or a line whose continuation is not numeric ends the check.
+    """
+
+    if start > 0:
+        previous = text[start - 1]
+        if (
+            previous.isalnum()
+            or previous in "_.,/"
+            or _us_locator_character_is_numeric(previous)
+        ):
+            return False
+        index = start
+        while index > 0 and text[index - 1] in " \t":
+            index -= 1
+        if 0 < index < start and _us_locator_character_is_numeric(text[index - 1]):
+            return False
+        # A three-letter currency code (`USD 62 FR 100`) denominates a number,
+        # and an arithmetic word (`x 62`, `times 62`, `of 62`) makes it an
+        # operand.
+        if index < start and re.search(r"(?<![A-Za-z])[A-Z]{3}$", text[:index]):
+            return False
+        previous_word = re.search(r"(?<![A-Za-z])[A-Za-z]+$|&$", text[:index])
+        if (
+            text[start].isdigit()
+            and index < start
+            and previous_word is not None
+            and previous_word.group(0).lower() in _US_LOCATOR_CONNECTORS | {"of"}
+        ):
+            return False
+    if end < len(text):
+        following = text[end]
+        if (
+            following.isalnum()
+            or following == "_"
+            or _us_locator_character_is_numeric(following)
+        ):
+            return False
+        if following in ".," and text[end + 1 : end + 2].isdigit():
+            return False
+    rest = text[end:].lstrip(" \t")
+    if not rest or rest[0] in ")]":
+        return True
+    if rest[0] in "\r\n":
+        # A paragraph label such as `(4)` or a word may open the next line; a
+        # bare number or amount may not.
+        continuation = rest.lstrip()
+        return not continuation or not _us_locator_character_is_numeric(continuation[0])
+    if rest[0] == "." and not rest[1:2].isdigit():
+        return True
+    if rest[0] in ",;:":
+        rest = rest[1:].lstrip(" \t")
+    if not rest:
+        return True
+    if rest[0] == "(":
+        # A parenthetical such as `(relating to ...)`, never `(1 + rate)`.
+        return rest[1:2].isalpha()
+    # The next word must be one that cannot denominate a quantity: a closed
+    # list of function words and citation verbs. Anything else (a unit such
+    # as `percent`, `households` or `Percent`, a number, a sign, a currency
+    # mark, a quotation) keeps the citation's numbers.
+    word = re.match(r"[A-Za-z]+|&", rest)
+    if word is None:
+        return False
+    lowered = word.group(0).lower()
+    if lowered in _US_LOCATOR_CONNECTORS:
+        following_word = rest[word.end() :].lstrip(" \t")
+        return bool(following_word) and (
+            following_word[0].isalpha() or following_word[0] == "§"
+        )
+    return lowered in _US_LOCATOR_FOLLOWING_WORDS
+
+
+def _mask_us_bibliographic_locators(text: str) -> str:
+    """Blank the digits of complete, inert US bibliographic locators."""
+
+    for locator in _US_BIBLIOGRAPHIC_NUMERIC_RECALL_LOCATORS:
+        characters: list[str] | None = None
+        for match in locator.finditer(text):
+            if not _us_locator_is_inert(text, match.start(), match.end()):
+                continue
+            if characters is None:
+                characters = list(text)
+            for name, value in match.groupdict().items():
+                if value is None or not name.startswith("blank_"):
+                    continue
+                group_start, group_end = match.span(name)
+                for index in range(group_start, group_end):
+                    if characters[index] in _US_LOCATOR_BLANKED_CHARACTERS:
+                        characters[index] = " "
+        if characters is not None:
+            text = "".join(characters)
+    return text
+
+
 _US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
 # Some US statutes abbreviate a list of U.S. Code references after the first
 # title number: `[42 U.S.C. 301 et seq., 401 et seq., ...]`. The continuation
@@ -13879,6 +14142,7 @@ def authoritative_numeric_recall_text(
             lambda match: re.sub(r"\d", " ", match.group(0)),
             cleaned,
         )
+        cleaned = _mask_us_bibliographic_locators(cleaned)
         if "/manual/" in corpus_citation_path:
             cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub(
                 lambda match: (
