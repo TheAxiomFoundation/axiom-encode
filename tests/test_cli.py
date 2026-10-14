@@ -42833,8 +42833,7 @@ class TestGuardGenerated:
             importer = repo / unchanged_importer
             self._source_backed_rule(importer)
             importer.write_text(
-                importer.read_text()
-                + f"imports:\n  - {importer_ref}\n"
+                importer.read_text() + f"imports:\n  - {importer_ref}\n"
             )
         waiver = repo / "known-validation-gaps.yaml"
         waiver.write_text(base_waiver_text)

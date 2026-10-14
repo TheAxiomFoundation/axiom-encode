@@ -22393,10 +22393,8 @@ def _guard_manifest_waiver_set_identity(
     )
     if unrelated:
         return current_waiver_set_sha256, [
-            prefix
-            + "removed entries must name changed protected RuleSpec modules or "
-            "unchanged direct importers of them: "
-            + ", ".join(unrelated)
+            prefix + "removed entries must name changed protected RuleSpec modules or "
+            "unchanged direct importers of them: " + ", ".join(unrelated)
         ]
     invalid_states = [
         path
@@ -22453,8 +22451,7 @@ def _unchanged_direct_importer_of_changed_rulespec(
         changed_anchor = _rulespec_anchor_base_for_output(repo_path, Path(changed_path))
         changed_jurisdiction, changed_target = changed_anchor.split(":", 1)
         if changed_anchor in imports or (
-            changed_jurisdiction == importer_jurisdiction
-            and changed_target in imports
+            changed_jurisdiction == importer_jurisdiction and changed_target in imports
         ):
             return True
     return False
