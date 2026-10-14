@@ -488,10 +488,11 @@ def _validate_source_proof_atom(
                 if not isinstance(evidence_text, str) or not evidence_text.strip():
                     continue
                 evidence_text = evidence_text.strip()
-                if not _source_contains_proof_evidence(
+                located_evidence = _located_proof_evidence(
                     source_text=resolved_text,
                     evidence_text=evidence_text,
-                ):
+                )
+                if located_evidence is None:
                     issues.append(
                         "Proof source evidence not found: "
                         f"{label} `source.{field}` does not appear in "
@@ -501,10 +502,7 @@ def _validate_source_proof_atom(
                     issues.extend(
                         _proof_excerpt_subsection_scope_issues(
                             source_text=resolved_text,
-                            evidence_text=_source_aligned_proof_evidence(
-                                source_text=resolved_text,
-                                evidence_text=evidence_text,
-                            ),
+                            evidence_text=located_evidence,
                             rule_source=rule_source,
                             label=label,
                             field=field,
@@ -654,54 +652,44 @@ def _source_contains_proof_evidence(
     source_text: str,
     evidence_text: str,
 ) -> bool:
+    return (
+        _located_proof_evidence(source_text=source_text, evidence_text=evidence_text)
+        is not None
+    )
+
+
+def _located_proof_evidence(*, source_text: str, evidence_text: str) -> str | None:
+    """Return the evidence as the source prints it, or None when it is absent.
+
+    An excerpt the source contains as written (up to whitespace, or a maqaf
+    wrap) is returned unchanged. An excerpt that matches only through the
+    typographic view is returned as the one exact source span it matched, so
+    structural checks such as subsection scope read the printed source text
+    rather than the model's typography; an ambiguous typographic match keeps
+    the excerpt as written.
+    """
     normalized_evidence = collapse_evidence_whitespace(evidence_text)
     if not normalized_evidence:
-        return False
+        return None
     maqaf_evidence = collapse_evidence_whitespace(bind_maqaf_space(evidence_text))
     for segment in split_proof_evidence_text(source_text):
         if _bounded_source_evidence_match(evidence_text, segment):
-            return True
+            return evidence_text
         normalized_segment = collapse_evidence_whitespace(segment)
         if _bounded_source_evidence_match(normalized_evidence, normalized_segment):
-            return True
+            return evidence_text
         if "\u05be" in segment and _bounded_source_evidence_match(
             maqaf_evidence, collapse_evidence_whitespace(bind_maqaf_space(segment))
         ):
-            return True
-    return bool(
-        _typographic_source_evidence_spans(
-            source_text=source_text,
-            evidence_text=evidence_text,
-        )
-    )
-
-
-def _source_aligned_proof_evidence(*, source_text: str, evidence_text: str) -> str:
-    """Return the source's own spelling of evidence matched only typographically.
-
-    An excerpt the source contains as written is returned unchanged. An excerpt
-    that matches only after typographic normalization is replaced by the one
-    exact source span it matched, so structural checks (subsection scope,
-    clause binding) read the printed source text rather than the model's
-    typography. Ambiguous typographic matches keep the excerpt as written.
-    """
-    evidence = evidence_text.strip()
-    for segment in split_proof_evidence_text(source_text):
-        if _bounded_source_evidence_match(evidence, segment):
-            return evidence
-        if _bounded_source_evidence_match(
-            collapse_evidence_whitespace(evidence),
-            collapse_evidence_whitespace(segment),
-        ):
-            return evidence
+            return evidence_text
     spans = _typographic_source_evidence_spans(
         source_text=source_text,
-        evidence_text=evidence,
+        evidence_text=evidence_text,
     )
-    if len({source_text[start:end] for start, end in spans}) == 1:
-        start, end = spans[0]
-        return source_text[start:end]
-    return evidence
+    if not spans:
+        return None
+    printed = {source_text[start:end] for start, end in spans}
+    return printed.pop() if len(printed) == 1 else evidence_text
 
 
 # Typographic normalization for proof evidence. A PDF, an HTML export and a

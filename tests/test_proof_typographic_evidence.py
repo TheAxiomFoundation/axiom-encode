@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from axiom_encode.harness.proof_validator import (
-    _source_aligned_proof_evidence,
+    _located_proof_evidence,
     _source_contains_proof_evidence,
     _source_proof_evidence_spans,
     validate_rulespec_proofs,
@@ -205,7 +205,7 @@ def test_typographic_match_reports_exact_source_span():
         "twenty- ﬁve dollars ($25)"
     ]
     assert (
-        _source_aligned_proof_evidence(
+        _located_proof_evidence(
             source_text=source_text,
             evidence_text="twenty-five dollars ($25)",
         )
@@ -280,9 +280,7 @@ def test_proof_scope_reads_fused_numeric_and_alpha_markers():
         "is not a multiple of $50"
     )
 
-    assert (
-        _evidence_issues(excerpt, _ORS_SOURCE, rule_source="ORS 316.037(1)(e)") == []
-    )
+    assert _evidence_issues(excerpt, _ORS_SOURCE, rule_source="ORS 316.037(1)(e)") == []
 
 
 def test_proof_scope_rejects_alpha_child_of_other_fused_numeric_parent():
