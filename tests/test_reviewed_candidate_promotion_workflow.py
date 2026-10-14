@@ -588,6 +588,12 @@ def test_nested_or_nonobject_flags_cannot_skip_approval(
         '{"reviewed_candidate_promotion":true,"reviewed_candidate_promotion":false}',
         '{"reviewed_candidate_promotion":false,"reviewed_candidate_promotion":true}',
         '{"transaction":{"x":1,"x":2}}',
+        # Python's json module accepts these non-JSON constants by default.
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        '{"x":NaN}',
+        '{"reviewed_candidate_promotion":true,"x":NaN}',
     ],
 )
 def test_ambiguous_or_malformed_json_fails_classification(

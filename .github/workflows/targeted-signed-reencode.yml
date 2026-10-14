@@ -187,9 +187,13 @@ jobs:
                   result[key] = value
               return result
 
+          def reject_constant(name):
+              raise ValueError(f"atomic source JSON uses non-JSON constant {name}")
+
           payload = json.loads(
               os.environ.get("ATOMIC_SOURCE_JSON") or "[]",
               object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
           )
           is_promotion = (
               isinstance(payload, dict)
@@ -321,10 +325,16 @@ jobs:
                   result[key] = value
               return result
 
-          dispatch = json.loads(os.environ["DISPATCH_INPUTS_JSON"])
+          def reject_constant(name):
+              raise ValueError(f"promotion inputs use non-JSON constant {name}")
+
+          dispatch = json.loads(
+              os.environ["DISPATCH_INPUTS_JSON"], parse_constant=reject_constant
+          )
           payload = json.loads(
               dispatch.get("source_bundle_json") or "[]",
               object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
           )
           is_promotion = (
               isinstance(payload, dict)

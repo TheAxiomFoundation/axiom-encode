@@ -1261,7 +1261,7 @@ def render_summary(results: Iterable[dict[str, Any]]) -> str:
             lines.append(f"**Error:** {result['error']}")
             lines.append("")
         if result["waiting_for_approval"]:
-            lines.append("Waiting for `generation-approval` approval:")
+            lines.append("Waiting for approval:")
             lines.extend(
                 f"- [{run['citation']}]({run['url']})"
                 for run in result["waiting_for_approval"]
