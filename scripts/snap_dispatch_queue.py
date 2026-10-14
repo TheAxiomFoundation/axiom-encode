@@ -46,6 +46,7 @@ BUDGET_JOB = "Enforce failed-attempt budget"
 # Refuses, before approval and model spend, a run whose encoder the rulespec
 # pin cannot admit. Every run against that rulespec tip fails the same way.
 ADMISSION_JOB = "Check RuleSpec encoder pin admission"
+ADMISSION_STEP = "Refuse an encoder the RuleSpec pin cannot admit"
 # How long a pin-admission refusal holds dispatch on an unchanged rulespec tip.
 INADMISSIBLE_HOLD = timedelta(hours=24)
 RUN_TITLE_PREFIX = "Targeted signed RuleSpec re-encode [adhoc:adhoc:adhoc] "
@@ -722,8 +723,15 @@ def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
         job.get("name") == BUDGET_JOB and job.get("conclusion") == "failure"
         for job in jobs
     )
+    # Only the refusal step itself; a checkout or runner failure in that job
+    # is an ordinary failure, not a verdict on the pin.
     encoder_inadmissible = any(
-        job.get("name") == ADMISSION_JOB and job.get("conclusion") == "failure"
+        job.get("name") == ADMISSION_JOB
+        and job.get("conclusion") == "failure"
+        and any(
+            step.get("name") == ADMISSION_STEP and step.get("conclusion") == "failure"
+            for step in job.get("steps") or []
+        )
         for job in jobs
     )
     for job in jobs:

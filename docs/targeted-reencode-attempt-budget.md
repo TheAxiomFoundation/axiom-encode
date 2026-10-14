@@ -115,7 +115,10 @@ that opens a pull request (`open_pr: true`) and whose encoder the pin cannot
 admit fails there, and the encode job is skipped. An artifact-only run is
 reported and not blocked. A refused run does not count against the
 failed-attempt budget, and the SNAP dispatch queue neither counts it as an
-attempt nor dispatches again against the same RuleSpec tip for a day.
+attempt nor dispatches again against the same RuleSpec tip for a day. The
+protected signed queue (`scripts/prepare_signed_queue.py`) does not yet tell a
+refusal apart: its item becomes `failed-workflow-run:failure` until a person
+bumps the attempt, so move the pin before resuming such a queue.
 
 To unblock, move the target repository's `axiom_encode_ref` to an admissible
 encoder first: today, a commit that contains #1883 (`b5e85ab4`, 0.2.2187) or a

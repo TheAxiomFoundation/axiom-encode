@@ -400,6 +400,18 @@ def apply(
     """
 
     done = []
+    if only is not None:
+        actions = {decision.number: decision.action for decision in decisions}
+        for number in sorted(only):
+            if actions.get(number) != "close":
+                done.append(
+                    f"skipped #{number}: the new plan "
+                    + (
+                        f"says {actions[number]}"
+                        if number in actions
+                        else "does not list it"
+                    )
+                )
     for decision in decisions:
         if decision.action != "close":
             continue
@@ -470,6 +482,8 @@ def main(argv: list[str] | None = None, github: GitHub | None = None) -> int:
     args = parser.parse_args(argv)
     if COUNTRY_PATTERN.fullmatch(args.country) is None:
         parser.error("--country must be a two-letter lowercase country code")
+    if args.only is not None and not args.apply:
+        parser.error("--only selects PRs for --apply; a dry run always lists all")
     repo = args.repo or f"TheAxiomFoundation/rulespec-{args.country}"
     client = github if github is not None else ApiGitHub(_token())
 

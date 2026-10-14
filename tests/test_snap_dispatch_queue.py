@@ -729,9 +729,10 @@ def _refused_by_pin_admission() -> list[dict[str, Any]]:
             "conclusion": "failure",
             "steps": [
                 {
-                    "name": "Refuse an encoder the RuleSpec pin cannot admit",
-                    "conclusion": "failure",
-                }
+                    "name": "Checkout RuleSpec workflow toolchain",
+                    "conclusion": "success",
+                },
+                {"name": q.ADMISSION_STEP, "conclusion": "failure"},
             ],
         },
         {"name": q.BUDGET_JOB, "conclusion": "success", "steps": []},
@@ -764,6 +765,39 @@ def test_an_inadmissible_encoder_pin_holds_dispatch_without_counting():
     _tick(state, github, now=NOW + timedelta(hours=2))
     assert len(github.dispatches) == 2
     assert github.dispatches[-1]["inputs"]["rulespec_ref"] == "b" * 40
+
+
+def test_admission_job_and_step_names_match_the_encode_workflow():
+    workflow = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/targeted-signed-reencode.yml"
+        ).read_text()
+    )
+    job = workflow["jobs"]["encoder_pin_admission"]
+    assert job["name"] == q.ADMISSION_JOB
+    assert q.ADMISSION_STEP in [step.get("name") for step in job["steps"]]
+    assert workflow["jobs"]["attempt_budget"]["name"] == q.BUDGET_JOB
+
+
+def test_a_checkout_failure_in_the_admission_job_counts_as_usual():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    github.finish(_run_id(item), "failure")
+    jobs = _refused_by_pin_admission()
+    jobs[0]["steps"] = [
+        {"name": "Checkout RuleSpec workflow toolchain", "conclusion": "failure"},
+        {"name": q.ADMISSION_STEP, "conclusion": "skipped"},
+    ]
+    github.jobs[_run_id(item)] = jobs
+
+    result = _tick(state, github)
+
+    assert item["attempts"][0]["result"] == "failure"
+    assert q._counted(item) == 1
+    assert result["hold"] is None
 
 
 def test_an_inadmissible_pin_hold_expires_after_a_day():

@@ -340,15 +340,31 @@ def test_apply_closes_then_comments_without_deleting_branches() -> None:
     assert "superseded by #1371" in github.writes[1][2]["body"]
 
 
-def test_apply_only_acts_on_the_reviewed_numbers() -> None:
+def test_apply_only_acts_on_the_reviewed_numbers(capsys) -> None:
     github = FakeGitHub(
-        [_pull(1370, MEMO), _pull(1371, MEMO), _pull(1351, COLA), _pull(1352, COLA)]
+        [
+            _pull(1370, MEMO, draft=False),
+            _pull(1371, MEMO),
+            _pull(1351, COLA),
+            _pull(1352, COLA),
+        ]
     )
-    assert closer.main(["--apply", "--only", "1351,9999"], github=github) == 0
+    assert closer.main(["--apply", "--only", "1351,1370,9999"], github=github) == 0
     assert [path for _method, path, _body in github.writes] == [
         f"repos/{REPO}/pulls/1351",
         f"repos/{REPO}/issues/1351/comments",
     ]
+    out = capsys.readouterr().out
+    assert "skipped #1370: the new plan says keep" in out
+    assert "skipped #9999: the new plan does not list it" in out
+    assert "closed #1351" in out
+
+
+def test_only_requires_apply() -> None:
+    github = FakeGitHub([_pull(1370, MEMO), _pull(1371, MEMO)])
+    with pytest.raises(SystemExit):
+        closer.main(["--only", "1370"], github=github)
+    assert github.writes == []
 
 
 @pytest.mark.parametrize("raw", ["", "abc", "0", "1370,x"])
