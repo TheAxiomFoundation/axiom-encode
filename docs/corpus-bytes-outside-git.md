@@ -246,10 +246,10 @@ provisions files directly, so they place them first. In a checkout with
    `us-ut/manual/` on disk and from the checkout's locks
    (`corpus_materialize.locked_directory_listing`): every
    `.axiom/corpus-locks/<state>/manual/<version>.json` that pins a
-   `<version>.jsonl` there. A pre-switch checkout lists the same files once
-   they are fetched. So a locked scope that the release omits fails the build
-   ("signed release omits queue source artifact"), as a tracked one does
-   before the switch. A release artifact that the checkout neither locks nor
+   `<version>.jsonl` there. Those are the files a pre-switch checkout of the
+   same content holds there. So a locked scope that the release omits fails
+   the build ("signed release omits queue source artifact"), as a tracked one
+   does before the switch. A release artifact that the checkout neither locks nor
    holds is not listed, as before. `build-snap-all-states` takes its paths
    from the state inventory and the release manifest, as before.
 2. The provenance checks run unchanged: the checkout's `HEAD` is the queue's
