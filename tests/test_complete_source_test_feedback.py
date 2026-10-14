@@ -156,7 +156,7 @@ def test_boundary_finding_names_source_text_covering_output_and_input():
     detail = issue.split(MISSING_BOUNDARY_DETAIL_MARKER, 1)[1]
     assert "less than $500 is eligible" in detail
     assert "covering principal output(s) `household_eligible`" in detail
-    assert "compared numeric input(s) `countable_income`" in detail
+    assert "input(s) compared directly with 500 `countable_income`" in detail
     assert "to exactly the listed value" in detail
     assert result.companion_test_obligations == (
         CompanionTestObligation(
@@ -245,6 +245,66 @@ def test_no_synthesis_input_when_the_input_is_not_compared_directly(formula):
         obligation.kind == "boundary"
         for obligation in result.companion_test_obligations
     )
+    [issue] = _boundary_issues(result)
+    assert "no input is compared directly with 500" in issue
+
+
+def test_fractional_boundary_is_never_proposed_for_an_integer_input():
+    content = HEADER.replace(
+        "__FORMULA__", "countable_income < income_limit"
+    ) + MINOR_RULES.replace("formula: 18\n", "formula: 18.5\n").replace(
+        "less than 18 years", "less than 18.5 years"
+    ).replace("excerpt: less than 18 years of age", "excerpt: less than 18.5")
+    source = SOURCE.replace("less than 18 years", "less than 18.5 years")
+    result = analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=CITATION,
+        test_cases=[
+            *ELIGIBILITY_CASES,
+            _case("child", {"member_is_minor": "holds"}, member_age=10),
+            _case("adult", {"member_is_minor": "not_holds"}, member_age=40),
+        ],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+    assert any("(b)=18.5" in _listed(issue) for issue in _boundary_issues(result))
+    assert not any(
+        obligation.label == "(b)=18.5"
+        for obligation in result.companion_test_obligations
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("more than 1 qualifying child", (2.0,)),
+        ("at least 3 qualifying children", (3.0, 4.0)),
+        ("more than 2.5 hours", (2.525,)),
+    ],
+)
+def test_range_probes_stay_inside_the_source_range(text, expected):
+    from axiom_encode.harness.source_completeness import (
+        _formula_interval_from_text,
+        _interval_probe_values,
+    )
+
+    interval = _formula_interval_from_text(
+        text,
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+    )
+
+    assert interval is not None
+    assert _interval_probe_values(interval) == expected
 
 
 def test_principal_output_and_clamp_obligations_name_their_targets():

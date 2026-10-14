@@ -7499,6 +7499,75 @@ def _build_existing_target_oracle_contract_for_file(
     )
 
 
+def _eval_existing_target_oracle_contract(
+    rulespec_file: Path,
+    policy_repo_root: Path,
+) -> ExistingTargetOracleContract | None:
+    """Bind the existing canonical target's oracle contract, when one exists."""
+
+    relative_target = _relative_rulespec_source_path(rulespec_file)
+    if relative_target is None:
+        return None
+    existing_target = Path(policy_repo_root).resolve() / relative_target
+    if not existing_target.is_file() or existing_target.is_symlink():
+        return None
+    target = (
+        f"{Path(policy_repo_root).name}:{relative_target.with_suffix('').as_posix()}"
+    )
+    return _build_existing_target_oracle_contract_for_file(
+        existing_target,
+        target=target,
+    )
+
+
+def _eval_validator_pipeline(
+    *,
+    validation_file: Path,
+    policy_repo_root: Path,
+    axiom_rules_path: Path,
+    axiom_compose_path: Path | None,
+    oracle: EvalOracleMode,
+    policyengine_runtime: PolicyEngineRuntime | None,
+    policyengine_rule_hint: str | None,
+    source_text: str,
+    source_metadata: dict[str, object] | None,
+    local_corpus_release: _corpus_resolver.LocalCorpusRelease,
+    source_citation_path: str | None,
+    rulespec_dependency_roots: Sequence[Path],
+    require_complete_source_unit: bool,
+    amendment_documents: Sequence[CorpusAmendmentDocument],
+    existing_target_oracle_contract: ExistingTargetOracleContract | None,
+) -> ValidatorPipeline:
+    """Build the one validation pipeline used to evaluate and to repair."""
+
+    return ValidatorPipeline(
+        policy_repo_path=_validation_policy_repo_root(
+            validation_file, policy_repo_root
+        ),
+        axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
+        enable_oracles=oracle != "none",
+        policyengine_runtime=policyengine_runtime,
+        policyengine_rule_hint=policyengine_rule_hint,
+        require_policy_proofs=True,
+        source_text=source_text,
+        source_metadata=source_metadata,
+        local_corpus_release=local_corpus_release,
+        source_citation_path=source_citation_path,
+        rulespec_dependency_roots=_validation_rulespec_dependency_roots(
+            validation_file=validation_file,
+            policy_repo_root=policy_repo_root,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        ),
+        validation_staging_root=_RULESPEC_VALIDATION_STAGING_ROOT.get(),
+        require_complete_source_unit=require_complete_source_unit,
+        amendment_source_texts={
+            document.citation_path: document.body for document in amendment_documents
+        },
+        existing_target_oracle_contract=existing_target_oracle_contract,
+    )
+
+
 def _evaluate_artifact_in_scope(
     rulespec_file: Path,
     policy_repo_root: Path,
@@ -7520,21 +7589,9 @@ def _evaluate_artifact_in_scope(
     axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
-    existing_target_oracle_contract: ExistingTargetOracleContract | None = None
-    relative_target = _relative_rulespec_source_path(rulespec_file)
-    if relative_target is not None:
-        existing_target = Path(policy_repo_root).resolve() / relative_target
-        if existing_target.is_file() and not existing_target.is_symlink():
-            target = (
-                f"{Path(policy_repo_root).name}:"
-                f"{relative_target.with_suffix('').as_posix()}"
-            )
-            existing_target_oracle_contract = (
-                _build_existing_target_oracle_contract_for_file(
-                    existing_target,
-                    target=target,
-                )
-            )
+    existing_target_oracle_contract = _eval_existing_target_oracle_contract(
+        rulespec_file, policy_repo_root
+    )
     with _rulespec_validation_target(
         rulespec_file,
         policy_repo_root,
@@ -7542,34 +7599,21 @@ def _evaluate_artifact_in_scope(
         legacy_replacement=legacy_replacement,
         replacement_overlay_scope=replacement_overlay_scope,
     ) as validation_file:
-        validation_policy_repo_root = _validation_policy_repo_root(
-            validation_file, policy_repo_root
-        )
-        validation_staging_root = _RULESPEC_VALIDATION_STAGING_ROOT.get()
-        validation_dependency_roots = _validation_rulespec_dependency_roots(
+        pipeline = _eval_validator_pipeline(
             validation_file=validation_file,
             policy_repo_root=policy_repo_root,
-            rulespec_dependency_roots=rulespec_dependency_roots,
-        )
-        pipeline = ValidatorPipeline(
-            policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             axiom_compose_path=axiom_compose_path,
-            enable_oracles=oracle != "none",
+            oracle=oracle,
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
-            require_policy_proofs=True,
             source_text=source_text,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
-            rulespec_dependency_roots=validation_dependency_roots,
-            validation_staging_root=validation_staging_root,
+            rulespec_dependency_roots=rulespec_dependency_roots,
             require_complete_source_unit=require_complete_source_unit,
-            amendment_source_texts={
-                document.citation_path: document.body
-                for document in amendment_documents
-            },
+            amendment_documents=amendment_documents,
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
         compile_result = pipeline._run_compile_check(validation_file)
@@ -7986,11 +8030,15 @@ def _evaluate_generated_artifact_with_repairs(
                 policy_repo_root=policy_repo_root,
                 axiom_rules_path=axiom_rules_path,
                 axiom_compose_path=axiom_compose_path,
+                oracle=oracle,
+                policyengine_runtime=policyengine_runtime,
+                policyengine_rule_hint=policyengine_rule_hint,
                 source_text=source_text,
                 local_corpus_release=local_corpus_release,
                 source_metadata=source_metadata,
                 source_citation_path=source_citation_path,
                 rulespec_dependency_roots=rulespec_dependency_roots,
+                amendment_documents=amendment_documents,
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
             )
@@ -8015,20 +8063,25 @@ def _append_synthesized_complete_source_companion_cases(
     policy_repo_root: Path,
     axiom_rules_path: Path,
     axiom_compose_path: Path | None,
+    oracle: EvalOracleMode = "none",
+    policyengine_runtime: PolicyEngineRuntime | None = None,
+    policyengine_rule_hint: str | None = None,
     source_text: str,
     local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     source_metadata: dict[str, object] | None,
     source_citation_path: str | None,
     rulespec_dependency_roots: Sequence[Path],
+    amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None,
     replacement_overlay_scope: bool,
 ) -> list[str]:
     """Append engine-executed companion cases that the validator credits.
 
-    The validation pipeline proposes, executes, credits, and screens each case
-    in the same staged overlay that evaluation uses; this function only appends
-    the returned cases to the generated companion file. Any failure leaves the
-    file untouched so the demand stays visible to the model.
+    The validation pipeline (built exactly as evaluation builds it) proposes,
+    executes, credits, and screens each case in the same staged overlay that
+    evaluation uses; this function only appends the returned cases to the
+    generated companion file. Any failure leaves the file untouched so the
+    demand stays visible to the model.
     """
 
     test_file = _rulespec_test_path(rulespec_file)
@@ -8039,7 +8092,8 @@ def _append_synthesized_complete_source_companion_cases(
         existing = yaml.safe_load(original.decode()) or []
     except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError):
         return []
-    if not isinstance(existing, list):
+    existing_cases = existing.get("cases") if isinstance(existing, dict) else existing
+    if not isinstance(existing_cases, list):
         return []
     try:
         with (
@@ -8053,25 +8107,26 @@ def _append_synthesized_complete_source_companion_cases(
                 replacement_overlay_scope=replacement_overlay_scope,
             ) as validation_file,
         ):
-            pipeline = ValidatorPipeline(
-                policy_repo_path=_validation_policy_repo_root(
-                    validation_file, policy_repo_root
-                ),
+            pipeline = _eval_validator_pipeline(
+                validation_file=validation_file,
+                policy_repo_root=policy_repo_root,
                 axiom_rules_path=axiom_rules_path,
                 axiom_compose_path=axiom_compose_path,
-                enable_oracles=False,
-                require_policy_proofs=True,
+                oracle=oracle,
+                policyengine_runtime=policyengine_runtime,
+                policyengine_rule_hint=policyengine_rule_hint,
                 source_text=source_text,
                 source_metadata=source_metadata,
                 local_corpus_release=local_corpus_release,
                 source_citation_path=source_citation_path,
-                rulespec_dependency_roots=_validation_rulespec_dependency_roots(
-                    validation_file=validation_file,
-                    policy_repo_root=policy_repo_root,
-                    rulespec_dependency_roots=rulespec_dependency_roots,
-                ),
-                validation_staging_root=_RULESPEC_VALIDATION_STAGING_ROOT.get(),
+                rulespec_dependency_roots=rulespec_dependency_roots,
                 require_complete_source_unit=True,
+                amendment_documents=amendment_documents,
+                existing_target_oracle_contract=(
+                    _eval_existing_target_oracle_contract(
+                        rulespec_file, policy_repo_root
+                    )
+                ),
             )
             synthesized = pipeline.synthesize_complete_source_companion_cases(
                 validation_file,
@@ -8083,7 +8138,7 @@ def _append_synthesized_complete_source_companion_cases(
         # demand pending for model feedback.
         return []
     existing_names = {
-        str(case.get("name") or "") for case in existing if isinstance(case, dict)
+        str(case.get("name") or "") for case in existing_cases if isinstance(case, dict)
     }
     synthesized = [
         case
@@ -8093,9 +8148,37 @@ def _append_synthesized_complete_source_companion_cases(
     if not synthesized or test_file.read_bytes() != original:
         return []
     test_file.write_text(
-        yaml.safe_dump([*existing, *synthesized], sort_keys=False, allow_unicode=True)
+        _companion_file_with_appended_cases(original.decode(), existing, synthesized)
     )
     return [str(case["name"]) for case in synthesized]
+
+
+def _companion_file_with_appended_cases(
+    original: str,
+    existing: list[Any] | dict[str, Any],
+    cases: list[dict[str, Any]],
+) -> str:
+    """Append cases as text, keeping the model's comments and formatting.
+
+    A top-level case list gains a text suffix only when re-reading it yields
+    exactly the old cases plus the new ones; otherwise (or for a mapping with
+    `cases`) the file is re-serialized.
+    """
+
+    if isinstance(existing, list):
+        separator = "" if original.endswith("\n") or not original else "\n"
+        appended = (
+            original
+            + separator
+            + yaml.safe_dump(cases, sort_keys=False, allow_unicode=True)
+        )
+        with contextlib.suppress(ValueError, yaml.YAMLError):
+            if yaml.safe_load(appended) == [*existing, *cases]:
+                return appended
+        return yaml.safe_dump([*existing, *cases], sort_keys=False, allow_unicode=True)
+    updated = dict(existing)
+    updated["cases"] = [*existing["cases"], *cases]
+    return yaml.safe_dump(updated, sort_keys=False, allow_unicode=True)
 
 
 def _rebind_retained_candidate_proof_import_hashes(

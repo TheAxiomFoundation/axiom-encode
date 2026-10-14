@@ -45,7 +45,9 @@ SYNTHESIZABLE_TEST_ISSUE_MARKERS = (
 )
 
 EvaluateCase = Callable[[dict[str, Any], tuple[str, ...]], Mapping[str, Any] | None]
-AnalyzeCases = Callable[[list[dict[str, Any]]], Sequence[str]]
+# Returns the findings for a case list, or an analysis object carrying
+# ``issues`` and ``companion_test_obligations``.
+AnalyzeCases = Callable[[list[dict[str, Any]]], object]
 
 
 @dataclass(frozen=True)
@@ -71,15 +73,23 @@ def obligation_key(obligation: CompanionTestObligation) -> tuple[str, str]:
     return (obligation.kind, obligation.label)
 
 
-def companion_obligation_keys(issues: Iterable[object]) -> frozenset[tuple[str, str]]:
+def companion_obligation_keys(
+    issues: Iterable[object],
+    obligations: Iterable[CompanionTestObligation] = (),
+) -> frozenset[tuple[str, str]]:
     """Split findings into individually creditable keys.
 
     Grouped test findings (boundary lists, clamp lists) contribute one key per
     listed demand, and per-branch findings are keyed by branch identity rather
     than by the observed-period detail that changes when a case is added.
-    Every other finding is keyed by its full text.
+    Every other finding is keyed by its full text. The clamp finding shows a
+    bounded list, so its keys come from the analysis' complete clamp
+    obligations whenever the caller supplies them.
     """
 
+    clamp_labels = [
+        obligation.label for obligation in obligations if obligation.kind == "clamp"
+    ]
     keys: set[tuple[str, str]] = set()
     for issue in issues:
         text = str(issue)
@@ -101,6 +111,9 @@ def companion_obligation_keys(issues: Iterable[object]) -> frozenset[tuple[str, 
                 keys.add(("formula-branch", branch.group(1)))
                 continue
             if "Direct nonnegative clamp companion evidence is missing for" in text:
+                if clamp_labels:
+                    keys.update(("clamp", label) for label in clamp_labels)
+                    continue
                 clamps = re.findall(r"`max\(0, [^`]+\)` in `[^`]+`", text)
                 keys.update(("clamp", clamp) for clamp in clamps)
                 omitted = re.search(r"\((\d+) additional clamps omitted\)", text)
@@ -373,27 +386,54 @@ def propose_companion_cases(
     return ordered
 
 
+def _analysis_keys(result: object) -> frozenset[tuple[str, str]]:
+    """Key an analysis result, or a bare finding list, for credit checks."""
+
+    if hasattr(result, "issues"):
+        return companion_obligation_keys(
+            result.issues,
+            getattr(result, "companion_test_obligations", ()),
+        )
+    return companion_obligation_keys(result)  # type: ignore[arg-type]
+
+
 def synthesize_companion_cases(
     *,
     test_cases: Sequence[object],
     proposals: Sequence[CompanionCaseProposal],
     evaluate_case: EvaluateCase,
     analyze_cases: AnalyzeCases,
+    baseline: object | None = None,
     max_analyses: int = 32,
     time_budget_seconds: float = 180.0,
 ) -> list[dict[str, Any]]:
-    """Keep executed proposals that the complete-source analysis credits."""
+    """Keep executed proposals that the complete-source analysis credits.
+
+    ``analyze_cases`` returns the findings (or an analysis carrying
+    ``issues`` and ``companion_test_obligations``) for a full case list; the
+    caller should include every companion-test finding its validator raises,
+    so a proposal that trips any other check is never kept. ``baseline`` is
+    that result for ``test_cases`` when the caller already has it.
+    """
 
     current_cases = [case for case in test_cases if isinstance(case, dict)]
-    current_keys = companion_obligation_keys(analyze_cases(list(current_cases)))
+    current_keys = _analysis_keys(
+        baseline if baseline is not None else analyze_cases(list(current_cases))
+    )
     accepted: list[dict[str, Any]] = []
     analyses = 0
+    evaluations = 0
     deadline = time.monotonic() + time_budget_seconds
     for proposal in proposals:
-        if analyses >= max_analyses or time.monotonic() > deadline:
+        if (
+            analyses >= max_analyses
+            or evaluations >= 4 * max_analyses
+            or time.monotonic() > deadline
+        ):
             break
         if obligation_key(proposal.obligation) not in current_keys:
             continue
+        evaluations += 1
         try:
             outputs = evaluate_case(copy.deepcopy(proposal.case), proposal.output_keys)
         except Exception:
@@ -403,9 +443,7 @@ def synthesize_companion_cases(
         case = {**copy.deepcopy(proposal.case), "output": dict(outputs)}
         analyses += 1
         try:
-            trial_keys = companion_obligation_keys(
-                analyze_cases([*current_cases, case])
-            )
+            trial_keys = _analysis_keys(analyze_cases([*current_cases, case]))
         except Exception:
             continue
         if trial_keys < current_keys:

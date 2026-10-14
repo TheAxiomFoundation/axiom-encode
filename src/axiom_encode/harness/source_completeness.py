@@ -19182,33 +19182,20 @@ def _boundary_selector_input_names(
     rule_names: Sequence[str],
     *,
     principal_rules: dict[str, dict[str, Any]],
-    declared_input_names: set[str],
-    input_declarations: Mapping[str, dict[str, Any]],
+    numeric_input_names: set[str],
 ) -> tuple[str, ...]:
-    """Return declared numeric inputs compared in covering formulas."""
+    """Return declared numeric inputs that covering formulas select on."""
 
-    selectors: set[str] = set()
-    pending = list(rule_names)
-    visited: set[str] = set()
-    while pending and len(visited) < 32:
-        name = pending.pop()
-        if name in visited or name not in principal_rules:
-            continue
-        visited.add(name)
-        rule = principal_rules[name]
-        selectors.update(_rule_numeric_selector_names(rule))
-        pending.extend(
-            set(_FORMULA_IDENTIFIER.findall(_rule_formula_text(rule)))
-            & set(principal_rules)
-        )
     return tuple(
         sorted(
-            name
-            for name in selectors & declared_input_names
-            if str((input_declarations.get(name) or {}).get("dtype") or "")
-            .strip()
-            .lower()
-            not in _NON_NUMERIC_INPUT_DTYPES
+            {
+                name
+                for rule_name in _principal_rule_closure(
+                    rule_names, principal_rules=principal_rules
+                )
+                for name in _rule_numeric_selector_names(principal_rules[rule_name])
+            }
+            & numeric_input_names
         )
     )
 
@@ -19216,13 +19203,17 @@ def _boundary_selector_input_names(
 def _missing_boundary_repair_detail(
     missing_boundaries: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
     *,
+    direct_boundary_inputs: Mapping[int, tuple[str, ...]],
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
-    declared_input_names: set[str],
-    input_declarations: Mapping[str, dict[str, Any]],
+    numeric_input_names: set[str],
     corpus_citation_path: str,
 ) -> str:
-    """Explain, per missing boundary, the source text and the case to add."""
+    """Explain, per missing boundary, the source text and the case to add.
+
+    ``direct_boundary_inputs`` holds, by position, the inputs a covering
+    formula compares directly with that boundary (the ones synthesis sets).
+    """
 
     def bounded(names: Sequence[str]) -> str:
         shown = ", ".join(f"`{name}`" for name in names[:_MISSING_BOUNDARY_NAME_LIMIT])
@@ -19230,7 +19221,9 @@ def _missing_boundary_repair_detail(
         return shown + (f" (+{omitted} more)" if omitted > 0 else "")
 
     details: list[str] = []
-    for branch, boundary in missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]:
+    for index, (branch, boundary) in enumerate(
+        missing_boundaries[:_MISSING_BOUNDARY_DETAIL_LIMIT]
+    ):
         value = f"{boundary.value:g}"
         context = _boundary_source_context(branch, boundary)
         parts = [
@@ -19241,15 +19234,27 @@ def _missing_boundary_repair_detail(
             parts.append(f"source `{context}`")
         covering = sorted(_rules_covering_branch(branch, principal_rule_paths))
         if covering:
-            selector_inputs = _boundary_selector_input_names(
-                covering,
-                principal_rules=principal_rules,
-                declared_input_names=declared_input_names,
-                input_declarations=input_declarations,
-            )
             parts.append(f"covering principal output(s) {bounded(covering)}")
-            if selector_inputs:
-                parts.append(f"compared numeric input(s) {bounded(selector_inputs)}")
+            direct_inputs = direct_boundary_inputs.get(index, ())
+            if direct_inputs:
+                parts.append(
+                    f"input(s) compared directly with {value} {bounded(direct_inputs)}"
+                )
+            else:
+                selector_inputs = _boundary_selector_input_names(
+                    covering,
+                    principal_rules=principal_rules,
+                    numeric_input_names=numeric_input_names,
+                )
+                parts.append(
+                    f"no input is compared directly with {value}"
+                    + (
+                        "; numeric input(s) the covering formulas select on "
+                        f"{bounded(selector_inputs)}"
+                        if selector_inputs
+                        else ""
+                    )
+                )
         else:
             parts.append(
                 "no principal derived output cites this source branch, so no "
@@ -19466,8 +19471,9 @@ def _interval_probe_values(interval: _NumericInterval) -> tuple[float, ...]:
     probes: list[float] = []
     if lower is not None and upper is not None:
         middle = (lower + upper) / 2
-        if lower.is_integer() and upper.is_integer() and upper - lower >= 2:
-            middle = float(math.floor(middle))
+        if lower.is_integer() and upper.is_integer():
+            # Integral source ranges get integral probes only.
+            middle = float(math.floor(middle)) if upper - lower >= 2 else lower
         probes.append(middle)
     for endpoint, inclusive, step in (
         (lower, interval.lower_inclusive, 1.0),
@@ -19477,7 +19483,7 @@ def _interval_probe_values(interval: _NumericInterval) -> tuple[float, ...]:
             continue
         if inclusive:
             probes.append(endpoint)
-        if endpoint.is_integer() and abs(endpoint) >= 2:
+        if endpoint.is_integer():
             probes.append(endpoint + step)
         else:
             probes.append(endpoint + step * max(abs(endpoint) * 0.01, 0.01))
@@ -19485,6 +19491,28 @@ def _interval_probe_values(interval: _NumericInterval) -> tuple[float, ...]:
         dict.fromkeys(
             round(probe, 6) for probe in probes if _interval_contains(interval, probe)
         )
+    )
+
+
+_INTEGRAL_INPUT_DTYPES = frozenset({"integer", "int", "count"})
+
+
+def _values_for_synthesis_inputs(
+    values: Iterable[float],
+    input_names: Sequence[str],
+    input_declarations: Mapping[str, dict[str, Any]],
+) -> tuple[float, ...]:
+    """Drop fractional selector values for inputs declared as integers."""
+
+    integral_only = bool(input_names) and all(
+        str((input_declarations.get(name) or {}).get("dtype") or "").strip().lower()
+        in _INTEGRAL_INPUT_DTYPES
+        for name in input_names
+    )
+    return tuple(
+        float(value)
+        for value in values
+        if not integral_only or float(value).is_integer()
     )
 
 
@@ -19690,28 +19718,35 @@ def _companion_test_issues(
         )
         if principal_formula_clause_rules[branch]:
             bound_rule_names = tuple(sorted(principal_formula_clause_rules[branch]))
+            range_input_names = (
+                _direct_threshold_input_names(
+                    bound_rule_names,
+                    principal_rules=principal_rules,
+                    formula_environment=formula_environment,
+                    numeric_input_names=numeric_input_names,
+                    values=(
+                        float(endpoint.value)
+                        for endpoint in (interval.lower, interval.upper)
+                        if endpoint is not None
+                    ),
+                )
+                if interval is not None
+                else ()
+            )
             obligations.append(
                 CompanionTestObligation(
                     "formula-branch",
                     bound_rule_names,
                     values=(
-                        _interval_probe_values(interval) if interval is not None else ()
-                    ),
-                    input_names=(
-                        _direct_threshold_input_names(
-                            bound_rule_names,
-                            principal_rules=principal_rules,
-                            formula_environment=formula_environment,
-                            numeric_input_names=numeric_input_names,
-                            values=(
-                                float(endpoint.value)
-                                for endpoint in (interval.lower, interval.upper)
-                                if endpoint is not None
-                            ),
+                        _values_for_synthesis_inputs(
+                            _interval_probe_values(interval),
+                            range_input_names,
+                            input_declarations or {},
                         )
                         if interval is not None
                         else ()
                     ),
+                    input_names=range_input_names,
                     toggle_input_names=_boolean_selector_input_names(
                         bound_rule_names,
                         principal_rules=principal_rules,
@@ -19798,6 +19833,7 @@ def _companion_test_issues(
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
+    direct_boundary_inputs: dict[int, tuple[str, ...]] = {}
     for branch, boundary in boundary_obligations:
         if not _rules_covering_branch(branch, principal_rule_paths) and (
             branch.path in structure_reported_paths
@@ -19834,12 +19870,18 @@ def _companion_test_issues(
             if covering_rule_names
             else ()
         )
-        if boundary_input_names:
+        direct_boundary_inputs[len(missing_boundaries) - 1] = boundary_input_names
+        boundary_values = _values_for_synthesis_inputs(
+            (float(boundary.value),),
+            boundary_input_names,
+            input_declarations or {},
+        )
+        if boundary_input_names and boundary_values:
             obligations.append(
                 CompanionTestObligation(
                     "boundary",
                     covering_rule_names,
-                    values=(float(boundary.value),),
+                    values=boundary_values,
                     input_names=boundary_input_names,
                     label=f"{branch.label}={boundary.value:g}",
                 )
@@ -19854,10 +19896,10 @@ def _companion_test_issues(
             f"source-stated boundary input; missing: {rendered}."
             + _missing_boundary_repair_detail(
                 missing_boundaries,
+                direct_boundary_inputs=direct_boundary_inputs,
                 principal_rules=principal_rules,
                 principal_rule_paths=principal_rule_paths,
-                declared_input_names=declared_input_names,
-                input_declarations=input_declarations or {},
+                numeric_input_names=numeric_input_names,
                 corpus_citation_path=corpus_citation_path,
             )
         )
