@@ -91,18 +91,20 @@ canonical JSON.
     `os.path.expandvars`;
   - its imports;
   - every member it uses of a module that is not pure, such as
-    `os.path.lexists`, `sys.platform`, `shutil.which` or `yaml.safe_load`. A
-    pure module (`re`, `json`, `hashlib`, `datetime` and the like) cannot reach
-    the environment, the host, the file system or the network, so only its
-    import counts. `yaml` is not pure: a full `Loader` constructs arbitrary
-    objects;
+    `os.path.lexists`, `sys.platform`, `shutil.which`, `yaml.safe_load` or
+    `hashlib.sha256`. A pure module (`re`, `json`, `datetime`, `decimal` and the
+    like) cannot reach the environment, the host, the file system or the
+    network, so only its import counts. `yaml` is not pure (a full `Loader`
+    constructs arbitrary objects), nor is `hashlib` (`algorithms_available`
+    depends on the host's OpenSSL build);
   - the host attributes it reads on an object, such as a file's owner or group,
     its times, or its resolved location (`stat`, `st_uid`, `owner()`,
-    `group()`, `resolve`);
+    `group()` with any keywords, `resolve`);
   - the executables it starts;
-  - the absolute paths it names;
+  - the absolute paths it names, as string or bytes literals;
   - the methods it calls that write files or reach the network, on any
-    receiver (`Path(...).replace(target=...)`, `p.copy(dest)`);
+    receiver (`Path(...).replace(target=...)`, `p.copy(dest)`), or takes
+    without calling (`f = p.replace`);
   - verbatim, every access it cannot name: the environment passed on whole, a
     variable or executable chosen at run time, dynamic imports, `exec`/`eval`,
     `getattr` and similar, and the home directory.
@@ -141,9 +143,11 @@ workflow parser, because the digests are taken from PyYAML's values:
   directive (GitHub's reader honours `%YAML 1.1`).
 
 Each `workflow_call` input declaration must be one GitHub accepts: only
-`description` (a string), `type` (`string`, `boolean` or `number`), `required`
-(a boolean) and `default` (a string, boolean or number). A declaration GitHub
-would reject is refused rather than normalized into one it accepts.
+`description` (a scalar without an expression), `type` (`string`, `boolean`
+or `number`), `required` (a boolean) and `default` (a value of the input's
+type, which as a string may read only the `github`, `inputs` and `vars`
+contexts). A declaration GitHub would reject is refused rather than normalized
+into one it accepts.
 
 **Templates.** The reviewed glue is every unit of the template pins
 (`TEMPLATE_FEATURES`: `0effa6a5`, `6f11be26`, `92ccb0f2`), each reviewed whole

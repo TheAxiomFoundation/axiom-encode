@@ -578,6 +578,10 @@ _INTERFACE_LINES = st.sampled_from(
         'from pathlib import Path; Path("ci-pin-a").replace(target="ci-pin-b")',
         'from pathlib import Path; Path("ci-pin-a").copy(target="ci-pin-b")',
         'import yaml; yaml.unsafe_load("ci-pin: 1")',
+        'from pathlib import Path; Path(".").group(follow_symlinks=False)',
+        'import hashlib; "ripemd160" in hashlib.algorithms_available',
+        'from pathlib import Path; Path("/tmp/ci pin").exists()',
+        'from pathlib import Path; ci_pin_f = Path("ci-pin-a").replace; ci_pin_f("ci-pin-b")',
     ]
 )
 
@@ -714,7 +718,8 @@ def test_output_program_edits_always_change_the_digest(
 def test_a_referenced_input_declaration_is_part_of_the_digest(name: str) -> None:
     payload = _payload(PIN_92CCB0F2)
     before = {unit.digest for unit in glue_units(payload)}
-    payload[True]["workflow_call"]["inputs"][name]["default"] = "changed"
+    declaration = payload[True]["workflow_call"]["inputs"][name]
+    declaration["default"] = 2 if declaration["type"] == "number" else "changed"
     after = {unit.digest for unit in glue_units(payload)}
 
     assert before - after
@@ -775,7 +780,8 @@ def test_program_interface_names_what_a_program_reads_and_changes() -> None:
     )
     assert interface.executables == ("<dynamic>", "git", "shell:make")
     assert interface.effects == ("open:a", "write_text")
-    assert interface.paths == ("/opt/axiom-verification/bin",)
+    # Any literal that starts at the root names a path, even prose.
+    assert interface.paths == ("/ is not a path", "/opt/axiom-verification/bin")
     # What cannot be named is kept verbatim, so adding another is a change.
     assert interface.opaque == (
         "dynamic-environment: os.environ[a]",
@@ -852,6 +858,35 @@ ALIASED_ACCESS = [
         "<object>.resolve",
     ),
     ("x = entry.owner()\n", "names", "<object>.owner"),
+    (
+        "from pathlib import Path\nx = Path('.').group(follow_symlinks=False)\n",
+        "names",
+        "<object>.group()",
+    ),
+    (
+        "import hashlib\nx = hashlib.algorithms_available\n",
+        "names",
+        "hashlib.algorithms_available",
+    ),
+    ("import hashlib\nx = hashlib.new('ripemd160')\n", "names", "hashlib.new"),
+    (
+        "from pathlib import Path\nx = Path('/tmp/ci pin').exists()\n",
+        "paths",
+        "/tmp/ci pin",
+    ),
+    ("x = '/opt/ünïcode'\n", "paths", "/opt/ünïcode"),
+    ("x = '/'\n", "paths", "/"),
+    ("x = b'/etc/ci-pin'\n", "paths", "/etc/ci-pin"),
+    (
+        "from pathlib import Path\nf = Path('a').replace\nf('b')\n",
+        "effects",
+        "replace(bound)",
+    ),
+    (
+        "from pathlib import Path\nf = Path('a').copy\nf('b')\n",
+        "effects",
+        "copy(bound)",
+    ),
     ("from pathlib import Path\nx = Path('.').group()\n", "names", "<object>.group()"),
     # Local receivers and keyword targets write files too.
     (
@@ -940,6 +975,8 @@ def test_ordinary_code_is_not_opaque() -> None:
         "import datetime\n"
         "when = datetime.datetime(2026, 1, 1).replace(tzinfo=datetime.timezone.utc)\n"
         "match = re.match('(a)', 'a')\n"
+        "deadline = datetime.date(2026, 1, 1).replace(2027)\n"
+        "copied = items.copy()\n"
         "first = match.group(1)\n"
         "name = match.group('x')\n"
     )
@@ -951,7 +988,7 @@ def test_ordinary_code_is_not_opaque() -> None:
 def test_members_are_named_for_every_module_that_is_not_pure() -> None:
     # A pure module's members cannot reach the environment, so only its import
     # counts; any other module's members are named, known or not.
-    assert "yaml" not in ci_parity_pins._PURE_MODULES
+    assert not {"yaml", "hashlib"} & ci_parity_pins._PURE_MODULES
     interface = program_interface(
         "import datetime, os, some_third_party\n"
         "from decimal import Decimal\n"
@@ -1864,9 +1901,27 @@ def test_yaml_directives_are_refused(header: str) -> None:
         ),
         (lambda d: d.__setitem__("type", "choice"), "has type 'choice'"),
         (lambda d: d.pop("type"), "has type None"),
-        (lambda d: d.__setitem__("default", None), "default is not a string"),
-        (lambda d: d.__setitem__("default", ["a"]), "default is not a string"),
-        (lambda d: d.__setitem__("description", 3), "description is not a string"),
+        (lambda d: d.__setitem__("default", None), "default is not a scalar"),
+        (lambda d: d.__setitem__("default", ["a"]), "default is not a scalar"),
+        (lambda d: d.__setitem__("description", ["a"]), "description is not a scalar"),
+        (
+            lambda d: d.__setitem__("description", "Uses ${{ inputs.python-version }}"),
+            "description contains an expression",
+        ),
+        (
+            lambda d: d.__setitem__("default", "${{ secrets.X }}"),
+            "default reads secrets",
+        ),
+        (lambda d: d.__setitem__("default", "${{ env.X }}"), "default reads env"),
+        (lambda d: d.__setitem__("type", []), "has type []"),
+        (lambda d: d.__setitem__("type", {}), "has type {}"),
+        (
+            lambda d: d.update(type="boolean", default="oops"),
+            "default is not a boolean",
+        ),
+        (lambda d: d.update(type="boolean", default=1), "default is not a boolean"),
+        (lambda d: d.update(type="number", default="1"), "default is not a number"),
+        (lambda d: d.update(type="number", default=True), "default is not a number"),
     ],
 )
 def test_input_declarations_github_rejects_are_refused(edit: Any, message: str) -> None:
@@ -1876,6 +1931,28 @@ def test_input_declarations_github_rejects_are_refused(edit: Any, message: str) 
     admission = _admit(payload)
     assert _kinds(admission) == {"malformed"}
     assert message in admission.problems[0].message
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        # GitHub turns a scalar description into its text.
+        lambda d: d.__setitem__("description", 3),
+        lambda d: d.__setitem__("description", True),
+        lambda d: d.__setitem__("description", None),
+        # A string default may read the github, inputs and vars contexts.
+        lambda d: d.__setitem__(
+            "default", "${{ github.ref == 'refs/heads/main' && 'a' || vars.B }}"
+        ),
+        lambda d: d.__setitem__("default", "${{ format('{0}', inputs.x) }}"),
+        lambda d: d.__setitem__("default", "${{ 'secrets.X is only text' }}"),
+    ],
+)
+def test_input_declarations_github_accepts_are_accepted(edit: Any) -> None:
+    payload = _payload(PIN_92CCB0F2)
+    edit(payload[True]["workflow_call"]["inputs"]["python-version"])
+
+    assert "malformed" not in _kinds(_admit(payload))
 
 
 def test_input_declarations_keep_their_values() -> None:

@@ -79,7 +79,9 @@ _INPUTS_TOKEN_RE = re.compile(r"\binputs\b(?!\.[A-Za-z_])")
 _STEP_REFERENCE_RE = re.compile(r"\bsteps\.(?P<id>[A-Za-z_][A-Za-z0-9_-]*)\.")
 _NEEDS_REFERENCE_RE = re.compile(r"\bneeds\.(?P<job>[A-Za-z_][A-Za-z0-9_-]*)\.")
 _ENV_NAME_RE = re.compile(r"\b(?P<name>[A-Z][A-Z0-9_]*)=")
-_ABSOLUTE_PATH_RE = re.compile(r"^/[A-Za-z0-9._@+-]+(?:/[A-Za-z0-9._@+-]*)*$")
+# Any string or bytes literal that starts at the root names a path: spaces,
+# non-ASCII and the root itself included.
+_ABSOLUTE_PATH_RE = re.compile(r"^/[^\n\r\x00]*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,7 +321,8 @@ _EFFECT_CALLS = frozenset(
 # other module's referenced members are, so a program that starts calling
 # os.path.expandvars, shutil.which or sys.platform changes its interface.
 # datetime is here because the clock is an input ci already fixes (UTC).
-# yaml is not: yaml.load with a full Loader constructs arbitrary objects.
+# yaml is not: yaml.load with a full Loader constructs arbitrary objects. Nor
+# is hashlib: algorithms_available and new(name) depend on the OpenSSL build.
 _PURE_MODULES = frozenset(
     {
         "abc",
@@ -336,7 +339,6 @@ _PURE_MODULES = frozenset(
         "fnmatch",
         "fractions",
         "functools",
-        "hashlib",
         "heapq",
         "itertools",
         "json",
@@ -522,10 +524,11 @@ class _InterfaceVisitor:
                     )
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant):
-                if isinstance(node.value, str) and _ABSOLUTE_PATH_RE.fullmatch(
-                    node.value
-                ):
-                    self.paths.add(node.value)
+                value = node.value
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", "backslashreplace")
+                if isinstance(value, str) and _ABSOLUTE_PATH_RE.fullmatch(value):
+                    self.paths.add(value)
             elif isinstance(node, ast.Name | ast.Attribute):
                 self._reference(node)
                 self._member(node)
@@ -646,24 +649,42 @@ class _InterfaceVisitor:
                 self.executables.add(executable)
         if leaf in _EFFECT_CALLS:
             self.effects.add(leaf)
-        elif call is not None and dotted.startswith("<object>."):
-            # Path.replace(target) and Path.copy(target) share a name with
-            # str.replace(old, new), dict.copy() and datetime.replace(**fields);
-            # the arguments tell them apart: one target, positional or `target=`.
-            keywords = {keyword.arg for keyword in call.keywords}
-            if leaf == "replace" and (
-                (len(call.args) == 1 and not keywords)
-                or (not call.args and keywords == {"target"})
-            ):
-                self.effects.add("replace(target)")
-            elif leaf == "copy" and (call.args or "target" in keywords):
-                self.effects.add("copy(target)")
-            elif leaf == "group" and not call.args and not keywords:
-                # Path.group() names the file's owning group; a regex match's
-                # group() is m.group(0), which no packaged program writes.
-                self.names.add("<object>.group()")
+        elif dotted.startswith("<object>.") and leaf in {"replace", "copy", "group"}:
+            self._object_method(leaf, call)
         if leaf in {"open", "fdopen"}:
             self._open(dotted, on_module, call, node)
+
+    def _object_method(self, leaf: str, call: ast.Call | None) -> None:
+        """Path methods whose names str, dict, date and re.Match share.
+
+        Path.replace(target) and Path.copy(target) write files; Path.group()
+        reads the owning group. str.replace(old, new), dict.copy(),
+        date.replace(year, ...) and m.group(n) are pure; the arguments tell
+        them apart. A method taken without calling it (``f = p.replace``)
+        counts.
+        """
+
+        if call is None:
+            self.effects.add(f"{leaf}(bound)")
+            return
+        keywords = {keyword.arg for keyword in call.keywords}
+        numeric = any(
+            isinstance(argument, ast.Constant)
+            and isinstance(argument.value, int | float)
+            and not isinstance(argument.value, bool)
+            for argument in call.args
+        )
+        if leaf == "replace":
+            single = len(call.args) == 1 and not keywords and not numeric
+            if single or (not call.args and keywords == {"target"}):
+                self.effects.add("replace(target)")
+        elif leaf == "copy":
+            if (call.args and not numeric) or "target" in keywords:
+                self.effects.add("copy(target)")
+        elif not call.args:
+            # Path.group(follow_symlinks=...) included; m.group() with no
+            # argument is m.group(0), which no packaged program writes.
+            self.names.add("<object>.group()")
 
     def _environ(self, node: ast.AST) -> None:
         parent = self.parents.get(node)
@@ -801,6 +822,56 @@ def workflow_call(payload: Mapping[str, Any]) -> Mapping[str, Any]:
 
 _INPUT_PROPERTIES = frozenset({"description", "type", "required", "default"})
 _INPUT_TYPES = frozenset({"string", "boolean", "number"})
+# Contexts a workflow_call input default may read (workflow-call-input-default).
+_INPUT_DEFAULT_CONTEXTS = frozenset({"github", "inputs", "vars"})
+# A name followed by `.`, `[` or `(` in an expression: a context or a function.
+_EXPRESSION_NAME_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?=\s*[.\[(])"
+)
+_EXPRESSION_FUNCTIONS = frozenset(
+    {
+        "contains",
+        "startsWith",
+        "endsWith",
+        "format",
+        "join",
+        "toJSON",
+        "fromJSON",
+        "hashFiles",
+        "success",
+        "always",
+        "cancelled",
+        "failure",
+    }
+)
+
+
+def _check_input_default(name: str, kind: str, default: Any) -> None:
+    """Refuse a default GitHub would reject for an input of type ``kind``."""
+
+    if kind == "boolean" and not isinstance(default, bool):
+        raise GlueError(f"workflow_call input {name} default is not a boolean")
+    if kind == "number" and (
+        isinstance(default, bool) or not isinstance(default, int | float)
+    ):
+        raise GlueError(f"workflow_call input {name} default is not a number")
+    if kind == "string" and not isinstance(default, str | bool | int | float):
+        raise GlueError(f"workflow_call input {name} default is not a scalar")
+    if not isinstance(default, str):
+        return
+    for expression in _EXPRESSION_RE.finditer(default):
+        # String literals ('...', with '' for a quote) name no context.
+        body = re.sub(r"'(?:[^']|'')*'", "''", expression.group("body"))
+        for match in _EXPRESSION_NAME_RE.finditer(body):
+            word = match.group("name")
+            if (
+                word not in _EXPRESSION_FUNCTIONS
+                and word not in _INPUT_DEFAULT_CONTEXTS
+            ):
+                raise GlueError(
+                    f"workflow_call input {name} default reads {word}, which an "
+                    "input default cannot"
+                )
 
 
 def declared_inputs(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
@@ -808,9 +879,11 @@ def declared_inputs(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
 
     Each declaration must be one GitHub accepts (actions/languageservices
     workflow-v1.0.json, workflow-call-input-definition): only ``description``
-    (a string), ``type`` (``string``, ``boolean`` or ``number``), ``required``
-    (a boolean) and ``default`` (a string, boolean or number). A declaration
-    GitHub would reject is refused rather than normalized into one it accepts.
+    (a scalar without an expression), ``type`` (``string``, ``boolean`` or
+    ``number``), ``required`` (a boolean) and ``default`` (a value of the
+    input's type; a string may read only the ``github``, ``inputs`` and
+    ``vars`` contexts). A declaration GitHub would reject is refused rather
+    than normalized into one it accepts.
     """
 
     raw = workflow_call(payload).get("inputs") or {}
@@ -831,20 +904,23 @@ def declared_inputs(payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
                 f"accept: {', '.join(sorted(map(str, unknown)))}"
             )
         kind = declaration.get("type")
-        if kind not in _INPUT_TYPES:
+        if not isinstance(kind, str) or kind not in _INPUT_TYPES:
             raise GlueError(f"workflow_call input {name} has type {kind!r}")
         required = declaration.get("required", False)
         if not isinstance(required, bool):
             raise GlueError(f"workflow_call input {name} required is not a boolean")
-        if not isinstance(declaration.get("description", ""), str):
-            raise GlueError(f"workflow_call input {name} description is not a string")
-        default = declaration.get("default")
-        if "default" in declaration and not isinstance(
-            default, str | bool | int | float
-        ):
+        description = declaration.get("description")
+        # GitHub turns a scalar description into its text; it allows no
+        # expression there.
+        if isinstance(description, Mapping | list):
+            raise GlueError(f"workflow_call input {name} description is not a scalar")
+        if isinstance(description, str) and "${{" in description:
             raise GlueError(
-                f"workflow_call input {name} default is not a string, boolean or number"
+                f"workflow_call input {name} description contains an expression"
             )
+        default = declaration.get("default")
+        if "default" in declaration:
+            _check_input_default(name, kind, default)
         inputs[name] = {"type": kind, "required": required, "default": default}
     return inputs
 
