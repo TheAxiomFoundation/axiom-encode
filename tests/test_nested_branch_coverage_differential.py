@@ -19,6 +19,7 @@ import tarfile
 import textwrap
 import time
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
@@ -962,7 +963,47 @@ def _complete_source_obligations(module, complete_source_module, outline):
     )
     # Compare every completeness finding, branch, and numeric occurrence count,
     # including numeric recall, without sharing either implementation's results.
-    return dataclasses.asdict(result)
+    # Branch wording is not an obligation: U.S. findings now label a branch
+    # `us/x(a)(1) [paragraph (a)(1)]` where the baseline said `us/x(a)
+    # [Absatz a, Nummer 1]`, and branches carry a display-only printed-case
+    # path. Both sides reduce a rendered branch citation to its path.
+    import re as _re
+
+    def _branch_path(match):
+        if match.group("german"):
+            parts = [
+                (
+                    "satz-" + component.split()[-1]
+                    if component.strip().startswith("Satz")
+                    else component.split()[-1].lower()
+                )
+                for component in match.group("german").split(",")
+            ]
+        else:
+            parts = [
+                part.lower()
+                for part in _re.findall(r"\(([^()\s]+)\)", match.group("fragment"))
+            ] + [
+                "satz-" + component.split()[-1]
+                for component in match.group("english").split(",")
+                if component.strip().startswith("sentence ")
+            ]
+        return f"{match.group('citation')}<{'/'.join(parts)}>"
+
+    rendered_branch = _re.compile(
+        r"(?P<citation>[^\s()\[\]]+?)(?:\([^()\s]+\) "
+        r"\[(?P<german>(?:Absatz|Nummer|Buchstabe|Satz) [^\]]*)\]|"
+        r"(?P<fragment>(?:\([^()\s]+\))+) \[(?P<english>(?:paragraph|"
+        r"subsection|subparagraph|clause|subclause|item|subitem|subdivision|"
+        r"provision|sentence) [^\]]*)\])"
+    )
+    payload = dataclasses.asdict(result)
+    for branch in payload["branches"]:
+        branch.pop("display_path", None)
+    payload["issues"] = tuple(
+        rendered_branch.sub(_branch_path, issue) for issue in payload["issues"]
+    )
+    return payload
 
 
 @given(outline=constructed_outlines())
@@ -984,10 +1025,16 @@ def test_generated_noncoverage_obligations_are_identical_to_main(
     baseline_worker, outline
 ):
     # Every consumer keeps byte-identical spans, including dotted-heading text.
+    # The U.S. Code outline restoration (flattened run-in markers, bracketed
+    # repeal notes, subclause levels) deliberately changes U.S. Code
+    # recognition and has its own tests in test_source_completeness_us_structure;
+    # this pinned comparison guards everything else.
+    with mock.patch.object(sc, "_us_code_outline_levels", lambda _path: None):
+        complete_source = _complete_source_obligations(vp, sc, outline)
     head = {
         "segments": vp._top_level_source_subparagraph_segments(outline.source),
         "cross_references": _cross_references(vp, outline.source),
-        "complete_source": _complete_source_obligations(vp, sc, outline),
+        "complete_source": complete_source,
     }
     # JSON changes tuple containers to lists on both sides without truncating
     # any source span, branch, finding, or numeric occurrence count.
