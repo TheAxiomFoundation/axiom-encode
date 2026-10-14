@@ -30289,7 +30289,7 @@ rules:
     assert _has_issue(
         wrong_citation_principal_proof,
         "[complete-source-unit:formula-output]",
-        "explicit source computation (ii)",
+        "`(ii) for tax years beginning after december 31, 2006 fifty percent",
     )
     assert not _has_issue(wrong_citation_principal_proof, "formula branch", "(ii)")
     assert _has_issue(repeated_rate, "formula branch", "(ii)")
