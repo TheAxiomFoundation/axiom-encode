@@ -298,6 +298,90 @@ def test_non_us_paths_are_unchanged():
     assert _occurrences(source, citation) == _main_occurrences(source, citation)
 
 
+# Verbatim excerpts from the US corpus (axiom-corpus ba210f4b) where a masked
+# locator sits beside operative amounts, rates and ages. Federal guidance,
+# CFR, U.S. Code and state statute/manual rows are covered.
+CORPUS_EXCERPTS = (
+    (
+        "us/guidance/cms/part-a-deductible-coinsurance/2026/federal-register/block-1",
+        "This deductible amount is determined by multiplying $1,676 (the "
+        "inpatient hospital deductible for CY 2025 (89 FR 68986)) by the "
+        "payment-weighted average increase in the payment rates of 1.0262 "
+        "multiplied by the increase in real casemix of 1.009, which equals "
+        "$1,735.39 and is rounded to $1,736",
+        {89},
+        {1676, 1.0262, 1.009, 1735.39, 1736},
+    ),
+    (
+        "us/regulation/42/457/609",
+        "$15,361,000,000 (appropriated in section 108 of Pub. L. 111-3, as amended "
+        "by section 10203 of Pub. L. 111-148)).\n\n(2) $21,061,000,000, determined "
+        "as the sum of the amount determined in paragraph (1) of this section, "
+        "$18,211,000,000, and $2,850,000,",
+        {3, 111, 148},
+        {15_361_000_000, 21_061_000_000, 18_211_000_000, 2_850_000},
+    ),
+    (
+        "us/statute/26/3121",
+        "if the remuneration paid in such year by the organization to the employee "
+        "for such service is less than $100; [(17) Repealed. Pub. L. 113–295, "
+        "div. A, title II, § 221(a)(19)(B)(iv) , Dec. 19, 2014 , 128 Stat. 4040 ] "
+        "(18) any payment made",
+        {113, 128, 4040},
+        {100},
+    ),
+    (
+        "us/guidance/irs/rev-proc-2016-55/page-4",
+        "enacted as part of the Consolidated Appropriations Act, 2016, Pub. L. "
+        "114-113, div. Q, made permanent the earned income threshold of $3,000 "
+        "used in § 24(d)(1)(B)(i)",
+        {113, 114},
+        {3000},
+    ),
+    (
+        "us/statute/hts/9903.94.32",
+        "[Compilers note: This heading is effective on or after June 30, 2025. "
+        "For more information, see 90 Fed. Reg. 27851.]\nRates of duty "
+        "(1-General): 10%\nRates of duty (1-Special): 10%",
+        {90},
+        {0.1},
+    ),
+    (
+        "us-ri/manual/eohhs/medicaid/210-ricr-30-05-2/page-6",
+        "for continued Medicaid coverage until the age of twenty-six (26) under the "
+        "SUPPORT for Patients and Communities Act, Pub. L. No. 115-271. Members of "
+        "this population are only eligible in Rhode Island",
+        {115, 271},
+        {26},
+    ),
+    (
+        "us-co/statute/crs-2024/title-39/page-466",
+        '(A) "CARES Act" means the March 2020 "Coronavirus Aid, Relief, and '
+        'Economic Security Act", Pub.L. 116-136. (B) "Colorado taxable income" '
+        "means federal taxable income",
+        {116, 136},
+        set(),
+    ),
+    (
+        "us-ny/manual/doh/medicaid/categorical-factors/page-95",
+        "Certified disabled widows or widowers who lost SSI and Medicaid benefits "
+        "due to an actuarial adjustment authorized under the Social Security "
+        "Amendments of 1983 are eligible for Medicaid",
+        {1983},
+        set(),
+    ),
+)
+
+
+@pytest.mark.parametrize("citation, source, locators, operative", CORPUS_EXCERPTS)
+def test_corpus_excerpts_drop_only_locators(citation, source, locators, operative):
+    main_values = {value for value, *_ in _main_occurrences(source, citation)}
+    values = _values(source, citation)
+    assert main_values - values == locators
+    assert operative <= values
+    _assert_only_locator_digits_removed(source, citation)
+
+
 LOCATORS = st.sampled_from(
     (
         "(62 FR 61344)",
