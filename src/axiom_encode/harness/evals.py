@@ -7929,6 +7929,7 @@ def _evaluate_generated_artifact_with_repairs(
     axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
+    synthesis_rounds = 0
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
         test_file = _rulespec_test_path(rulespec_file)
         artifact_state = tuple(
@@ -7976,8 +7977,10 @@ def _evaluate_generated_artifact_with_repairs(
         if (
             not repairs
             and require_complete_source_unit
+            and synthesis_rounds < _COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS
             and has_synthesizable_test_issue(metrics.ci_issues)
         ):
+            synthesis_rounds += 1
             synthesized = _append_synthesized_complete_source_companion_cases(
                 rulespec_file=rulespec_file,
                 policy_repo_root=policy_repo_root,
@@ -8000,6 +8003,9 @@ def _evaluate_generated_artifact_with_repairs(
 
 _COMPLETE_SOURCE_CASE_SYNTHESIS_MAX_ANALYSES = 32
 _COMPLETE_SOURCE_CASE_SYNTHESIS_SECONDS = 180.0
+# Each round already tries every demand; a second round only covers demands
+# that the first round's cases exposed. More rounds would only add latency.
+_COMPLETE_SOURCE_CASE_SYNTHESIS_ROUNDS = 2
 
 
 @timed_phase(PHASE_ARTIFACT_REPAIR)
@@ -10317,6 +10323,10 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
   affected principal output. If the occurrence is a threshold, add its
   contrasting side as a same-period case with otherwise identical inputs.
   Merely placing the number in an unrelated input or test name is not credited.
+  The issue's `Boundary details` quote the source text of each boundary and
+  name its covering principal output(s) and the numeric input(s) their
+  formulas compare with it. A boundary with no covering principal output needs
+  a principal derived rule for that source comparison before any test.
 """
     return f"""
 Deterministic validation feedback for the rejected candidate below:

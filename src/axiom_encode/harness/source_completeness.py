@@ -5482,7 +5482,7 @@ def _analyze_rulespec_payload(
     )
     # A computation with no bound principal output is reported once, here.
     # Companion-test evidence for it is demanded after an output exists.
-    formula_output_reported_branches: set[SourceStructureBranch] = set()
+    formula_output_issue_index: dict[SourceStructureBranch, int] = {}
     if source_has_computation:
         if formula_branches:
             missing_formula_branches = tuple(
@@ -5501,7 +5501,7 @@ def _analyze_rulespec_payload(
             for branch in formula_branches:
                 if principal_formula_clause_rules[branch]:
                     continue
-                formula_output_reported_branches.add(branch)
+                formula_output_issue_index[branch] = len(issues)
                 issues.append(
                     "[complete-source-unit:formula-output] "
                     f"Explicit source computation {branch.label} in "
@@ -5549,6 +5549,7 @@ def _analyze_rulespec_payload(
     )
     companion_issues: list[str] = []
     companion_obligations: list[CompanionTestObligation] = []
+    formula_output_binding_details: dict[SourceStructureBranch, str] = {}
     if principal_rules:
         imported_parameters = _resolved_imported_parameter_rules(
             payload, imported_symbol_contents=imported_symbol_contents
@@ -5591,9 +5592,8 @@ def _analyze_rulespec_payload(
                 principal_rule_paths=principal_rule_paths,
                 principal_formula_clause_rules=principal_formula_clause_rules,
                 formula_branches=formula_branches,
-                formula_output_reported_branches=frozenset(
-                    formula_output_reported_branches
-                ),
+                formula_output_reported_branches=frozenset(formula_output_issue_index),
+                formula_output_binding_details=formula_output_binding_details,
                 structure_reported_paths=frozenset(structure_reported_paths),
                 obligation_sink=companion_obligations,
                 branches=branches,
@@ -5625,6 +5625,12 @@ def _analyze_rulespec_payload(
                 },
             )
         )
+        # Keep the named-rule binding hint that the folded tests finding used
+        # to carry: it tells the model which existing outputs to bind.
+        for branch, detail in formula_output_binding_details.items():
+            index = formula_output_issue_index.get(branch)
+            if index is not None:
+                issues[index] += detail
 
     numeric_recall_text = authoritative_numeric_recall_text(
         source_text, corpus_citation_path=corpus_citation_path
@@ -17821,6 +17827,7 @@ def _companion_test_issues(
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
     formula_output_reported_branches: frozenset[SourceStructureBranch] = frozenset(),
+    formula_output_binding_details: dict[SourceStructureBranch, str] | None = None,
     structure_reported_paths: frozenset[tuple[str, ...]] = frozenset(),
     obligation_sink: list[CompanionTestObligation] | None = None,
 ) -> list[str]:
@@ -17919,16 +17926,6 @@ def _companion_test_issues(
         execution_cache=formula_execution_cache,
     )
     for branch in missing_formula_branches:
-        if (
-            branch in formula_output_reported_branches
-            and not principal_formula_clause_rules[branch]
-        ):
-            # The formula-output finding already rejects this unbound
-            # computation; a second tests finding would only crowd retry
-            # feedback. The tests demand applies again once an output binds.
-            continue
-        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
-        source_location = f"characters {branch.start}:{branch.end}"
         unbound_diagnostic = _unbound_matching_formula_rules(
             branch,
             corpus_citation_path=corpus_citation_path,
@@ -17945,6 +17942,19 @@ def _companion_test_issues(
             unbound_diagnostic,
             corpus_citation_path=corpus_citation_path,
         )
+        if (
+            branch in formula_output_reported_branches
+            and not principal_formula_clause_rules[branch]
+        ):
+            # The formula-output finding already rejects this unbound
+            # computation; a second tests finding would only crowd retry
+            # feedback. The tests demand applies again once an output binds.
+            # The caller moves any named-rule binding hint onto that finding.
+            if source_binding_detail and formula_output_binding_details is not None:
+                formula_output_binding_details[branch] = source_binding_detail
+            continue
+        source_excerpt = _bounded_source_feedback_excerpt(branch.text)
+        source_location = f"characters {branch.start}:{branch.end}"
         dependency_diagnostic = _uncorroborated_formula_dependency_diagnostic(
             branch,
             principal_rules=principal_rules,
