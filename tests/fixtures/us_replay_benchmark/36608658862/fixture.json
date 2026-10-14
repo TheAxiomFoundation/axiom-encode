@@ -28,6 +28,7 @@
   },
   "context_imports": {},
   "context_origins": {},
+  "provider_git_blob_sha1": {},
   "files": {
     "candidate.test.yaml": "2108d6479715488910d192344a7e9432348202c52371fab90cc714bf0e5f5adb",
     "candidate.yaml": "71750a6358f19eb05699ba18b7657593afbf6048255530167d02d4c8910ae0f5",

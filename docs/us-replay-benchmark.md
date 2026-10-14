@@ -107,9 +107,11 @@ tar -xf bundles/<run_id>/targeted-reencode-failure.tar -C bundles/<run_id>/x
 ```
 
 1. Run `python -I scripts/replay_us_failure_bundles.py extract bundles/<run_id>/x`.
-2. Run `replay` and check that the new fixture has no unresolved imports or
-   deferral providers. If it has, rerun `extract` with
-   `--rulespec-root <RuleSpec checkout at the run's rulespec_ref>`.
+2. If `extract` warns about an unresolved import or deferral provider, delete
+   the new fixture directory. Then rerun `extract` with
+   `--rulespec-root <RuleSpec checkout at the run's rulespec_ref>`. The fixture
+   records the git blob id of each copied module, so a reviewer can compare it
+   with the RuleSpec repository at that ref.
 3. Run `snapshot`. It records new fixtures without `--allow-increase`.
 
 Keep one or two fixtures for each citation. Prefer fixtures that add a rule

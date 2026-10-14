@@ -41,6 +41,7 @@
     "us:regulations/7-cfr/273/6": "workspace",
     "us:regulations/7-cfr/273/7": "workspace"
   },
+  "provider_git_blob_sha1": {},
   "files": {
     "candidate.test.yaml": "93ccbeab5fa4a1e45507da48dd088a138e3bffb7678050c36b90bbfc4ce5a905",
     "candidate.yaml": "41718b51a5fceb342f83042291718b41d4ef114bbb2ab39f24908c02c7cc8028",
