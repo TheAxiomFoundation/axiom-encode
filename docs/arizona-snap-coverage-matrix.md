@@ -283,8 +283,8 @@ first rejected 273.10 candidate used `imports: null`; later attempts reported
 existing FY 2026 `deductions.yaml` and `maximum-allotments.yaml` imports also
 independently contain that retired field, and the engine can wrap an imported
 parse error with the top-level target filename. The encoder's overlay-only
-diagnostic repair is proposed in
-[draft axiom-encode PR #1880](https://github.com/TheAxiomFoundation/axiom-encode/pull/1880);
+diagnostic repair merged in
+[axiom-encode PR #1880](https://github.com/TheAxiomFoundation/axiom-encode/pull/1880);
 it does not repair those existing signed imports.
 One direct-import path is 2012(j) → FY 2026 deductions → 273.10 → 273.11(c),
 with maximum allotments also feeding 273.10 and 2017(a). The deductions
@@ -353,9 +353,13 @@ signed and registered the release object with content SHA-256
 `c0097c7ca468769aef0b5c7996dc9da91881a7e025f38a6baf2d31617afe2121`;
 serving activation is separate. The scope's signed ingest manifest and locked
 PDF were verified independently. [Draft RuleSpec PR #1759](https://github.com/TheAxiomFoundation/rulespec-us/pull/1759)
-now pins this corrected release and corpus provenance commit. Its independent
-review and 75 focused local tests passed, but exact-head repository CI is
-still running; do not merge or use the new pin as established until CI passes.
+now pins this corrected release and corpus provenance commit. After
+[the pending-waiver stage PR #1762](https://github.com/TheAxiomFoundation/rulespec-us/pull/1762)
+merged, #1759 consumed exactly 12 preapproved pending fingerprints and removed
+four stale active waivers for modules that now pass; no generated RuleSpec or
+signed manifest changed. Its independent review found no actionable issue,
+51 focused tests passed on the current head, and exact-head repository CI is
+running. Do not merge or use the new pin as established until CI passes.
 The earlier W6 union release was broader and failed exact-head validation due
 waiver fingerprint drift outside SNAP, so it is not the selected pin. The
 corrected source route does not repair the
