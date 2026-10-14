@@ -1361,6 +1361,9 @@ def test_composer_runtime_builds_with_the_real_provision_script(tmp_path: Path) 
 
 # The dependency-root entries each harness's composer build saw, by events id.
 harness_entries: dict[int, Any] = {}
+# The step environment and the sibling copies each harness's build saw.
+harness_step_environment: dict[int, dict[str, str]] = {}
+harness_swaps: dict[int, dict[str, Any]] = {}
 
 
 def _harness(
@@ -1396,8 +1399,20 @@ def _harness(
         lambda workflow, repo, ref: events.append(("validate_composer_pin", ref)),
     )
 
-    def build(checkout, ref, encode, pin, temp, *, workspace, offline, notes=None):
+    def build(
+        checkout,
+        ref,
+        encode,
+        pin,
+        temp,
+        *,
+        workspace,
+        offline,
+        notes=None,
+        step_environment=None,
+    ):
         events.append(("build_composer", checkout, ref, encode, pin, offline))
+        harness_step_environment[id(events)] = dict(step_environment or {})
         assert workspace == harness.repo
         # What the dependency root holds when the composer builds.
         entries.update(
@@ -1409,6 +1424,25 @@ def _harness(
         return temp / "axiom-compose-verification" / "axiom-compose"
 
     monkeypatch.setattr(ci_parity, "_build_workflow_composer", build)
+
+    @contextlib.contextmanager
+    def siblings(layout, checkouts):
+        # The harness's checkouts are not repositories; stand in for the
+        # disposable copies with empty directories, as the real swap does.
+        harness_swaps[id(events)] = dict(checkouts)
+        for name in checkouts:
+            entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
+            entry.unlink()
+            entry.mkdir()
+        try:
+            yield
+        finally:
+            for name, (source, _commit) in checkouts.items():
+                entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
+                entry.rmdir()
+                entry.symlink_to(source, target_is_directory=True)
+
+    monkeypatch.setattr(ci_parity, "_fresh_composer_siblings", siblings)
     compose_checkout = tmp_path / "axiom-compose"
     compose_checkout.mkdir()
     return harness, events, compose_checkout
@@ -1449,14 +1483,23 @@ def test_run_ci_builds_the_composer_and_isolates_dependencies(
     assert run.paths["compose"] == run.layout.root / "axiom-compose"
     assert run.paths["rulespec_us"] == run.layout.root / "rulespec-us"
     # CI relocates every dependency before it builds the composer, so a
-    # composer lock that names a sibling by path resolves it (Sol review).
+    # composer lock that names a sibling by path resolves it, and every entry
+    # is a disposable checkout while it builds (Sol reviews 1-3).
     entries = harness_entries[id(events)]
     assert entries == {
         "axiom-compose": "directory",
         "rulespec-us": "directory",
-        "axiom-encode": "link",
-        "axiom-corpus": "link",
-        "axiom-rules-engine": "link",
+        "axiom-encode": "directory",
+        "axiom-corpus": "directory",
+        "axiom-rules-engine": "directory",
+    }
+    assert harness_swaps[id(events)] == {
+        name: (harness.paths[name].resolve(), harness.caller.refs[name])
+        for name in ("encode", "engine", "corpus")
+    }
+    assert harness_step_environment[id(events)] == {
+        **run.layout.environment(),
+        "AXIOM_COMPOSE_REF": COMPOSE_REF,
     }
     # Host uv configuration is looked for above both places uv reads from.
     assert harness_entries[id(entries)] == [harness.repo, run.layout.root]
@@ -2560,119 +2603,191 @@ def _composer_layout(tmp_path: Path):
     return layout, compose
 
 
-@pytest.mark.parametrize(
-    ("lock", "pyproject", "expected"),
-    [
-        ("", "", set()),
-        ('[[package]]\nname = "c"\nsource = { editable = "." }\n', "", set()),
-        (
-            '[[package]]\nname = "c"\nsource = { virtual = "." }\n'
-            '[[package]]\nname = "w"\nsource = { editable = "packages/w" }\n',
-            "",
-            set(),
-        ),
-        (
-            '[[package]]\nname = "axiom-corpus"\n'
-            'source = { directory = "../axiom-corpus" }\n',
-            "",
-            {"corpus"},
-        ),
-        (
-            '[[package]]\nname = "c"\nsource = { editable = "." }\n'
-            "[package.metadata.requires-dev]\n"
-            'dev = [{ name = "axiom-encode", directory = "../axiom-encode" }]\n',
-            "",
-            {"encode"},
-        ),
-        (
-            '[[package]]\nname = "c"\nsource = { editable = "." }\n'
-            "[package.metadata]\n"
-            'requires-dist = [{ name = "e", editable = "../axiom-rules-engine/py" }]\n',
-            "",
-            {"engine"},
-        ),
-        ("", '[tool.uv.sources]\nx = { path = "../axiom-corpus" }\n', {"corpus"}),
-        (
-            "",
-            '[tool.uv.sources]\nx = [{ path = "../axiom-encode", marker = "a" }]\n',
-            {"encode"},
-        ),
-        (
-            "",
-            '[tool.uv.workspace]\nmembers = ["../axiom-*"]\n',
-            {"encode", "engine", "corpus"},
-        ),
-        ("", '[tool.uv.workspace]\nmembers = ["packages/*"]\n', set()),
-        (
-            "",
-            '[tool.uv.workspace]\nmembers = ["packages/*"]\nexclude = ["../../x"]\n',
-            set(),
-        ),
-        ("", '[tool.uv.sources]\nx = { path = "../rulespec-us" }\n', set()),
-        ("", '[tool.uv.sources]\nx = { git = "https://example.test/x" }\n', set()),
-    ],
-)
-def test_composer_sibling_entries_follow_its_local_sources(
-    tmp_path: Path, lock: str, pyproject: str, expected: set[str]
-) -> None:
-    layout, compose = _composer_layout(tmp_path)
-    if lock:
-        (compose / "uv.lock").write_text(lock)
-    if pyproject:
-        (compose / "pyproject.toml").write_text(pyproject)
-
-    assert ci_parity._composer_sibling_entries(compose, layout) == expected
+def _committed(repo: Path) -> str:
+    return gates._git(repo, "rev-parse", "HEAD")
 
 
-@pytest.mark.parametrize(
-    "reference",
-    ["../../outside", "/Users/dev/axiom-corpus", "../axiom-dependencies-other"],
-)
-def test_composer_sources_outside_the_dependency_root_fail_resolution(
-    tmp_path: Path, reference: str
-) -> None:
-    layout, compose = _composer_layout(tmp_path)
-    (compose / "pyproject.toml").write_text(
-        f'[tool.uv.sources]\nx = {{ path = "{reference}" }}\n'
-    )
-
-    with pytest.raises(ValueError, match="outside the dependency root"):
-        ci_parity._composer_sibling_entries(compose, layout)
-
-
-def test_composer_sources_cannot_leave_through_a_tracked_symlink(
+def test_disposable_checkout_is_the_commit_and_shares_nothing_writable(
     tmp_path: Path,
 ) -> None:
-    layout, compose = _composer_layout(tmp_path)
-    (compose / "vendor").symlink_to(tmp_path, target_is_directory=True)
-    (compose / "pyproject.toml").write_text(
-        '[tool.uv.sources]\nx = { path = "vendor/elsewhere" }\n'
+    source = gates._repo(
+        tmp_path,
+        {
+            "pyproject.toml": '[project]\nname = "x"\n',
+            "pkg/mod.py": "VALUE = 1\n",
+            "run.sh": "#!/bin/sh\nexit 0\n",
+            ".gitignore": "ignored/\n",
+        },
+        name="axiom-corpus",
+    )
+    (source / "run.sh").chmod(0o755)
+    (source / "alias").symlink_to("pkg")
+    commit = gates._commit(source, message="exec bit and a link")
+    # What the developer's checkout holds besides the commit.
+    (source / "pkg" / "mod.py").write_text("VALUE = 2  # uncommitted\n")
+    (source / "untracked.txt").write_text("local\n")
+    (source / "ignored").mkdir()
+    (source / "ignored" / "big.bin").write_text("cache\n")
+    destination = tmp_path / "copy" / "axiom-corpus"
+    destination.parent.mkdir()
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-corpus"
     )
 
-    with pytest.raises(ValueError, match="through a symlink"):
-        ci_parity._composer_sibling_entries(compose, layout)
+    assert gates._git(destination, "rev-parse", "HEAD") == commit
+    # Detached, as actions/checkout leaves a commit checkout.
+    assert (
+        subprocess.run(
+            ["git", "-C", str(destination), "symbolic-ref", "-q", "HEAD"],
+            stdout=subprocess.DEVNULL,
+            check=False,
+        ).returncode
+        == 1
+    )
+    assert gates._git(destination, "status", "--porcelain", "--ignored") == ""
+    assert (
+        gates._git(destination, "remote", "get-url", "origin")
+        == "https://github.com/TheAxiomFoundation/axiom-corpus"
+    )
+    # The committed tree only: the uncommitted edit, untracked and ignored
+    # files of the developer's checkout stay behind.
+    assert (destination / "pkg" / "mod.py").read_text() == "VALUE = 1\n"
+    assert not (destination / "untracked.txt").exists()
+    assert not (destination / "ignored").exists()
+    assert os.access(destination / "run.sh", os.X_OK)
+    assert os.readlink(destination / "alias") == "pkg"
+    # Objects are shared read-only, not copied.
+    assert (destination / ".git" / "objects" / "info" / "alternates").exists()
+    # A build writing into the copy changes nothing in the original.
+    (destination / "pyproject.toml").write_text("overwritten\n")
+    (destination / "axiom_corpus.egg-info").mkdir()
+    assert (source / "pyproject.toml").read_text() == '[project]\nname = "x"\n'
+    assert not (source / "axiom_corpus.egg-info").exists()
 
 
-def test_an_unreadable_composer_lock_fails_resolution(tmp_path: Path) -> None:
-    layout, compose = _composer_layout(tmp_path)
-    (compose / "uv.lock").write_text("not toml [")
+def test_disposable_checkout_from_a_detached_worktree(tmp_path: Path) -> None:
+    # Pinned checkouts are often worktrees detached at the pin, whose commit
+    # no branch of the main repository points at.
+    main = gates._repo(tmp_path, {"a.txt": "base\n"}, name="axiom-corpus-main")
+    pin = gates._commit(main, {"a.txt": "pinned\n"}, "pin")
+    gates._git(main, "reset", "-q", "--hard", "HEAD~1")
+    worktree = tmp_path / "axiom-corpus"
+    gates._git(main, "worktree", "add", "-q", "--detach", str(worktree), pin)
+    destination = tmp_path / "copy"
 
-    with pytest.raises(ValueError, match="Cannot read the composer's uv.lock"):
-        ci_parity._composer_sibling_entries(compose, layout)
+    ci_parity._disposable_checkout(
+        worktree, pin, destination, "TheAxiomFoundation/axiom-corpus"
+    )
+
+    assert (destination / "a.txt").read_text() == "pinned\n"
+    assert gates._git(destination, "rev-parse", "HEAD") == pin
+    assert gates._git(destination, "status", "--porcelain") == ""
 
 
-def _dynamic_metadata_corpus(tmp_path: Path, log: Path) -> tuple[Path, str]:
-    """A corpus checkout whose metadata only an in-tree backend can produce.
+def test_disposable_checkout_rewrites_a_file_the_copy_got_wrong(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = gates._repo(tmp_path, {"a.txt": "committed\n"}, name="axiom-encode")
+    commit = _committed(source)
 
-    The backend writes into its own source tree, as setuptools' .egg-info
-    does, and records where it ran in ``log``.
+    def wrong(source_file: Path, target: Path) -> None:
+        target.write_text("changed after verification\n")
+
+    monkeypatch.setattr(ci_parity, "_copy_on_write", wrong)
+    destination = tmp_path / "copy"
+
+    ci_parity._disposable_checkout(
+        source, commit, destination, "TheAxiomFoundation/axiom-encode"
+    )
+
+    assert (destination / "a.txt").read_text() == "committed\n"
+    assert gates._git(destination, "status", "--porcelain") == ""
+
+
+def test_disposable_checkout_fails_closed_on_an_unknown_commit(tmp_path: Path) -> None:
+    source = gates._repo(tmp_path, {"a.txt": "x\n"}, name="axiom-encode")
+
+    with pytest.raises(ValueError, match="Cannot make a disposable"):
+        ci_parity._disposable_checkout(
+            source, "0" * 40, tmp_path / "copy", "TheAxiomFoundation/axiom-encode"
+        )
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="APFS clonefile")
+def test_copy_on_write_clones_on_apfs(tmp_path: Path) -> None:
+    source = tmp_path / "big.bin"
+    source.write_bytes(b"x" * (4 << 20))
+    target = tmp_path / "clone.bin"
+
+    ci_parity._copy_on_write(source, target)
+
+    assert target.read_bytes() == source.read_bytes()
+    target.write_bytes(b"y")
+    assert source.read_bytes() == b"x" * (4 << 20)
+
+
+def _siblings(tmp_path: Path, **files: dict[str, str]) -> dict[str, tuple[Path, str]]:
+    """Verified local checkouts of the three siblings, as (path, commit)."""
+
+    local = tmp_path / "local"
+    local.mkdir(exist_ok=True)
+    defaults = {
+        "encode": {"pyproject.toml": '[project]\nname = "axiom-encode"\n'},
+        "engine": {"Cargo.toml": '[package]\nname = "axiom-rules-engine"\n'},
+        "corpus": {"README.md": "corpus\n"},
+    }
+    checkouts = {}
+    for name in ("encode", "engine", "corpus"):
+        repo = local / ci_parity._CHECKOUT_NAMES[name]
+        if not repo.exists():
+            gates._repo(local, files.get(name, defaults[name]), name=repo.name)
+        checkouts[name] = (repo, _committed(repo))
+    return checkouts
+
+
+def test_fresh_composer_siblings_copy_every_sibling_and_restore_links(
+    tmp_path: Path,
+) -> None:
+    layout, _compose = _composer_layout(tmp_path)
+    checkouts = _siblings(tmp_path)
+    ci_parity._link_dependency_entries(
+        layout, {name: path for name, (path, _) in checkouts.items()}
+    )
+
+    with ci_parity._fresh_composer_siblings(layout, checkouts):
+        for name, (source, commit) in checkouts.items():
+            entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
+            assert entry.is_dir() and not entry.is_symlink()
+            assert gates._git(entry, "rev-parse", "HEAD") == commit
+            (entry / "written-by-the-build").write_text("x")
+
+    for name, (source, _commit) in checkouts.items():
+        entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
+        assert entry.is_symlink() and entry.resolve() == source.resolve()
+        assert not (source / "written-by-the-build").exists()
+    # Restored on failure too.
+    with pytest.raises(RuntimeError, match="build failed"):
+        with ci_parity._fresh_composer_siblings(layout, checkouts):
+            raise RuntimeError("build failed")
+    for name, (source, _commit) in checkouts.items():
+        entry = layout.entry(ci_parity._CHECKOUT_NAMES[name])
+        assert entry.is_symlink() and entry.resolve() == source.resolve()
+
+
+def _writing_backend(log: Path) -> dict[str, str]:
+    """An in-tree build backend for axiom-corpus that writes into its source.
+
+    It records where it ran in ``log``, writes a marker beside itself, as
+    setuptools writes .egg-info, and builds a minimal wheel.
     """
 
-    tmp_path.mkdir(parents=True, exist_ok=True)
     backend = (
-        "import pathlib\n"
+        "import base64, hashlib, pathlib, zipfile\n"
         f"LOG = pathlib.Path({str(log)!r})\n"
         "HERE = pathlib.Path(__file__).resolve().parent\n"
+        "INFO = 'axiom_corpus-0.0.0.dist-info'\n"
+        "METADATA = 'Metadata-Version: 2.1\\nName: axiom-corpus\\nVersion: 0.0.0\\n'\n"
         "def _record():\n"
         "    (HERE / 'BUILT-BY-BACKEND').write_text('x')\n"
         "    with LOG.open('a') as handle:\n"
@@ -2681,37 +2796,47 @@ def _dynamic_metadata_corpus(tmp_path: Path, log: Path) -> tuple[Path, str]:
         "    return []\n"
         "def prepare_metadata_for_build_wheel(metadata_directory, config_settings=None):\n"
         "    _record()\n"
-        "    info = pathlib.Path(metadata_directory) / 'axiom_corpus-0.0.0.dist-info'\n"
+        "    info = pathlib.Path(metadata_directory) / INFO\n"
         "    info.mkdir()\n"
-        "    (info / 'METADATA').write_text(\n"
-        "        'Metadata-Version: 2.1\\nName: axiom-corpus\\nVersion: 0.0.0\\n'\n"
-        "    )\n"
-        "    return info.name\n"
+        "    (info / 'METADATA').write_text(METADATA)\n"
+        "    return INFO\n"
         "def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):\n"
-        "    raise RuntimeError('only metadata is built')\n"
+        "    _record()\n"
+        "    name = 'axiom_corpus-0.0.0-py3-none-any.whl'\n"
+        "    files = {\n"
+        "        'axiom_corpus_marker.py': b'BUILT = True\\n',\n"
+        "        INFO + '/METADATA': METADATA.encode(),\n"
+        "        INFO + '/WHEEL': b'Wheel-Version: 1.0\\nGenerator: test\\n'\n"
+        "        b'Root-Is-Purelib: true\\nTag: py3-none-any\\n',\n"
+        "    }\n"
+        "    lines = []\n"
+        "    for path, data in files.items():\n"
+        "        digest = base64.urlsafe_b64encode(hashlib.sha256(data).digest())\n"
+        "        lines.append(f'{path},sha256={digest.rstrip(b\"=\").decode()},{len(data)}')\n"
+        "    lines.append(INFO + '/RECORD,,')\n"
+        "    with zipfile.ZipFile(pathlib.Path(wheel_directory) / name, 'w') as wheel:\n"
+        "        for path, data in files.items():\n"
+        "            wheel.writestr(path, data)\n"
+        "        wheel.writestr(INFO + '/RECORD', '\\n'.join(lines) + '\\n')\n"
+        "    return name\n"
     )
-    corpus = gates._repo(
-        tmp_path,
-        {
-            "pyproject.toml": (
-                "[build-system]\n"
-                "requires = []\n"
-                'build-backend = "backend"\n'
-                'backend-path = ["."]\n\n'
-                "[project]\n"
-                'name = "axiom-corpus"\n'
-                'version = "0.0.0"\n'
-                'requires-python = ">=3.12"\n'
-                'dynamic = ["dependencies"]\n'
-            ),
-            "backend.py": backend,
-        },
-        name="axiom-corpus",
-    )
-    return corpus, gates._git(corpus, "rev-parse", "HEAD")
+    return {
+        "pyproject.toml": (
+            "[build-system]\n"
+            "requires = []\n"
+            'build-backend = "backend"\n'
+            'backend-path = ["."]\n\n'
+            "[project]\n"
+            'name = "axiom-corpus"\n'
+            'version = "0.0.0"\n'
+            'requires-python = ">=3.12"\n'
+            'dynamic = ["dependencies"]\n'
+        ),
+        "backend.py": backend,
+    }
 
 
-def _corpus_composer(compose: Path) -> None:
+def _composer_with_dev_path(compose: Path, path: str) -> None:
     (compose / "pyproject.toml").write_text(
         "[project]\n"
         'name = "axiom-compose"\n'
@@ -2721,96 +2846,148 @@ def _corpus_composer(compose: Path) -> None:
         "[dependency-groups]\n"
         'dev = ["axiom-corpus"]\n\n'
         "[tool.uv.sources]\n"
-        'axiom-corpus = { path = "../axiom-corpus" }\n'
+        f'axiom-corpus = {{ path = "{path}" }}\n'
     )
 
 
-def test_fresh_composer_siblings_swap_links_for_clones_and_back(
-    tmp_path: Path,
-) -> None:
-    layout, _compose = _composer_layout(tmp_path)
-    log = tmp_path / "backend.log"
-    corpus, commit = _dynamic_metadata_corpus(tmp_path / "local", log)
-    ci_parity._link_dependency_entries(layout, {"corpus": corpus})
-    entry = layout.root / "axiom-corpus"
-
-    with ci_parity._fresh_composer_siblings(
-        layout, {"corpus"}, {"corpus": (corpus, commit)}
-    ):
-        assert entry.is_dir() and not entry.is_symlink()
-        assert gates._git(entry, "rev-parse", "HEAD") == commit
-        assert (
-            gates._git(entry, "remote", "get-url", "origin")
-            == "https://github.com/TheAxiomFoundation/axiom-corpus"
-        )
-        (entry / "written-by-the-build").write_text("x")
-
-    assert entry.is_symlink() and entry.resolve() == corpus.resolve()
-    assert not (corpus / "written-by-the-build").exists()
-    # Restored on failure too.
-    with pytest.raises(RuntimeError, match="build failed"):
-        with ci_parity._fresh_composer_siblings(
-            layout, {"corpus"}, {"corpus": (corpus, commit)}
-        ):
-            raise RuntimeError("build failed")
-    assert entry.is_symlink() and entry.resolve() == corpus.resolve()
-
-
-@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
-def test_real_uv_builds_a_dynamic_sibling_in_a_clone_never_the_original(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The reviewer's scenario on real uv: a dev-only corpus sibling whose
-    metadata only its build backend can produce."""
-
-    layout, compose = _composer_layout(tmp_path)
-    log = tmp_path / "backend.log"
-    corpus, commit = _dynamic_metadata_corpus(tmp_path / "local", log)
-    _corpus_composer(compose)
+def _clean_uv_environment(tmp_path: Path) -> dict[str, str]:
     empty = tmp_path / "empty-config"
-    empty.mkdir()
-    lock_environment = {
+    empty.mkdir(exist_ok=True)
+    return {
         **{name: os.environ[name] for name in ("PATH", "HOME")},
         "UV_CACHE_DIR": str(tmp_path / "lock-cache"),
         "XDG_CONFIG_HOME": str(empty),
         "XDG_CONFIG_DIRS": str(empty),
     }
-    # Lock against a scratch copy of the layout, so the original is untouched.
+
+
+def _lock_in_scratch(tmp_path: Path, layout, compose: Path, checkouts) -> None:
+    """Lock the composer against copies, so no original is ever built."""
+
     scratch = tmp_path / "scratch"
     shutil.copytree(compose, scratch / "axiom-compose")
-    shutil.copytree(
-        corpus, scratch / "axiom-corpus", ignore=shutil.ignore_patterns(".git")
-    )
+    for name, (source, _commit) in checkouts.items():
+        shutil.copytree(
+            source,
+            scratch / ci_parity._CHECKOUT_NAMES[name],
+            symlinks=True,
+            ignore=shutil.ignore_patterns(".git"),
+        )
     locked = ci_parity._run_build_command(
         ["uv", "lock", "--project", str(scratch / "axiom-compose")],
         cwd=scratch,
-        environment=lock_environment,
+        environment=_clean_uv_environment(tmp_path),
     )
     assert locked.returncode == 0, locked.stdout
     shutil.copy(scratch / "axiom-compose" / "uv.lock", compose / "uv.lock")
-    log.write_text("")
-    ci_parity._link_dependency_entries(layout, {"corpus": corpus})
-    assert ci_parity._composer_sibling_entries(compose, layout) == {"corpus"}
+
+
+def _run_real_uv_until(monkeypatch: pytest.MonkeyPatch, stop: list[str]):
+    """Real uv export and pip install; stand-ins for the Python setup."""
+
     real_run = ci_parity._run_build_command
-    exports: list[subprocess.CompletedProcess] = []
+    results: dict[str, subprocess.CompletedProcess] = {}
 
     def run(command, *, cwd, environment):
-        if command[:2] == ["uv", "export"]:
-            exports.append(real_run(command, cwd=cwd, environment=environment))
-            return exports[-1]
-        stop = command[:2] == ["uv", "pip"]
-        return subprocess.CompletedProcess(
-            command, int(stop), "stopped by the test\n" if stop else "", None
-        )
+        if command[:2] == stop:
+            return subprocess.CompletedProcess(
+                command, 1, "stopped by the test\n", None
+            )
+        if command[:2] in (["uv", "export"], ["uv", "pip"]):
+            results[command[1]] = real_run(command, cwd=cwd, environment=environment)
+            return results[command[1]]
+        if command[:2] == ["uv", "venv"]:
+            (Path(command[-1]) / "bin").mkdir(parents=True)
+            (Path(command[-1]) / "bin" / "python").symlink_to(sys.executable)
+        return subprocess.CompletedProcess(command, 0, "", None)
 
     monkeypatch.setattr(ci_parity, "_run_build_command", run)
+    return results
 
-    with ci_parity._fresh_composer_siblings(
-        layout, {"corpus"}, {"corpus": (corpus, commit)}
-    ):
-        with pytest.raises(
-            ValueError, match="(?s)uv pip install .*stopped by the test"
-        ):
+
+def _assert_untouched(checkouts) -> None:
+    for source, _commit in checkouts.values():
+        assert not (source / "BUILT-BY-BACKEND").exists()
+        assert gates._git(source, "status", "--porcelain", "--ignored") == ""
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_builds_a_dynamic_sibling_in_a_copy_never_the_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-2 scenario on real uv: a dev-only corpus sibling whose metadata
+    only its own build backend, writing into its source tree, can produce."""
+
+    layout, compose = _composer_layout(tmp_path)
+    log = tmp_path / "backend.log"
+    checkouts = _siblings(tmp_path, corpus=_writing_backend(log))
+    _composer_with_dev_path(compose, "../axiom-corpus")
+    _lock_in_scratch(tmp_path, layout, compose, checkouts)
+    log.write_text("")
+    ci_parity._link_dependency_entries(
+        layout, {name: path for name, (path, _) in checkouts.items()}
+    )
+    results = _run_real_uv_until(monkeypatch, ["uv", "pip"])
+
+    def build(temp: str) -> None:
+        with pytest.raises(ValueError, match="stopped by the test"):
+            ci_parity._build_workflow_composer(
+                compose,
+                COMPOSE_REF,
+                tmp_path / "encode-pin",
+                "0" * 40,
+                tmp_path / temp,
+                workspace=tmp_path / "rulespec-us",
+                offline=False,
+                step_environment=layout.environment(),
+            )
+
+    with ci_parity._fresh_composer_siblings(layout, checkouts):
+        build("temp")
+
+    assert results["export"].returncode == 0, results["export"].stdout
+    # The backend ran in the copy at the entry, and wrote there only.
+    assert log.read_text().splitlines() == [str(layout.root / "axiom-corpus")]
+    _assert_untouched(checkouts)
+    assert (layout.root / "axiom-corpus").resolve() == checkouts["corpus"][0].resolve()
+
+    # Without the copies (abba418a), the same build writes into the
+    # developer's checkout through the entry link.
+    log.write_text("")
+    build("temp-without-copies")
+    corpus = checkouts["corpus"][0]
+    assert log.read_text().splitlines() == [str(corpus.resolve())]
+    assert (corpus / "BUILT-BY-BACKEND").exists()
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_reaches_a_sibling_through_another_siblings_link_only_as_a_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-3 finding 1: the engine tracks corpus -> ../axiom-corpus and the
+    composer names ../axiom-rules-engine/corpus. Every sibling is a copy, so
+    the link lands on the corpus copy."""
+
+    layout, compose = _composer_layout(tmp_path)
+    log = tmp_path / "backend.log"
+    checkouts = _siblings(tmp_path, corpus=_writing_backend(log))
+    engine = checkouts["engine"][0]
+    (engine / "corpus").symlink_to("../axiom-corpus")
+    checkouts["engine"] = (engine, gates._commit(engine, message="link the corpus"))
+    _composer_with_dev_path(compose, "../axiom-rules-engine/corpus")
+    _lock_in_scratch(tmp_path, layout, compose, checkouts)
+    assert (
+        'directory = "../axiom-rules-engine/corpus"'
+        in (compose / "uv.lock").read_text()
+    )
+    log.write_text("")
+    ci_parity._link_dependency_entries(
+        layout, {name: path for name, (path, _) in checkouts.items()}
+    )
+    results = _run_real_uv_until(monkeypatch, ["uv", "pip"])
+
+    with ci_parity._fresh_composer_siblings(layout, checkouts):
+        with pytest.raises(ValueError, match="stopped by the test"):
             ci_parity._build_workflow_composer(
                 compose,
                 COMPOSE_REF,
@@ -2819,63 +2996,161 @@ def test_real_uv_builds_a_dynamic_sibling_in_a_clone_never_the_original(
                 tmp_path / "temp",
                 workspace=tmp_path / "rulespec-us",
                 offline=False,
+                step_environment=layout.environment(),
             )
 
-    assert exports and exports[-1].returncode == 0, exports[-1].stdout
-    # The backend ran, in the clone at the entry, and wrote there only.
+    assert results["export"].returncode == 0, results["export"].stdout
     assert log.read_text().splitlines() == [str(layout.root / "axiom-corpus")]
-    assert not (corpus / "BUILT-BY-BACKEND").exists()
-    assert gates._git(corpus, "status", "--porcelain", "--ignored") == ""
-    assert (layout.root / "axiom-corpus").resolve() == corpus.resolve()
+    _assert_untouched(checkouts)
 
-    # Without the clones (abba418a), the same build writes into the
-    # developer's checkout through the entry link.
-    log.write_text("")
-    with pytest.raises(ValueError, match="(?s)uv pip install .*stopped by the test"):
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_rules_checkout_override_builds_the_copy_named_by_the_step_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-3 finding 2: the rules checkout's uv configuration overrides a
+    composer requirement with ${AXIOM_DEPENDENCY_ROOT}/axiom-corpus. CI
+    exports that variable; ci gives the step the run's root, whatever the
+    developer's shell says, and the corpus there is a copy."""
+
+    layout, compose = _composer_layout(tmp_path)
+    log = tmp_path / "backend.log"
+    checkouts = _siblings(tmp_path, corpus=_writing_backend(log))
+    workspace = tmp_path / "rulespec-us"
+    (workspace / "uv.toml").write_text(
+        "override-dependencies = [\n"
+        '    "axiom-corpus @ file://${AXIOM_DEPENDENCY_ROOT}/axiom-corpus",\n'
+        "]\n"
+    )
+    ci_parity._link_dependency_entries(
+        layout, {name: path for name, (path, _) in checkouts.items()}
+    )
+    # The developer's own value names the original checkouts.
+    monkeypatch.setenv("AXIOM_DEPENDENCY_ROOT", str(checkouts["corpus"][0].parent))
+    monkeypatch.setenv("AXIOM_ENCODE_SOMETHING", "ambient")
+    real_run = ci_parity._run_build_command
+    results: dict[str, subprocess.CompletedProcess] = {}
+    environments: list[dict[str, str]] = []
+    temp = tmp_path / "temp"
+
+    def run(command, *, cwd, environment):
+        if command[0] == "uv":
+            environments.append(dict(environment))
+        if command[:2] == ["uv", "export"]:
+            # The composer's lock asks for axiom-corpus from an index.
+            Path(command[command.index("--output-file") + 1]).write_text(
+                "axiom-corpus\n"
+            )
+            return subprocess.CompletedProcess(command, 0, "", None)
+        if command[:2] == ["uv", "pip"]:
+            results["pip"] = real_run(
+                [*command, "--offline"], cwd=cwd, environment=environment
+            )
+            return subprocess.CompletedProcess(
+                command, 1, "stopped by the test\n", None
+            )
+        if command[:2] == ["uv", "venv"]:
+            (Path(command[-1]) / "bin").mkdir(parents=True)
+            (Path(command[-1]) / "bin" / "python").symlink_to(sys.executable)
+        return subprocess.CompletedProcess(command, 0, "", None)
+
+    monkeypatch.setattr(ci_parity, "_run_build_command", run)
+
+    with ci_parity._fresh_composer_siblings(layout, checkouts):
+        with pytest.raises(ValueError, match="stopped by the test"):
+            ci_parity._build_workflow_composer(
+                compose,
+                COMPOSE_REF,
+                tmp_path / "encode-pin",
+                "0" * 40,
+                temp,
+                workspace=workspace,
+                offline=False,
+                step_environment={
+                    **layout.environment(),
+                    "AXIOM_COMPOSE_REF": COMPOSE_REF,
+                },
+            )
+
+    assert results["pip"].returncode == 0, results["pip"].stdout
+    assert (temp / "axiom-compose-site-packages" / "axiom_corpus_marker.py").exists()
+    # Built from the copy CI's variable names, never the original.
+    assert set(log.read_text().splitlines()) == {str(layout.root / "axiom-corpus")}
+    _assert_untouched(checkouts)
+    for environment in environments:
+        assert environment["AXIOM_DEPENDENCY_ROOT"] == str(layout.root)
+        assert environment["AXIOM_DEPENDENCY_STAGE"] == layout.stage
+        assert environment["AXIOM_COMPOSE_REF"] == COMPOSE_REF
+        assert "AXIOM_ENCODE_SOMETHING" not in environment
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_ignores_unused_sources_and_unmatched_members_and_so_does_ci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-3 finding 3: references uv never follows are not refused."""
+
+    layout, compose = _composer_layout(tmp_path)
+    (compose / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "axiom-compose"\n'
+        'version = "0.0.0"\n'
+        'requires-python = ">=3.12"\n'
+        "dependencies = []\n\n"
+        "[tool.uv.sources]\n"
+        'former-dev-helper = { path = "../../development-utils" }\n\n'
+        "[tool.uv.workspace]\n"
+        'members = ["../../dev-packages/*"]\n'
+    )
+    locked = ci_parity._run_build_command(
+        ["uv", "lock", "--project", str(compose)],
+        cwd=tmp_path,
+        environment=_clean_uv_environment(tmp_path),
+    )
+    assert locked.returncode == 0, locked.stdout
+    results = _run_real_uv_until(monkeypatch, ["uv", "pip"])
+
+    with pytest.raises(ValueError, match="stopped by the test"):
         ci_parity._build_workflow_composer(
             compose,
             COMPOSE_REF,
             tmp_path / "encode-pin",
             "0" * 40,
-            tmp_path / "temp-without-clones",
+            tmp_path / "temp",
             workspace=tmp_path / "rulespec-us",
             offline=False,
+            step_environment=layout.environment(),
         )
-    assert log.read_text().splitlines() == [str(corpus.resolve())]
-    assert (corpus / "BUILT-BY-BACKEND").exists()
+
+    assert results["export"].returncode == 0, results["export"].stdout
 
 
-def test_run_ci_builds_the_composer_against_fresh_sibling_clones(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+def test_composer_build_drops_ambient_axiom_values_for_the_steps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    harness, events, compose = _harness(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        ci_parity, "_composer_sibling_entries", lambda checkout, layout: {"corpus"}
-    )
+    monkeypatch.setenv("AXIOM_DEPENDENCY_ROOT", "/Users/dev/dependencies")
+    monkeypatch.setenv("AXIOM_ENCODE_TOKEN", "ambient")
+    seen: list[dict[str, str]] = []
 
-    @contextlib.contextmanager
-    def swap(layout, names, checkouts):
-        events.append(("siblings", set(names), dict(checkouts)))
-        yield
-        events.append(("siblings_restored",))
+    def fake(command, *, cwd, environment):
+        seen.append(dict(environment))
+        return subprocess.CompletedProcess(command, 1, "stop\n", None)
 
-    monkeypatch.setattr(ci_parity, "_fresh_composer_siblings", swap)
+    monkeypatch.setattr(ci_parity, "_run_build_command", fake)
+    workspace = tmp_path / "rulespec-us"
+    workspace.mkdir()
 
-    code = run_ci(harness.args("--compose-path", str(compose)))
-    report = json.loads(capsys.readouterr().out)
+    with pytest.raises(ValueError, match="stop"):
+        ci_parity._build_workflow_composer(
+            tmp_path / "compose",
+            COMPOSE_REF,
+            tmp_path / "encode",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=False,
+            step_environment={"AXIOM_DEPENDENCY_ROOT": "/runner/temp/root"},
+        )
 
-    assert code == 0, report
-    assert [event[0] for event in events] == [
-        "validate_composer_pin",
-        "siblings",
-        "build_composer",
-        "siblings_restored",
-    ]
-    _, names, checkouts = events[1]
-    assert names == {"corpus"}
-    assert checkouts == {
-        "corpus": (harness.paths["corpus"].resolve(), harness.caller.refs["corpus"])
-    }
-    assert any("axiom-corpus by path" in note for note in report["notes"])
+    assert seen and seen[0]["AXIOM_DEPENDENCY_ROOT"] == "/runner/temp/root"
+    assert "AXIOM_ENCODE_TOKEN" not in seen[0]
