@@ -1,3 +1,7 @@
+## 0.2.2193
+
+- Keep US bibliographic locators out of complete-source numeric recall: Federal Register volume/page citations, `Pub. L.` public-law numbers, the public-law and Statutes at Large numbers of complete U.S. Code repeal, omission and transfer notes, and years in act titles. The recall text is not rewritten; an occurrence is dropped only when it lies wholly inside a locator's numbers, the citation's context is bibliographic, and a re-read with those numbers blanked agrees on every other occurrence. Otherwise the inventory stays unchanged.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
