@@ -1,0 +1,20 @@
+# Signing-critical code. Promotions sign without a per-run click (apply-signing
+# has no required reviewers), so whoever can change these files on main controls
+# what the apply key signs. Branch protection requires a code-owner review for
+# any change to them, with no administrator bypass. Changes elsewhere are not
+# affected.
+
+# The workflow that signs with the apply key, and the reviewed-candidate
+# allowlists it admits.
+/.github/workflows/targeted-signed-reencode.yml @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/prepare_signed_backfill.py @PavelMakarchuk @MaxGhenis
+
+# The signer, the signing supervisor, the broker and the trust bootstrap.
+/cmd/axiom-encode-apply-signer/ @PavelMakarchuk @MaxGhenis
+/cmd/axiom-encode-signing-supervisor/ @PavelMakarchuk @MaxGhenis
+/scripts/provision_verification_supervisor.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/signing_broker.py @PavelMakarchuk @MaxGhenis
+/src/axiom_encode/_trusted_signing_bootstrap.py @PavelMakarchuk @MaxGhenis
+
+# This file.
+/.github/CODEOWNERS @PavelMakarchuk @MaxGhenis

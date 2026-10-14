@@ -1,0 +1,1 @@
+Require a code-owner review (@PavelMakarchuk or @MaxGhenis) for changes to the signing workflow, the reviewed-candidate allowlists, and the signer, supervisor, broker and trust-bootstrap code, since promotions now sign without a per-run click.
