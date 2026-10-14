@@ -755,10 +755,12 @@ _PROOF_COMPOUND_HYPHEN_WRAP_PATTERN = re.compile(
 _PROOF_SOFT_HYPHEN_WRAP_PATTERN = re.compile(
     r"(?<=[a-z])(" + _PROOF_WRAP_DASH + _PROOF_LINE_WRAP + r")(?=[a-z])"
 )
-# A soft hyphen (U+00AD) is an invisible break opportunity, never printed: it
-# goes, with the line wrap it may sit at between two letters.
+# A soft hyphen (U+00AD) between two letters is an invisible break
+# opportunity: it goes, with the line wrap it may sit at. Elsewhere it stays,
+# since some extractions print a real hyphen as U+00AD ("18\u00ad64" is a
+# range, never the number 1864).
 _PROOF_SOFT_HYPHEN_CHARACTER_PATTERN = re.compile(
-    r"(\u00ad(?:(?<=[^\W\d_]\u00ad)" + _PROOF_LINE_WRAP + r"(?=[^\W\d_]))?)"
+    r"(?<=[^\W\d_])(\u00ad(?:" + _PROOF_LINE_WRAP + r")?)(?=[^\W\d_])"
 )
 _PROOF_SIGN_DIGIT_GAP_PATTERN = re.compile(
     r"[$\u00a2-\u00a5\u20a0-\u20cf\u00a7\u00b6](" + _PROOF_WRAP_GAP + r")(?=\d)"

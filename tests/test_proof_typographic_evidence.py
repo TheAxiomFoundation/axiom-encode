@@ -218,6 +218,23 @@ def test_proof_evidence_accepts_typographic_spelling(source_text, excerpt):
         # A dash between a letter and a digit is not folded either.
         ("The adjustment is Group-500 for each household.", "Group\u2212500 for each"),
         ("The adjustment is Group\u2013500 for each household.", "Group-500 for each"),
+        # Ranges and section numbers never collapse: a dash or soft hyphen
+        # between digits is never removed, and a dot never moves.
+        ("for household sizes 2-5 only", "for household sizes 25 only"),
+        ("for household sizes 2\u20135 only", "for household sizes 25 only"),
+        ("for ages 18\u00ad64 only", "for ages 1864 only"),
+        ("for ages 18\u00ad\n64 only", "for ages 1864 only"),
+        ("for household sizes 25 only", "for household sizes 2-5 only"),
+        ("for household sizes 25 only", "for household sizes 2\u20135 only"),
+        ("as provided in \u00a7 273.4 of this part", "as provided in \u00a7 273.14"),
+        ("as provided in \u00a7 273.4 of this part", "as provided in \u00a7 2734"),
+        ("as provided in \u00a7 273.4 of this part", "as provided in \u00a7 27.34"),
+        ("as provided in \u00a7 2 73 of this part", "as provided in \u00a7273"),
+        ("limited to $1 000 per account", "$1000 per account"),
+        ("limited to $1,000 per account", "$1000 per account"),
+        # Quotation marks that change which words are quoted.
+        ('the term "earned income" means', '"the term" earned income means'),
+        ('the term "earned income" means', 'the "term earned" income means'),
     ],
 )
 def test_proof_evidence_rejects_changed_text(source_text, excerpt):
