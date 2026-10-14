@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import http.server
 import io
 import json
 import tarfile
+import threading
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -807,7 +810,10 @@ class TestRepeatedFailureMain:
         self._stub_api(monkeypatch, self.TWO_FAILURES, rule_codes=codes)
 
     def test_same_rule_set_blocks_under_the_numeric_budget(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         self._set_env(monkeypatch)
         summary = tmp_path / "summary.md"
@@ -818,6 +824,7 @@ class TestRepeatedFailureMain:
         assert "### Repeated failure" in text
         assert "`complete-source-unit:tests`" in text
         assert "REPEATED_FAILURE_OVERRIDE_JSON" in text
+        assert "::error title=Repeated final rule codes::" in capsys.readouterr().out
 
     def test_repair_replays_are_also_blocked(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1023,3 +1030,102 @@ def test_workflow_passes_the_repeated_failure_override() -> None:
         "${{ vars.REPEATED_FAILURE_OVERRIDE_JSON }}"
     )
     assert step["env"]["REPAIR_RUN_ID"] == "${{ inputs.repair_run_id }}"
+
+
+def test_no_redirect_handler_stops_at_the_redirect_on_a_real_server() -> None:
+    """Python's own redirect handler would forward the Authorization header."""
+
+    requests: list[tuple[str, str | None]] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            requests.append((self.path, self.headers.get("Authorization")))
+            if self.path == "/zip":
+                self.send_response(302)
+                self.send_header(
+                    "Location", f"http://127.0.0.1:{self.server.server_port}/blob"
+                )
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"blob")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        opener = urllib.request.build_opener(budget_mod._NoRedirect)
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/zip",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as raised:
+            opener.open(request, timeout=10)
+        assert raised.value.code == 302
+        assert raised.value.headers["Location"].endswith("/blob")
+        raised.value.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=10)
+    assert requests == [("/zip", "Bearer secret-token")]
+
+
+def test_a_spent_lookup_deadline_skips_the_download(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fetched: list[str] = []
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    def urlopen(request, timeout=None):  # noqa: ANN001
+        fetched.append(request.full_url)
+        return Response(
+            json.dumps(
+                {
+                    "artifacts": [
+                        {
+                            "name": "targeted-reencode-failure-7-1",
+                            "expired": False,
+                            "size_in_bytes": 10,
+                            "archive_download_url": (
+                                "https://api.github.com/repos/org/repo/"
+                                "actions/artifacts/9/zip"
+                            ),
+                        }
+                    ]
+                }
+            ).encode()
+        )
+
+    class Opener:
+        def open(self, request, timeout=None):  # noqa: ANN001
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "https://blob.example/artifact.zip"},
+                None,
+            )
+
+    monkeypatch.setattr(budget_mod.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(
+        budget_mod.urllib.request, "build_opener", lambda *handlers: Opener()
+    )
+    codes = budget_mod._fetch_failure_rule_codes(
+        repo="org/repo",
+        token="secret-token",
+        run={"id": 7, "run_attempt": 1},
+        deadline=time.monotonic() - 1,
+    )
+    assert codes is None
+    assert all("blob.example" not in url for url in fetched)

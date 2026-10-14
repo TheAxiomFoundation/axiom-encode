@@ -82,8 +82,12 @@ FAILURE_ARCHIVE_NAME = "targeted-reencode-failure.tar"
 FINAL_ISSUES_PATTERN = re.compile(
     r"generated/[A-Za-z0-9._-]+/final-rejected-candidate/issues\.json"
 )
-MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
+# The packaging step caps generated diagnostics at 64 MiB before tar and zip.
+MAX_ARTIFACT_BYTES = 96 * 1024 * 1024
 MAX_ISSUES_BYTES = 4 * 1024 * 1024
+# Wall-clock budget for reading rule codes, well inside the job's 10 minutes;
+# past it the rule stays silent (fails open) instead of timing out the job.
+RULE_CODE_LOOKUP_SECONDS = 240
 # "<module path>: <stage>: [<rule code>] <message>". Only validator rules
 # carry a code; output defects without one (a YAML parse error, a compile
 # error, a wrong expected value) leave the run's set unknown, because a fresh
@@ -395,10 +399,16 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _fetch_failure_rule_codes(
-    *, repo: str, token: str, run: dict
+    *, repo: str, token: str, run: dict, deadline: float | None = None
 ) -> frozenset[str] | None:
-    """Final rule codes of one failed run, or ``None`` when unavailable."""
+    """Final rule codes of one failed run, or ``None`` when unavailable.
 
+    ``deadline`` is a :func:`time.monotonic` instant after which the download
+    stops and the run's set is unknown.
+    """
+
+    if deadline is None:
+        deadline = time.monotonic() + RULE_CODE_LOOKUP_SECONDS
     run_id = run.get("id")
     run_attempt = run.get("run_attempt") or 1
     if not isinstance(run_id, int) or not isinstance(run_attempt, int):
@@ -445,9 +455,10 @@ def _fetch_failure_rule_codes(
             return None
     except urllib.error.HTTPError as redirect:
         location = redirect.headers.get("Location")
+        redirect.close()
         if redirect.code not in {301, 302, 303, 307, 308} or not location:
             return None
-    if not location.startswith("https://"):
+    if not location.startswith("https://") or time.monotonic() > deadline:
         return None
     with tempfile.TemporaryDirectory() as scratch:
         zip_path = os.path.join(scratch, "artifact.zip")
@@ -456,14 +467,14 @@ def _fetch_failure_rule_codes(
                 urllib.request.Request(
                     location, headers={"User-Agent": headers["User-Agent"]}
                 ),
-                timeout=120,
+                timeout=60,
             ) as response,
             open(zip_path, "wb") as sink,
         ):
             written = 0
             while chunk := response.read(1024 * 1024):
                 written += len(chunk)
-                if written > MAX_ARTIFACT_BYTES:
+                if written > MAX_ARTIFACT_BYTES or time.monotonic() > deadline:
                     return None
                 sink.write(chunk)
         return rule_codes_from_failure_artifact(zip_path)
@@ -713,9 +724,13 @@ def main() -> int:
         and not repeat_overridden
     )
 
+    lookup_deadline = time.monotonic() + RULE_CODE_LOOKUP_SECONDS
+
     def rule_codes(run: dict) -> frozenset[str] | None:
         try:
-            return _fetch_failure_rule_codes(repo=repo, token=token, run=run)
+            return _fetch_failure_rule_codes(
+                repo=repo, token=token, run=run, deadline=lookup_deadline
+            )
         except Exception as error:  # noqa: BLE001 - fail open on API trouble
             print(
                 f"attempt-budget: could not read rule codes for run "
@@ -741,6 +756,14 @@ def main() -> int:
                 repeated, citation=citation, blocked=repeat_blocked
             )
         )
+        if repeat_blocked:
+            print(
+                "::error title=Repeated final rule codes::The last "
+                f"{len(repeated.runs)} model-bearing runs for {citation} failed "
+                f"with {', '.join(sorted(repeated.rule_codes))}; see "
+                "REPEATED_FAILURE_OVERRIDE_JSON in "
+                "docs/targeted-reencode-attempt-budget.md"
+            )
     if override == "true":
         print("attempt-budget: override set by dispatcher; not blocking.")
     if repair_run_id and not repeat_blocked:
