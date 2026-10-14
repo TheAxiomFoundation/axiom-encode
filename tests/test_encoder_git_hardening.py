@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import struct
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -448,9 +450,8 @@ def test_every_guard_git_command_scrubs_overrides_and_disables_graph_rewriting(
         assert {
             key: value for key, value in environment.items() if key.startswith("GIT_")
         } == (_NEUTRAL_GIT_ENVIRONMENT)
-        if "--no-replace-objects" in command:
-            config = command.index("-c")
-            assert command[config + 1] == "core.commitGraph=false"
+        # The verification runtime's trusted git wrapper accepts only this form.
+        assert command[1] == "-C", command
     if operation == "history":
         assert result is None
     elif operation in {"resolver", "current", "live-current"}:
@@ -597,3 +598,55 @@ def test_every_git_proof_stage_fails_closed(graph, monkeypatch, failure, fetched
         with monkeypatch.context() as context:
             context.setattr(cli.subprocess, "run", fail)
             assert _issue(graph, 4), (failure, target)
+
+
+# Under the verification supervisor `git` is the provisioned trusted wrapper,
+# which strips every GIT_* variable. Its own settings are then the only defence
+# against a forged commit graph, so these cases run through the real wrapper.
+_PROVISIONER_SPEC = importlib.util.spec_from_file_location(
+    "provision_verification_supervisor_for_git_hardening",
+    Path(__file__).resolve().parent.parent
+    / "scripts"
+    / "provision_verification_supervisor.py",
+)
+
+
+@pytest.fixture
+def trusted_wrapper_tools(tmp_path):
+    provisioner = importlib.util.module_from_spec(_PROVISIONER_SPEC)
+    _PROVISIONER_SPEC.loader.exec_module(provisioner)
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("Git is required")
+    try:
+        trusted = provisioner._resolve_trusted_git(Path(git).resolve())
+    except SystemExit as exc:
+        pytest.skip(f"the trusted git wrapper needs a root-owned git: {exc}")
+    tools = tmp_path / "trusted-tools"
+    tools.mkdir()
+    provisioner._install_trusted_git_wrapper(
+        tools, Path(sys.executable).resolve(), trusted
+    )
+    return tools
+
+
+@pytest.mark.parametrize("storage", ["local", "alternate"])
+def test_forged_commit_graph_is_refused_through_the_trusted_wrapper(
+    tmp_path, monkeypatch, trusted_wrapper_tools, storage
+):
+    history, main, feature = _forked_graph(tmp_path / "forged-history")
+    _forge_commit_graph_parent(history, main, feature, storage)
+    monkeypatch.setenv("PATH", str(trusted_wrapper_tools))
+
+    assert _issue(history, main) is None
+    assert _issue(history, feature)
+
+
+def test_symbolic_main_is_refused_through_the_trusted_wrapper(
+    tmp_path, monkeypatch, trusted_wrapper_tools
+):
+    history, main, feature = _forked_graph(tmp_path / "symbolic-history")
+    _git(history.root, "symbolic-ref", "refs/heads/main", "refs/heads/feature")
+    monkeypatch.setenv("PATH", str(trusted_wrapper_tools))
+
+    assert "must not be symbolic" in (_issue(history, feature) or "")

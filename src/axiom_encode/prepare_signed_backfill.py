@@ -213,7 +213,7 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
         (
             "nz",
             "a3b2ded3e2bae46923db1059de3d01565dc7424c",
-            "nzhub/wep-s75c",
+            "nzhub/wep-s75d",
         ),
     }
 )

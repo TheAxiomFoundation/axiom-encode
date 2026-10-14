@@ -1184,6 +1184,155 @@ class TestTrustedGit:
             == []
         )
 
+    def test_installed_wrapper_admits_the_encoder_guard_identity_queries(
+        self, tmp_path, monkeypatch
+    ):
+        # Under the supervisor, `git` is this wrapper. Every query the guard's
+        # encoder identity and ancestry checks make must pass through it, and
+        # the checks must still find grafts and replacement refs.
+        from axiom_encode.cli import (
+            _encoder_git_history_admission_issue,
+            _guard_encoder_git_metadata_issue,
+        )
+
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "axiom-encode"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+
+        def commit(message: str) -> str:
+            (repository / "file.txt").write_text(message)
+            subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+            subprocess.run(
+                [
+                    git,
+                    "-c",
+                    "user.name=Axiom test",
+                    "-c",
+                    "user.email=test@axiom.invalid",
+                    "-C",
+                    str(repository),
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    message,
+                ],
+                check=True,
+            )
+            return subprocess.check_output(
+                [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+            ).strip()
+
+        pin = commit("pin")
+        producer = commit("producer")
+        real_path = os.environ["PATH"]
+        monkeypatch.setenv("PATH", str(destination))
+        assert shutil.which("git") == str(destination / "git")
+
+        assert _guard_encoder_git_metadata_issue(repository) is None
+        assert (
+            _encoder_git_history_admission_issue(repository, pin=pin, producer=producer)
+            is None
+        )
+        assert _encoder_git_history_admission_issue(
+            repository, pin=producer, producer=pin
+        ) == ("the pinned encoder commit is not an ancestor of the producer")
+
+        grafts = repository / ".git/info/grafts"
+        grafts.parent.mkdir(exist_ok=True)
+        grafts.write_text(f"{producer}\n")
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden graft metadata"
+        )
+        grafts.unlink()
+
+        monkeypatch.setenv("PATH", real_path)
+        subprocess.run(
+            [git, "-C", str(repository), "replace", producer, pin], check=True
+        )
+        monkeypatch.setenv("PATH", str(destination))
+        assert (
+            _guard_encoder_git_metadata_issue(repository)
+            == "encoder history contains forbidden replacement refs"
+        )
+
+    def test_installed_wrapper_refuses_with_its_own_status_and_is_quiet(self, tmp_path):
+        # A refusal must never read as a Git answer that exits 1 ("not a
+        # symbolic ref", "no matches"), and a commit walk must not print the
+        # graft-file deprecation advice that the wrapper's GIT_GRAFT_FILE triggers.
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run(
+            [git, "init", "--quiet", "--initial-branch=main", str(repository)],
+            check=True,
+        )
+        (repository / "file.txt").write_text("content\n")
+        subprocess.run([git, "-C", str(repository), "add", "file.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        head = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD"], text=True
+        ).strip()
+        environment = {"HOME": str(tmp_path), "PATH": str(destination)}
+
+        for refused in (
+            ["push", "origin", "main"],
+            ["symbolic-ref", "refs/heads/main", "refs/heads/feature"],
+            ["for-each-ref", "refs/heads/"],
+        ):
+            result = subprocess.run(
+                [str(wrapper), "-C", str(repository), *refused],
+                capture_output=True,
+                env=environment,
+            )
+            assert result.returncode == 126, refused
+            assert b"trusted git wrapper refused" in result.stderr
+
+        walked = subprocess.run(
+            [str(wrapper), "-C", str(repository), "rev-list", "--first-parent", head],
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        assert walked.returncode == 0
+        assert walked.stdout.split() == [head]
+        assert walked.stderr == ""
+
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
         git = shutil.which("git")
         if git is None:

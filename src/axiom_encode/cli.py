@@ -27544,16 +27544,12 @@ def _encoder_producer_admission_issue(
 def _guard_encoder_git_run(
     checkout: Path, *args: str
 ) -> subprocess.CompletedProcess[str]:
+    # `-C` first: the provisioned verification runtime's trusted git wrapper
+    # accepts only `git -C <checkout> <command>`. Replacement objects, grafts and
+    # the commit graph are disabled by _read_only_git_environment() here and by
+    # the wrapper's own environment under the supervisor.
     return subprocess.run(
-        [
-            shutil.which("git") or "git",
-            "--no-replace-objects",
-            "-c",
-            "core.commitGraph=false",
-            "-C",
-            str(checkout),
-            *args,
-        ],
+        [shutil.which("git") or "git", "-C", str(checkout), *args],
         capture_output=True,
         text=True,
         timeout=30,
