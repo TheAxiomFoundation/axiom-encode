@@ -4123,7 +4123,15 @@ jobs:
           artifact="$RUNNER_TEMP/targeted-reencode"
           (
             cd "$artifact"
-            sha256sum * > SHA256SUMS
+            if [ -n "$(find . -type l -print -quit)" ]; then
+              echo "signed re-encode artifact contains a symlink" >&2
+              exit 1
+            fi
+            find . -type f ! -path ./SHA256SUMS -print0 |
+              LC_ALL=C sort -z |
+              xargs -0 -r sha256sum > SHA256SUMS
+            test -s SHA256SUMS
+            sha256sum --check SHA256SUMS
           )
 
       - name: Upload signed re-encode artifact
