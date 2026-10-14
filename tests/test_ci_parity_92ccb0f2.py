@@ -3582,9 +3582,13 @@ def test_checkouts_ci_makes_ignore_the_developers_git_hooks(
     for hook in ("reference-transaction", "post-checkout"):
         (hooks / hook).write_text("#!/bin/sh\nexit 1\n")
         (hooks / hook).chmod(0o755)
-    config = tmp_path / "developer.gitconfig"
-    config.write_text(f"[core]\n\thooksPath = {hooks}\n")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    # The developer's own ~/.gitconfig, which Git reads unless told not to.
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("GIT_CONFIG_GLOBAL", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     # The developer's own Git now refuses every ref change.
     refused = subprocess.run(
         ["git", "-C", str(source), "tag", "v2"], capture_output=True, check=False
