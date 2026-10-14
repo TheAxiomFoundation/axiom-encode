@@ -2,6 +2,7 @@
 Pytest fixtures for axiom_encode tests.
 """
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -22,16 +23,93 @@ from axiom_encode import (
     __version__,
 )
 from axiom_encode import signing_broker as _signing_broker
-from tests.real_engine import (  # noqa: F401 - the real_engine fixture and its hooks
-    pytest_collection_modifyitems,
-    pytest_configure,
-    pytest_make_collect_report,
-    pytest_report_header,
-    pytest_runtest_makereport,
-    real_engine,
-)
+from tests import ci_shards
+from tests import real_engine as _real_engine_plugin
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.signing_broker_fixtures import SigningBrokerFixture
+
+
+def pytest_configure(config):
+    # tests/real_engine.py defines its own pytest_collection_modifyitems (and the
+    # real_engine fixture). This conftest defines one for the CI shard split, and
+    # a module can hold only one function per hook name, so register it as a plugin.
+    if not config.pluginmanager.is_registered(_real_engine_plugin):
+        config.pluginmanager.register(_real_engine_plugin, "axiom-encode-real-engine")
+
+
+# This session's CI shard, once collection has chosen its tests; absent when unsharded.
+# Kept on the session's own config so a pytest run started inside a test cannot touch it.
+_SHARD_RUN = pytest.StashKey[dict]()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    """Keep only this CI shard's tests when ``AXIOM_ENCODE_TEST_SHARD`` is set.
+
+    See ``tests/ci_shards.py``. Without the variable the suite runs whole. It
+    runs after pytest's own ``-k``, ``-m`` and ``--deselect`` filters, so what a
+    shard keeps is what it will run.
+    """
+    # Taken out of the environment so a pytest that a test starts runs whole.
+    spec = os.environ.pop(ci_shards.SHARD_ENV, None)
+    report_path = os.environ.pop(ci_shards.REPORT_ENV, None)
+    if spec is None:
+        return
+    try:
+        shard, shards = ci_shards.parse_shard(spec)
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from error
+    units = [
+        ci_shards.unit_of(item.nodeid, item.name, getattr(item, "originalname", None))
+        for item in items
+    ]
+    keep, report = ci_shards.select(units, shard, shards, ci_shards.load_seconds())
+    deselected = [item for item, kept in zip(items, keep, strict=True) if not kept]
+    items[:] = [item for item, kept in zip(items, keep, strict=True) if kept]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    config.stash[_SHARD_RUN] = {
+        "shard": shard,
+        "report": report,
+        "report_path": report_path,
+        "kept": len(items),
+        "ran": 0,
+    }
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item, nextitem):
+    # Counts every test whose run completes, whatever its outcome. A test that
+    # stops the session (pytest.exit, KeyboardInterrupt) raises through here
+    # uncounted, so its shard publishes nothing.
+    result = yield
+    run = item.config.stash.get(_SHARD_RUN, None)
+    if run is not None:
+        run["ran"] += 1
+    return result
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Write this shard's report when the session ran every kept test and passed.
+
+    A failed, interrupted or collect-only run writes nothing. CI copies the
+    report into the job's outputs only after pytest itself exits 0, so a failure
+    after this hook (in another plugin's hooks) also publishes nothing, and the
+    gate job fails on the missing report.
+    """
+    run = session.config.stash.get(_SHARD_RUN, None)
+    if run is None or exitstatus != 0:
+        return
+    if run["ran"] != run["kept"]:
+        print(
+            f"shard {run['shard']} kept {run['kept']} tests but ran {run['ran']}; "
+            "not publishing its report",
+            file=sys.stderr,
+        )
+        return
+    if run["report_path"]:
+        with open(run["report_path"], "a", encoding="utf-8") as handle:
+            handle.write(f"shard_{run['shard']}={run['report']}\n")
 
 
 @pytest.fixture(autouse=True)
