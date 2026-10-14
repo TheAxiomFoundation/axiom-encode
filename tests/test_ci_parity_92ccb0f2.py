@@ -3630,3 +3630,111 @@ def test_runner_environment_without_a_pull_request_number() -> None:
     # The ref's name needs the number; ci leaves it unset, as documented.
     assert "GITHUB_REF_NAME" not in environment
     assert environment["GITHUB_REF"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Round-7 review fixes (GPT-6.1 Sol, executed)
+# ---------------------------------------------------------------------------
+
+
+def _shallow_clone(tmp_path: Path, name: str) -> tuple[Path, str]:
+    upstream = gates._repo(tmp_path, {"a.txt": "1\n"}, name=f"{name}-upstream")
+    gates._commit(upstream, {"a.txt": "2\n"}, "second")
+    head = gates._commit(upstream, {"a.txt": "3\n"}, "third")
+    clone = tmp_path / name
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{upstream}", str(clone)],
+        check=True,
+    )
+    assert gates._git(clone, "rev-parse", "--is-shallow-repository") == "true"
+    return clone, head
+
+
+def test_disposable_checkout_refuses_a_shallow_source(tmp_path: Path) -> None:
+    source, head = _shallow_clone(tmp_path, "axiom-corpus")
+
+    with pytest.raises(ValueError, match="fetch --unshallow"):
+        ci_parity._disposable_checkout(
+            source, head, tmp_path / "copy", "TheAxiomFoundation/axiom-corpus"
+        )
+
+    assert not (tmp_path / "copy").exists()
+
+
+@pytest.mark.parametrize("name", ["rulespec_us", "compose"])
+def test_fresh_dependency_entries_refuse_a_shallow_source(
+    tmp_path: Path, name: str
+) -> None:
+    source, head = _shallow_clone(tmp_path, ci_parity._CHECKOUT_NAMES[name])
+    (tmp_path / "layout").mkdir()
+    layout, _compose = _composer_layout(tmp_path / "layout")
+
+    with contextlib.ExitStack() as resources:
+        with pytest.raises(ValueError, match="CI fetches its full history"):
+            ci_parity._fresh_dependency_entry(
+                resources,
+                layout,
+                name,
+                source,
+                head,
+                f"TheAxiomFoundation/{ci_parity._CHECKOUT_NAMES[name]}",
+            )
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
+def test_real_uv_git_dependency_ignores_the_developers_git_hooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """uv clones a git dependency with Git; on a runner Git has no global
+    configuration, so a developer's core.hooksPath never runs."""
+
+    log = tmp_path / "backend.log"
+    package = gates._repo(tmp_path, _writing_backend(log), name="git-dependency")
+    (tmp_path / "layout").mkdir()
+    layout, compose = _composer_layout(tmp_path / "layout")
+    (compose / "pyproject.toml").write_text(
+        "[project]\n"
+        'name = "axiom-compose"\n'
+        'version = "0.0.0"\n'
+        'requires-python = ">=3.12"\n'
+        'dependencies = ["axiom-corpus"]\n\n'
+        "[tool.uv.sources]\n"
+        f'axiom-corpus = {{ git = "file://{package}" }}\n'
+    )
+    locked = ci_parity._run_build_command(
+        ["uv", "lock", "--project", str(compose)],
+        cwd=tmp_path,
+        environment=_clean_uv_environment(tmp_path),
+    )
+    assert locked.returncode == 0, locked.stdout
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    for hook in ("reference-transaction", "post-checkout"):
+        (hooks / hook).write_text("#!/bin/sh\nexit 1\n")
+        (hooks / hook).chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {hooks}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    results = _run_real_uv_until(monkeypatch, ["uv", "never"])
+    workspace = tmp_path / "layout" / "rulespec-us"
+
+    with pytest.raises(ValueError):
+        # It stops at the provision script: there is no encoder pin here.
+        ci_parity._build_workflow_composer(
+            compose,
+            COMPOSE_REF,
+            tmp_path / "encode-pin",
+            "0" * 40,
+            tmp_path / "temp",
+            workspace=workspace,
+            offline=False,
+            step_environment=layout.environment(),
+        )
+
+    assert results["export"].returncode == 0, results["export"].stdout
+    assert results["pip"].returncode == 0, results["pip"].stdout
+    assert (
+        tmp_path / "temp" / "axiom-compose-site-packages" / "axiom_corpus_marker.py"
+    ).exists()
