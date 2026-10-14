@@ -4408,7 +4408,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             (
                 "nz",
                 "a3b2ded3e2bae46923db1059de3d01565dc7424c",
-                "nzhub/wep-s75c",
+                "nzhub/wep-s75d",
             ),
         }
     )
@@ -4672,7 +4672,7 @@ def test_validate_rulespec_base_accepts_nz_reviewed_candidate_branch_tip(
             "nz",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="nzhub/wep-s75c",
+            pr_base_branch="nzhub/wep-s75d",
         )
         == "reviewed-head-pr"
     )
@@ -4687,7 +4687,7 @@ def test_validate_rulespec_base_accepts_nz_reviewed_candidate_branch_tip(
     [
         ("nz", "nzhub/wep-candidates", "artifact-only"),
         ("nz", "main", "artifact-only"),
-        ("us", "nzhub/wep-s75c", "neither on main nor an approved reviewed head"),
+        ("us", "nzhub/wep-s75d", "neither on main nor an approved reviewed head"),
     ],
 )
 def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
@@ -4724,7 +4724,7 @@ def test_validate_rulespec_base_rejects_stale_nz_reviewed_candidate_branch_tip(
 ) -> None:
     repo = tmp_path / "rulespec-nz"
     reviewed_ref = "a3b2ded3e2bae46923db1059de3d01565dc7424c"
-    branch = "nzhub/wep-s75c"
+    branch = "nzhub/wep-s75d"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
         if args[-1] == f"refs/remotes/origin/{branch}":
