@@ -53,16 +53,28 @@ RULES = {
 }
 
 
+def _engine(case: dict, keys: tuple[str, ...]) -> dict[str, object]:
+    """A stand-in for the rules engine that executes RULES faithfully."""
+
+    income = case["input"].get(f"{BASE}#input.income", 0)
+    values = {
+        "income_considered": max(0, income),
+        "income_limit_met": "holds" if income < 500 else "not_holds",
+        "household_total": case["input"].get(f"{BASE}#input.total", 0),
+    }
+    return {key: values[key.rsplit("#", 1)[-1]] for key in keys}
+
+
 def _case(name: str, **inputs: object) -> dict[str, object]:
-    return {
+    case = {
         "name": name,
         "period": "2025-07",
         "input": {f"{BASE}#input.{key}": value for key, value in inputs.items()},
-        "output": {
-            f"{BASE}#income_considered": 100,
-            f"{BASE}#income_limit_met": "holds",
-        },
     }
+    case["output"] = _engine(
+        case, (f"{BASE}#income_considered", f"{BASE}#income_limit_met")
+    )
+    return case
 
 
 def _boundary_issue(*items: str) -> str:
@@ -174,7 +186,9 @@ def test_boundary_proposal_changes_only_the_directly_compared_input():
     }
     assert proposal.case["period"] == "2025-07"
     assert "output" not in proposal.case
-    assert proposal.output_keys == tuple(case["output"])
+    # Only the targeted rule (and what it reads) is re-asserted.
+    assert proposal.output_keys == (f"{BASE}#income_limit_met",)
+    assert proposal.source_case is case
     # The source case is never mutated.
     assert case["input"][f"{BASE}#input.income"] == 100
 
@@ -201,14 +215,38 @@ def test_clamp_proposal_uses_a_negative_input_and_asserts_the_clamped_rule():
     assert [proposal.case["input"] for proposal in proposals] == [
         {f"{BASE}#input.income": -1}
     ]
-    assert proposals[0].output_keys == (
-        f"{BASE}#income_limit_met",
-        f"{BASE}#income_considered",
+    # The unrelated `income_limit_met` assertion is not carried over.
+    assert proposals[0].output_keys == (f"{BASE}#income_considered",)
+    assert proposals[0].case["name"] == "auto_source_clamp_income_minus_1"
+    # The liveness twin keeps the original positive input.
+    assert proposals[0].liveness_case["input"] == {f"{BASE}#input.income": 300}
+    assert proposals[0].liveness_output_key == f"{BASE}#income_considered"
+
+
+def test_clamp_is_never_proposed_for_a_limit_like_input():
+    obligation = CompanionTestObligation(
+        "clamp",
+        ("income_considered",),
+        values=(-1.0,),
+        input_names=("income_eligibility_limit",),
+        label="`max(0, income_eligibility_limit)` in `income_considered`",
     )
-    assert "minus_1" in proposals[0].case["name"]
+    case = {
+        "name": "limit",
+        "period": "2025-07",
+        "input": {f"{BASE}#input.income_eligibility_limit": 300},
+        "output": {f"{BASE}#income_considered": 300},
+    }
+
+    assert (
+        propose_companion_cases([obligation], rules_payload=RULES, test_cases=[case])
+        == []
+    )
 
 
-def test_principal_output_proposal_asserts_only_that_output_on_same_entity_cases():
+def test_unasserted_principal_outputs_are_never_synthesized():
+    """The demand exists so the model states an expectation (control V5)."""
+
     obligation = CompanionTestObligation(
         "principal-output", ("income_considered",), label="income_considered"
     )
@@ -218,22 +256,18 @@ def test_principal_output_proposal_asserts_only_that_output_on_same_entity_cases
         "input": {f"{BASE}#input.income": 300},
         "output": {f"{BASE}#income_limit_met": "holds"},
     }
-    household_case = {
-        "name": "household",
-        "period": "2025-07",
-        "input": {f"{BASE}#input.total": 3},
-        "output": {f"{BASE}#household_total": 3},
-    }
-
-    proposals = propose_companion_cases(
-        [obligation],
-        rules_payload=RULES,
-        test_cases=[household_case, person_case],
+    never_asserted = (
+        f"{TESTS} Principal output `income_considered` is never asserted by a "
+        "companion test."
     )
 
-    assert len(proposals) == 1
-    assert proposals[0].case["input"] == person_case["input"]
-    assert proposals[0].output_keys == (f"{BASE}#income_considered",)
+    assert (
+        propose_companion_cases(
+            [obligation], rules_payload=RULES, test_cases=[person_case]
+        )
+        == []
+    )
+    assert not has_synthesizable_test_issue([never_asserted])
 
 
 def test_formula_branch_proposals_flip_selectors_and_move_to_version_periods():
@@ -338,7 +372,7 @@ def test_synthesis_keeps_only_executed_cases_that_shrink_demands():
 
     def evaluate(proposed_case, output_keys):
         assert "output" not in proposed_case
-        return {key: "not_holds" if "met" in key else 0 for key in output_keys}
+        return _engine(proposed_case, output_keys)
 
     accepted = synthesize_companion_cases(
         test_cases=[case],
@@ -348,11 +382,27 @@ def test_synthesis_keeps_only_executed_cases_that_shrink_demands():
     )
 
     assert len(accepted) == 1
-    assert accepted[0]["output"] == {
-        f"{BASE}#income_considered": 0,
-        f"{BASE}#income_limit_met": "not_holds",
-    }
+    assert accepted[0]["output"] == {f"{BASE}#income_limit_met": "not_holds"}
     assert accepted[0]["input"][f"{BASE}#input.income"] == 500
+
+
+def test_no_clone_of_a_case_whose_stated_expectation_the_engine_rejects():
+    """If the model's own case disagrees with execution, its clone would pin
+    the encoding's side of that conflict, so nothing is synthesized."""
+
+    _boundary, case, proposals = _proposal_pair()
+    case["output"][f"{BASE}#income_limit_met"] = "not_holds"
+
+    accepted = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=proposals,
+        evaluate_case=_engine,
+        analyze_cases=lambda cases: (
+            [_boundary_issue("(i)=500")] if len(cases) == 1 else []
+        ),
+    )
+
+    assert accepted == []
 
 
 def test_synthesis_rejects_a_case_that_adds_any_other_finding():
@@ -366,7 +416,7 @@ def test_synthesis_rejects_a_case_that_adds_any_other_finding():
     accepted = synthesize_companion_cases(
         test_cases=[case],
         proposals=proposals,
-        evaluate_case=lambda _case, keys: dict.fromkeys(keys, 0),
+        evaluate_case=_engine,
         analyze_cases=analyze,
     )
 
@@ -396,13 +446,129 @@ def test_synthesis_never_invents_values_the_engine_did_not_return(evaluated):
     assert calls == [1]
 
 
+def test_synthesis_credits_only_the_targeted_demand():
+    """A clone that closes some other demand (here a paired condition) is not
+    credit for its own target, even though the findings strictly shrink."""
+
+    _boundary, case, proposals = _proposal_pair()
+    paired = (
+        f"{TESTS} Source-stated exceptions or applicability conditions require "
+        "paired positive/blocking cases; missing: us/x(a) [change]: `x`."
+    )
+
+    def analyze(cases):
+        if len(cases) == 1:
+            return [_boundary_issue("(i)=500"), paired]
+        return [_boundary_issue("(i)=500")]
+
+    accepted = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=proposals,
+        evaluate_case=_engine,
+        analyze_cases=analyze,
+    )
+
+    assert accepted == []
+
+
+def test_synthesis_never_closes_an_unasserted_output_on_the_way():
+    _boundary, case, proposals = _proposal_pair()
+    never = f"{TESTS} Principal output `household_total` is never asserted by a companion test."
+
+    def analyze(cases):
+        if len(cases) == 1:
+            return [_boundary_issue("(i)=500"), never]
+        return []
+
+    accepted = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=proposals,
+        evaluate_case=_engine,
+        analyze_cases=analyze,
+    )
+
+    assert accepted == []
+
+
+def test_clamp_clone_on_a_dead_path_is_rejected():
+    obligation = CompanionTestObligation(
+        "clamp",
+        ("income_considered",),
+        values=(-1.0,),
+        input_names=("income",),
+        label="`max(0, income)` in `income_considered`",
+    )
+    clamp_issue = (
+        f"{TESTS} Direct nonnegative clamp companion evidence is missing for "
+        "`max(0, income)` in `income_considered`. Each requires ..."
+    )
+
+    def analyze(cases):
+        return [clamp_issue] if len(cases) == 1 else []
+
+    # Dead path (the 7 USC 2015(f) shape): the case takes `else: 0`, so the
+    # clamped input never changes the owner's executed value.
+    dead_case = {
+        "name": "ineligible",
+        "period": "2025-07",
+        "input": {f"{BASE}#input.income": 300},
+        "output": {f"{BASE}#income_considered": 0},
+    }
+    [dead_proposal] = propose_companion_cases(
+        [obligation], rules_payload=RULES, test_cases=[dead_case]
+    )
+    assert (
+        synthesize_companion_cases(
+            test_cases=[dead_case],
+            proposals=[dead_proposal],
+            evaluate_case=lambda _case, keys: dict.fromkeys(keys, 0),
+            analyze_cases=analyze,
+        )
+        == []
+    )
+
+    case = _case("base", income=300)
+    [proposal] = propose_companion_cases(
+        [obligation], rules_payload=RULES, test_cases=[case]
+    )
+    [accepted] = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=[proposal],
+        evaluate_case=_engine,
+        analyze_cases=analyze,
+    )
+    assert accepted["input"][f"{BASE}#input.income"] == -1
+    assert accepted["output"][f"{BASE}#income_considered"] == 0
+
+
+def test_rejected_proposals_do_not_consume_case_names():
+    _boundary, case, proposals = _proposal_pair()
+    duplicate = [proposals[0], proposals[0]]
+    calls = []
+
+    def analyze(cases):
+        calls.append(len(cases))
+        if len(cases) == 1:
+            return [_boundary_issue("(i)=500")]
+        return [] if len(calls) > 2 else [_boundary_issue("(i)=500"), "new finding"]
+
+    [accepted] = synthesize_companion_cases(
+        test_cases=[case],
+        proposals=duplicate,
+        evaluate_case=_engine,
+        analyze_cases=analyze,
+    )
+
+    assert accepted["name"] == "auto_source_boundary_income_500"
+
+
 def test_synthesis_respects_the_analysis_budget():
     _boundary, case, proposals = _proposal_pair()
 
     accepted = synthesize_companion_cases(
         test_cases=[case],
         proposals=proposals,
-        evaluate_case=lambda _case, keys: dict.fromkeys(keys, 0),
+        evaluate_case=_engine,
         analyze_cases=lambda cases: [_boundary_issue("(i)=500")],
         max_analyses=0,
     )

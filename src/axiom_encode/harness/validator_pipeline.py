@@ -37961,14 +37961,20 @@ class ValidatorPipeline:
         """Propose engine-executed companion cases for complete-source gaps.
 
         Each returned case clones an existing companion case, changes one input
-        or the period to a value taken from a structured complete-source
-        demand, asserts outputs whose values the rules engine computed, is
-        credited by the complete-source analysis, and passes the companion
-        test runner. Nothing is written; the caller decides whether to append.
+        or the period to a value taken from a structured boundary, formula-
+        branch or clamp demand, asserts outputs whose values the rules engine
+        computed (a clamp clone must also be live: a positive input changes
+        the clamped output), closes exactly its targeted demand in the
+        complete-source analysis, and passes the companion test runner.
+        Unasserted outputs and paired exception evidence are never
+        synthesized. Nothing is written; the caller decides whether to append.
         """
 
         if not self.require_complete_source_unit:
             return []
+        # The budget covers the baseline analysis and every trial; only the
+        # one compile and the final runner screen fall outside it.
+        deadline = time.monotonic() + time_budget_seconds
         test_path = self._rulespec_test_path(rules_file)
         if not rules_file.exists() or not test_path.exists():
             return []
@@ -38061,7 +38067,7 @@ class ValidatorPipeline:
                 analyze_cases=analyze_cases,
                 baseline=baseline,
                 max_analyses=max_analyses,
-                time_budget_seconds=time_budget_seconds,
+                time_budget_seconds=max(0.0, deadline - time.monotonic()),
             )
             if accepted and self._run_rulespec_test_cases(
                 rules_file=rules_file,

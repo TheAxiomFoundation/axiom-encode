@@ -403,3 +403,52 @@ rules:
         "excluded from source-bound evidence: `credit`." in formula_output
     )
     assert not any("do not demonstrate formula branch" in i for i in result.issues)
+
+
+GUARDED_CLAMP_RULES = """\
+  - name: unmet_need_considered
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          if household_eligible: max(0, unmet_need)
+          else: 0
+"""
+
+
+@pytest.mark.parametrize(
+    ("countable_income", "eligible", "credited"),
+    [
+        # The case takes `else: 0`: a negative input there never reaches the
+        # clamp, so it is no evidence for it (accuracy fix on main).
+        (900, "not_holds", False),
+        (100, "holds", True),
+    ],
+)
+def test_clamp_evidence_must_be_on_the_owner_path(countable_income, eligible, credited):
+    content = (
+        HEADER.replace("__FORMULA__", "countable_income < income_limit").replace(
+            "  - name: member_age\n",
+            "  - name: unmet_need\n    entity: Household\n    dtype: Money\n"
+            "    period: Month\n  - name: member_age\n",
+        )
+        + GUARDED_CLAMP_RULES
+    )
+    case = _case(
+        "negative need",
+        {"household_eligible": eligible, "unmet_need_considered": "0"},
+        countable_income=countable_income,
+        unmet_need=-1,
+    )
+    case["output"]["unmet_need_considered"] = 0
+
+    result = _analyze(content, [*ELIGIBILITY_CASES, case])
+
+    clamp_missing = any(
+        "`max(0, unmet_need)` in `unmet_need_considered`" in issue
+        for issue in result.issues
+    )
+    assert clamp_missing is not credited

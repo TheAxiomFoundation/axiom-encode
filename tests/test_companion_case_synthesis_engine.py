@@ -197,15 +197,10 @@ def test_synthesized_cases_close_boundary_and_clamp_with_engine_values(
             }.items()
         )
     )
-    # The engine, not the synthesizer, supplies each expected value.
-    assert by_input[at_boundary] == {
-        f"{TARGET}#household_eligible": "not_holds",
-        f"{TARGET}#countable_shortfall": 40,
-    }
-    assert by_input[negative_need] == {
-        f"{TARGET}#household_eligible": "holds",
-        f"{TARGET}#countable_shortfall": 0,
-    }
+    # The engine, not the synthesizer, supplies each expected value, and a
+    # clone asserts only the targeted rule and what it reads.
+    assert by_input[at_boundary] == {f"{TARGET}#household_eligible": "not_holds"}
+    assert by_input[negative_need] == {f"{TARGET}#countable_shortfall": 0}
     assert _tests_issues(pipeline, module, [*TESTS, *synthesized]) == []
     # The companion file is left for the caller to update.
     assert yaml.safe_load(module.with_name("9999.test.yaml").read_text()) == TESTS
@@ -217,3 +212,144 @@ def test_synthesis_is_off_outside_complete_source_mode(staged_module, monkeypatc
     pipeline.require_complete_source_unit = False
 
     assert pipeline.synthesize_complete_source_companion_cases(module) == []
+
+
+# Adversarial controls (review of #1901): wrong encodings must never be pinned
+# by synthesized cases, and dead-path clones must never close a clamp demand.
+GUARDED_CLAMP = (
+    "formula: |-\n          if household_eligible: max(0, unmet_need)\n"
+    "          else: 0"
+)
+WRONG_GUARDED_CLAMP = (
+    "formula: |-\n          if household_eligible: max(0, unmet_need) + 7\n"
+    "          else: 0"
+)
+INELIGIBLE = {
+    **TESTS[1],
+    "input": {
+        f"{TARGET}#input.countable_income": 900,
+        f"{TARGET}#input.unmet_need": 30,
+    },
+}
+INVERTED_UNASSERTED_OUTPUT = f"""\
+  - name: household_ineligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: {CITATION}
+              excerpt: A household whose countable income is less than $500 is eligible.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_eligible
+"""
+AT_BOUNDARY = {
+    "name": "at",
+    "period": "2026-01",
+    "input": {
+        f"{TARGET}#input.countable_income": 500,
+        f"{TARGET}#input.unmet_need": -5,
+    },
+    "output": {
+        f"{TARGET}#household_eligible": "not_holds",
+        f"{TARGET}#countable_shortfall": 0,
+    },
+}
+
+
+def _run_control(tmp_path, engine_root, monkeypatch, module_text, tests):
+    root = tmp_path.resolve() / "rulespec-us" / "us"
+    module = root / "statutes" / "7" / "9999.yaml"
+    module.parent.mkdir(parents=True)
+    module.write_text(module_text)
+    module.with_name("9999.test.yaml").write_text(
+        yaml.safe_dump(tests, sort_keys=False)
+    )
+    pipeline = _pipeline(root, engine_root, monkeypatch)
+    synthesized = pipeline.synthesize_complete_source_companion_cases(module)
+    return synthesized, _tests_issues(pipeline, module, [*tests, *synthesized])
+
+
+@pytest.mark.parametrize(
+    "comparison",
+    [
+        # V1: the source says "less than $500"; `<=` includes 500.
+        "countable_income <= income_limit",
+        # V2: inverted polarity.
+        "countable_income >= income_limit",
+    ],
+)
+def test_wrong_boundary_encoding_is_never_pinned(
+    real_engine, tmp_path, monkeypatch, comparison
+):
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        MODULE.replace("countable_income < income_limit", comparison),
+        TESTS,
+    )
+
+    assert not any("boundary" in case["name"] for case in synthesized)
+    assert any("boundary input; missing: (a)=500" in issue for issue in after)
+
+
+def test_clamp_closes_only_with_a_case_whose_path_reaches_it(
+    real_engine, tmp_path, monkeypatch
+):
+    """V3: the first case takes `else: 0`; only the eligible case is live."""
+
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        MODULE.replace("formula: max(0, unmet_need)", GUARDED_CLAMP),
+        [INELIGIBLE, TESTS[0]],
+    )
+
+    [clamp] = [case for case in synthesized if "clamp" in case["name"]]
+    assert clamp["input"][f"{TARGET}#input.countable_income"] == 100
+    assert clamp["output"][f"{TARGET}#household_eligible"] == "holds"
+    assert not any("`max(0, unmet_need)`" in issue for issue in after)
+
+
+def test_wrong_clamped_branch_without_a_live_case_keeps_its_demand(
+    real_engine, tmp_path, monkeypatch
+):
+    """V4: no case reaches the (wrong) clamped branch, so nothing closes it."""
+
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        MODULE.replace("formula: max(0, unmet_need)", WRONG_GUARDED_CLAMP),
+        [INELIGIBLE],
+    )
+
+    assert not any("clamp" in case["name"] for case in synthesized)
+    assert any("`max(0, unmet_need)`" in issue for issue in after)
+
+
+def test_unasserted_output_is_left_for_the_model(real_engine, tmp_path, monkeypatch):
+    """V5: an output encoded as the opposite of the source is never asserted
+    on the model's behalf."""
+
+    synthesized, after = _run_control(
+        tmp_path,
+        real_engine.root,
+        monkeypatch,
+        MODULE + INVERTED_UNASSERTED_OUTPUT,
+        [*TESTS, AT_BOUNDARY],
+    )
+
+    assert synthesized == []
+    assert any(
+        "Principal output `household_ineligible` is never asserted" in issue
+        for issue in after
+    )
