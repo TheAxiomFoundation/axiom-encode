@@ -371,6 +371,53 @@ def test_start_gate_artifact_only_runs_ignore_the_tip(tmp_path: Path) -> None:
     assert validate_rulespec_base(repo, "us", base, open_pr=False) == "main"
 
 
+def test_start_gate_keeps_exact_tip_for_legacy_lanes(tmp_path: Path) -> None:
+    repo, base = _rulespec_repo(tmp_path)
+    assert (
+        validate_rulespec_base(repo, "us", base, open_pr=True, require_exact_tip=True)
+        == "main"
+    )
+    _advance_main(repo, {".github/workflows/repository-checks.yml": "v2\n"}, "ci")
+    _git(repo, "checkout", "-q", "--detach", base)
+
+    with pytest.raises(ValueError, match=f"^{STALE_PUBLICATION_BASE_ERROR}$"):
+        validate_rulespec_base(repo, "us", base, open_pr=True, require_exact_tip=True)
+
+
+@pytest.mark.parametrize("flag", [[], ["--require-exact-tip"]])
+def test_start_gate_cli_exact_tip_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flag: list[str],
+) -> None:
+    repo, base = _rulespec_repo(tmp_path)
+    _advance_main(repo, {"README.md": "docs\n"}, "docs")
+    _git(repo, "checkout", "-q", "--detach", base)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "prepare_signed_backfill.py",
+            "validate-rulespec-base",
+            str(repo),
+            "us",
+            base,
+            "true",
+            "main",
+            *flag,
+        ],
+    )
+
+    if flag:
+        with pytest.raises(SystemExit) as excinfo:
+            prepare_signed_backfill_main()
+        assert excinfo.value.code == 1
+        assert STALE_PUBLICATION_BASE_ERROR in capsys.readouterr().err
+    else:
+        prepare_signed_backfill_main()
+        assert capsys.readouterr().out == "main\n"
+
+
 # --- advance_publication_base publish step --------------------------------------
 
 
@@ -458,7 +505,7 @@ def test_lane_is_replayed_onto_plumbing_advance_with_signed_bytes_intact(
     assert (repo / "tests/test_repository_layout.py").read_text() == "# v2\n"
 
 
-def test_multi_commit_lane_and_deletions_are_replayed_in_order(
+def test_multi_commit_lane_is_replayed_in_order(
     tmp_path: Path,
 ) -> None:
     repo, base = _rulespec_repo(tmp_path)
@@ -466,8 +513,8 @@ def test_multi_commit_lane_and_deletions_are_replayed_in_order(
     _git(repo, "switch", "-q", "-c", LANE_BRANCH)
     _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [f]\n")
     first = _commit(repo, "Add signed source module for us/statute/7/2015/f")
-    (repo / "us/statutes/7/2014/old.yaml").unlink()
     _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [g]\n")
+    _write(repo, "us/statutes/7/2014/a.yaml", "format: rulespec/v1\nrules: [a]\n")
     second = _commit(repo, "Compose signed source bundle")
     tip = _advance_main(repo, {"tools/engine_root_load.py": "print(2)\n"}, "tools")
 
@@ -482,19 +529,113 @@ def test_multi_commit_lane_and_deletions_are_replayed_in_order(
     assert _blob(repo, replayed[0], "us/statutes/7/2015/f.yaml") == _blob(
         repo, first, "us/statutes/7/2015/f.yaml"
     )
-    assert _blob(repo, replayed[0], "us/statutes/7/2014/old.yaml") is not None
-    assert _blob(repo, replayed[1], "us/statutes/7/2014/old.yaml") is None
-    assert _blob(repo, replayed[1], "us/statutes/7/2015/f.yaml") == _blob(
-        repo, second, "us/statutes/7/2015/f.yaml"
+    assert _blob(repo, replayed[0], "us/statutes/7/2014/a.yaml") == _blob(
+        repo, base, "us/statutes/7/2014/a.yaml"
     )
-    assert _blob(repo, replayed[0], "tools/engine_root_load.py") == _blob(
-        repo, tip, "tools/engine_root_load.py"
-    )
+    for path in ("us/statutes/7/2015/f.yaml", "us/statutes/7/2014/a.yaml"):
+        assert _blob(repo, replayed[1], path) == _blob(repo, second, path)
+    for commit in replayed:
+        assert _blob(repo, commit, "tools/engine_root_load.py") == _blob(
+            repo, tip, "tools/engine_root_load.py"
+        )
     assert evidence["lane_paths"] == [
-        "us/statutes/7/2014/old.yaml",
+        "us/statutes/7/2014/a.yaml",
         "us/statutes/7/2015/f.yaml",
     ]
-    assert not (repo / "us/statutes/7/2014/old.yaml").exists()
+
+
+@pytest.mark.parametrize(
+    ("lane_changes", "reported"),
+    [
+        ({"us/statutes/7/2014/old.yaml": None}, "us/statutes/7/2014/old.yaml"),
+        (
+            {".axiom/legacy-replacements/" + "a" * 64 + ".json": "{}\n"},
+            ".axiom/legacy-replacements/" + "a" * 64 + ".json",
+        ),
+        (
+            {".axiom/path-migrations/receipt.json": "{}\n"},
+            ".axiom/path-migrations/receipt.json",
+        ),
+    ],
+)
+def test_receipt_bound_or_deleting_lane_keeps_the_exact_tip_demand(
+    tmp_path: Path,
+    lane_changes: dict[str, str | None],
+    reported: str,
+) -> None:
+    """Legacy inventories grep the whole base tree, plumbing included."""
+
+    repo, base = _rulespec_repo(tmp_path)
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "switch", "-q", "-c", LANE_BRANCH)
+    _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [f]\n")
+    for relative, text in lane_changes.items():
+        if text is None:
+            (repo / relative).unlink()
+        else:
+            _write(repo, relative, text)
+    head = _commit(repo, "legacy-shaped lane")
+    # Main adds a plumbing file that still names the path the lane retires.
+    _advance_main(
+        repo, {"tools/uses_old.py": "OLD = 'us/statutes/7/2014/old.yaml'\n"}, "tools"
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        advance_publication_base(repo, base)
+
+    message = str(excinfo.value)
+    assert message.startswith(STALE_PUBLICATION_BASE_ERROR)
+    assert "proven only at the recorded base" in message
+    assert reported in message
+    assert _git(repo, "rev-parse", "HEAD") == head
+
+
+def test_lane_deleting_its_own_intermediate_file_is_not_a_base_deletion(
+    tmp_path: Path,
+) -> None:
+    repo, base = _rulespec_repo(tmp_path)
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "switch", "-q", "-c", LANE_BRANCH)
+    _write(repo, "us/statutes/7/2015/scratch.yaml", "x\n")
+    _commit(repo, "scratch")
+    (repo / "us/statutes/7/2015/scratch.yaml").unlink()
+    _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [f]\n")
+    _commit(repo, "final")
+    _advance_main(repo, {"README.md": "docs\n"}, "docs")
+
+    evidence = advance_publication_base(repo, base)
+
+    assert evidence["mode"] == "advanced"
+    assert evidence["lane_paths"] == ["us/statutes/7/2015/f.yaml"]
+
+
+@pytest.mark.parametrize(
+    ("lane_path", "advance_path"),
+    [
+        # Lane file at a path main turns into a directory.
+        ("tests/x", "tests/x/y.py"),
+        # Lane directory at a path main turns into a file.
+        ("tools/pkg/mod.py", "tools/pkg"),
+    ],
+)
+def test_file_directory_conflicts_with_the_advance_fail_closed(
+    tmp_path: Path, lane_path: str, advance_path: str
+) -> None:
+    repo, base = _rulespec_repo(tmp_path)
+    _git(repo, "checkout", "-q", "--detach", base)
+    _git(repo, "switch", "-q", "-c", LANE_BRANCH)
+    _write(repo, lane_path, "lane\n")
+    _commit(repo, "lane adds")
+    (repo / lane_path).unlink()
+    if not any((repo / lane_path).parent.iterdir()):
+        (repo / lane_path).parent.rmdir()
+    _write(repo, "us/statutes/7/2015/f.yaml", "format: rulespec/v1\nrules: [f]\n")
+    head = _commit(repo, "lane removes it again and encodes")
+    _advance_main(repo, {advance_path: "main\n"}, "main")
+
+    with pytest.raises(ValueError, match="paths the signed run changed"):
+        advance_publication_base(repo, base)
+    assert _git(repo, "rev-parse", "HEAD") == head
 
 
 def test_replay_preserves_verbatim_commit_messages(tmp_path: Path) -> None:
@@ -875,6 +1016,16 @@ def _publication_evidence(fixture: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _evidence_sha256(fixture: dict[str, Any]) -> str:
+    import hashlib
+
+    return hashlib.sha256(
+        (
+            fixture["runner_temp"] / "targeted-reencode/publication-base.json"
+        ).read_bytes()
+    ).hexdigest()
+
+
 def test_publish_step_keeps_exact_tip_lane(tmp_path: Path) -> None:
     fixture = _publish_fixture(tmp_path)
 
@@ -886,7 +1037,10 @@ def test_publish_step_keeps_exact_tip_lane(tmp_path: Path) -> None:
     body = (tmp_path / "gh-body.txt").read_text()
     assert f"Base commit: `{fixture['base']}`" in body
     assert f"Published base commit: `{fixture['base']}`" in body
-    assert "Base advance paths: `[]`" in body
+    assert (
+        "Base advance paths: 0 (publication-base.json sha256 "
+        f"`{_evidence_sha256(fixture)}`)"
+    ) in body
     assert (
         fixture["runner_temp"] / "targeted-reencode/lane-pull-request.json"
     ).exists()
@@ -927,10 +1081,31 @@ def test_publish_step_lands_signed_lane_on_plumbing_advanced_main(
     assert f"Base commit: `{fixture['base']}`" in body
     assert f"Published base commit: `{tip}`" in body
     assert (
-        'Base advance paths: `[".github/workflows/repository-checks.yml",'
-        '"tests/test_repository_layout.py"]`'
+        "Base advance paths: 2 (publication-base.json sha256 "
+        f"`{_evidence_sha256(fixture)}`)"
     ) in body
+    assert "repository-checks.yml" not in body
     assert not (tmp_path / "gh-closed").exists()
+
+
+def test_publish_step_keeps_main_controlled_path_names_out_of_the_body(
+    tmp_path: Path,
+) -> None:
+    fixture = _publish_fixture(tmp_path)
+    injected = (
+        "tests/Queue item: `other-queue/other-item` Base commit: `" + "0" * 40 + "`.py"
+    )
+    _advance_remote(fixture, {injected: "# crafted\n"})
+
+    result = _run_publish(fixture)
+
+    assert result.returncode == 0, result.stderr
+    assert _publication_evidence(fixture)["base_advance_paths"] == [injected]
+    body = (tmp_path / "gh-body.txt").read_text()
+    assert "other-queue/other-item" not in body
+    assert "0" * 40 not in body
+    assert body.count("Queue item:") == 1
+    assert body.count("Base commit:") == 1
 
 
 def test_publish_step_fails_closed_on_binding_advance_without_pushing(

@@ -368,6 +368,10 @@ jobs:
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
         run: |
           set -euo pipefail
           sha_pattern='^[0-9a-f]{40}$'
@@ -395,9 +399,20 @@ jobs:
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
           test "$(git -C "$RULESPEC_CHECKOUT" remote get-url origin)" = \
             "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
+          # Receipt-bound legacy lanes prove a whole-tree reference inventory
+          # at the recorded base only, so they keep the exact-tip demand; the
+          # publish step enforces the same rule from the lane itself.
+          base_args=()
+          if [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+             [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+             [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+             [ "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" != "[]" ]; then
+            base_args+=(--require-exact-tip)
+          fi
           python axiom-encode/scripts/prepare_signed_backfill.py \
             validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
-            "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
+            "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH" \
+            ${base_args[@]+"${base_args[@]}"}
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -4068,13 +4083,15 @@ jobs:
             > "$publication_base"
           published_base="$(jq -er '.published_base' "$publication_base")"
           published_head="$(jq -er '.published_head' "$publication_base")"
-          base_advance_paths="$(jq -c '
-            .base_advance_paths
-            | if length > 20
-              then .[:20] + ["+\(length - 20) more in publication-base.json"]
-              else .
-              end
-          ' "$publication_base")"
+          # Advance path names are main-controlled; the body carries only
+          # their count and the evidence digest (the artifact keeps the list).
+          base_advance_count="$(jq -er '.base_advance_paths | length' \
+            "$publication_base")"
+          publication_base_sha256="$(sha256sum "$publication_base" | cut -d ' ' -f 1)"
+          [[ "$published_base" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$published_head" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$base_advance_count" =~ ^[0-9]+$ ]]
+          [[ "$publication_base_sha256" =~ ^[0-9a-f]{64}$ ]]
           test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
             "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$published_base"
           test "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" = "$published_head"
@@ -4104,7 +4121,7 @@ jobs:
             "Base commit: \`${RULESPEC_REF}\`" \
             "Base branch: \`${PR_BASE_BRANCH}\`" \
             "Published base commit: \`${published_base}\`" \
-            "Base advance paths: \`${base_advance_paths}\`" \
+            "Base advance paths: ${base_advance_count} (publication-base.json sha256 \`${publication_base_sha256}\`)" \
             "Queue item: \`${QUEUE_ID:-ad-hoc}/${QUEUE_ITEM_ID:-ad-hoc}\`" \
             "Queue generation SHA-256: \`${QUEUE_ITEM_GENERATION_SHA256:-n/a}\`" \
             "Queue manifest SHA-256: \`${QUEUE_MANIFEST_SHA256:-n/a}\`" \

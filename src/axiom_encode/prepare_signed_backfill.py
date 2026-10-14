@@ -219,13 +219,19 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
 )
 # A main publication may land on a newer main tip than the commit it was
 # encoded, validated, and signed against, but only when every path main
-# changed in between is repository plumbing that the protected encode,
-# validate, and sign path never reads and that no signed manifest, receipt,
-# or the generated-provenance guard binds: CI definitions, repository tests
-# and tools, bulk drain helpers, and prose. Jurisdiction RuleSpec trees,
-# programs/, every .axiom/ binding (toolchain and corpus pin, waivers,
-# fingerprints, manifests, receipts, the reverse index), the root waiver and
-# debt ledgers, and Git attribute or ignore files keep the exact-tip demand.
+# changed in between is repository plumbing that no signed manifest or the
+# generated-provenance guard binds and that an ordinary apply lane never
+# reads: CI definitions, repository tests and tools, bulk drain helpers, and
+# prose. Jurisdiction RuleSpec trees, programs/, every .axiom/ binding
+# (toolchain and corpus pin, waivers, fingerprints, manifests, receipts, the
+# reverse index), the root waiver and debt ledgers, and Git attribute or
+# ignore files keep the exact-tip demand.
+#
+# Receipt-bound lanes (legacy replacements, path migrations) and any lane
+# that deletes a base path also keep the exact-tip demand: their receipts
+# prove a whole-tree reference inventory (``git grep`` over every path,
+# plumbing included) at the recorded base, and the guard re-proves it only at
+# that base, so a reference main added elsewhere would go unchecked.
 PUBLICATION_BASE_ADVANCE_PREFIXES = (
     ".claude/",
     ".github/",
@@ -243,6 +249,10 @@ WORKFLOW_TOOLCHAIN_PATH = PurePosixPath(".axiom/workflow-toolchain.toml")
 # generated-provenance guard (encoder ref and version) read none of them.
 WORKFLOW_TOOLCHAIN_NONBINDING_KEYS = frozenset(
     {"axiom_artifact_rules_engine_ref", "source_staleness_axiom_encode_ref"}
+)
+EXACT_TIP_LANE_ROOTS = (
+    LEGACY_REPLACEMENT_RECEIPT_ROOT,
+    PurePosixPath(".axiom/path-migrations"),
 )
 MAX_PUBLICATION_BASE_ADVANCE_COMMITS = 500
 MAX_PUBLICATION_LANE_COMMITS = 32
@@ -349,12 +359,15 @@ def validate_rulespec_base(
     *,
     open_pr: bool,
     pr_base_branch: str = "main",
+    require_exact_tip: bool = False,
 ) -> str:
     """Admit main ancestry or an exact independently reviewed protected head.
 
     A main pull request base may trail the main tip only through paths
     :func:`publication_base_advance_paths` proves cannot affect the run; the
-    publish step re-proves that against the tip it finally lands on.
+    publish step re-proves that against the tip it finally lands on. Runs
+    whose lane will be receipt-bound (legacy replacements) pass
+    ``require_exact_tip`` and keep the exact-tip demand from the start.
     """
 
     validate_country(country)
@@ -382,11 +395,14 @@ def validate_rulespec_base(
         if open_pr:
             if pr_base_branch != "main":
                 raise ValueError("main-ancestor pull requests must target main")
-            publication_base_advance_paths(
-                repo,
-                requested_ref,
-                _remote_branch_ref(repo, pr_base_branch),
-            )
+            if require_exact_tip:
+                _require_remote_branch_tip(repo, pr_base_branch, requested_ref)
+            else:
+                publication_base_advance_paths(
+                    repo,
+                    requested_ref,
+                    _remote_branch_ref(repo, pr_base_branch),
+                )
         return "main"
     if (country, requested_ref) not in REVIEWED_RULESPEC_REFS:
         raise ValueError(
@@ -674,18 +690,21 @@ def _replay_lane_commits(
     recorded_base: str,
     tip: str,
     lane_commits: list[str],
-) -> str:
+    deltas: dict[str, list[tuple[bytes, bytes, bytes, bytes]]],
+) -> list[str]:
     """Replay each lane commit's exact tree delta from the base onto the tip.
 
     Commit ``i`` becomes ``tip`` with every path that differs between the
     recorded base and the original commit ``i`` set to that commit's exact
     entry (or removed). No merge machinery, hooks, or working-tree bytes are
-    involved, so signed blobs are carried by object identity.
+    involved, so signed blobs are carried by object identity. Returns the
+    replayed commits in lane order.
     """
 
     import tempfile
 
     parent = tip
+    replayed: list[str] = []
     with tempfile.TemporaryDirectory(prefix="axiom-publication-index-") as scratch:
         index_environment = {
             **os.environ,
@@ -696,24 +715,9 @@ def _replay_lane_commits(
             identity, message = _lane_commit_identity(
                 repo, commit, expected_parent=previous
             )
-            delta = _publication_git(
-                repo,
-                "diff-tree",
-                "-r",
-                "-z",
-                "--no-renames",
-                "--raw",
-                recorded_base,
-                commit,
-            ).split(b"\0")
             records: list[bytes] = []
-            for position in range(0, len(delta) - 1, 2):
-                metadata, raw_path = delta[position], delta[position + 1]
-                fields = metadata.lstrip(b":").split(b" ")
-                if len(fields) != 5:
-                    raise ValueError("signed publication lane delta is malformed")
-                new_mode, new_object = fields[1], fields[3]
-                if fields[4] == b"D":
+            for status, new_mode, new_object, raw_path in deltas[commit]:
+                if status == b"D":
                     records.append(b"0 " + b"0" * 40 + b"\t" + raw_path)
                 else:
                     records.append(new_mode + b" " + new_object + b"\t" + raw_path)
@@ -747,8 +751,53 @@ def _replay_lane_commits(
                 .decode("ascii")
                 .strip()
             )
+            replayed.append(
+                _publication_commit(repo, parent, label="replayed publication commit")
+            )
             previous = commit
-    return _publication_commit(repo, parent, label="replayed publication head")
+    return replayed
+
+
+def _lane_delta(
+    repo: Path,
+    recorded_base: str,
+    commit: str,
+) -> list[tuple[bytes, bytes, bytes, bytes]]:
+    """Return (status, new mode, new object, path) for every base..commit change."""
+
+    output = _publication_git(
+        repo,
+        "diff-tree",
+        "-r",
+        "-z",
+        "--no-renames",
+        "--raw",
+        recorded_base,
+        commit,
+    ).split(b"\0")
+    if len(output) % 2 != 1 or output[-1]:
+        raise ValueError("signed publication lane delta is malformed")
+    delta: list[tuple[bytes, bytes, bytes, bytes]] = []
+    for position in range(0, len(output) - 1, 2):
+        metadata, raw_path = output[position], output[position + 1]
+        fields = metadata.removeprefix(b":").split(b" ")
+        if (
+            not metadata.startswith(b":")
+            or len(fields) != 5
+            or fields[4] not in {b"A", b"D", b"M", b"T"}
+        ):
+            raise ValueError("signed publication lane delta is malformed")
+        _safe_relative_path(raw_path.decode("utf-8"), label="lane delta path")
+        delta.append((fields[4], fields[1], fields[3], raw_path))
+    return delta
+
+
+def _directory_prefixes(paths: set[PurePosixPath]) -> set[PurePosixPath]:
+    return {
+        PurePosixPath(*path.parts[:length])
+        for path in paths
+        for length in range(1, len(path.parts))
+    }
 
 
 def advance_publication_base(
@@ -819,25 +868,67 @@ def advance_publication_base(
         raise ValueError("signed publication lane has too many commits")
     if lane_commits[-1] != head:
         raise ValueError("signed publication lane does not end at HEAD")
-    lane_paths: set[PurePosixPath] = set()
-    for commit in lane_commits:
-        lane_paths.update(_publication_diff_paths(repo, recorded_base, commit))
+    deltas = {
+        commit: _lane_delta(repo, recorded_base, commit) for commit in lane_commits
+    }
+    lane_paths = {
+        PurePosixPath(raw_path.decode("utf-8"))
+        for delta in deltas.values()
+        for _status, _mode, _object, raw_path in delta
+    }
     net_lane_paths = _publication_diff_paths(repo, recorded_base, head)
     if not net_lane_paths:
         raise ValueError("signed publication lane changes nothing")
-    overlap = sorted(path.as_posix() for path in lane_paths & advance_paths)
+    exact_tip_paths = sorted(
+        {
+            raw_path.decode("utf-8")
+            for delta in deltas.values()
+            for status, _mode, _object, raw_path in delta
+            if status == b"D"
+        }
+        | {
+            path.as_posix()
+            for path in lane_paths
+            if any(path.is_relative_to(root) for root in EXACT_TIP_LANE_ROOTS)
+        }
+    )
+    if exact_tip_paths:
+        raise ValueError(
+            f"{STALE_PUBLICATION_BASE_ERROR}, and the signed lane deletes base "
+            "paths or carries receipts proven only at the recorded base: "
+            + ", ".join(exact_tip_paths[:20])
+        )
+    # A file on one side and a directory on the other is a conflict too: the
+    # index replay would silently replace one with the other.
+    overlap = sorted(
+        path.as_posix()
+        for path in (lane_paths & advance_paths)
+        | (lane_paths & _directory_prefixes(advance_paths))
+        | (advance_paths & _directory_prefixes(lane_paths))
+    )
     if overlap:
         raise ValueError(
             f"{STALE_PUBLICATION_BASE_ERROR}, and main advanced through paths "
             "the signed run changed: " + ", ".join(overlap)
         )
 
-    published_head = _replay_lane_commits(
+    replayed_commits = _replay_lane_commits(
         repo,
         recorded_base=recorded_base,
         tip=tip,
         lane_commits=lane_commits,
+        deltas=deltas,
     )
+    if len(replayed_commits) != len(lane_commits):
+        raise ValueError("replayed publication does not preserve the lane commits")
+    for original, replayed_commit in zip(lane_commits, replayed_commits, strict=True):
+        if _publication_diff_paths(
+            repo, tip, replayed_commit
+        ) != _publication_diff_paths(repo, recorded_base, original) or (
+            _publication_diff_paths(repo, original, replayed_commit) != advance_paths
+        ):
+            raise ValueError("replayed publication commit differs from its lane commit")
+    published_head = replayed_commits[-1]
     if _publication_diff_paths(repo, tip, published_head) != net_lane_paths:
         raise ValueError("replayed publication changes paths outside the signed lane")
     if _publication_diff_paths(repo, head, published_head) != advance_paths:
@@ -5134,6 +5225,11 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    base_parser.add_argument(
+        "--require-exact-tip",
+        action="store_true",
+        help="keep the exact main-tip demand for receipt-bound legacy lanes",
+    )
     advance_parser = subparsers.add_parser(
         "advance-publication-base",
         help=(
@@ -5300,6 +5396,7 @@ def main() -> None:
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
                     pr_base_branch=args.pr_base_branch,
+                    require_exact_tip=args.require_exact_tip,
                 )
             )
         elif args.command == "advance-publication-base":

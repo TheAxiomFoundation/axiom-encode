@@ -3015,6 +3015,22 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert "Base commit: \\`${RULESPEC_REF}\\`" in publish_command
     assert "Published base commit: \\`${published_base}\\`" in publish_command
+    assert (
+        "Base advance paths: ${base_advance_count} (publication-base.json sha256 "
+        "\\`${publication_base_sha256}\\`)"
+    ) in publish_command
+    assert ".base_advance_paths | length" in publish_command
+    assert 'base_advance_paths" ' not in publish_command
+    identity_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify immutable checkout identities"
+    )
+    assert identity_step["env"]["REPLACE_LEGACY_RULESPEC_PATH"] == (
+        "${{ inputs.replace_legacy_rulespec_path }}"
+    )
+    assert "base_args+=(--require-exact-tip)" in identity_step["run"]
+    assert '${base_args[@]+"${base_args[@]}"}' in identity_step["run"]
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert publish_command.count('"HEAD:refs/heads/${branch}"') == 1
     assert "gh api --method POST" in publish_command
