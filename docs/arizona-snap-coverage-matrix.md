@@ -394,6 +394,21 @@ establishes that text's provenance. Repair and sign both corpus
 source/inventory bindings, then revalidate dependent generated modules and
 proofs against the corrected release; do not infer source authentication from
 the provision text alone.
+
+The original official two-page [allotment and deduction PDF](https://fns-prod.azureedge.us/sites/default/files/resource-files/snap-fy26maximumAllotments-deductions.pdf)
+(SHA-256 `c037d4d6da50c1f3de9f6871b2c8864ab220714fbcd8d4b0da633798b99a0732`)
+and [income-standards PDF](https://fns-prod.azureedge.us/sites/default/files/resource-files/snap-fy26-incomeEligibilityStandards.pdf)
+(SHA-256 `372c7cd6309e4795634f2d6a136a583c16c3221c1e8b8f0809f86bf51d335802`)
+are still accessible at the download URLs named by the legacy manifests.
+A scoped native extraction with browser impersonation produced six matched
+citations, complete coverage, and page bodies identical to the corresponding
+legacy provision rows; 104 focused document tests passed. This is a concrete
+way to preserve the existing page identities through an authorized signed
+source-binding repair, tracked in corpus [#886](https://github.com/TheAxiomFoundation/axiom-corpus/issues/886)
+and [#883](https://github.com/TheAxiomFoundation/axiom-corpus/issues/883).
+The audit output is temporary and unsigned, not a corrected release or proof
+that the pending protected RuleSpec run is source-authenticated.
+
 An accessible, primary [USDA seven-page FY 2026 COLA memorandum](https://www.usda.gov/sites/default/files/guidance-documents/fns.snap-cola-fy26memo.pdf)
 provides row-aligned income eligibility standards on page 3, maximum
 allotments on pages 4-5, shelter and homeless deductions on page 6, and
