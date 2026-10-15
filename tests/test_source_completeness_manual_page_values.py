@@ -135,6 +135,102 @@ def test_generic_structural_cleanup_cannot_hide_a_retained_initial_value(
     }
 
 
+@pytest.mark.parametrize("quote", ('"', "'", "`", "“”"))
+@pytest.mark.parametrize("profile", ("en-US", "legacy", "da-DK"))
+@pytest.mark.parametrize("composed", (False, True), ids=("raw", "composed"))
+@pytest.mark.parametrize("root", (False, True), ids=("page-citation", "root-citation"))
+def test_referenced_paired_quoted_amount_is_required(quote, profile, composed, root):
+    opening, closing = quote[0], quote[-1]
+    source = f"{opening}93{closing}\n(07/2026) Chapter 2:Eligibility\n" + REFERENCES[0]
+    if composed:
+        source = "Page 93\n\n" + source
+    citation = OREGON_ROOT if root else OREGON_ROOT + "/page-93"
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert "93" in masked
+    issues = _issues(source, citation, profile)
+    assert _requires(93, issues), issues
+    assert _issues(source, citation, profile, scalars=(7, 2026, 93)) == ()
+    expected_start = source.index("93", source.index(opening))
+    occurrences = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile=profile
+    )
+    assert any(
+        item.value == 93 and item.span == (expected_start, expected_start + 2)
+        for item in occurrences
+    )
+
+
+@pytest.mark.parametrize("profile", ("en-US", "legacy", "da-DK"))
+@settings(max_examples=80, deadline=None)
+@given(
+    opening=st.text(alphabet="\"'`“”‘’", min_size=1, max_size=4),
+    closing=st.text(alphabet="\"'`“”‘’", min_size=1, max_size=4),
+    page=st.integers(min_value=1, max_value=9999),
+    composed=st.booleans(),
+    root=st.booleans(),
+    separator=st.sampled_from((" ", "\n", "\r\n", "\u2028")),
+    stamp_first=st.booleans(),
+    reference=st.sampled_from(REFERENCES),
+)
+@example(
+    opening='"',
+    closing='"',
+    page=93,
+    composed=False,
+    root=False,
+    separator="\n",
+    stamp_first=True,
+    reference=REFERENCES[0],
+)
+@example(
+    opening="‘",
+    closing="`",
+    page=93,
+    composed=True,
+    root=True,
+    separator="\r\n",
+    stamp_first=False,
+    reference=REFERENCES[0],
+)
+@example(
+    opening="“'`",
+    closing="`'”",
+    page=93,
+    composed=True,
+    root=False,
+    separator="\u2028",
+    stamp_first=True,
+    reference=REFERENCES[0],
+)
+def test_generated_quoted_referenced_initial_page_is_required(
+    profile, opening, closing, page, composed, root, separator, stamp_first, reference
+):
+    month = 7 if page != 7 else 8
+    year = 2026 if page != 2026 else 2027
+    stamp = f"({month:02d}/{year})"
+    header = (
+        f"{stamp} Chapter 2:Eligibility"
+        if stamp_first
+        else f"Chapter 2:Eligibility {stamp}"
+    )
+    prefix = f"Page {page}\n\n" if composed else ""
+    source = f"{prefix}{opening}{page}{closing}{separator}{header}\n{reference}"
+    citation = OREGON_ROOT if root else f"{OREGON_ROOT}/page-{page}"
+    expected_start = len(prefix) + len(opening)
+    expected_span = (expected_start, expected_start + len(str(page)))
+    masked = sc._without_us_manual_locators(source, corpus_citation_path=citation)
+    assert len(masked) == len(source)
+    assert masked[slice(*expected_span)] == str(page)
+    assert _requires(page, _issues(source, citation, profile, scalars=(month, year)))
+    assert _issues(source, citation, profile, scalars=(month, year, page)) == ()
+    occurrences = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile=profile
+    )
+    assert any(
+        item.value == page and item.span == expected_span for item in occurrences
+    )
+
+
 @pytest.mark.parametrize("profile", ("en-US", "legacy"))
 @settings(max_examples=60, deadline=None)
 @given(
