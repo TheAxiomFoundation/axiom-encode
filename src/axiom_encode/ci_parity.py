@@ -47,7 +47,12 @@ from typing import Any
 import yaml
 
 from axiom_encode import __version__
-from axiom_encode.corpus_materialize import remote_fetch_disabled
+from axiom_encode.corpus_materialize import (
+    NO_FETCH_ENV,
+    fetch_disabled,
+    remote_fetch_disabled,
+    remote_fetch_is_disabled,
+)
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
@@ -2089,7 +2094,10 @@ def _run_cli(
     built from empty in CI, so AXIOM_* values the supervisor does not forward
     and every ambient GIT_* value (GIT_DIR, GIT_CONFIG_COUNT, ...) are
     withheld, and Git ignores global and system configuration. ``cwd``
-    mirrors the step's working directory (the rules checkout in CI).
+    mirrors the step's working directory (the rules checkout in CI). The one
+    local exception is the caller's ``AXIOM_CORPUS_NO_FETCH`` opt-out: CI
+    never sets it, and keeping it can only stop the gate from placing corpus
+    bytes in the developer's corpus checkout.
     """
 
     from axiom_encode import cli
@@ -2112,6 +2120,8 @@ def _run_cli(
             ]:
                 del os.environ[name]
             os.environ.update(SUPERVISOR_GIT_ENVIRONMENT)
+            if fetch_disabled(old_environment):
+                os.environ[NO_FETCH_ENV] = "1"
         if environment:
             os.environ.update(environment)
         if cwd is not None:
@@ -3462,7 +3472,10 @@ def _run_cli_batch(
     verification keyring on stdin, never through the environment, and cap the
     waiver audit's own fan-out for legacy invocations. Embedded pins supply
     CI's effective four-worker audit count, which takes precedence over
-    this local cap so --jobs does not change a partition's inputs.
+    this local cap so --jobs does not change a partition's inputs. A worker
+    keeps ``--offline``: the calling context's remote-fetch switch, which
+    neither the pool's threads nor the worker processes would inherit, is
+    passed on explicitly.
     """
 
     if jobs <= 1 or len(invocations) <= 1:
@@ -3476,11 +3489,16 @@ def _run_cli_batch(
             for invocation in invocations
         ]
     worker_cap = max(1, (os.cpu_count() or 1) // jobs)
+    offline = remote_fetch_is_disabled()
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         return list(
             pool.map(
                 lambda invocation: _run_cli_isolated(
-                    invocation, keyring, worker_cap, signing_roots or {}
+                    invocation,
+                    keyring,
+                    worker_cap,
+                    signing_roots or {},
+                    offline=offline,
                 ),
                 invocations,
             )
@@ -3492,9 +3510,12 @@ def _run_cli_isolated(
     keyring: Sequence[str],
     worker_cap: int,
     signing_roots: Mapping[str, str] | None = None,
+    *,
+    offline: bool = False,
 ) -> tuple[int, str]:
     module_file = str(Path(__file__).resolve())
     request = {
+        "offline": offline,
         "package_root": str(Path(module_file).parents[1]),
         "module_file": module_file,
         "keyring": list(keyring),
@@ -3527,11 +3548,14 @@ def _isolated_cli_main(request: Mapping[str, Any]) -> int:
 
     keyring = list(request["keyring"])
     signing_roots = dict(request.get("signing_roots") or {})
-    with local_corpus_release_verification(
-        keyring[0],
-        retired_public_keys=keyring[1:],
-        apply_public_key=signing_roots.get("apply"),
-        eval_public_key=signing_roots.get("eval"),
+    with (
+        local_corpus_release_verification(
+            keyring[0],
+            retired_public_keys=keyring[1:],
+            apply_public_key=signing_roots.get("apply"),
+            eval_public_key=signing_roots.get("eval"),
+        ),
+        remote_fetch_disabled() if request.get("offline") else contextlib.nullcontext(),
     ):
         code, output = _run_cli(
             request["arguments"],

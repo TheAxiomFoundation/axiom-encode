@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
+import pytest
 import yaml
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
@@ -46,6 +47,7 @@ from axiom_encode.ci_parity import (
     _WorkflowYamlLoader,
     ci_verdict,
 )
+from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
 
 VERDICT_RANK = {"PASS": 0, "PASS-WITH-MISMATCHED-DEPS": 1, "FAIL": 2}
 SPEC = GateSpec("gate", "Gate", "subcommand", (), "1-2")
@@ -138,7 +140,9 @@ environment_names = st.one_of(
         st.text("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", min_size=1, max_size=12),
     ).map("".join),
     st.sampled_from(sorted(SUPERVISOR_FORWARDED_ENVIRONMENT)),
-    st.sampled_from(["GIT_DIR", "GIT_CONFIG_COUNT", "PYTHONOPTIMIZE", "HOME"]),
+    st.sampled_from(
+        ["GIT_DIR", "GIT_CONFIG_COUNT", "PYTHONOPTIMIZE", "HOME", NO_FETCH_ENV]
+    ),
 )
 environment_values = st.text(
     st.characters(exclude_categories=("Cs",), exclude_characters="\x00"),
@@ -216,11 +220,38 @@ def test_supervised_cli_sees_the_supervisor_child_environment(
         and not name.startswith("GIT_")
     }
     expected.update(SUPERVISOR_GIT_ENVIRONMENT)
+    # The caller's corpus-placement opt-out survives (cycle 24).
+    if fetch_disabled(environment):
+        expected[NO_FETCH_ENV] = "1"
     expected.update(step)
     assert code == 0
     assert seen == expected
     # The in-process run leaves the caller's environment as it found it.
     assert restored == environment
+
+
+@pytest.mark.parametrize(
+    ("value", "kept"),
+    [("1", True), ("true", True), ("YES", True), ("0", False), ("no", False)],
+)
+def test_supervised_cli_keeps_the_callers_corpus_placement_opt_out(
+    value: str, kept: bool
+) -> None:
+    # Cycle 24: supervised gates bind the release and would place corpus
+    # bytes the caller opted out of; the strip keeps the opt-out alone.
+    seen: dict[str, str | None] = {}
+
+    def fake_main() -> None:
+        seen["no_fetch"] = os.environ.get(NO_FETCH_ENV)
+
+    with (
+        mock.patch.dict(os.environ, {NO_FETCH_ENV: value}, clear=True),
+        mock.patch("axiom_encode.cli.main", fake_main),
+    ):
+        _run_cli(["validate"], supervised=True)
+        assert os.environ == {NO_FETCH_ENV: value}
+
+    assert seen == {"no_fetch": "1" if kept else None}
 
 
 heredoc_tags = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,7}", fullmatch=True)
