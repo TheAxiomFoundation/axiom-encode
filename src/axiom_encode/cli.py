@@ -21965,6 +21965,11 @@ def guard_generated_change_issues(
     changes, and live modules retain verified coverage from the base.
     """
     repo_path = Path(repo_path).resolve()
+    inventory_issues = _guard_provenance_inventory_git_issues(
+        repo_path, base_ref=base_ref, head_ref=head_ref
+    )
+    if inventory_issues:
+        return inventory_issues
     pending_transaction = repo_path / _APPLY_TRANSACTION_DIRECTORY
     if pending_transaction.exists() or pending_transaction.is_symlink():
         return [
@@ -21981,16 +21986,20 @@ def guard_generated_change_issues(
         )
     except ValueError as exc:
         return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
-    if all_files:
-        changed = (
-            _git_guard_changed_files(
+    if all_files and base_ref is None:
+        changed = []
+    elif not all_files and changed_files is not None:
+        changed = changed_files
+    else:
+        try:
+            changed = _git_guard_changed_files(
                 repo_path,
                 base_ref=base_ref,
                 head_ref=head_ref,
             )
-            if base_ref is not None
-            else []
-        )
+        except RuntimeError as exc:
+            return [str(exc)]
+    if all_files:
         protected = sorted(
             set(_all_protected_rulespec_yaml_paths(repo_path, roots=roots))
             | {
@@ -22004,15 +22013,6 @@ def guard_generated_change_issues(
             roots=roots,
         )
     else:
-        changed = (
-            changed_files
-            if changed_files is not None
-            else _git_guard_changed_files(
-                repo_path,
-                base_ref=base_ref,
-                head_ref=head_ref,
-            )
-        )
         protected = [
             path
             for path in changed
@@ -22024,6 +22024,9 @@ def guard_generated_change_issues(
             if _is_noncanonical_rulespec_yml_path(Path(path), roots=roots)
             and (repo_path / path).exists()
         ]
+    container_issues = _guard_changed_provenance_container_issues(repo_path, changed)
+    if container_issues:
+        return container_issues
     if noncanonical_yml:
         return [
             f"{path} uses the removed .yml RuleSpec extension; rename it to canonical .yaml"
@@ -22598,6 +22601,136 @@ def _is_auxiliary_provenance_receipt_path(path: Path) -> bool:
     )
 
 
+def _overlaps_provenance_inventory(path: Path) -> bool:
+    return any(
+        path.is_relative_to(inventory) or inventory.is_relative_to(path)
+        for inventory in (
+            APPLIED_ENCODING_MANIFEST_DIR,
+            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        )
+    )
+
+
+def _guard_changed_provenance_container_issues(
+    repo_path: Path, changed: list[str]
+) -> list[str]:
+    """Refuse unstaged opaque links that receipt suffix classification misses."""
+
+    issues: list[str] = []
+    for label in changed:
+        path = Path(label)
+        if path.suffix == ".json" or not _overlaps_provenance_inventory(path):
+            # JSON paths already reach the bounded receipt readers.
+            continue
+        try:
+            metadata = (repo_path / path).lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            issues.append(f"{label} provenance inventory cannot be read safely")
+            continue
+        if stat.S_ISLNK(metadata.st_mode):
+            issues.append(
+                f"{label} provenance inventory cannot be read safely: "
+                "symlink container in the working tree"
+            )
+    return issues
+
+
+def _guard_provenance_inventory_git_issues(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    head_ref: str,
+) -> list[str]:
+    """Refuse Git entries that hide inventory contents before classifying paths.
+
+    Git reports a submodule pointer or directory symlink as one path, without
+    the receipt filenames beneath it. Inspect both immutable trees and every
+    index stage, including when callers supply their own changed-file list.
+    """
+
+    # Explicit-file verification also supports not-yet-initialized checkouts.
+    if not (repo_path / ".git").exists():
+        return []
+    queries = [("index", ["ls-files", "--stage", "-z"])]
+    if base_ref is not None:
+        queries.append(
+            ("immutable base", ["ls-tree", "-r", "-z", "--full-tree", base_ref])
+        )
+    queries.append(("head", ["ls-tree", "-r", "-z", "--full-tree", head_ref]))
+    issues: list[str] = []
+    for location, arguments in queries:
+        try:
+            listing = subprocess.run(
+                ["git", "-C", str(repo_path), *arguments],
+                capture_output=True,
+                check=False,
+            )
+            if listing.returncode:
+                # An unborn default HEAD has no tree, but its index still has
+                # to pass admission. Explicit invalid refs fail closed.
+                if location == "head" and head_ref == "HEAD" and base_ref is None:
+                    symbolic = subprocess.run(
+                        ["git", "-C", str(repo_path), "symbolic-ref", "-q", "HEAD"],
+                        capture_output=True,
+                        check=False,
+                    )
+                    if symbolic.returncode == 0:
+                        branch = os.fsdecode(symbolic.stdout).strip()
+                        present = subprocess.run(
+                            [
+                                "git",
+                                "-C",
+                                str(repo_path),
+                                "show-ref",
+                                "--verify",
+                                "--quiet",
+                                branch,
+                            ],
+                            capture_output=True,
+                            check=False,
+                        )
+                        if present.returncode == 1:
+                            continue
+                issues.append(f"Cannot inspect the {location} provenance inventory")
+                continue
+            for record in listing.stdout.split(b"\0"):
+                if not record:
+                    continue
+                metadata, encoded_path = record.split(b"\t", 1)
+                mode = metadata.split()[0].decode("ascii")
+                path = Path(os.fsdecode(encoded_path))
+                if not _overlaps_provenance_inventory(path):
+                    continue
+                label = path.as_posix()
+                if mode == "160000":
+                    issues.append(
+                        f"{label} is a gitlink in the {location}; provenance "
+                        "inventories must not be at, above, or inside submodules"
+                    )
+                elif mode == "120000":
+                    # Git cannot distinguish a leaf from a directory symlink,
+                    # even when the container's name ends in .json.
+                    issues.append(
+                        f"{label} provenance inventory cannot be read safely: "
+                        f"symlink entry in the {location}"
+                    )
+                elif (
+                    mode == "100755"
+                    and path.suffix == ".json"
+                    and location != "immutable base"
+                ):
+                    issues.append(
+                        f"{label} receipt mode in the {location} must be 100644, "
+                        f"found {mode}"
+                    )
+        except (OSError, ValueError, IndexError, UnicodeError):
+            issues.append(f"Cannot inspect the {location} provenance inventory")
+    return issues
+
+
 def _guard_head_manifest_inventory(
     repo_path: Path,
     *,
@@ -23154,9 +23287,19 @@ def _git_guard_changed_files(
 ) -> list[str]:
     """Union reviewed-base commits with uncommitted and untracked changes."""
 
+    inventory_issues = _guard_provenance_inventory_git_issues(
+        repo_path, base_ref=base_ref, head_ref=head_ref
+    )
+    if inventory_issues:
+        raise RuntimeError("\n".join(inventory_issues))
     changed = set(_git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref))
     if base_ref is not None:
         changed.update(_git_changed_files(repo_path, base_ref=None, head_ref=head_ref))
+    container_issues = _guard_changed_provenance_container_issues(
+        repo_path, sorted(changed)
+    )
+    if container_issues:
+        raise RuntimeError("\n".join(container_issues))
     return sorted(changed)
 
 
@@ -24536,8 +24679,9 @@ def _load_verified_path_migration_receipt(
         raw = read_bounded_regular_file(
             repo_root,
             repo_root / relative,
-            label="RuleSpec path migration receipt",
+            label="RuleSpec path migration receipt (Git mode 100644)",
             max_bytes=4 * 1024 * 1024,
+            required_mode=0o644,
         )
         digest = hashlib.sha256(raw).hexdigest()
         payload = json.loads(raw.decode("utf-8"))
@@ -27273,8 +27417,9 @@ def _load_verified_applied_encoding_manifest_payload(
         manifest_bytes = read_bounded_regular_file(
             repo_root,
             path,
-            label="encoder apply manifest",
+            label="encoder apply manifest (Git mode 100644)",
             max_bytes=1024 * 1024,
+            required_mode=0o644,
         )
         manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
         payload = json.loads(manifest_bytes.decode("utf-8"))
