@@ -9273,49 +9273,64 @@ def _reason_names_missing_same_act_dependency(
 
 
 # A same-act reference binds only when an exception or condition governs it:
-# "except as (otherwise) provided in", "except ... under", "unless ... under",
+# "except (...) as (otherwise) provided|defined in", "unless ... under",
 # "subject to (the provisions|conditions, limitations, and review ...) of",
-# "subject to ... as provided in" or a bare "subject to section N". A noun
-# such as "subject to the tax ... as enacted under Section 2" or "not subject
-# to appeal, adjudges section 5" does not govern the reference.
+# "subject to ... as provided in" / "pursuant to" or a bare "subject to
+# section N". The gaps are short, cannot cross a clause, and cannot hold a
+# taxing verb, so "subject to the tax levied pursuant to Section 3", "except
+# that the tax imposed under section 5", "unless exempt, that is taxed under
+# Section 3" or "not subject to appeal, adjudges section 5" do not bind.
+_SAME_ACT_TRIGGER_GAP_STOP = (
+    r"(?!\b(?:levied|imposed|taxed|taxable|enacted|exempt(?:ed)?|tax(?:es)?)\b)"
+)
 _SAME_ACT_GOVERNING_TRIGGER = re.compile(
     r"(?:"
-    r"\bexcept\b[^;.:]{0,100}?\b(?:(?:as\s+)?(?:otherwise\s+)?"
-    r"(?:provided|defined|specified|set\s+forth|described)\s+)?"
-    r"(?:in|by|under|pursuant\s+to)"
-    r"|\bunless\b[^;.:]{0,120}?\b(?:in|by|under|pursuant\s+to)"
+    r"\bexcept\b(?:" + _SAME_ACT_TRIGGER_GAP_STOP + r"[^;.:,]){0,40}?"
+    r"\b(?:as\s+)?(?:otherwise\s+)?"
+    r"(?:provided|defined|specified|set\s+forth|described)\s+(?:in|by|under)"
+    r"|\bunless\b(?:" + _SAME_ACT_TRIGGER_GAP_STOP + r"[^;.:,]){0,80}?"
+    r"\b(?:in|by|under|pursuant\s+to)"
     r"|\bsubject\s+to\W{0,2}\s*(?:the\s+)?"
     r"(?:provisions?|conditions|limitations|requirements|protections|"
-    r"restrictions)\b[^;.:]{0,100}?\b(?:of|in|under|by)"
-    r"|\bsubject\s+to\b[^;.:]{0,100}?\b(?:as\s+(?:otherwise\s+)?"
-    r"(?:provided|specified|set\s+forth)\s+(?:in|by|under)|pursuant\s+to)"
+    r"restrictions)\b(?:" + _SAME_ACT_TRIGGER_GAP_STOP + r"[^;.:]){0,100}?"
+    r"\b(?:of|in|under|by)"
+    r"|\bsubject\s+to\b(?:" + _SAME_ACT_TRIGGER_GAP_STOP + r"[^;.:]){0,100}?"
+    r"\b(?:as\s+(?:otherwise\s+)?(?:provided|specified|set\s+forth)\s+"
+    r"(?:in|by|under)|pursuant\s+to)"
     r"|\bsubject\s+to\W{0,2}"
     r")\s+(?:\d{1,2}\s+)?"
-    r"(?:(?:sub)?(?:section|paragraph|division)\s+\S{1,6}\s+of\s+(?:\d{1,2}\s+)?)?$",
+    # "paragraph (2) of subsection (b) of", "section 4 or"
+    r"(?:(?:sub)?(?:section|paragraph|division)\s+\S{1,6}\s+of\s+(?:\d{1,2}\s+)?){0,2}"
+    r"(?:(?:sub)?section\s+\S{1,6}\s+(?:or|and)\s+)?$",
     flags=re.IGNORECASE,
 )
 _SAME_ACT_OWN_LABEL = re.compile(
     r"^\s*(?:\({2,3}\w{1,5}\){2,3}\s*)?(?:\(\w{1,5}\)|\w{1,4}\.)\s*"
 )
 # The start of another enumerated item: "(20) $1,360,000", "(a) Except",
-# "7. For", "a. For". Inline citations ("paragraph (a)(1) of", "subsection
-# (b) of", "subsection b. of") are not item starts.
+# "7. For", "a. For", "B. The". Inline citations ("paragraph (a)(1) of",
+# "subsection (b) of", "subsection b. of") are not item starts.
 _SAME_ACT_ITEM_START = re.compile(
     r"(?<![^\s;:])(?:\({2,3}\w{1,5}\){2,3}\s*)?"
     r"(?:\((?:\d{1,3}|[a-z]{1,2}|[ivxl]{1,5}|[A-Z]{1,2})\)"
     r"(?=\s*(?:[A-Z$\"“(]|\d))"
-    r"|(?:\d{1,3}|[a-z])\.(?=\s+[A-Z\"“]))"
+    r"|(?:\d{1,3}|[a-zA-Z])\.(?=\s+[A-Z\"“]))"
 )
 _SAME_ACT_CITATION_LEAD = re.compile(
     r"(?:\b(?:sub)?(?:sections?|paragraphs?|subparagraphs?|clauses?|items?|"
     r"subdivisions?|divisions?|sec\.)|§+)\s*$",
     flags=re.IGNORECASE,
 )
-# Text that is not part of the branch: a following session-law section, an
-# enacting clause, or compiler notes and history.
+# Text that is not part of the branch: a following session-law or headed
+# section ("SECTION 4.", "Sec. 1126.", "Section 3. State empowered ..."), an
+# enacting clause, compiler notes and history, or the next quoted definition
+# ('"Pension fund" or "fund" means ...').
 _SAME_ACT_SCOPE_BOUNDARY = re.compile(
-    r"\b(?:SECTION|Sec\.)\s+\d+[A-Za-z]?\.|\bAND\s+BE\s+IT\s+FURTHER\s+ENACTED\b|"
-    r"\bNEW\s+SECTION\b|\bNotes:|\[\s*\d{4}\s+c\s+\d+"
+    r"\b(?:SECTION|Sec\.)\s+\d+[A-Za-z]?\.|\bSection\s+\d+[A-Za-z]?\.\s+[A-Z]|"
+    r"\bAND\s+BE\s+IT\s+FURTHER\s+ENACTED\b|\bNEW\s+SECTION\b|\bNotes:|"
+    r"\[\s*\d{4}\s+c\s+\d+|"
+    r"[\"“][^\"”]{1,60}[\"”]\s+(?:or\s+[\"“][^\"”]{1,60}[\"”]\s+)?"
+    r"(?:means|shall\s+mean)\b"
 )
 
 
@@ -9337,7 +9352,8 @@ def _same_act_branch_own_text(source_scope_text: str) -> str:
             continue
         end = item.start()
         break
-    boundary = _SAME_ACT_SCOPE_BOUNDARY.search(text, start, end)
+    # A boundary at the very start is the branch's own heading or definition.
+    boundary = _SAME_ACT_SCOPE_BOUNDARY.search(text, start + 1, end)
     if boundary:
         end = boundary.start()
     return text[:end]

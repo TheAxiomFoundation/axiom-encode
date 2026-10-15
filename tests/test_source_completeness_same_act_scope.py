@@ -552,3 +552,139 @@ def test_same_act_reader_keeps_the_leaf_that_owns_the_reference():
         corpus_citation_path="us-ms/statute/27-7-5",
         path=("1", "b", "ii", "7"),
     )
+
+
+# Review of #1933: headed sections and quoted definitions bound the branch,
+# and a taxing verb or a clause break in the gap does not govern the reference.
+REVIEW_1933_NEGATIVE_CASES = [
+    pytest.param(
+        "us-or/statute/constitution/block-23",
+        "10. Furnishing forms; printing, office supplies and equipment; "
+        "employes; payment of expenses Section 1. State empowered to lend "
+        "credit to pay veterans' bonus; issuance of bonds. No person shall be "
+        "eligible to receive money from said fund except the veterans as "
+        "defined in Section 3 of this act.",
+        ("10",),
+        "3",
+        id="f1-or-heading-entry-runs-into-section-1",
+    ),
+    pytest.param(
+        "us-nj/statute/43:13-22.3",
+        "(b) The repayment of any contributions shall be made within such "
+        "period of time as shall be granted by the commission but at no time "
+        'for a greater period than 3 years. "Member" means any present '
+        "employee of the city who shall, subject to the provisions of section "
+        "13 of this act, have the right to purchase credit.",
+        ("b",),
+        "13",
+        id="f2-nj-repayment-runs-into-definitions",
+    ),
+    pytest.param(
+        "us-ok/statute/68-711",
+        "(a) Each motor vehicle subject to the tax levied pursuant to Section 3 "
+        "of this act must be registered with the Tax Commission.",
+        ("a",),
+        "3",
+        id="f3-subject-to-tax-levied-pursuant-to",
+    ),
+    pytest.param(
+        "us-ok/statute/68-711",
+        "(a) Each motor vehicle subject to the tax levied as provided in "
+        "subsection (b) of Section 3 of this act must be registered.",
+        ("a",),
+        "3",
+        id="f3-subject-to-tax-levied-as-provided-in",
+    ),
+    pytest.param(
+        "us-ok/statute/68-711",
+        "(a) Each motor vehicle, except a farm tractor, is operated on the "
+        "highways and taxed under Section 3 of this act.",
+        ("a",),
+        "3",
+        id="f3-except-noun-then-taxed-under",
+    ),
+    pytest.param(
+        "us-ok/statute/68-711",
+        "(a) Each motor vehicle, unless exempt, that is taxed under Section 3 "
+        "of this act must be registered.",
+        ("a",),
+        "3",
+        id="f3-unless-exempt-taxed-under",
+    ),
+    pytest.param(
+        "us-ca/statute/rtc/17041",
+        "(a) The credit is $100, except that the tax imposed under section 5 of "
+        "this act is not reduced.",
+        ("a",),
+        "5",
+        id="f3-except-that-tax-imposed-under",
+    ),
+]
+
+REVIEW_1933_POSITIVE_CASES = [
+    pytest.param(
+        "us-ca/statute/rtc/17041",
+        "(a) Except as provided in section 4 or section 5 of this act, the "
+        "credit is $100.",
+        ("a",),
+        "5",
+        id="except-as-provided-in-section-4-or-section-5",
+    ),
+    pytest.param(
+        "us-ca/statute/rtc/17041",
+        "(a) Subject to the provisions of paragraph (2) of subsection (b) of "
+        "section 5 of this act, the credit is $100.",
+        ("a",),
+        "5",
+        id="nested-paragraph-of-subsection-of-section",
+    ),
+    pytest.param(
+        "us-la/statute/rs/47-297",
+        "A. Except as provided in Section 5 of this Act, the credit is $100. "
+        "B. The fee is $50.",
+        ("A",),
+        "5",
+        id="uppercase-item-label-owns-reference",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source_text", "path", "section"),
+    REVIEW_1933_NEGATIVE_CASES,
+)
+def test_same_act_reader_rejects_review_1933_shapes(
+    corpus_citation_path, source_text, path, section
+):
+    for reason in _reasons(corpus_citation_path, path, section, "this act"):
+        assert not completeness_module._reason_dependency_is_source_bound(
+            reason,
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            path=path,
+        )
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source_text", "path", "section"),
+    REVIEW_1933_POSITIVE_CASES,
+)
+def test_same_act_reader_keeps_review_1933_governed_shapes(
+    corpus_citation_path, source_text, path, section
+):
+    for reason in _reasons(corpus_citation_path, path, section, "this act"):
+        assert completeness_module._reason_names_missing_same_act_dependency(
+            reason,
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            path=path,
+        )
+
+
+def test_same_act_own_text_stops_at_next_uppercase_item():
+    own = completeness_module._same_act_branch_own_text(
+        "A. The credit is $100. B. Except as provided in Section 5 of this "
+        "Act, the fee is $50."
+    )
+
+    assert "Section 5" not in own
