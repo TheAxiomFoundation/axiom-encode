@@ -17673,6 +17673,25 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if missing_exception_branches:
+            unsupported_row_outputs = [
+                f"case `{case.get('name') or '<unnamed>'}` output `{key}` "
+                f"({len(value)} rows)"
+                for case in cases
+                if isinstance(outputs := case.get("output"), dict)
+                for key, value in outputs.items()
+                if str(key).rsplit("#", 1)[-1] in principal_rules
+                and isinstance(value, list)
+                and len(value) != 1
+            ]
+            row_output_feedback = (
+                " Row-ordered outputs cannot supply paired exception evidence "
+                "without row identity: "
+                + "; ".join(unsupported_row_outputs)
+                + ". Use separate one-row companion cases for each paired "
+                "exception check."
+                if unsupported_row_outputs
+                else ""
+            )
             recognized_pair_feedback = ""
             if toggled_exception_selectors:
                 recognized_pairs = {
@@ -17701,6 +17720,7 @@ def _companion_test_issues(
                 "controlling formula selector. Each listed condition needs its "
                 "own same-period case pair differing in exactly that one input; "
                 f"missing: {missing_conditions}.{recognized_pair_feedback}"
+                f"{row_output_feedback}"
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -31918,6 +31938,8 @@ def _test_case_asserted_output_value(
     case: dict[str, Any],
     rule_name: str,
 ) -> Any:
+    """Read scalar formula evidence, including one-row companion assertions."""
+
     outputs = case.get("output")
     if not isinstance(outputs, dict):
         return _UNRESOLVED_CONDITION_VALUE
@@ -31928,7 +31950,12 @@ def _test_case_asserted_output_value(
     ]
     if len(values) != 1:
         return _UNRESOLVED_CONDITION_VALUE
-    return values[0]
+    value = values[0]
+    # The companion runner compares list expectations per entity row. A single
+    # row has the same scalar assertion; multiple rows need row-aware replay.
+    if isinstance(value, list) and len(value) == 1 and not isinstance(value[0], list):
+        return value[0]
+    return value
 
 
 def _formula_execution_reaches_selector(
