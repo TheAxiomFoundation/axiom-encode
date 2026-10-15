@@ -6336,7 +6336,9 @@ def _deferral_anchor_bases(corpus_citation_path: str) -> tuple[str, ...]:
 IMPRECISE_DEFERRAL_PENDING_BRANCHES = re.compile(
     r" Until it is precise, (?P<count>\d+) source branch(?:es)? that it would "
     r"cover (?:is|are) neither encoded nor precisely deferred and (?:is|are) "
-    r"not reported separately: (?P<paths>`[^`\n]*`(?:, `[^`\n]*`)*)\."
+    r"not reported separately; encode each one or cover it with a deferral that "
+    r"names its own exact missing dependency: "
+    r"(?P<paths>`[^`\n]*`(?:, `[^`\n]*`)*)\."
 )
 
 
@@ -6364,7 +6366,8 @@ def _with_branches_behind_imprecise_deferral(
         f" Until it is precise, {count} source branch{'es' if plural else ''} "
         f"that it would cover {'are' if plural else 'is'} neither encoded nor "
         f"precisely deferred and {'are' if plural else 'is'} not reported "
-        f"separately: {paths}."
+        "separately; encode each one or cover it with a deferral that names its "
+        f"own exact missing dependency: {paths}."
     )
     head, separator, tail = issue.partition("\n")
     return f"{head}{sentence}{separator}{tail}"

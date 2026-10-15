@@ -29483,10 +29483,18 @@ def _best_validation_retry_attempt(
         # message count so a candidate that closes six of nine missing branches
         # is not discarded merely because another validator adds one message.
         # On an exact deterministic tie, keep forward progress by using newer.
+        # Branches listed inside a rejected deferral finding were separate
+        # structure messages before they were folded; count them as such so
+        # the message-count tie-break is unchanged by the folding.
+        folded_branch_count = sum(
+            len(split_imprecise_deferral_branches(issue)[1])
+            for issue in residual_issues
+            if isinstance(issue, str)
+        )
         return (
             int(unsafe_candidate),
             residual_obligation_count,
-            attempt.validation_issue_count,
+            attempt.validation_issue_count + folded_branch_count,
             -index,
         )
 

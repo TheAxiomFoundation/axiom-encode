@@ -338,3 +338,36 @@ income tax return, or part thereof, shall constitute and become part of the retu
 required to be filed under this Part.
 """
     return content, source
+
+
+def _attempt(issues, label):
+    return cli._FailedEncodeAttempt(
+        result=SimpleNamespace(),
+        error="Generated RuleSpec failed CI validation",
+        candidate=cli.ValidationRetryCandidate(rulespec=f"# {label}\n", tests="[]\n"),
+        validation_issues=list(issues),
+        validation_issue_count=len(issues),
+        full_validation_issues=list(issues),
+    )
+
+
+def test_ranking_tie_break_counts_folded_branches_as_messages():
+    folded = _analyze(_module(IMPRECISE_A, rule_source="7 CFR 273.4(c)")).issues
+    # An older candidate with the same obligations written as separate
+    # structure findings (as before folding) and one more message elsewhere.
+    own, pending = completeness.split_imprecise_deferral_branches(
+        _findings(SimpleNamespace(issues=folded), "deferral")[0]
+    )
+    unfolded = [
+        own,
+        *(f"[complete-source-unit:structure] branch `{path}`" for path in pending),
+        *(i for i in folded if not i.startswith("[complete-source-unit:deferral]")),
+    ]
+    older, newer = _attempt(unfolded, "older"), _attempt(folded, "newer")
+    assert cli._validation_residual_obligation_count(
+        folded
+    ) == cli._validation_residual_obligation_count(unfolded)
+    # Equal obligations and equal pre-folding message counts: newer wins, as
+    # it would have before folding.
+    assert cli._best_validation_retry_attempt([older, newer]) is newer
+    assert cli._best_validation_retry_attempt([newer, older]) is older
