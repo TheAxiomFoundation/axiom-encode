@@ -1,11 +1,14 @@
 """Real Git inventories cannot conceal provenance behind submodule pointers."""
 
+import os
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
 from axiom_encode import cli
+from scripts.provision_verification_supervisor import _install_trusted_git_wrapper
 from tests.test_cli import (
     TEST_PINNED_ENCODER_IDENTITY,
     _git,
@@ -164,6 +167,182 @@ class TestGuardInventoryGitlinks:
         with pytest.raises(RuntimeError) as discovery_refusal:
             cli._git_guard_changed_files(tmp_path, base_ref=base_ref, head_ref="HEAD")
         self._assert_gitlink_refusal([str(discovery_refusal.value)], gitlink)
+
+    @pytest.mark.parametrize("location", ["head", "immutable base", "index"])
+    def test_gitlink_is_refused_through_production_trusted_git_allowlist(
+        self, tmp_path, monkeypatch, location
+    ):
+        self._receipt_only_manifest(tmp_path)
+        base_ref = self._initialize(tmp_path)
+        gitlink = ".axiom/path-migrations"
+        _git(
+            tmp_path,
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"160000,{base_ref},{gitlink}",
+        )
+        if location != "index":
+            _git(tmp_path, "commit", "-m", "record provenance gitlink")
+            if location == "immutable base":
+                base_ref = _git(tmp_path, "rev-parse", "HEAD").stdout.strip()
+            _git(tmp_path, "rm", "--cached", "--", gitlink)
+            if location == "immutable base":
+                _git(tmp_path, "commit", "-m", "remove provenance gitlink")
+
+        trusted_git = shutil.which("git")
+        assert trusted_git is not None
+        tools = tmp_path / "trusted-tools"
+        tools.mkdir()
+        _install_trusted_git_wrapper(
+            tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
+        )
+        monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+
+        issues = cli.guard_generated_change_issues(
+            tmp_path,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            changed_files=[],
+        )
+        assert issues == [
+            f"{gitlink} is a gitlink in the {location}; provenance "
+            "inventories must not be at, above, or inside submodules"
+        ]
+        with pytest.raises(RuntimeError) as discovery_refusal:
+            cli._git_guard_changed_files(tmp_path, base_ref=base_ref, head_ref="HEAD")
+        assert str(discovery_refusal.value) == issues[0]
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            "literal",
+            "absent",
+            "directory",
+            "empty_directory",
+            "executable",
+            "symlink",
+            "oversized",
+        ],
+    )
+    def test_base_receipt_inspection_through_production_trusted_git_allowlist(
+        self, tmp_path, monkeypatch, case
+    ):
+        relative = Path(".axiom/encoding-manifests/[owner]\t.json")
+        receipt = tmp_path / relative
+        receipt.parent.mkdir(parents=True)
+        decoy = receipt.with_name("o\t.json")
+        decoy.write_bytes(b'{"decoy": true}\n')
+        payload = b'{"literal": true}\n'
+        if case == "directory":
+            receipt.mkdir()
+            (receipt / "child").write_bytes(payload)
+        elif case == "symlink":
+            receipt.symlink_to(decoy.name)
+        elif case not in {"absent", "empty_directory"}:
+            receipt.write_bytes(
+                b"x" * (4 * 1024 * 1024 + 1) if case == "oversized" else payload
+            )
+            if case == "executable":
+                receipt.chmod(0o755)
+        base_ref = self._initialize(tmp_path)
+        if case == "empty_directory":
+            # Porcelain does not stage empty directories, but submitted trees
+            # can contain them. Construct one at the literal receipt pathname.
+            def tree(entries):
+                return cli.subprocess.run(
+                    ["git", "-C", str(tmp_path), "mktree", "-z"],
+                    input=entries,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip()
+
+            entry = (
+                b"040000 tree " + tree(b"") + b"\t" + os.fsencode(relative.name) + b"\0"
+            )
+            for directory in reversed(relative.parts[:-1]):
+                entry = (
+                    b"040000 tree "
+                    + tree(entry)
+                    + b"\t"
+                    + os.fsencode(directory)
+                    + b"\0"
+                )
+            base_ref = _git(
+                tmp_path,
+                "commit-tree",
+                tree(entry).decode("ascii"),
+                "-p",
+                base_ref,
+                "-m",
+                "record empty receipt directory",
+            ).stdout.strip()
+
+        trusted_git = shutil.which("git")
+        assert trusted_git is not None
+        tools = tmp_path / "trusted-tools"
+        tools.mkdir()
+        _install_trusted_git_wrapper(
+            tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
+        )
+        monkeypatch.setenv("PATH", str(tools) + os.pathsep + os.environ["PATH"])
+
+        real_run = cli.subprocess.run
+        commands = []
+
+        def record_run(command, *args, **kwargs):
+            commands.append(command)
+            return real_run(command, *args, **kwargs)
+
+        monkeypatch.setattr(cli.subprocess, "run", record_run)
+        raw, issues = cli._guard_base_receipt_bytes(tmp_path, base_ref, relative)
+        if case == "literal":
+            assert (raw, issues) == (payload, [])
+            assert any("cat-file" in command for command in commands)
+        else:
+            assert raw is None
+            assert issues == (
+                []
+                if case == "absent"
+                else [
+                    f"{relative.as_posix()} is not an exact bounded regular base receipt"
+                ]
+            )
+            assert all("cat-file" not in command for command in commands)
+
+    def test_trusted_git_wrapper_admits_only_exact_receipt_tree_query(self, tmp_path):
+        (tmp_path / "owner.json").write_text("{}\n")
+        base_ref = self._initialize(tmp_path)
+        trusted_git = shutil.which("git")
+        assert trusted_git is not None
+        tools = tmp_path / "trusted-tools"
+        tools.mkdir()
+        wrapper = _install_trusted_git_wrapper(
+            tools, Path(sys.executable).resolve(), Path(trusted_git).resolve()
+        )
+        arguments = ["ls-tree", "-r", "-t", "-l", "-z", "--full-tree", base_ref]
+
+        def query(options):
+            return cli.subprocess.run(
+                [str(wrapper), "-C", str(tmp_path), *options], capture_output=True
+            )
+
+        admitted = query(arguments)
+        assert admitted.returncode == 0, admitted.stderr
+        assert b"\towner.json\0" in admitted.stdout
+        for refused in (
+            [*arguments, "--", "owner.json"],
+            [*arguments, "--name-only"],
+            [*arguments[:-1], "refs/heads/main"],
+            [*arguments[:-1], "--help"],
+            [*arguments[:2], "-l", "-t", *arguments[4:]],
+            [arguments[0], "-t", *arguments[3:]],
+            [*arguments[:4], "--full-tree", "-z", base_ref],
+        ):
+            result = query(refused)
+            assert result.returncode == 126, refused
+            assert result.stdout == b"", refused
+            assert b"trusted git wrapper refused arguments for ls-tree" in result.stderr
 
     def test_gitlink_with_inventory_prefix_but_outside_inventory_is_accepted(
         self, tmp_path

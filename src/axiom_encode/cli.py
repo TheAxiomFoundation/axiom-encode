@@ -23027,16 +23027,15 @@ def _guard_base_receipt_bytes(
         listing = subprocess.run(
             [
                 "git",
-                "--literal-pathspecs",
                 "-C",
                 str(repo_path),
                 "ls-tree",
+                "-r",
+                "-t",
                 "-l",
                 "-z",
                 "--full-tree",
                 base_ref,
-                "--",
-                label,
             ],
             capture_output=True,
             check=False,
@@ -23045,10 +23044,19 @@ def _guard_base_receipt_bytes(
         return None, [f"{label} cannot inspect its immutable base receipt"]
     if listing.returncode:
         return None, [f"{label} cannot inspect its immutable base receipt"]
-    records = [record for record in listing.stdout.split(b"\0") if record]
-    if not records:
-        return None, []
     try:
+        # Compare raw paths, so metacharacters never become Git pathspecs. The
+        # tree entries (-t) distinguish even empty directories from absence.
+        encoded_label = os.fsencode(label)
+        records = []
+        for record in listing.stdout.split(b"\0"):
+            if not record:
+                continue
+            _metadata, encoded_path = record.split(b"\t", 1)
+            if encoded_path == encoded_label:
+                records.append(record)
+        if not records:
+            return None, []
         if len(records) != 1:
             raise ValueError("ambiguous base entry")
         metadata, encoded_path = records[0].split(b"\t", 1)
@@ -23450,12 +23458,14 @@ def _guard_provenance_inventory_git_issues(
     # Explicit-file verification also supports not-yet-initialized checkouts.
     if not (repo_path / ".git").exists():
         return []
+    # Match the production trusted-git wrapper's exact full-tree query shape.
+    # Its extra size column does not affect the mode/path checks below.
     queries = [("index", ["ls-files", "--stage", "-z"])]
     if base_ref is not None:
         queries.append(
-            ("immutable base", ["ls-tree", "-r", "-z", "--full-tree", base_ref])
+            ("immutable base", ["ls-tree", "-r", "-l", "-z", "--full-tree", base_ref])
         )
-    queries.append(("head", ["ls-tree", "-r", "-z", "--full-tree", head_ref]))
+    queries.append(("head", ["ls-tree", "-r", "-l", "-z", "--full-tree", head_ref]))
     issues: list[str] = []
     for location, arguments in queries:
         try:
