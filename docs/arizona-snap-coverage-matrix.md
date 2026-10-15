@@ -297,7 +297,15 @@ the sibling federal `maximum-allotments.yaml` for `values` and
 `income-eligibility-standards.yaml` for removed plural `corpus_citation_paths`;
 all three are imported by `state-plan-composition.yaml`. Migrate these legacy
 federal dependencies through protected source-bound generation before retrying
-block 9; do not edit RuleSpec by hand. For income standards, the signed corpus
+block 9; do not edit RuleSpec by hand. The composition parent has a separate
+source-proof defect: its `source_verification.corpus_citation_path` and two
+formula proofs cite `us/guidance/usda/fns/snap-fy2026-cola/page-1`, but that
+allotment-table provision does not contain the proof's claimed span, `Federal
+SNAP state-plan composition support`, or the composed eligibility mechanics.
+The parent's assertion that the COLA citation is merely a convention does not
+make it operative authority for those formulas. Audit and repair this parent
+through the protected source-bound path as well; valid imports alone will not
+establish its source fidelity. For income standards, the signed corpus
 has a bodyless parent at
 `us/guidance/usda/fns/snap-fy2026-income-eligibility-standards` with page-1
 and page-2 descendants. The corpus resolver composes a bodyless parent's active
