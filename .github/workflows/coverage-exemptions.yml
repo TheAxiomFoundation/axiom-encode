@@ -19,45 +19,46 @@ jobs:
         with:
           version: "0.11.7"
       - run: uv sync --locked --python 3.13 --extra dev
-      - name: Fetch the pinned release and the registry's artifacts
+      - name: Fetch the pinned release
         env:
           CORPUS_ROOT: ${{ runner.temp }}/coverage-exemption-corpus
+          RELEASE_NAME: us-rulespec-2026-08-08-obbb-alien-snap
+          RELEASE_SHA256: 0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc
+        run: |
+          set -euo pipefail
+          base="$(uv run --locked --no-sync python -c 'from axiom_encode.ci_parity import DEFAULT_RELEASE_BASE_URL; print(DEFAULT_RELEASE_BASE_URL)')"
+          release_dir="$CORPUS_ROOT/releases/$RELEASE_NAME"
+          mkdir -p "$release_dir"
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 45 --max-filesize 67108864 --output "$release_dir/$RELEASE_SHA256.json" "$base/releases/$RELEASE_NAME/$RELEASE_SHA256.json"
+      - name: Fetch the registry's corpus artifacts
+        env:
+          CORPUS_ROOT: ${{ runner.temp }}/coverage-exemption-corpus
+          RELEASE_NAME: us-rulespec-2026-08-08-obbb-alien-snap
+          RELEASE_SHA256: 0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc
         run: |
           uv run --locked --no-sync python - <<'PY'
+          import os
           import subprocess
           from pathlib import Path
-          import os
-          from axiom_encode.ci_parity import DEFAULT_RELEASE_BASE_URL
-          from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
+
           from axiom_encode.harness.coverage_exemptions import load_coverage_exemptions
           from scripts.propose_coverage_exemptions import load_release
 
           root = Path(os.environ["CORPUS_ROOT"])
-          name = "us-rulespec-2026-08-08-obbb-alien-snap"
-          digest = "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc"
-          def fetch(url, destination, limit):
-              subprocess.run([
-                  "curl", "--fail", "--silent", "--show-error",
-                  "--connect-timeout", "10", "--max-time", "45",
-                  "--max-filesize", str(limit), "--output", str(destination), url,
-              ], check=True)
-          release_path = root / "releases" / name / (digest + ".json")
-          release_path.parent.mkdir(parents=True, exist_ok=True)
-          fetch(
-              f"{DEFAULT_RELEASE_BASE_URL}/releases/{name}/{digest}.json",
-              release_path, MAX_RELEASE_OBJECT_BYTES,
-          )
-          corpus = load_release(root, name, digest)
+          corpus = load_release(root, os.environ["RELEASE_NAME"], os.environ["RELEASE_SHA256"])
           listed = {entry.corpus_artifact for entry in load_coverage_exemptions()}
           for artifact in corpus.artifacts:
               if artifact.path not in listed:
                   continue
               destination = root / artifact.path
               destination.parent.mkdir(parents=True, exist_ok=True)
-              fetch(
+              subprocess.run([
+                  "curl", "--fail", "--silent", "--show-error",
+                  "--connect-timeout", "10", "--max-time", "45",
+                  "--max-filesize", str(artifact.byte_count),
+                  "--output", str(destination),
                   f"https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/{corpus.release.git_commit}/{artifact.path}",
-                  destination, artifact.byte_count,
-              )
+              ], check=True)
           PY
       - name: Refuse stale entries and check the exact corpus differential
         run: >-
