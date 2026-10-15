@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 from decimal import Decimal
 from pathlib import Path
@@ -1967,25 +1966,38 @@ def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
 
 
 def test_rulespec_target_resolution_accepts_macos_system_path_alias(tmp_path):
-    if not Path("/var").is_symlink():
-        pytest.skip("macOS /var system alias is unavailable")
-    with tempfile.TemporaryDirectory(dir="/var/tmp") as raw_tmpdir:
-        checkout = Path(raw_tmpdir) / "rulespec-us"
-        target = checkout / "us" / "statutes/1/target.yaml"
-        target.parent.mkdir(parents=True)
-        target.write_text("format: rulespec/v1\nrules: []\n")
-        policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
-        target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+    resolved_tmp = tmp_path.resolve()
+    for alias_root, physical_root in (
+        (Path("/var"), Path("/private/var")),
+        (Path("/tmp"), Path("/private/tmp")),
+    ):
+        if (
+            resolved_tmp.is_relative_to(physical_root)
+            and alias_root.is_symlink()
+            and alias_root.resolve() == physical_root
+        ):
+            aliased_tmp = alias_root / resolved_tmp.relative_to(physical_root)
+            break
+    else:
+        pytest.skip("temporary directory has no macOS system path alias")
+    assert aliased_tmp != resolved_tmp
+    assert aliased_tmp.resolve() == resolved_tmp
+    checkout = aliased_tmp / "rulespec-us"
+    target = checkout / "us" / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "uk")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
 
-        assert target_ref is not None
-        assert (
-            validator_pipeline._resolve_rulespec_target_file(
-                target_ref,
-                policy_repo,
-                rulespec_dependency_roots=(checkout,),
-            )
-            == target.resolve()
+    assert target_ref is not None
+    assert (
+        validator_pipeline._resolve_rulespec_target_file(
+            target_ref,
+            policy_repo,
+            rulespec_dependency_roots=(checkout,),
         )
+        == target.resolve()
+    )
 
 
 def test_rulespec_target_resolution_rejects_explicit_checkout_symlink(tmp_path):
