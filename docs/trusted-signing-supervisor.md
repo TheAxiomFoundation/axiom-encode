@@ -388,8 +388,8 @@ the `production-signing` environment. The apply private key belongs only in that
 protected environment; do not configure ungated repository or organization
 copies or pass signing keys from jurisdiction repositories.
 
-The 2026-10-14 maintainer ruling removed the ungated apply-signing and caller
-App keys. The one-time `migrate-apply-signing-key.yml` export lane and its
+The ungated apply-signing and caller App keys were removed during the October
+2026 key rotation. The one-time `migrate-apply-signing-key.yml` export lane and its
 `signing-key-migration` environment are retired, as is
 `signed-apply-reusable.yml`, which previously accepted caller-provided keys.
 Route signed re-encodes through the central targeted workflow.
