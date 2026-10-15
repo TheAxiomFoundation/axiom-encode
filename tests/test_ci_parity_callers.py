@@ -55,9 +55,10 @@ US_TOOLCHAIN_TEXT = (FIXTURES / "us-workflow-toolchain.toml").read_text(
 )
 PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
 PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
+PIN_92CCB0F2 = "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3"
 PIN_615C1DF9 = "615c1df9b9ace7deea84da65efd137f46f8bad2b"
 PIN_34BCFAB2 = "34bcfab235c585c47292c95f51be1a4f4f91d29e"
-EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26)
+EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26, PIN_92CCB0F2)
 LEGACY_PINS = (PIN_615C1DF9, PIN_34BCFAB2)
 WORKFLOW_USES = "TheAxiomFoundation/.github/.github/workflows/validate-rulespec.yml@"
 TOOLCHAIN_PATH = ".axiom/workflow-toolchain.toml"
@@ -1005,7 +1006,11 @@ def test_input_tables_are_the_pinned_workflow_call_declarations(sha: str) -> Non
 
     assert dict(SUPPORTED_WORKFLOW_PINS[sha].inputs) == expected
     assert SUPPORTED_WORKFLOW_PINS[sha].inputs is (
-        LEGACY_WORKFLOW_INPUTS if sha in LEGACY_PINS else WORKFLOW_INPUTS_0EFFA6A5
+        LEGACY_WORKFLOW_INPUTS
+        if sha in LEGACY_PINS
+        else ci_parity.WORKFLOW_INPUTS_92CCB0F2
+        if sha == PIN_92CCB0F2
+        else WORKFLOW_INPUTS_0EFFA6A5
     )
 
 
