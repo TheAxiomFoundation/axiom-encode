@@ -423,6 +423,247 @@ def test_M1_receipt_without_protected_base_fails_closed(checkout, capsys):
     assert any("protected base" in issue for issue in issues)
 
 
+def test_M1_all_rejects_committed_migration_replayed_onto_unowned_base(
+    checkout, capsys
+):
+    report = migrate(checkout, capsys)
+    artifacts = {path: (checkout.repo / path).read_bytes() for path in changed(report)}
+    git(checkout.repo, "reset", "--hard", checkout.generator_base)
+    git(checkout.repo, "clean", "-fd")
+    for relative in (PRIMARY, IMPORTER):
+        (checkout.repo / cli._applied_encoding_manifest_path(Path(relative))).unlink()
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "protected base has no encoder owners")
+    protected_base = git(checkout.repo, "rev-parse", "HEAD")
+    for path, raw in artifacts.items():
+        target = checkout.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "replay valid signed migration artifacts")
+
+    explicit_issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+        base_ref=protected_base,
+    )
+    assert any(
+        "base_commit does not match the protected base" in issue
+        for issue in explicit_issues
+    )
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+    )
+    assert any(
+        report["receipt_path"] in issue and "protected base" in issue
+        for issue in issues
+    )
+
+
+def test_M1_all_rejects_committed_migration_with_restored_cascade(checkout, capsys):
+    original_importer = (checkout.repo / IMPORTER).read_bytes()
+    report = migrate(checkout, capsys)
+    (checkout.repo / IMPORTER).write_bytes(original_importer)
+    (checkout.repo / cli._applied_encoding_manifest_path(Path(IMPORTER))).write_bytes(
+        checkout.owners[IMPORTER]
+    )
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "retain migration primary and old cascade")
+
+    explicit_issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+        base_ref=checkout.base,
+    )
+    assert any(
+        f"migration live postimage differs from replay: {IMPORTER}" in issue
+        for issue in explicit_issues
+    )
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+    )
+    assert any(
+        report["receipt_path"] in issue and "protected base" in issue
+        for issue in issues
+    )
+
+
+@pytest.mark.parametrize("mode", ["diff", "all_with_base", "changed_files"])
+def test_M1_entry_modes_reject_transaction_with_unrelated_actual_change(
+    checkout, capsys, mode
+):
+    report = migrate(checkout, capsys)
+    (checkout.repo / "README.md").write_text("outside the migration transaction\n")
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "migration mixed with unrelated change")
+    actual_changed = git(
+        checkout.repo, "diff", "--name-only", checkout.base, "HEAD"
+    ).splitlines()
+    assert set(actual_changed) == {*changed(report), "README.md"}
+    options = {"base_ref": checkout.base}
+    if mode == "all_with_base":
+        options["all_files"] = True
+    elif mode == "changed_files":
+        # A caller-controlled inventory cannot conceal the committed extra file.
+        options["changed_files"] = changed(report)
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        **options,
+    )
+    assert issues
+
+
+@pytest.mark.parametrize("mode", ["diff", "all_with_base", "changed_files"])
+@pytest.mark.parametrize("alternate_has_migration", [False, True])
+def test_M1_actual_transaction_scope_ignores_ambient_git_checkout(
+    checkout, capsys, tmp_path, monkeypatch, mode, alternate_has_migration
+):
+    report = migrate(checkout, capsys)
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "commit genuine signed migration")
+    alternate = tmp_path / "alternate-rulespec-us"
+    shutil.copytree(checkout.repo, alternate)
+    if not alternate_has_migration:
+        git(alternate, "reset", "--hard", checkout.base)
+    with (alternate / ".git" / "info" / "exclude").open("a") as handle:
+        handle.write("\nREADME.md\n")
+    (checkout.repo / "README.md").write_text("outside the migration transaction\n")
+    git(checkout.repo, "add", "README.md")
+    git(checkout.repo, "commit", "-m", "add unrelated change only in real checkout")
+    monkeypatch.setenv("GIT_DIR", str(alternate / ".git"))
+    # Keep checkout routing valid while foreign Git metadata conceals README.
+    monkeypatch.setenv("GIT_WORK_TREE", str(checkout.repo))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(alternate / ".git" / "index"))
+    redirected = set(
+        cli._git_changed_files(checkout.repo, base_ref=checkout.base, head_ref="HEAD")
+    ) | set(cli._git_changed_files(checkout.repo, base_ref=None, head_ref="HEAD"))
+    assert redirected == set(changed(report))
+    options = {"base_ref": checkout.base}
+    if mode == "all_with_base":
+        options["all_files"] = True
+    elif mode == "changed_files":
+        options["changed_files"] = changed(report)
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        **options,
+    )
+    assert any("README.md" in issue for issue in issues), issues
+
+
+def test_M1_all_rejects_receipt_already_present_at_protected_base(checkout, capsys):
+    report = migrate(checkout, capsys)
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "land complete signed migration")
+    protected_base = git(checkout.repo, "rev-parse", "HEAD")
+    assert git(checkout.repo, "diff", "--name-only", protected_base, "HEAD") == ""
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=True,
+        base_ref=protected_base,
+    )
+    assert any(report["receipt_path"] in issue for issue in issues)
+
+
+@settings(
+    max_examples=80,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(
+    mode=st.sampled_from(
+        [
+            "diff_with_base",
+            "diff_without_base",
+            "all_with_base",
+            "all_without_base",
+            "changed_files_with_base",
+            "changed_files_without_base",
+        ]
+    ),
+    receipt_present=st.booleans(),
+    base_owners_present=st.booleans(),
+    cascade_restored=st.booleans(),
+)
+def test_M1_every_entry_mode_requires_full_protected_receipt_admission(
+    checkout, capsys, mode, receipt_present, base_owners_present, cascade_restored
+):
+    if not hasattr(checkout, "admission_artifacts"):
+        checkout.original_importer = (checkout.repo / IMPORTER).read_bytes()
+        checkout.admission_report = migrate(checkout, capsys)
+        checkout.admission_artifacts = {
+            path: (checkout.repo / path).read_bytes()
+            for path in changed(checkout.admission_report)
+        }
+    report = checkout.admission_report
+    # Each example starts from the genuine generator base, even after a failure.
+    git(checkout.repo, "reset", "--hard", checkout.generator_base)
+    git(checkout.repo, "clean", "-fd")
+    if not base_owners_present:
+        for relative in (PRIMARY, IMPORTER):
+            (
+                checkout.repo / cli._applied_encoding_manifest_path(Path(relative))
+            ).unlink()
+        git(checkout.repo, "add", ".")
+        git(checkout.repo, "commit", "-m", "remove protected encoder owners")
+    protected_base = git(checkout.repo, "rev-parse", "HEAD")
+    for path, raw in checkout.admission_artifacts.items():
+        if not receipt_present and path == report["receipt_path"]:
+            continue
+        target = checkout.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    if cascade_restored:
+        (checkout.repo / IMPORTER).write_bytes(checkout.original_importer)
+        (
+            checkout.repo / cli._applied_encoding_manifest_path(Path(IMPORTER))
+        ).write_bytes(checkout.owners[IMPORTER])
+    git(checkout.repo, "add", ".")
+    if mode != "diff_without_base":
+        git(checkout.repo, "commit", "-m", "commit candidate migration tree")
+    discovered_paths = git(
+        checkout.repo, "diff", "--name-only", protected_base
+    ).splitlines()
+    if mode == "diff_without_base":
+        assert (
+            cli._applied_encoding_manifest_path(Path(PRIMARY)).as_posix()
+            in discovered_paths
+        )
+    options = {}
+    if mode in {"diff_with_base", "all_with_base", "changed_files_with_base"}:
+        options["base_ref"] = protected_base
+    if mode.startswith("all_"):
+        options["all_files"] = True
+    elif mode.startswith("changed_files_"):
+        options["changed_files"] = discovered_paths
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        **options,
+    )
+    admitted = (
+        "base_ref" in options
+        and receipt_present
+        and base_owners_present
+        and not cascade_restored
+    )
+    assert (issues == []) is admitted, (
+        mode,
+        receipt_present,
+        base_owners_present,
+        cascade_restored,
+        issues,
+    )
+
+
 @pytest.mark.parametrize("operation", ["modify", "delete"])
 def test_L4_historical_receipt_edit_has_clear_refusal(checkout, capsys, operation):
     report = migrate(checkout, capsys)

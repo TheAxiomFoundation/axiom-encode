@@ -21737,22 +21737,36 @@ def _retired_source_metadata_change_set_issues(
     changed: list[str],
     *,
     base_ref: str | None = None,
+    head_ref: str = "HEAD",
+    all_files: bool = False,
 ) -> list[str]:
-    """A new receipt and every file and manifest it records land together."""
+    """Admit whole protected-base transactions before generated classification."""
 
     changed_set = {Path(path).as_posix() for path in changed}
     receipt_dir = Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
-    receipts = sorted(
+    changed_receipts = {
         path
         for path in changed_set
         if Path(path).parts[: len(receipt_dir.parts)] == receipt_dir.parts
+    }
+    receipts = set(changed_receipts)
+    manifest_paths = (
+        _all_applied_encoding_manifest_paths(repo_path)
+        if all_files
+        else sorted(changed_set)
     )
     issues: list[str] = []
-    if receipts and base_ref is None:
-        return [
-            "retired source metadata receipt requires an explicit protected base_ref"
-        ]
-    for path in sorted(changed_set):
+    if all_files:
+        receipt_root = repo_path / receipt_dir
+        if receipt_root.is_symlink():
+            receipts.add(receipt_dir.as_posix())
+        else:
+            receipts.update(
+                path.relative_to(repo_path).as_posix()
+                for path in receipt_root.rglob("*")
+                if path.is_file() or path.is_symlink()
+            )
+    for path in manifest_paths:
         if not _is_applied_encoding_manifest_path(
             Path(path), roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
         ):
@@ -21777,11 +21791,20 @@ def _retired_source_metadata_change_set_issues(
         receipt_path = (
             binding.get("receipt_path") if isinstance(binding, dict) else None
         )
-        if receipt_path not in receipts:
+        if not isinstance(receipt_path, str):
+            issues.append(f"{path} has no retired source metadata receipt binding")
+            continue
+        receipts.add(receipt_path)
+        if not all_files and receipt_path not in changed_receipts:
             issues.append(
                 f"{path} changed without introducing its retired source metadata receipt {receipt_path}"
             )
-    for path in receipts:
+    if receipts and base_ref is None:
+        return [
+            f"{path} retired source metadata receipt requires an explicit protected base (--base-ref)"
+            for path in sorted(receipts)
+        ]
+    for path in sorted(receipts):
         try:
             protected_base = _rulespec_migration_git(
                 repo_path,
@@ -21812,6 +21835,20 @@ def _retired_source_metadata_change_set_issues(
             if protected_base != migration.plan.base_commit:
                 raise RetiredSourceMetadataError(
                     "migration receipt base_commit does not match the protected base"
+                )
+            # A caller-selected path list cannot hide unrelated changes or
+            # authorize a transaction that did not land against this base.
+            actual_changed = set(
+                _git_guard_changed_files(
+                    repo_path, base_ref=protected_base, head_ref=head_ref
+                )
+            )
+            if actual_changed != set(expected["changed_paths"]):
+                missing = sorted(set(expected["changed_paths"]) - actual_changed)
+                extra = sorted(actual_changed - set(expected["changed_paths"]))
+                raise RetiredSourceMetadataError(
+                    "receipt must land with its exact Git change set "
+                    f"(missing={missing}, extra={extra})"
                 )
         except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
             issues.append(
@@ -22934,16 +22971,20 @@ def guard_generated_change_issues(
             f"{path} uses the removed .yml RuleSpec extension; rename it to canonical .yaml"
             for path in sorted(set(noncanonical_yml))
         ]
+    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(
+        repo_path,
+        changed,
+        base_ref=base_ref,
+        head_ref=head_ref,
+        all_files=all_files,
+    )
+    if retired_metadata_change_issues:
+        return retired_metadata_change_issues
     if all_files and not protected:
         return [
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
-    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(
-        repo_path, changed, base_ref=base_ref
-    )
-    if retired_metadata_change_issues:
-        return retired_metadata_change_issues
     if not protected:
         return []
 
@@ -23435,9 +23476,16 @@ def _git_guard_changed_files(
 ) -> list[str]:
     """Union reviewed-base commits with uncommitted and untracked changes."""
 
-    changed = set(_git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref))
-    if base_ref is not None:
-        changed.update(_git_changed_files(repo_path, base_ref=None, head_ref=head_ref))
+    # Both discovery and receipt admission must inspect this checkout, even
+    # when the calling process carries Git authority for a different checkout.
+    with _rulespec_migration_clean_ambient_git():
+        changed = set(
+            _git_changed_files(repo_path, base_ref=base_ref, head_ref=head_ref)
+        )
+        if base_ref is not None:
+            changed.update(
+                _git_changed_files(repo_path, base_ref=None, head_ref=head_ref)
+            )
     return sorted(changed)
 
 
