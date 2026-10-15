@@ -1,0 +1,155 @@
+"""Record focused public-gate checks, without altering tests or settings."""
+
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+BASE = Path(__file__).resolve().parent
+FILES = (
+    "src/axiom_encode/harness/source_completeness.py",
+    "src/axiom_encode/harness/manual_locator_metadata.py",
+    "src/axiom_encode/harness/validator_pipeline.py",
+    "tests/test_source_completeness_manual_mask_fail_safe.py",
+)
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+frozen = {name: digest(name) for name in FILES}
+environment = dict(os.environ)
+for name in (
+    "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+):
+    environment[name] = "1"
+environment["OMP_WAIT_POLICY"] = "PASSIVE"
+environment["UV_CACHE_DIR"] = os.environ["UV_CACHE_DIR"]
+environment["HYPOTHESIS_STORAGE_DIRECTORY"] = str(BASE / "hypothesis-current")
+
+
+def run(name, selection, timeout=7200):
+    temp = Path(os.environ["PYTEST_BASETEMP_PREFIX"] + name)
+    command = [
+        ".venv/bin/pytest", "-q", "-o", "addopts=", "--no-cov",
+        "-p", "no:cacheprovider", "--basetemp=" + str(temp), *selection,
+    ]
+    log = BASE / (name + ".log")
+    started = time.monotonic()
+    print("START", name, flush=True)
+    with log.open("w") as output:
+        output.write("COMMAND " + repr(command) + "\n")
+        output.flush()
+        process = subprocess.Popen(
+            command, env=environment, stdout=output, stderr=subprocess.STDOUT
+        )
+        (BASE / (name + ".pid")).write_text(str(process.pid) + "\n")
+        try:
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            code = 124
+        elapsed = round(time.monotonic() - started, 3)
+        output.write(f"\nWRAPPER exit {code}, elapsed {elapsed}s\n")
+    shutil.rmtree(temp, ignore_errors=True)
+    changed = {name: digest(name) for name in FILES} != frozen
+    summary = re.findall(r"[^\n]*\b(?:passed|failed|deselected)\b[^\n]*", log.read_text())
+    result = {
+        "command": command, "exit_code": code,
+        "elapsed_seconds": elapsed, "summary": summary[-1:] or [],
+        "validated_file_sha256": frozen,
+        "files_changed_during_run": changed,
+        "log_sha256": digest(log),
+    }
+    if "old_complete_plugin" in selection:
+        result["runtime_review_head_sha256"] = {
+            name: digest(Path(".hub-scratch/r6") / snapshot)
+            for name, snapshot in (
+                (FILES[0], "source_completeness_old.py"),
+                (FILES[1], "manual_locator_metadata_old.py"),
+                (FILES[2], "pre_collision_validator.py"),
+            )
+        }
+    (BASE / (name + "-result.json")).write_text(json.dumps(result, indent=2) + "\n")
+    print("DONE", name, code, result["summary"], flush=True)
+    return result
+
+
+mode = sys.argv[1]
+if mode == "generated":
+    collection = (BASE / "collection.log").read_text()
+    nodes = [line for line in collection.splitlines() if line.startswith("tests/")]
+    assert len(nodes) == 295, len(nodes)
+    # Disjoint public pytest node arguments preserve every parametrization,
+    # explicit example, and original Hypothesis setting.
+    shards = [(f"generated-{index + 1}", nodes[index::4]) for index in range(4)]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda shard: run(*shard), shards))
+elif mode == "dependent":
+    focus = [f"tests/test_source_completeness_{name}.py" for name in (
+        "locator_masks", "manual_mask_operative_values", "manual_mask_review_headings",
+        "manual_mask_review_stamps", "locator_replays", "us_manual_numeric_recall",
+        "manual_typography",
+    )]
+    numeric = (
+        "typed_numeric_occurrences or numeric_profile_convention_matrix or "
+        "legacy_percentage_context or legacy_profile_keeps_uk_single_dot_dual_read or "
+        "numeric_extraction_reads_single_dot_group_as_decimal_too or "
+        "grounding_accepts_european or grounding_accepts_spaced_european or "
+        "grounding_accepts_dot_thousands or grounding_accepts_spaced_thousands or "
+        "numeric_extraction_handles_ghana_cedi_grouped_thousands"
+    )
+    checks = [
+        ("focused", focus),
+        ("complete-source", ["tests/test_source_completeness.py", "-k",
+            "us_manual or numbered_manual or leading_values or locator_masks"]),
+        ("numeric", ["tests/test_rulespec_validation.py", "-k", numeric]),
+        ("upstream-controls", [
+            ".hub-scratch/r6/main-integration/test_upstream_manual_controls.py"
+        ]),
+    ]
+    results = [run(*check) for check in checks]
+elif mode == "old-generated":
+    environment["PYTHONPATH"] = ".hub-scratch/r6:src"
+    environment["HYPOTHESIS_STORAGE_DIRECTORY"] = str(BASE / "hypothesis-old")
+    results = [run("old-generated", [
+        "-p", "old_mask_plugin",
+        "tests/test_source_completeness_manual_mask_fail_safe.py::"
+        "test_generated_monetary_caption_and_column_qualifiers_keep_every_value"
+        "[parentheses-Fees in dollars]",
+        "tests/test_source_completeness_manual_mask_fail_safe.py::"
+        "test_generated_referenced_stamp_date_survives_every_source_shape"
+        "[preceding-The month shown below determines eligibility.]",
+    ])]
+elif mode == "old-exact":
+    environment["PYTHONPATH"] = ".hub-scratch/r6-resumed/tests:src"
+    environment["HYPOTHESIS_STORAGE_DIRECTORY"] = str(BASE / "hypothesis-old-exact")
+    results = [run("old-exact", [
+        "-p", "old_complete_plugin",
+        "tests/test_source_completeness_manual_mask_fail_safe.py::"
+        "test_round_five_operative_values_are_demanded",
+        "tests/test_source_completeness_manual_mask_fail_safe.py::"
+        "test_generated_monetary_caption_and_column_qualifiers_keep_every_value"
+        "[parentheses-Fees in dollars]",
+        "tests/test_source_completeness_manual_mask_fail_safe.py::"
+        "test_generated_referenced_stamp_date_survives_every_source_shape"
+        "[preceding-The month shown below determines eligibility.]",
+    ])]
+else:
+    raise SystemExit(mode)
+
+(BASE / (mode + "-results.json")).write_text(json.dumps(results, indent=2) + "\n")
+raise SystemExit(0 if all(not result["exit_code"] and not result["files_changed_during_run"] for result in results) else 1)

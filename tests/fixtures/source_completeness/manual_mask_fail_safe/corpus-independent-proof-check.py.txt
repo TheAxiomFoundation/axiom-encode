@@ -1,0 +1,69 @@
+"""Supplement a declaration graph with exact archive and mutation checks."""
+from __future__ import annotations
+import ast
+import hashlib
+import importlib.util
+import json
+import subprocess
+from pathlib import Path
+
+HERE=Path(__file__).resolve().parent
+ROOT=HERE.parents[1]
+RUN=HERE/'final-current-main-verified'
+MAIN='4f3547461300bfa70569f57c83728b2ad25d9d0b'
+
+def sha(data):return hashlib.sha256(data).hexdigest()
+def ast_hash(node):return sha(ast.dump(node,include_attributes=False).encode())
+raw=subprocess.check_output(['git','ls-tree','-rz',MAIN,'src/axiom_encode'],cwd=ROOT)
+blobs=[]
+for item in raw.split(b'\0'):
+    if not item:continue
+    meta,name=item.split(b'\t',1)
+    _mode,kind,expected=meta.decode().split()
+    if kind!='blob':continue
+    path=name.decode();data=(HERE/'current-main-package'/path).read_bytes()
+    actual=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+    assert actual==expected
+    blobs.append({'path':path,'git_blob_sha1':actual,'sha256':sha(data)})
+assert len(blobs)==99
+old=(HERE/'current-main-package/src/axiom_encode/harness/validator_pipeline.py').read_bytes()
+new=(RUN/'candidate-package/src/axiom_encode/harness/validator_pipeline.py').read_bytes()
+a,b=ast.parse(old),ast.parse(new)
+
+def other(tree):
+    return [node for node in tree.body if not isinstance(node,(ast.Import,ast.ImportFrom,ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef,ast.Assign,ast.AnnAssign)) and not(isinstance(node,ast.Expr) and isinstance(node.value,ast.Constant))]
+assert [ast.dump(n,include_attributes=False) for n in other(a)]==[ast.dump(n,include_attributes=False) for n in other(b)]
+assert len(other(a))==2
+mutations=[{'node_kind':type(node).__name__,'ast_sha256':ast_hash(node),'statement':ast.unparse(node)} for node in other(a)]
+constants={}
+for name in ('_COMPOUND_ORDINAL_TENS_VALUES','_COMPOUND_ORDINAL_UNIT_VALUES'):
+    def definition(tree):return next(node for node in tree.body if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id==name for target in node.targets))
+    assert ast.dump(definition(a),include_attributes=False)==ast.dump(definition(b),include_attributes=False)
+    constants[name]=ast_hash(definition(a))
+old_imports=[ast.unparse(n) for n in a.body if isinstance(n,ast.Import)]
+new_imports=[ast.unparse(n) for n in b.body if isinstance(n,ast.Import)]
+assert old_imports==new_imports and not any('axiom_encode' in n for n in old_imports)
+spec=importlib.util.spec_from_file_location('independent_decl_graph',HERE/'baseline_ast_proof.py')
+graph_module=importlib.util.module_from_spec(spec);spec.loader.exec_module(graph_module)
+old_graph=graph_module.Graph(HERE/'current-main-package/src').walk('axiom_encode.harness.validator_pipeline','_tokenize_profiled_numeric_occurrences')
+new_graph=graph_module.Graph(RUN/'candidate-package/src').walk('axiom_encode.harness.validator_pipeline','_tokenize_profiled_numeric_occurrences')
+assert old_graph==new_graph
+assert 'axiom_encode.harness.validator_pipeline:_tokenize_numeric_occurrences_from_text' not in old_graph
+smoke=json.loads((HERE/'review-observer-smoke.json').read_bytes())
+assert smoke['cases']==11 and smoke['all_assertions_passed']
+expected=(HERE/'current-main-package/src/axiom_encode').resolve()
+assert all(Path(path).resolve().is_relative_to(expected) for path in smoke['runtime_baseline_bindings'].values())
+pipeline=json.loads((RUN/'pipeline-proof.json').read_bytes())
+assert pipeline['only_changed_reachable_declaration']==['axiom_encode.harness.validator_pipeline:_tokenize_numeric_occurrences_from_text']
+report={'verdict':'NO_ACTIONABLE_PROOF_CONSTRUCTION_FINDINGS','full_output_completion_verification':'pending; this report does not certify a completed corpus scan',
+    'baseline_commit':MAIN,'baseline_package_git_blobs_checked':len(blobs),'baseline_package_all_blobs_match_commit':True,'baseline_package_blobs':blobs,
+    'reviewed_file_sha256':{'runner':sha((HERE/'final_differential.py').read_bytes()),'graph':sha((HERE/'baseline_ast_proof.py').read_bytes()),'observer_generator':sha((ROOT/'.hub-scratch/r6/corpus/guard_observer.py').read_bytes()),'numeric_probe_generator':sha((ROOT/'.hub-scratch/r6/corpus/differential_guard_observer_final.py').read_bytes()),'baseline_validator':sha(old),'candidate_validator':sha(new),'pipeline_proof':sha((RUN/'pipeline-proof.json').read_bytes())},
+    'top_level_mutations':{'equal_statement_count':len(mutations),'statements':mutations,'ordinal_input_dict_ast_sha256':constants},
+    'plain_module_imports_identical':old_imports,
+    'profiled_route':{'cross_module_declaration_count':len(old_graph),'baseline_and_candidate_graphs_equal':True,'excludes_changed_legacy_tokenizer':True,'graph_sha256':sha(json.dumps(old_graph,sort_keys=True,separators=(',',':')).encode())},
+    'independent_observer_smoke':{'cases':11,'all_assertions_passed':True,'runtime_main_source_and_validator_bindings_verified':True,'guard_divergence_count':sum(row['diverged'] for row in smoke['results']),'cases_results':smoke['results']},
+    'known_graph_limits':'Graph compares declarations and imported symbols. It does not model arbitrary dynamic name resolution or top-level executable mutation. This review separately compared both top-level validator statements, the two ordinal-loop input dictionaries, and plain module imports. No generic claim about arbitrary dependency graphs is made.',
+    'proof_review':'For equal recall bytes, both en-US calls dispatch before the changed legacy body into the identical profiled route. The legacy prelude probe scans the exact cleaned text with the actual number pattern, parser and tolerance while ignoring earlier skip conditions, allowing false positives. Its omitted collector/view assignments and plain dataclass offset recomposition cannot change cleaned text. The observer differs only by pure local skip-decision observation; removing it restores exact candidate tokenizer AST. Before a first divergent skip both states agree, so no divergence proves equal inventories; any divergence executes actual archived-main extraction. Different recall bytes execute both actual extractors in both profiles.',
+    'rejected_attempts':'The unguarded 200-row smoke inherited the working-tree import path and is rejected. The first full attempt failed its package-binding assertion before creating workers or rows. Only the corrected binding-verified run is eligible for completion verification.'}
+(HERE/'review-corpus-proof.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+print(json.dumps({'baseline_blobs':len(blobs),'top_level_mutation_statements':len(mutations),'profiled_route_declarations':len(old_graph),'smoke_cases':11,'report_sha256':sha((HERE/'review-corpus-proof.json').read_bytes())}))
