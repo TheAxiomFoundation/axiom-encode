@@ -9219,16 +9219,18 @@ def _reason_names_missing_same_act_dependency(
         )
     if not exact_current_branch:
         return False
+    # Only the branch's own text binds (not descendants, unrecognized
+    # siblings, later session-law sections or compiler notes), and only a
+    # reference that an exception or condition governs.
+    own_text = _same_act_branch_own_text(source_scope_text)
     source_sections = {
         match.group("section").lower()
-        for match in _SAME_ACT_SECTION_DEPENDENCY.finditer(source_scope_text)
+        for match in _SAME_ACT_SECTION_DEPENDENCY.finditer(own_text)
         # Only the source's self-reference binds; "the Act" is a defined
         # external statute even inside a statute.
         if match.group("act").lower() == "this"
-        and re.search(
-            r"\b(?:except|unless|subject\s+to)\b",
-            source_scope_text[max(0, match.start() - 80) : match.start()],
-            flags=re.IGNORECASE,
+        and _SAME_ACT_GOVERNING_TRIGGER.search(
+            own_text[max(0, match.start() - 240) : match.start()]
         )
     }
     reason_matches = _same_act_section_dependencies(
@@ -9268,6 +9270,77 @@ def _reason_names_missing_same_act_dependency(
         ):
             return True
     return False
+
+
+# A same-act reference binds only when an exception or condition governs it:
+# "except as (otherwise) provided in", "except ... under", "unless ... under",
+# "subject to (the provisions|conditions, limitations, and review ...) of",
+# "subject to ... as provided in" or a bare "subject to section N". A noun
+# such as "subject to the tax ... as enacted under Section 2" or "not subject
+# to appeal, adjudges section 5" does not govern the reference.
+_SAME_ACT_GOVERNING_TRIGGER = re.compile(
+    r"(?:"
+    r"\bexcept\b[^;.:]{0,100}?\b(?:(?:as\s+)?(?:otherwise\s+)?"
+    r"(?:provided|defined|specified|set\s+forth|described)\s+)?"
+    r"(?:in|by|under|pursuant\s+to)"
+    r"|\bunless\b[^;.:]{0,120}?\b(?:in|by|under|pursuant\s+to)"
+    r"|\bsubject\s+to\W{0,2}\s*(?:the\s+)?"
+    r"(?:provisions?|conditions|limitations|requirements|protections|"
+    r"restrictions)\b[^;.:]{0,100}?\b(?:of|in|under|by)"
+    r"|\bsubject\s+to\b[^;.:]{0,100}?\b(?:as\s+(?:otherwise\s+)?"
+    r"(?:provided|specified|set\s+forth)\s+(?:in|by|under)|pursuant\s+to)"
+    r"|\bsubject\s+to\W{0,2}"
+    r")\s+(?:\d{1,2}\s+)?"
+    r"(?:(?:sub)?(?:section|paragraph|division)\s+\S{1,6}\s+of\s+(?:\d{1,2}\s+)?)?$",
+    flags=re.IGNORECASE,
+)
+_SAME_ACT_OWN_LABEL = re.compile(
+    r"^\s*(?:\({2,3}\w{1,5}\){2,3}\s*)?(?:\(\w{1,5}\)|\w{1,4}\.)\s*"
+)
+# The start of another enumerated item: "(20) $1,360,000", "(a) Except",
+# "7. For", "a. For". Inline citations ("paragraph (a)(1) of", "subsection
+# (b) of", "subsection b. of") are not item starts.
+_SAME_ACT_ITEM_START = re.compile(
+    r"(?<![^\s;:])(?:\({2,3}\w{1,5}\){2,3}\s*)?"
+    r"(?:\((?:\d{1,3}|[a-z]{1,2}|[ivxl]{1,5}|[A-Z]{1,2})\)"
+    r"(?=\s*(?:[A-Z$\"“(]|\d))"
+    r"|(?:\d{1,3}|[a-z])\.(?=\s+[A-Z\"“]))"
+)
+_SAME_ACT_CITATION_LEAD = re.compile(
+    r"(?:\b(?:sub)?(?:sections?|paragraphs?|subparagraphs?|clauses?|items?|"
+    r"subdivisions?|divisions?|sec\.)|§+)\s*$",
+    flags=re.IGNORECASE,
+)
+# Text that is not part of the branch: a following session-law section, an
+# enacting clause, or compiler notes and history.
+_SAME_ACT_SCOPE_BOUNDARY = re.compile(
+    r"\b(?:SECTION|Sec\.)\s+\d+[A-Za-z]?\.|\bAND\s+BE\s+IT\s+FURTHER\s+ENACTED\b|"
+    r"\bNEW\s+SECTION\b|\bNotes:|\[\s*\d{4}\s+c\s+\d+"
+)
+
+
+def _same_act_branch_own_text(source_scope_text: str) -> str:
+    """Return the branch's own text, without descendants, siblings or notes.
+
+    `_deferred_source_scope_text` includes descendants, and an unrecognized
+    sibling, session-law section or compiler note can run on inside a leaf's
+    scope. A same-act reference binds the branch only in its own text.
+    """
+
+    text = " ".join(source_scope_text.split())
+    label = _SAME_ACT_OWN_LABEL.match(text)
+    start = label.end() if label else 0
+    end = len(text)
+    for item in _SAME_ACT_ITEM_START.finditer(text, start):
+        lead = text[max(0, item.start() - 24) : item.start()]
+        if _SAME_ACT_CITATION_LEAD.search(lead):
+            continue
+        end = item.start()
+        break
+    boundary = _SAME_ACT_SCOPE_BOUNDARY.search(text, start, end)
+    if boundary:
+        end = boundary.start()
+    return text[:end]
 
 
 def _same_act_section_dependencies(

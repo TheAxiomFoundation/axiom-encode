@@ -208,15 +208,43 @@ SAME_ACT_CASES = [
         id="nj-43:21-61-additional-benefits",
     ),
     pytest.param(
-        "us-ok/statute/68-711",
-        "(a) Before any motor vehicle is operated on the public highways of "
-        "this state, the operation of which is subject to the tax levied by "
-        "subsection (b) of Section 3 of this act, such motor vehicles must be "
-        "registered under this act with the Tax Commission.",
-        ("a",),
+        "us-or/statute/constitution/block-23",
+        "10. No person shall be eligible to receive money from said fund "
+        "except the veterans as defined in Section 3 of this act.",
+        ("10",),
         "3",
         "this act",
-        id="ok-68-711-special-fuel-registration",
+        id="or-veterans-fund-eligibility",
+    ),
+    pytest.param(
+        "us-nj/statute/43:15a-98",
+        "(d) Such a member shall thereafter be treated in all respects as a "
+        "nonlaw enforcement officer member of the retirement system, except "
+        "with regard to compulsory retirement as provided in section 3 of "
+        "this act.",
+        ("d",),
+        "3",
+        "this act",
+        id="nj-43:15a-98-compulsory-retirement",
+    ),
+    pytest.param(
+        "us-nj/statute/34:15-31.8",
+        "7. Any injury, illness or death of a firefighter which may be caused "
+        "by exposure to a known carcinogen shall be subject to the provisions "
+        "of section 6 of this act.",
+        ("7",),
+        "6",
+        "this act",
+        id="nj-34:15-31.8-subject-to-provisions",
+    ),
+    pytest.param(
+        "tz-znz/statute/act-2005-2/zanzibar-social-security-fund-2005/document-1",
+        "21. Subject to section 25 of this Act, any surplus remaining in the "
+        "Fund shall be held on deposit.",
+        ("21",),
+        "25",
+        "this Act",
+        id="tz-znz-subject-to-section",
     ),
     pytest.param(
         "us-wa/statute/session-laws/2023/chapter-475-essb-5187/page-1206",
@@ -373,4 +401,154 @@ def test_same_act_reader_still_requires_this_act_in_statute_source():
         source,
         corpus_citation_path="us-ca/statute/wic/14005.30",
         path=("a",),
+    )
+
+
+MS_27_7_5_RATE_SCHEDULE = (
+    "(ii) For calendar year 2024 and all calendar years thereafter, the tax "
+    "imposed under subparagraph (iii) of paragraph (a) of this subsection upon "
+    "all taxable income of individuals in excess of Ten Thousand Dollars "
+    "($10,000.00), shall be at the following rates:\n\n"
+    "1. For calendar year 2024, on such taxable income, the rate shall be four "
+    "and seven-tenths percent (4.7%);\n\n"
+    "6. For calendar year 2029, on such taxable income, the rate shall be three "
+    "and one-quarter percent (3.25%); and\n\n"
+    "7. For calendar year 2030 and all calendar years thereafter, except as "
+    "otherwise provided in Section 2 of this act, on such taxable income, the "
+    "rate shall be three percent (3%).\n"
+)
+
+# Same-act references a branch does not own, or that no exception or
+# condition governs. #1930 accepts every one; the reader must not.
+NOT_OWNED_OR_NOT_GOVERNED_CASES = [
+    # Parent scope: only item 7 names Section 2; the rate schedule is operative.
+    pytest.param(
+        "us-ms/statute/27-7-5",
+        MS_27_7_5_RATE_SCHEDULE,
+        ("1", "b", "ii"),
+        "2",
+        id="parent-ms-27-7-5(1)(b)(ii)-rate-schedule",
+    ),
+    pytest.param(
+        "us-ms/statute/27-7-5",
+        "(1) (a) Except as otherwise provided in this section, there is hereby "
+        "assessed and levied a tax at the following rates:\n\n"
+        + MS_27_7_5_RATE_SCHEDULE,
+        ("1",),
+        "2",
+        id="parent-ms-27-7-5(1)-whole-subsection",
+    ),
+    # Scope bleed into RCW compiler notes.
+    pytest.param(
+        "us-wa/statute/82/82.87/82.87.040/block-1",
+        "(4)(a) The tax imposed in this section applies to the sale or exchange "
+        "of long-term capital assets owned by the taxpayer. [ 2025 c 421 s 101 ; "
+        '2021 c 196 s 5 .] Notes: Contingency — 2021 c 196 ss 5 and 16: "(1) If '
+        "a court of competent jurisdiction, in a final judgment not subject to "
+        "appeal, adjudges section 5 of this act unconstitutional, or otherwise "
+        'invalid, section 16 of this act takes effect."',
+        ("4",),
+        "5",
+        id="bleed-wa-82.87.040(4)-rcw-notes",
+    ),
+    # Scope bleed into an unrecognized sibling budget item.
+    pytest.param(
+        "us-wa/statute/session-laws/2023/chapter-475-essb-5187/page-1067",
+        "(19) $1,360,000 of the accident account—state appropriation and 1 "
+        "$240,000 of the medical aid account—state appropriation are provided "
+        "2 solely for the department of labor and industries to 3 establish "
+        "behavioral health apprenticeship programs. 4 (22) $2,000,000 of the "
+        "accident account—state appropriation is provided solely for "
+        "functionality that allows for web-based 34 document uploading. This "
+        "project is subject to the conditions, 35 limitations, and review "
+        "provided in section 701 of this act.",
+        ("19",),
+        "701",
+        id="bleed-wa-2023-c475-sibling-proviso",
+    ),
+    # Scope bleed into later session-law effective-date sections.
+    pytest.param(
+        "us-md/statute/session-laws/2024/chapter-717/page-99",
+        "(3) the revenue attributable to this requirement shall be remitted to "
+        "the Comptroller not later than September 30, 2024. SECTION 24. AND BE "
+        "IT FURTHER ENACTED, That Section 2 of this Act shall take effect July "
+        "1, 2024. SECTION 25. AND BE IT FURTHER ENACTED, That, except as "
+        "provided in Section 24 of this Act, this Act shall take effect June 1, "
+        "2024.",
+        ("3",),
+        "24",
+        id="bleed-md-2024-c717-effective-date-section",
+    ),
+    # Loose trigger: "subject to" a tax, not to the referenced section.
+    pytest.param(
+        "us-md/statute/session-laws/2024/chapter-717/page-99",
+        "(1) as provided in § 12–105 of the Tax – General Article, as enacted "
+        "by Section 2 of this Act, all cigarettes and other tobacco products "
+        "held in the State on or after July 1, 2024, shall be subject to the "
+        "tax on cigarettes and other tobacco products as enacted under Section "
+        "2 of this Act;",
+        ("1",),
+        "2",
+        id="trigger-md-2024-c717-subject-to-the-tax",
+    ),
+    pytest.param(
+        "us-ok/statute/68-711",
+        "(a) Before any motor vehicle is operated on the public highways of "
+        "this state, the operation of which is subject to the tax levied by "
+        "subsection (b) of Section 3 of this act, such motor vehicles must be "
+        "registered under this act with the Tax Commission.",
+        ("a",),
+        "3",
+        id="trigger-ok-68-711-subject-to-the-tax",
+    ),
+    # Synthetic: "subject to appeal" does not govern the later reference.
+    pytest.param(
+        "us-ca/statute/rtc/17041",
+        "(a) A final judgment not subject to appeal that adjudges section 5 of "
+        "this act invalid shall be reported to the Franchise Tax Board.",
+        ("a",),
+        "5",
+        id="trigger-synthetic-not-subject-to-appeal",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("corpus_citation_path", "source_text", "path", "section"),
+    NOT_OWNED_OR_NOT_GOVERNED_CASES,
+)
+def test_same_act_reader_rejects_unowned_or_ungoverned_references(
+    corpus_citation_path, source_text, path, section
+):
+    for reason in _reasons(corpus_citation_path, path, section, "this act"):
+        assert not completeness_module._reason_names_missing_same_act_dependency(
+            reason,
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            path=path,
+        )
+        assert not completeness_module._reason_dependency_is_source_bound(
+            reason,
+            source_text,
+            corpus_citation_path=corpus_citation_path,
+            path=path,
+        )
+
+
+def test_same_act_reader_keeps_the_leaf_that_owns_the_reference():
+    source = (
+        "7. For calendar year 2030 and all calendar years thereafter, except as "
+        "otherwise provided in Section 2 of this act, on such taxable income, "
+        "the rate shall be three percent (3%)."
+    )
+    reason = (
+        "us-ms/statute/27-7-5(1)(b)(ii)(7) cannot be computed because Section 2 "
+        "of this act is not available."
+    )
+
+    assert completeness_module._reason_names_missing_same_act_dependency(
+        reason,
+        source,
+        corpus_citation_path="us-ms/statute/27-7-5",
+        path=("1", "b", "ii", "7"),
     )
