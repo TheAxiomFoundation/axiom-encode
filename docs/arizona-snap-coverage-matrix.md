@@ -301,9 +301,9 @@ the plural history, and the merged deterministic migration in
 admits a plural collapse only when one cited path is an ancestor of all the
 others. Neither route currently admits this module. The values-only deductions
 and maximum-allotments modules are candidates for #1811's narrower signed
-transaction; its protected run is awaiting production-signing approval, so no
-signed RuleSpec change exists yet. That transaction alone would not make Arizona
-composition compile. A canceled parent-source
+transaction; its protected run was cancelled after the source-provenance defect
+below was confirmed, so no signed RuleSpec change exists yet. That transaction
+alone would not make Arizona composition compile. A canceled parent-source
 [attempt 38425793435](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38425793435)
 did not reach encoding and is not evidence that replacement succeeds.
 The same pinned engine also fails to compile the existing FAA6 Arizona utility
@@ -360,8 +360,9 @@ values-only federal imports, not for the sibling-cited income module. Its
 [two-primary protected run 38667673443](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38667673443)
 passed the attempt-budget gate on encoder main `dde29e542fa890643ce48d213aa16cfd8540fc83`
 and RuleSpec main `172bf04e4ddabff0929d4514ecac5020869b8b40`, but is
-waiting for production-signing approval. No migration PR, usable signed repair,
-or Arizona household parity follows from that dispatch.
+cancelled after the mismatched PDF-labeled source objects below were confirmed.
+It produced no migration PR or usable signed repair and does not establish
+Arizona household parity.
 
 The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
 passed its attempt-budget check and provisioned the protected signing
