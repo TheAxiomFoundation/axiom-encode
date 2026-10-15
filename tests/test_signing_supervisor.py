@@ -142,6 +142,7 @@ def trusted_python_runtime(
     package_root.mkdir()
     (package_root / "__init__.py").write_text('"""Trusted fixture package."""\n')
     shutil.copy2(ROOT / "src" / "axiom_encode" / "signing_broker.py", package_root)
+    shutil.copy2(ROOT / "src" / "axiom_encode" / "retired_apply.py", package_root)
     shutil.copy2(
         ROOT / "src" / "axiom_encode" / "_trusted_signing_bootstrap.py",
         package_root,
@@ -222,6 +223,11 @@ def main():
             ],
         },
     }
+    if broker.retired_apply_public_keys_raw:
+        result["roots"]["retired_apply_keys"] = [
+            b64encode(key).decode("ascii") for key in broker.retired_apply_public_keys_raw
+        ]
+        result["retired_apply_inventory"] = broker.retired_apply_inventory
     if os.environ.get("CODEX_HOME"):
         metadata = codex_home.stat()
         result["codex_home_mode"] = metadata.st_mode & 0o777
@@ -449,6 +455,8 @@ def _trust_config(
     eval_public: str,
     corpus_release_public: str | None = None,
     corpus_release_public_keys: tuple[str, ...] | None = None,
+    retired_apply_public_keys: tuple[str, ...] = (),
+    retired_apply_inventory: dict[str, object] | None = None,
 ) -> Path:
     if corpus_release_public is None:
         corpus_release_public, _private_key = _keypair(b"\x17" * 32)
@@ -463,6 +471,10 @@ def _trust_config(
         payload["schema"] = "axiom-encode/signing-trust-roots/v3"
         payload.pop("corpus_release_ed25519_public_key")
         payload["corpus_release_ed25519_public_keys"] = corpus_release_public_keys
+    if retired_apply_public_keys:
+        payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+        payload["retired_apply_ed25519_public_keys"] = retired_apply_public_keys
+        payload["retired_apply_inventory"] = retired_apply_inventory
     path.write_text(json.dumps(payload, sort_keys=True) + "\n")
     path.chmod(0o600)
     return path
@@ -4574,7 +4586,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     assert "targeted-signed-reencode.yml/runs" in command
     assert "finalize-repin" in command
     assert "finalization-target-plan" in command
-    assert "targeted-reencode-$run_id" in command
+    assert '"targeted-reencode-${run_id}-${run_attempt}"' in command
     assert "jobs?filter=all&per_page=100" in command
     assert "--slurpfile jobs" in command
     assert "sha256sum -c SHA256SUMS" in command
@@ -7742,3 +7754,82 @@ def test_apply_signing_key_migration_rejects_weak_recipient_rsa(
 
     assert completed.returncode != 0
     assert "must be RSA with at least 3072 bits" in completed.stderr
+
+
+def _retired_apply_frozen_inventory() -> dict[str, object]:
+    return {
+        "schema": "axiom-encode/retired-apply-inventory/v1",
+        "repositories": [
+            {
+                "repository": "TheAxiomFoundation/rulespec-us",
+                "cutoff_commit": "a" * 40,
+                "artifacts": [
+                    {
+                        "path": ".axiom/encoding-manifests/frozen.json",
+                        "sha256": "b" * 64,
+                        "covered_files": [
+                            {"path": "statute/frozen.yaml", "sha256": "c" * 64}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_supervisor_v4_forwards_frozen_retired_apply_trust(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    active_public, _active_key = _keypair(b"\xab" * 32)
+    retired_public, _retired_key = _keypair(b"\xac" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    inventory = _retired_apply_frozen_inventory()
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        _trust_config(
+            tmp_path,
+            active_public,
+            eval_public,
+            retired_apply_public_keys=(retired_public,),
+            retired_apply_inventory=inventory,
+        ),
+        [],
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["capabilities"] == []
+    assert result["roots"]["apply"] == active_public
+    assert result["roots"]["retired_apply_keys"] == [retired_public]
+    assert result["retired_apply_inventory"] == inventory
+
+
+def test_retired_apply_leaf_signer_fails_active_root_challenge(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    active_public, _active_key = _keypair(b"\xab" * 32)
+    retired_public, retired_key = _keypair(b"\xac" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    trust = _trust_config(
+        tmp_path,
+        active_public,
+        eval_public,
+        retired_apply_public_keys=(retired_public,),
+        retired_apply_inventory=_retired_apply_frozen_inventory(),
+    )
+    with _signers(retired_key) as descriptors:
+        completed = _invoke(
+            signing_supervisor,
+            trusted_python_runtime,
+            _launcher(tmp_path, trusted_python_runtime),
+            trust,
+            descriptors,
+        )
+    assert completed.returncode != 0
+    assert "External apply signer initialization failed" in completed.stderr
+    assert completed.stdout == ""
