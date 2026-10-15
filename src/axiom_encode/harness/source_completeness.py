@@ -5449,7 +5449,7 @@ def _analyze_rulespec_payload(
     # deferral's finding. Report it inside the deferral finding instead; it
     # is reported on its own again as soon as the deferral is removed, and
     # it is covered once the deferral is precise.
-    branches_behind_imprecise_deferral: dict[int, list[SourceStructureBranch]] = {}
+    branches_behind_imprecise_deferral: dict[int, dict[str, SourceStructureBranch]] = {}
     for branch in branches:
         if _path_covered(
             branch.path,
@@ -5460,26 +5460,6 @@ def _analyze_rulespec_payload(
             branches=branches,
             source_text=source_text,
         ):
-            continue
-        pending_deferral = max(
-            (
-                (len(deferral_path), finding_index)
-                for finding_index, deferral_path in imprecise_deferral_paths
-                if _path_is_deferred(branch.path, {deferral_path})
-            ),
-            default=None,
-        )
-        if pending_deferral is not None:
-            pending = branches_behind_imprecise_deferral.setdefault(
-                pending_deferral[1], []
-            )
-            # A repeated (path, label) is one structure finding, as the
-            # final de-duplication of identical findings makes it.
-            if not any(
-                (listed.path, listed.label) == (branch.path, branch.label)
-                for listed in pending
-            ):
-                pending.append(branch)
             continue
         descendants = tuple(
             candidate
@@ -5528,17 +5508,33 @@ def _analyze_rulespec_payload(
                     "atom on the affected principal formula when applicable), or "
                     "precisely defer the parent; do not invent a dummy output."
                 )
-        issues.append(
+        structure_issue = (
             "[complete-source-unit:structure] "
             f"Source branch {branch.label} at "
             f"{_branch_citation(corpus_citation_path, branch)} is neither "
             "encoded nor precisely deferred."
             f"{covered_descendant_detail}"
         )
+        pending_deferral = max(
+            (
+                (len(deferral_path), finding_index)
+                for finding_index, deferral_path in imprecise_deferral_paths
+                if _path_is_deferred(branch.path, {deferral_path})
+            ),
+            default=None,
+        )
+        if pending_deferral is None:
+            issues.append(structure_issue)
+            continue
+        # An identical finding text is one finding, as the final
+        # de-duplication of the issue list makes it.
+        branches_behind_imprecise_deferral.setdefault(pending_deferral[1], {})[
+            structure_issue
+        ] = branch
     for finding_index, pending_branches in branches_behind_imprecise_deferral.items():
         issue_index = imprecise_deferral_issue_offset + finding_index
         issues[issue_index] = _with_branches_behind_imprecise_deferral(
-            issues[issue_index], pending_branches
+            issues[issue_index], tuple(pending_branches.values())
         )
 
     active_branches = tuple(
