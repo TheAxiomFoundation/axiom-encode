@@ -185,6 +185,19 @@ SNAP household result has not been compared. Preserve this
 source-versus-oracle discrepancy when encoding the 06/29/2026 boundary;
 do not force the source-grounded rule to match the stale oracle rate.
 
+For the federal household-concept gap below, the native corpus eCFR extractor
+has now staged an **unsigned, unpublished** section-only scope for
+`us/regulation/7/273/1` as of 2025-10-01. It retains the official
+[eCFR Versioner API text](https://www.ecfr.gov/api/versioner/v1/full/2025-10-01/title-7.xml?part=273&section=273.1)
+with a complete three-provision part/subpart/section coverage report; 151
+focused corpus tests pass. Direct official API responses for 2025-10-01,
+2026-03-01, 2026-06-01, and 2026-09-30 have the same SHA-256
+`f7aa5326a23bb5d45ec777901d683373d0e40182277243a6bff23f748921497f`.
+This establishes point-in-time source identity at those four dates, not a
+signed corpus release or exhaustive proof that no intervening amendment
+occurred. The required ingest signer is unavailable, so this local staging
+does not yet satisfy the release-bound source prerequisite for encoding.
+
 | Source / behavior | Provenance and scope | RuleSpec at pinned main | Evidence status and next check |
 | --- | --- | --- | --- |
 | Federal SNAP unit eligibility: income, assets, categorical exception, and at least one member meeting person-level conditions | PolicyEngine [`is_snap_eligible.py`](https://github.com/PolicyEngine/policyengine-us/blob/d89439134c1bac8add0c8261c8a075c33c39401a/policyengine_us/variables/gov/usda/snap/eligibility/is_snap_eligible.py) cites 7 USC 2017(a), 2014(c), and 2015(f). [7 CFR 273.1](https://www.ecfr.gov/current/title-7/subtitle-B/chapter-II/subchapter-C/part-273/subpart-A/section-273.1) defines the household and lists additional ineligible-member categories; 273.3–273.7, 273.10, and 273.24 are other shared federal authority, not Arizona-only law. | Federal `us/policies/usda/snap/state-plan-composition.yaml` and imported regulation/statute modules exist, but there is no `us/regulations/7-cfr/273/1.yaml` in the pinned RuleSpec tree. Its `snap_member_eligible` conjunction covers four imported conditions, not every 273.1(b)(7) exclusion. Arizona `fy-2026-benefit-calculation.yaml` imports the federal composition but still has an eligibility input bridge. | Not parity-validated. Acquire a release-bound 273.1 source and audit household formation and omitted ineligible-member categories before protected encoding. Compare matched households across each net/gross/resource/categorical/member gate, including disqualified members. Audit Arizona options and overrides separately. |
