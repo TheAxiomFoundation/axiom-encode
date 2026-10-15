@@ -1,0 +1,69 @@
+{
+  "schema": "axiom-encode/coverage-exemption-independent-review/v1",
+  "reviewed_at": "2026-10-15",
+  "outcome": "no_actionable_findings",
+  "registry_sha256": "1832cbc814f4a5daec9bc0d39041bc1e47247102b0beb03faed53703548024b8",
+  "release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "release_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+  "source_origin": "Public raw corpus artifacts at the immutable release commit; the corpus checker separately verifies the signed release inventory and artifact hashes, lengths, and row counts.",
+  "entry_review": {
+    "reviewer_role": "build independent agent; proposal implementation author, independent of seed entry author",
+    "approved_entries_reviewed": 345,
+    "owner_groups_reviewed": 341,
+    "rejected_candidates_reviewed": 21,
+    "method": "Join each registry artifact and physical row to the downloaded raw JSONL body. Open the physical label and the complete owner-to-candidate span, including following source context. Inspect explicit owner markers, uninterrupted hierarchy, complete tombstones, and requested encoding target. Read outer source headers separately for Iowa, Louisiana, New Jersey, and New Mexico owner citation paths.",
+    "approved_by_jurisdiction": {
+      "us-co": 50,
+      "us-ia": 5,
+      "us-la": 29,
+      "us-mt": 104,
+      "us-nj": 2,
+      "us-nm": 18,
+      "us-or": 10,
+      "us-sc": 4,
+      "us-wa": 4,
+      "us-wi": 119
+    },
+    "approved_by_reason": {
+      "nested_under_numbered_parent": 343,
+      "repealed_tombstone": 2
+    },
+    "rejected_by_jurisdiction": {
+      "us-in": 20,
+      "us-wi": 1
+    },
+    "rejection_confirmation": "The 20 Indiana labels return to a real top-level lettered subsection after its sibling's numbered list. The Wisconsin label follows unfamiliar multi-letter markers; its demand remains because the design rejects unknown marker chains.",
+    "resolved_findings": [
+      "Owner evidence must name the full literal provision ancestry, rather than the source container or nearest numeric marker alone. The corrected Iowa, Louisiana, New Jersey, and New Mexico paths were checked again against raw source headers."
+    ],
+    "remaining_findings": [],
+    "reviewer_identity": "The registry retains the user-required pending-independent-review reviewer string; this separate artifact records the build agents' completed review."
+  },
+  "runtime_and_ci_review": {
+    "reviewer_role": "build independent agent; independent of runtime and workflow implementation author",
+    "checks": [
+      "The original main segmentation and high-signal scanner remain unchanged; original regex origins distinguish repeated identical labels.",
+      "There is one demand-filter call after main's existing requested-scope filter. The runtime drop uses exact citation, scope, UTF-8 text hash, label, physical offset, literal window, and window hash equality.",
+      "No retired heuristic is imported by axiom_encode. The retired scanner is confined to offline scripts.",
+      "The parent-fallback waiver retains main's existing conditions and additionally requires a reviewed exact repeal entry or an exact release-bound row with metadata.status equal to repealed.",
+      "The CI stale-entry job acquires the pinned signed release and listed artifacts at its immutable corpus commit; the checker verifies the bytes before measuring demands.",
+      "The final transport uses curl with failing HTTP status propagation, a 10-second connection limit, a 45-second transfer limit, and a release or artifact byte limit. subprocess arguments are passed without a shell; failed or partial downloads cannot reach a passing signed-release and artifact check."
+    ],
+    "transport_rereview": "Independently reread the final workflow after the parent build agent replaced a locally failing urllib GET with bounded curl. No actionable findings remain. Exact local workflow replay results are recorded separately; no hosted CI execution is asserted.",
+    "remaining_findings": []
+  },
+  "proposal_and_checker_review": {
+    "reviewer_role": "separate build independent test agent and parent build agent; independent of proposal implementation author",
+    "resolved_findings": [
+      "Split JSONL on LF bytes so literal Unicode line separators remain inside source text.",
+      "Read trusted repeal status through the resolver's exact metadata.status contract.",
+      "Use null scope for an exact row target even when its citation has a subsection suffix; derive explicit parent-fallback scope through current runtime helpers.",
+      "Scope stale demand checks exactly like the main gate and reject entries for labels outside the requested target.",
+      "Require one explicit row citation for a requested-source argument, refuse unrelated targets, and retain the literal requested source in candidate context."
+    ],
+    "verification": "20 focused proposal/checker tests passed after fixes; changed script and test files pass ruff check and ruff format --check. The independent test agent reread the fixes and reported no actionable findings.",
+    "remaining_findings": []
+  },
+  "limits": "This records build-agent review. Corpus differential totals and property/mutation results are recorded in the accompanying ledgers and handoff; this review does not independently rerun those measurements."
+}

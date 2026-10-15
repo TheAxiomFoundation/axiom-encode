@@ -345,7 +345,7 @@ def test_generated_later_boundary_preserves_a_preceding_baseline_cue(
         "Additional administrative information follows in ordinary prose.",
     ],
 )
-def test_ordinary_prose_preserves_baseline_demands_and_matching_repeal(prose):
+def test_ordinary_prose_preserves_baseline_demands_and_unlisted_repeal(prose):
     # Short fragments are positively prose within a recognized heading body;
     # as standalone dotted lines, they could themselves be structural labels.
     separator = " " if prose in {"Details.", "Item."} else "\n"
@@ -365,12 +365,11 @@ def test_ordinary_prose_preserves_baseline_demands_and_matching_repeal(prose):
         "(i) Repealed.\n(b) Effective date.\n"
     )
     assert vp._source_scope_is_editorial_omission(repeal, ("a", "2", "i"))
-    assert (
-        _coverage_issues(
-            repeal, requested_source=CITATION + "/a/2/i", summary="(i) Repealed."
-        )
-        == []
+    repeal_issues = _coverage_issues(
+        repeal, requested_source=CITATION + "/a/2/i", summary="(i) Repealed."
     )
+    assert len(repeal_issues) == 1, repeal_issues
+    assert "26 USC 21(a)" in repeal_issues[0]
 
 
 @pytest.mark.parametrize(

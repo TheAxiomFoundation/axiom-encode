@@ -1,0 +1,69 @@
+name: Coverage exemptions
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  stale-entries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+      - run: uv sync --locked --python 3.13 --extra dev
+      - name: Fetch the pinned release and the registry's artifacts
+        env:
+          CORPUS_ROOT: ${{ runner.temp }}/coverage-exemption-corpus
+        run: |
+          uv run --no-sync python - <<'PY'
+          import subprocess
+          from pathlib import Path
+          import os
+          from axiom_encode.ci_parity import DEFAULT_RELEASE_BASE_URL
+          from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
+          from axiom_encode.harness.coverage_exemptions import load_coverage_exemptions
+          from scripts.propose_coverage_exemptions import load_release
+
+          root = Path(os.environ["CORPUS_ROOT"])
+          name = "us-rulespec-2026-08-08-obbb-alien-snap"
+          digest = "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc"
+          def fetch(url, destination, limit):
+              subprocess.run([
+                  "curl", "--fail", "--silent", "--show-error",
+                  "--connect-timeout", "10", "--max-time", "45",
+                  "--max-filesize", str(limit), "--output", str(destination), url,
+              ], check=True)
+          release_path = root / "releases" / name / (digest + ".json")
+          release_path.parent.mkdir(parents=True, exist_ok=True)
+          fetch(
+              f"{DEFAULT_RELEASE_BASE_URL}/releases/{name}/{digest}.json",
+              release_path, MAX_RELEASE_OBJECT_BYTES,
+          )
+          corpus = load_release(root, name, digest)
+          listed = {entry.corpus_artifact for entry in load_coverage_exemptions()}
+          for artifact in corpus.artifacts:
+              if artifact.path not in listed:
+                  continue
+              destination = root / artifact.path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              fetch(
+                  f"https://raw.githubusercontent.com/TheAxiomFoundation/axiom-corpus/{corpus.release.git_commit}/{artifact.path}",
+                  destination, artifact.byte_count,
+              )
+          PY
+      - name: Refuse stale entries and check the exact corpus differential
+        run: >-
+          uv run --no-sync python scripts/check_coverage_exemptions.py
+          --release us-rulespec-2026-08-08-obbb-alien-snap
+          --release-sha256 0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc
+          --corpus-path "${{ runner.temp }}/coverage-exemption-corpus"
+          --listed-artifacts-only
+          --output "${{ runner.temp }}/coverage-exemptions-ledger.json"

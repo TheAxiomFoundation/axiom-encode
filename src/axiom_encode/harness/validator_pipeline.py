@@ -84,6 +84,7 @@ from axiom_encode.corpus_resolver import (
     InvalidCorpusCitationError,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
+    local_corpus_row_is_repealed,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
@@ -107,6 +108,11 @@ from axiom_encode.engine_binding import (
     load_declared_engine_pin,
     require_engine_ref_sha,
     resolve_pinned_engine_binary,
+)
+from axiom_encode.harness.coverage_exemptions import (
+    CoverageDemand,
+    filter_coverage_demands,
+    has_reviewed_repeal,
 )
 from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
@@ -24521,10 +24527,11 @@ def find_source_subparagraph_coverage_issues(
         or _source_subparagraph_coverage_scope_prefix(
             citation_path, rules_file=rules_file
         ),
+        citation_path=citation_path,
     ):
         return []
 
-    source_children = _high_signal_top_level_subparagraphs(source_text)
+    source_children = _high_signal_top_level_coverage_demands(source_text)
     # The requested-source scope takes precedence over the rules_file-derived
     # one because it captures encoder intent precisely; the rules_file path
     # only tells us where the artifact landed (which can collapse to the
@@ -24538,10 +24545,16 @@ def find_source_subparagraph_coverage_issues(
     if coverage_scope_prefix:
         coverage_scope_top_level = _top_level_subparagraph_path(coverage_scope_prefix)
         source_children = [
-            (label, text)
-            for label, text in source_children
-            if (label,) == coverage_scope_top_level
+            demand
+            for demand in source_children
+            if (demand.label,) == coverage_scope_top_level
         ]
+    source_children = filter_coverage_demands(
+        source_children,
+        citation_path=citation_path,
+        requested_scope=coverage_scope_prefix or None,
+        source_text=source_text,
+    )
     if not source_children:
         return []
 
@@ -24556,7 +24569,8 @@ def find_source_subparagraph_coverage_issues(
     )
 
     issues: list[str] = []
-    for label, text in source_children:
+    for demand in source_children:
+        label, text = demand.label, demand.body
         if (label,) in covered_children:
             continue
         citation = _format_source_subparagraph_citation(citation_path, label)
@@ -24663,6 +24677,23 @@ def _high_signal_top_level_subparagraphs(source_text: str) -> list[tuple[str, st
     ]
 
 
+def _high_signal_top_level_coverage_demands(source_text: str) -> list[CoverageDemand]:
+    """Attach each main demand's original physical marker, including duplicates."""
+    # Compute main's complete spans first. Match origins must never be recovered
+    # with a label/body search: identical repeated headings have distinct keys.
+    demands = _high_signal_top_level_subparagraphs(source_text)
+    segments = _top_level_source_subparagraph_segments(source_text)
+    origins = _TOP_LEVEL_SOURCE_SUBPARAGRAPH_PATTERN.finditer(source_text)
+    positions: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for segment, match in zip(segments, origins, strict=True):
+        positions[segment].append(match.start())
+    position_iters = {segment: iter(starts) for segment, starts in positions.items()}
+    return [
+        CoverageDemand(label, text, next(position_iters[(label, text)]))
+        for label, text in demands
+    ]
+
+
 def _top_level_source_subparagraph_segments(
     source_text: str,
 ) -> list[tuple[str, str]]:
@@ -24680,7 +24711,11 @@ def _top_level_source_subparagraph_segments(
 
 
 def _authoritative_deferred_editorial_source_slice(
-    source_text: str, summary: str, scope: tuple[str, ...]
+    source_text: str,
+    summary: str,
+    scope: tuple[str, ...],
+    *,
+    citation_path: str | None = None,
 ) -> bool:
     """Add authoritative-source evidence to the existing summary waiver."""
     if len(scope) <= 1:
@@ -24696,7 +24731,25 @@ def _authoritative_deferred_editorial_source_slice(
             or _bibliographic_editorial_notice(summary)
         )
         and _source_scope_is_editorial_omission(source_text, scope)
+        and citation_path is not None
+        and (
+            has_reviewed_repeal(
+                citation_path=citation_path,
+                requested_scope=scope,
+                source_text=source_text,
+            )
+            or _requested_corpus_row_is_repealed(citation_path, scope)
+        )
     )
+
+
+def _requested_corpus_row_is_repealed(
+    citation_path: str, scope: tuple[str, ...]
+) -> bool:
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    if release is None:
+        return False
+    return local_corpus_row_is_repealed("/".join((citation_path, *scope)), release)
 
 
 def _normalized_editorial_source_presentation(source_text: str) -> str:

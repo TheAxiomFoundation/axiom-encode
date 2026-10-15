@@ -3948,3 +3948,72 @@ def test_release_object_swap_to_outside_symlink_fails_closed(
             release.content_sha256,
             TEST_RELEASE_PUBLIC_KEY,
         )
+
+
+@pytest.mark.parametrize(
+    "status_fields,expected",
+    [
+        ({"metadata": {"status": "repealed"}}, True),
+        ({"metadata": {"status": "active"}}, False),
+        ({"metadata": {"status": "REPEALED"}}, False),
+        ({"metadata": {"status": "repealed "}}, False),
+        ({"status": "repealed"}, False),
+        ({}, False),
+    ],
+)
+def test_exact_release_row_status_can_authenticate_repeal(
+    tmp_path, status_fields, expected
+):
+    version = "2026-10-15-reviewed-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    child = CITATION + "/2"
+    _write_rows(
+        tmp_path,
+        version,
+        [{"citation_path": child, "body": None, **status_fields}],
+    )
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(child, release) is expected
+    # An exact descendant tombstone does not authenticate its parent or sibling.
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+    assert not corpus_resolver.local_corpus_row_is_repealed(CITATION + "/3", release)
+
+
+def test_repealed_row_status_refuses_aliases_and_ambiguous_rows(tmp_path):
+    version = "2026-10-15-ambiguous-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    row = {
+        "citation_path": CITATION,
+        "body": None,
+        "metadata": {"status": "repealed"},
+    }
+    _write_rows(tmp_path, version, [row, row])
+    release = _release(tmp_path)
+    with pytest.raises(InvalidCorpusCitationError):
+        corpus_resolver.local_corpus_row_is_repealed("7 USC 2014(e)", release)
+    with pytest.raises(AmbiguousCorpusSourceError):
+        corpus_resolver.local_corpus_row_is_repealed(CITATION, release)
+
+
+def test_coverage_repeal_status_uses_only_the_bound_exact_release_row(tmp_path):
+    from axiom_encode.harness import validator_pipeline as vp
+
+    version = "2026-10-15-bound-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": CITATION + "/2",
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        ],
+    )
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(_release(tmp_path))
+    try:
+        assert vp._requested_corpus_row_is_repealed(CITATION, ("2",))
+        assert not vp._requested_corpus_row_is_repealed(CITATION, ("3",))
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)
