@@ -102,12 +102,14 @@ def _cases(selector: str, rule: str) -> list[dict]:
     )
 
 
-def _paired_issues(selector: str, rule: str, excerpt: str) -> list[str]:
+def _paired_issues(
+    selector: str, rule: str, excerpt: str, source: str = SOURCE
+) -> list[str]:
     return [
         issue
         for issue in analyze_complete_source_unit(
             _candidate(selector, rule, excerpt),
-            SOURCE,
+            source,
             corpus_citation_path=CITATION,
             test_cases=_cases(selector, rule),
             extract_numeric_occurrences=functools.partial(
@@ -193,6 +195,18 @@ def test_pair_toggling_the_exception_condition_still_witnesses_it():
             "If continued misuse occurs (identified on the report, after a "
             "warning), the cash benefit shall be suspended for one month.",
             "If continued misuse occurs (identified on the report, after a warning)",
+        ),
+        # An inserted phrase right after the cue does not end the condition.
+        (
+            "If, in a taxable year, a deduction is claimed for an excess "
+            "contribution, the deduction is not allowed.",
+            "If, in a taxable year, a deduction is claimed for an excess contribution",
+        ),
+        # A list without a serial comma is kept whole.
+        (
+            "When a paper warrant is lost, stolen or not received, benefits are "
+            "reissued.",
+            "When a paper warrant is lost, stolen or not received",
         ),
         # A trailing condition without an end is kept whole.
         (

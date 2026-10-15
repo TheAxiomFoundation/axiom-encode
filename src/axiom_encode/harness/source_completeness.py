@@ -31279,6 +31279,10 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
         flags=re.IGNORECASE,
     ):
         return condition_text
+    inserted = re.match(
+        r"\s*\w+(?:\s+that)?\s*,[^,;.()]{1,80},", condition_text, flags=re.IGNORECASE
+    )
+    inserted_phrase_end = inserted.end() - 1 if inserted is not None else None
     end = None
     depth = 0
     for index, character in enumerate(condition_text):
@@ -31295,7 +31299,15 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
                 continue
             if re.match(
                 r"\s*[^,;.()]{1,60},\s*(?:and|or)\b", rest, flags=re.IGNORECASE
+            ) or re.match(
+                # `lost, stolen or not received, ...`: a list without a serial comma.
+                r"\s*[^,;.()]{1,40}\s(?:and|or)\s[^,;.()]{1,40},",
+                rest,
+                flags=re.IGNORECASE,
             ):
+                continue
+            if inserted_phrase_end is not None and index <= inserted_phrase_end:
+                # `If, in a taxable year, ...`: an inserted phrase, not the end.
                 continue
             end = index
             break
