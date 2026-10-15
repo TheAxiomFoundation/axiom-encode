@@ -44792,6 +44792,14 @@ def _try_repair_generated_deferred_canonical_citations_for_apply(
     expected = copy.deepcopy(payload)
     edits: list[tuple[int, int, str]] = []
     repaired: list[str] = []
+
+    def _replace_cfr_alias(text: str, alias: str, citation: str) -> str | None:
+        matches = list(re.finditer(r"(?<![A-Za-z0-9])" + re.escape(alias), text))
+        if len(matches) != 1:
+            return None
+        match = matches[0]
+        return text[: match.start()] + citation + text[match.end() :]
+
     for index, citation in sorted(citations.items()):
         if index >= len(deferred) or not isinstance(deferred[index], dict):
             return []
@@ -44808,19 +44816,21 @@ def _try_repair_generated_deferred_canonical_citations_for_apply(
             return []
         alias = f"{title} CFR {part}.{section}{suffix}"
         reason = deferred[index].get("reason")
-        if not isinstance(reason, str) or reason.count(alias) != 1:
+        if not isinstance(reason, str):
+            continue
+        repaired_reason = _replace_cfr_alias(reason, alias, citation)
+        if repaired_reason is None:
             continue
         reason_node = _unique_value(deferred_node.value[index], "reason")
         if not isinstance(reason_node, ScalarNode):
             return []
         start, end = reason_node.start_mark.index, reason_node.end_mark.index
         source = original[start:end]
-        if source.count(alias) != 1:
+        repaired_source = _replace_cfr_alias(source, alias, citation)
+        if repaired_source is None:
             continue
-        edits.append((start, end, source.replace(alias, citation, 1)))
-        expected["module"]["deferred_outputs"][index]["reason"] = reason.replace(
-            alias, citation, 1
-        )
+        edits.append((start, end, repaired_source))
+        expected["module"]["deferred_outputs"][index]["reason"] = repaired_reason
         repaired.append(f"module.deferred_outputs[{index}].reason")
     if not edits:
         return []

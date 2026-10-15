@@ -21950,6 +21950,55 @@ rules: []
         )
         assert rules_file.read_text() == original
 
+    @pytest.mark.parametrize(
+        "reason,expected_reason,repaired",
+        [
+            (
+                "17 CFR 273.10(a)(1) requires application facts.",
+                "17 CFR 273.10(a)(1) requires application facts.",
+                False,
+            ),
+            (
+                "17 CFR 273.10(a)(1) differs; 7 CFR 273.10(a)(1) "
+                "requires application facts.",
+                "17 CFR 273.10(a)(1) differs; "
+                "us/regulation/7/273/10(a)(1) requires application facts.",
+                True,
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_preserves_other_cfr_titles(
+        self, tmp_path, reason, expected_reason, repaired
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: {reason}
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+
+        result_paths = _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        )
+
+        assert result_paths == (
+            ["module.deferred_outputs[0].reason"] if repaired else []
+        )
+        assert rules_file.read_text() == original.replace(reason, expected_reason)
+
     def test_encode_apply_revalidates_after_deferred_citation_repair(
         self, capsys, tmp_path
     ):
