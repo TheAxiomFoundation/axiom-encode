@@ -1070,6 +1070,27 @@ def test_waiver_expiry_and_horizon_follow_utc_under_extreme_zones(
         time.tzset()
 
 
+def _host_has_c_utf8() -> bool:
+    import locale
+
+    saved = locale.setlocale(locale.LC_CTYPE)
+    try:
+        locale.setlocale(locale.LC_CTYPE, "C.UTF-8")
+        return True
+    except locale.Error:
+        return False
+    finally:
+        locale.setlocale(locale.LC_CTYPE, saved)
+
+
+# CI's value; where a host lacks it, ci adopts another UTF-8 locale instead
+# (covered in test_ci_parity_review_c24).
+needs_c_utf8 = pytest.mark.skipif(
+    not _host_has_c_utf8(), reason="host has no C.UTF-8 locale"
+)
+
+
+@needs_c_utf8
 def test_runner_locale_and_timezone_reach_every_execution_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1150,6 +1171,7 @@ def test_runner_locale_and_timezone_reach_every_execution_path(
     locale=st.sampled_from(["C", "POSIX", "de_DE.UTF-8"]),
 )
 @settings(deadline=None)
+@needs_c_utf8
 def test_runner_clock_and_locale_are_invariant_and_restored(
     zone: str, language: str, locale: str
 ) -> None:

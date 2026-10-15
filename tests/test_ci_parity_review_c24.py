@@ -334,3 +334,47 @@ def test_utf8_ctype_keeps_a_callers_own_utf8_locale(
     )
 
     assert ci_parity._adopt_utf8_ctype() == "de_DE.UTF-8"
+
+
+@pytest.mark.parametrize("caller_ctype", ["C", "en_US.UTF-8", "UTF-8"])
+def test_c_utf8_is_adopted_first_wherever_it_exists(
+    monkeypatch: pytest.MonkeyPatch, caller_ctype: str
+) -> None:
+    # Cycle 27: C.UTF-8 is CI's locale, so it wins over a caller's own UTF-8
+    # locale wherever it exists; the caller's LC_CTYPE comes back afterwards.
+    real = locale.setlocale
+    saved = real(locale.LC_CTYPE)
+    try:
+        real(locale.LC_CTYPE, "C.UTF-8")
+        real(locale.LC_CTYPE, caller_ctype)
+    except locale.Error:
+        real(locale.LC_CTYPE, saved)
+        pytest.skip(f"host lacks C.UTF-8 or {caller_ctype}")
+    caller = real(locale.LC_CTYPE)
+    seen: dict[str, str] = {}
+
+    def resolve(*_: object) -> str:
+        seen.update(
+            LANG=os.environ["LANG"],
+            LC_ALL=os.environ["LC_ALL"],
+            LC_CTYPE=real(locale.LC_CTYPE),
+        )
+        raise ValueError("stop after inspecting the runner environment")
+
+    monkeypatch.setattr(ci_parity, "resolve_commit", resolve)
+    ambient = {"LANG": "C", "LC_ALL": "C", "TZ": "UTC", "PATH": os.defpath}
+    try:
+        with (
+            mock.patch.dict(os.environ, ambient, clear=True),
+            mock.patch("sys.stdout", io.StringIO()),
+        ):
+            args = SimpleNamespace(
+                repo=Path("/unavailable"), base_ref="base", json=True
+            )
+            assert ci_parity.run_ci(args) == 1
+        restored = real(locale.LC_CTYPE)
+    finally:
+        real(locale.LC_CTYPE, saved)
+
+    assert seen == {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "LC_CTYPE": "C.UTF-8"}
+    assert restored == caller
