@@ -167,6 +167,8 @@ def test_generic_encoder_prompt_includes_durable_rule_spec_guidance():
 
     _assert_encoder_prompt_topics(ENCODER_PROMPT)
     _assert_encoder_prompt_topics(prompt)
+    assert "data_relation.arguments" in ENCODER_PROMPT
+    assert "arguments: [Person, Household]" in prompt
     assert "For 26 USC 1402(a)(12)" not in ENCODER_PROMPT
     normalized_prompt = " ".join(prompt.split())
     assert "Include `us/statute/26/63` in `module.source_verification`." in prompt

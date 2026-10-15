@@ -99,6 +99,13 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_entities import (
+    assign_generated_fixture_ids,
+    cross_entity_input_findings,
+    declared_input_entities,
+    flat_input_entity_id,
+    require_distinct_entity_ids,
+)
 from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
@@ -213,9 +220,11 @@ from .harness.evals import (
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
     _git_checkout_execution_identity,
+    _github_repository_identity,
     _load_eval_suite_resume_state,
     _open_secure_eval_parent,
     _preserves_companion_test_cases,
+    _read_only_git_environment,
     _render_eval_result_verdict_evidence,
     _resolve_eval_output_path,
     _rulespec_root_execution_identity,
@@ -260,7 +269,11 @@ from .harness.proof_validator import (
     proof_source_citation_paths,
     validate_rulespec_proofs,
 )
-from .harness.source_completeness import _rulespec_target_base
+from .harness.source_completeness import (
+    _deferred_coverage,
+    _rulespec_target_base,
+    recognize_source_structure,
+)
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
@@ -281,11 +294,13 @@ from .harness.validator_pipeline import (
     _normalize_validation_staging_text,
     _numeric_profile_for_citation_path,
     _parse_rulespec_target,
+    _resolve_rulespec_import_file_static,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
     _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
+    _rulespec_import_prefix_static,
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
@@ -439,6 +454,24 @@ from .repo_routing import (
     jurisdiction_content_dir,
     jurisdiction_subdir_names,
     monorepo_checkout_name,
+)
+from .retired_source_metadata import (
+    MIGRATION_TOOL as RETIRED_SOURCE_METADATA_TOOL,
+)
+from .retired_source_metadata import (
+    RECEIPT_DIR as RETIRED_SOURCE_METADATA_RECEIPT_DIR,
+)
+from .retired_source_metadata import (
+    RetiredSourceMetadataError,
+)
+from .retired_source_metadata import (
+    build_migration as build_retired_source_metadata_migration,
+)
+from .retired_source_metadata import (
+    load_plan_bytes as load_retired_source_metadata_plan_bytes,
+)
+from .retired_source_metadata import (
+    verify_migration_replay as verify_retired_source_metadata_replay,
 )
 from .retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_ITEMS,
@@ -654,6 +687,19 @@ _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS = frozenset(
         "applied_files",
         "legacy_migration",
         "retained_successor_manifest",
+        "signature",
+    }
+)
+_RETIRED_SOURCE_METADATA_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
+        "applied_files",
+        "retired_source_metadata",
         "signature",
     }
 )
@@ -923,8 +969,8 @@ def _add_expected_encoder_checkout_argument(
         type=Path,
         default=None,
         help=(
-            "Clean axiom-encode checkout whose HEAD identity must match manifests "
-            "and the running package version"
+            "Clean pinned axiom-encode checkout matching the running package version; "
+            "its complete main history proves admission of newer signed producers"
         ),
     )
 
@@ -2762,6 +2808,24 @@ def main():
     )
     _add_required_corpus_path_argument(path_migration_parser)
 
+    retired_metadata_parser = subparsers.add_parser(
+        "migrate-retired-source-metadata",
+        help="Deterministically remove retired source-verification metadata",
+    )
+    retired_metadata_parser.add_argument("--plan", type=Path, required=True)
+    retired_metadata_parser.add_argument(
+        "--policy-repo-path",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout",
+    )
+    retired_metadata_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write replayable postimages and an unsigned receipt in a scratch checkout",
+    )
+    _add_required_corpus_path_argument(retired_metadata_parser)
+
     # test command
     test_parser = subparsers.add_parser(
         "test", help="Execute RuleSpec companion .test.yaml cases"
@@ -3752,6 +3816,8 @@ def main():
         cmd_retire(args)
     elif args.command == "migrate-rulespec-paths":
         cmd_migrate_rulespec_paths(args)
+    elif args.command == "migrate-retired-source-metadata":
+        cmd_migrate_retired_source_metadata(args)
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
     elif args.command == "stage-signed-backfill":
@@ -5183,6 +5249,7 @@ def _report_money_atom_verdict(money_run) -> bool:
     return True
 
 
+@_rulespec_routing_cache_scope()
 def cmd_test(args):
     """Execute companion tests from one exact jurisdiction content root."""
     root = _resolve_explicit_existing_directory(
@@ -5256,17 +5323,19 @@ def cmd_test(args):
         tmp_path = Path(tmpdir)
         compiled_cache: dict[Path, tuple[Path, dict]] = {}
         for test_file in test_files:
-            result = _execute_rulespec_test_file(
-                test_file,
-                binary=binary,
-                pipeline=pipeline,
-                axiom_rules_path=Path(axiom_rules_path),
-                env=rulespec_env,
-                rulespec_roots=rulespec_roots,
-                tmp_path=tmp_path,
-                compiled_cache=compiled_cache,
-                policy_repo_path=root,
-            )
+            # Keep resolution state local to this module, as in waiver audits.
+            with _rulespec_resolution_cache_scope():
+                result = _execute_rulespec_test_file(
+                    test_file,
+                    binary=binary,
+                    pipeline=pipeline,
+                    axiom_rules_path=Path(axiom_rules_path),
+                    env=rulespec_env,
+                    rulespec_roots=rulespec_roots,
+                    tmp_path=tmp_path,
+                    compiled_cache=compiled_cache,
+                    policy_repo_path=root,
+                )
             case_count += result["cases"]
             compiled_count += result["compiled"]
             failures.extend(result["failures"])
@@ -5477,6 +5546,7 @@ def _execute_rulespec_test_file(
                     declared_relation_slots=declared_relation_slots,
                     compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
+                    rulespec_roots=rulespec_roots,
                 )
             )
         except Exception as error:
@@ -5517,12 +5587,24 @@ def _execute_rulespec_test_case(
     declared_relation_slots: dict[str, tuple[str, ...]],
     compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
+    rulespec_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
     expected = case.get("output") or {}
+    expected_entities = {
+        str(derived_by_id[str(output)].get("entity") or "Case")
+        for output in expected
+        if str(output) in derived_by_id
+    }
+    if len(expected_entities) > 1:
+        raise ValueError(
+            "mixes derived output entities "
+            f"({', '.join(sorted(expected_entities))}); put outputs for each "
+            "entity in separate test cases."
+        )
     query_entity = next(
         (
             str(derived_by_id[str(output)].get("entity") or "Case")
@@ -5542,6 +5624,34 @@ def _execute_rulespec_test_case(
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
+    flat_input_records: list[dict] = []
+    generated_relation_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    generated_table_rows: list[tuple[str, list[str], int, list[dict]]] = []
+    occupied_entity_ids = {root_entity_id: {query_entity}}
+    module_file = _rulespec_program_for_test_file(test_file)
+    input_entities = declared_input_entities(
+        module_file,
+        (
+            str(key)
+            for key, value in (case.get("input") or {}).items()
+            if not isinstance(value, (dict, list))
+        ),
+        resolve_reference=lambda key: _rulespec_file_for_absolute_module_ref(
+            key,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+        resolve_import=lambda target, current: _resolve_rulespec_import_file_static(
+            target,
+            rules_file=current,
+            policy_repo_path=(
+                policy_repo_path
+                if _rulespec_import_prefix_static(target)
+                else find_policy_repo_root(current) or policy_repo_path
+            ),
+            rulespec_dependency_roots=rulespec_roots,
+        ),
+    )
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
@@ -5618,6 +5728,7 @@ def _execute_rulespec_test_case(
                         }
                     )
                     continue
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     inputs.append(
                         {
@@ -5628,18 +5739,27 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                generated_relation_rows.append(
+                    (
+                        related_entity,
+                        relation_tuple,
+                        1 if current_slot == 0 else 0,
+                        inputs[input_start:],
+                    )
+                )
         else:
-            inputs.append(
-                {
-                    "name": key,
-                    "entity": query_entity,
-                    "entity_id": root_entity_id,
-                    "interval": interval,
-                    "value": _rulespec_scalar_value(value),
-                }
-            )
+            input_entity = input_entities.get(key, query_entity)
+            record = {
+                "name": key,
+                "entity": input_entity,
+                "entity_id": root_entity_id,
+                "interval": interval,
+                "value": _rulespec_scalar_value(value),
+            }
+            inputs.append(record)
+            flat_input_records.append(record)
 
-    table_rows_by_entity: dict[str, list[tuple[str, dict]]] = {}
+    table_rows_by_entity: dict[str, list[tuple[list[str], dict]]] = {}
     tables = case.get("tables")
     if tables is not None:
         if not isinstance(tables, dict):
@@ -5662,7 +5782,8 @@ def _execute_rulespec_test_case(
                     }
                 )
                 return failures
-            resolved_rows: list[tuple[str, dict]] = []
+            resolved_rows: list[tuple[list[str], dict]] = []
+            row_id_keys = {"id", "entity_id", f"{_snake_case(table_entity)}_id"}
             for row_index, row in enumerate(rows, 1):
                 if not isinstance(row, dict):
                     failures.append(
@@ -5677,9 +5798,16 @@ def _execute_rulespec_test_case(
                     )
                     return failures
                 row_id = _rulespec_table_row_entity_id(table_entity, row, row_index)
-                resolved_rows.append((row_id, row))
+                row_ids = [row_id]
+                resolved_rows.append((row_ids, row))
+                explicit_id = any(key in row for key in row_id_keys)
+                if explicit_id:
+                    occupied_entity_ids.setdefault(row_id, set()).add(table_entity)
+                input_start = len(inputs)
                 for row_key, row_value in row.items():
                     key = str(row_key)
+                    if key in row_id_keys:
+                        continue
                     flat_inputs[key] = row_value
                     inputs.append(
                         {
@@ -5690,7 +5818,32 @@ def _execute_rulespec_test_case(
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+                if not explicit_id:
+                    generated_table_rows.append(
+                        (table_entity, row_ids, 0, inputs[input_start:])
+                    )
             table_rows_by_entity[table_entity] = resolved_rows
+
+    require_distinct_entity_ids(occupied_entity_ids)
+    assign_generated_fixture_ids(generated_table_rows, occupied_entity_ids)
+    assign_generated_fixture_ids(generated_relation_rows, occupied_entity_ids)
+    flat_entity_ids: dict[str, str] = {}
+    for record in flat_input_records:
+        input_entity = record["entity"]
+        if input_entity not in flat_entity_ids:
+            entity_id = flat_input_entity_id(
+                input_entity,
+                query_entity,
+                root_entity_id,
+                reserved_entity_ids=(
+                    entity_id
+                    for entity_id, entities in occupied_entity_ids.items()
+                    if entities - {input_entity}
+                ),
+            )
+            flat_entity_ids[input_entity] = entity_id
+            occupied_entity_ids.setdefault(entity_id, set()).add(input_entity)
+        record["entity_id"] = flat_entity_ids[input_entity]
 
     parameter_expected = {
         str(key): value
@@ -5771,7 +5924,7 @@ def _execute_rulespec_test_case(
     table_rows = table_rows_by_entity.get(query_entity, [])
     query_entity_ids = [root_entity_id]
     if table_rows:
-        query_entity_ids = [row_id for row_id, _row in table_rows]
+        query_entity_ids = [row_ids[0] for row_ids, _row in table_rows]
         for output in list_outputs:
             expected_value = derived_expected[output]
             if len(expected_value) != len(table_rows):
@@ -5826,11 +5979,20 @@ def _execute_rulespec_test_case(
     )
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
+        findings = cross_entity_input_findings(
+            message,
+            case.get("input") or {},
+            input_entities,
+            output_entities,
+            declared_relation_slots,
+        )
         failures.append(
             {
                 "file": str(test_file),
                 "case": case_name,
-                "message": _translate_rulespec_engine_envelope_error(message),
+                "message": " ".join(
+                    [_translate_rulespec_engine_envelope_error(message), *findings]
+                ),
             }
         )
         return failures
@@ -21117,6 +21279,633 @@ def cmd_migrate_rulespec_paths(args) -> None:
         _cmd_migrate_rulespec_paths(args)
 
 
+def _retired_source_metadata_base_files(
+    repo_path: Path,
+    commit: str,
+) -> dict[str, bytes]:
+    """Read the full atomic YAML inventory from immutable regular Git blobs."""
+
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RetiredSourceMetadataError(
+            "migration base_commit must be an exact Git SHA"
+        )
+    raw_listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-z",
+        commit,
+    )
+    inventory: list[tuple[str, str]] = []
+    roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+    for record in raw_listing.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, kind, object_id = metadata.decode("ascii").split()
+            path_text = encoded_path.decode("utf-8")
+        except (ValueError, UnicodeError) as exc:
+            raise RetiredSourceMetadataError("malformed migration base tree") from exc
+        relative = Path(path_text)
+        if not _is_protected_rulespec_yaml_path(relative, roots=roots):
+            continue
+        if (
+            mode != "100644"
+            or kind != "blob"
+            or relative.is_absolute()
+            or relative.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
+        ):
+            raise RetiredSourceMetadataError(
+                f"migration base module is not a canonical regular 0644 blob: {path_text}"
+            )
+        inventory.append((path_text, object_id))
+    if not inventory:
+        raise RetiredSourceMetadataError("migration base has no atomic YAML modules")
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "cat-file", "--batch"],
+        input="".join(f"{object_id}\n" for _, object_id in inventory).encode("ascii"),
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode:
+        raise RetiredSourceMetadataError("cannot read migration base blobs")
+    result: dict[str, bytes] = {}
+    offset = 0
+    for path_text, object_id in inventory:
+        end = completed.stdout.find(b"\n", offset)
+        if end < 0:
+            raise RetiredSourceMetadataError("truncated migration base blob inventory")
+        try:
+            actual_id, kind, size_text = (
+                completed.stdout[offset:end].decode("ascii").split()
+            )
+            size = int(size_text)
+        except (ValueError, UnicodeError) as exc:
+            raise RetiredSourceMetadataError("malformed migration base blob") from exc
+        if (
+            actual_id != object_id
+            or kind != "blob"
+            or not 0 <= size <= 16 * 1024 * 1024
+        ):
+            raise RetiredSourceMetadataError(
+                f"unbounded or mismatched base blob: {path_text}"
+            )
+        offset = end + 1
+        result[path_text] = completed.stdout[offset : offset + size]
+        offset += size
+        if completed.stdout[offset : offset + 1] != b"\n":
+            raise RetiredSourceMetadataError("truncated migration base blob")
+        offset += 1
+    if offset != len(completed.stdout):
+        raise RetiredSourceMetadataError(
+            "unexpected migration base blob inventory data"
+        )
+    return result
+
+
+def _retired_source_metadata_manifest_entries(migration, base_files):
+    """Preserve each rewritten module's unchanged companion ownership."""
+
+    result: dict[Path, list[dict[str, str]]] = {}
+    for item in migration.files:
+        entries = [
+            {
+                "path": item.path.as_posix(),
+                "sha256": hashlib.sha256(item.after).hexdigest(),
+            }
+        ]
+        companion = companion_path(item.path).as_posix()
+        if companion in base_files:
+            entries.append(
+                {
+                    "path": companion,
+                    "sha256": hashlib.sha256(base_files[companion]).hexdigest(),
+                }
+            )
+        result[_applied_encoding_manifest_path(item.path)] = sorted(
+            entries, key=lambda entry: entry["path"]
+        )
+    return result
+
+
+def _retired_source_metadata_owner_scope_issues(
+    repo_path: Path, migration, base_files
+) -> list[str]:
+    """Refuse migrations that would leave or shrink an existing v5 owner."""
+
+    expected = _retired_source_metadata_manifest_entries(migration, base_files)
+    affected = {item.path.as_posix() for item in migration.files}
+    records: set[bytes] = set()
+    affected_paths = sorted(affected)
+    for offset in range(0, len(affected_paths), 64):
+        arguments = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
+        for path in affected_paths[offset : offset + 64]:
+            arguments.extend(["-e", path])
+        arguments.extend([migration.plan.base_commit, "--"])
+        completed = subprocess.run(
+            arguments,
+            capture_output=True,
+            env=_rulespec_migration_git_environment(),
+            check=False,
+        )
+        if completed.returncode not in (0, 1):
+            return ["cannot inspect immutable migration manifest ownership"]
+        records.update(record for record in completed.stdout.split(b"\0") if record)
+    issues: list[str] = []
+    for record in sorted(records):
+        try:
+            text = record.decode("utf-8")
+            prefix = migration.plan.base_commit + ":"
+            if not text.startswith(prefix):
+                raise ValueError("unexpected Git manifest identity")
+            relative = Path(text[len(prefix) :])
+            if not _is_applied_encoding_manifest_path(
+                relative, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+            ):
+                continue
+            payload = json.loads(
+                _rulespec_migration_base_blob(
+                    repo_path, migration.plan.base_commit, relative
+                )
+            )
+        except (UnicodeError, ValueError, RuntimeError) as exc:
+            issues.append(f"cannot inspect migration prior manifest: {exc}")
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+        ):
+            continue
+        entries = payload.get("applied_files")
+        if not isinstance(entries, list):
+            continue
+        live_paths = {
+            entry["path"]
+            for entry in entries
+            if isinstance(entry, dict)
+            and isinstance(entry.get("path"), str)
+            and entry.get("deleted") is not True
+        }
+        if not live_paths & affected:
+            continue
+        if relative not in expected:
+            issues.append(
+                f"migration would leave an existing v5 owner stale: {relative}"
+            )
+        elif live_paths != {entry["path"] for entry in expected[relative]}:
+            issues.append(
+                f"migration would change existing v5 owner coverage: {relative}"
+            )
+    return issues
+
+
+_RETIRED_SOURCE_METADATA_REPLAY_CACHE: dict[
+    tuple[str, str, str], tuple[object, dict[str, bytes]]
+] = {}
+
+
+def _retired_source_metadata_replay(repo_path: Path, receipt_relative: Path):
+    """Replay an exact canonical receipt against its immutable Git base."""
+
+    directory = Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+    if (
+        receipt_relative.parent != directory
+        or re.fullmatch(
+            r"[0-9a-f]{64}\.json",
+            receipt_relative.name,
+        )
+        is None
+    ):
+        raise RetiredSourceMetadataError(
+            "noncanonical retired source metadata receipt path"
+        )
+    raw = read_bounded_regular_file(
+        repo_path,
+        repo_path / receipt_relative,
+        label="retired source metadata receipt",
+        max_bytes=16 * 1024 * 1024,
+    )
+    cache_key = (
+        str(repo_path.resolve()),
+        receipt_relative.as_posix(),
+        hashlib.sha256(raw).hexdigest(),
+    )
+    if cache_key in _RETIRED_SOURCE_METADATA_REPLAY_CACHE:
+        return _RETIRED_SOURCE_METADATA_REPLAY_CACHE[cache_key]
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise RetiredSourceMetadataError("migration receipt must be an object")
+    commit = payload.get("base_commit")
+    if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise RetiredSourceMetadataError("migration receipt base_commit is malformed")
+    actual_tree = _rulespec_migration_git(
+        repo_path, "rev-parse", f"{commit}^{{tree}}"
+    ).strip()
+    if payload.get("base_tree") != actual_tree:
+        raise RetiredSourceMetadataError(
+            "migration receipt base tree does not match its base commit"
+        )
+    base_files = _retired_source_metadata_base_files(repo_path, commit)
+    migration = verify_retired_source_metadata_replay(raw, base_files=base_files)
+    if migration.receipt_relative != receipt_relative:
+        raise RetiredSourceMetadataError(
+            "migration receipt filename does not match its identity"
+        )
+    if len(_RETIRED_SOURCE_METADATA_REPLAY_CACHE) >= 2:
+        _RETIRED_SOURCE_METADATA_REPLAY_CACHE.clear()
+    _RETIRED_SOURCE_METADATA_REPLAY_CACHE[cache_key] = (migration, base_files)
+    return migration, base_files
+
+
+def retired_source_metadata_change_set(
+    repo_path: Path, receipt_relative: Path
+) -> dict[str, object]:
+    """Return the exact replayed, live transaction for protected packaging."""
+
+    repo_path = Path(repo_path).resolve()
+    receipt_relative = Path(receipt_relative)
+    migration, base_files = _retired_source_metadata_replay(repo_path, receipt_relative)
+    manifest_entries = _retired_source_metadata_manifest_entries(migration, base_files)
+    binding = {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": migration.receipt_sha256,
+    }
+    for item in migration.files:
+        live = read_bounded_regular_file(
+            repo_path,
+            repo_path / item.path,
+            label="migration live postimage",
+            max_bytes=16 * 1024 * 1024,
+        )
+        if live != item.after:
+            raise RetiredSourceMetadataError(
+                f"migration live postimage differs from replay: {item.path}"
+            )
+    for manifest_path, entries in manifest_entries.items():
+        manifest = json.loads(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / manifest_path,
+                label="migration apply manifest",
+                max_bytes=1024 * 1024,
+            )
+        )
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("tool") != RETIRED_SOURCE_METADATA_TOOL
+            or manifest.get("retired_source_metadata") != binding
+            or manifest.get("applied_files") != entries
+        ):
+            raise RetiredSourceMetadataError(
+                f"migration manifest differs from replay: {manifest_path}"
+            )
+    manifest_paths = sorted(path.as_posix() for path in manifest_entries)
+    return {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": migration.receipt_sha256,
+        "files": migration.receipt["files"],
+        "manifest_paths": manifest_paths,
+        "changed_paths": sorted(
+            [
+                receipt_relative.as_posix(),
+                *manifest_paths,
+                *(item.path.as_posix() for item in migration.files),
+            ]
+        ),
+    }
+
+
+def _retired_source_metadata_manifest_issues(
+    payload: Mapping[str, object],
+    *,
+    repo_path: Path,
+    manifest_label: str,
+) -> list[str]:
+    """Authorize this manifest's files only by deterministic base-blob replay."""
+
+    if payload.get("tool") != RETIRED_SOURCE_METADATA_TOOL:
+        return []
+    binding = payload.get("retired_source_metadata")
+    if (
+        not isinstance(binding, dict)
+        or set(binding) != {"receipt_path", "receipt_sha256"}
+        or not isinstance(binding.get("receipt_path"), str)
+        or not isinstance(binding.get("receipt_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", binding["receipt_sha256"]) is None
+    ):
+        return [
+            f"{manifest_label} has no exact retired source metadata receipt binding"
+        ]
+    try:
+        migration, base_files = _retired_source_metadata_replay(
+            repo_path, Path(binding["receipt_path"])
+        )
+        if migration.receipt_sha256 != binding["receipt_sha256"]:
+            raise RetiredSourceMetadataError(
+                "receipt digest does not match manifest binding"
+            )
+        entries = _retired_source_metadata_manifest_entries(migration, base_files)
+        expected = entries.get(Path(manifest_label))
+        if expected is None or payload.get("applied_files") != expected:
+            raise RetiredSourceMetadataError(
+                "manifest file scope does not match deterministic replay"
+            )
+        owner_issues = _retired_source_metadata_owner_scope_issues(
+            repo_path, migration, base_files
+        )
+        if owner_issues:
+            raise RetiredSourceMetadataError("; ".join(owner_issues))
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+        return [f"{manifest_label} retired source metadata replay failed: {exc}"]
+    return []
+
+
+def _retired_source_metadata_change_set_issues(
+    repo_path: Path,
+    changed: list[str],
+    *,
+    base_ref: str | None = None,
+) -> list[str]:
+    """A new receipt and every file and manifest it records land together."""
+
+    changed_set = {Path(path).as_posix() for path in changed}
+    receipt_dir = Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+    receipts = sorted(
+        path
+        for path in changed_set
+        if Path(path).parts[: len(receipt_dir.parts)] == receipt_dir.parts
+    )
+    issues: list[str] = []
+    for path in sorted(changed_set):
+        if not _is_applied_encoding_manifest_path(
+            Path(path), roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+        ):
+            continue
+        try:
+            payload = json.loads(
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / path,
+                    label="changed apply manifest",
+                    max_bytes=1024 * 1024,
+                )
+            )
+        except (OSError, ValueError, UnsafeCorpusPathError):
+            continue
+        if (
+            not isinstance(payload, dict)
+            or payload.get("tool") != RETIRED_SOURCE_METADATA_TOOL
+        ):
+            continue
+        binding = payload.get("retired_source_metadata")
+        receipt_path = (
+            binding.get("receipt_path") if isinstance(binding, dict) else None
+        )
+        if receipt_path not in receipts:
+            issues.append(
+                f"{path} changed without introducing its retired source metadata receipt {receipt_path}"
+            )
+    for path in receipts:
+        try:
+            expected = retired_source_metadata_change_set(repo_path, Path(path))
+            if changed_set != set(expected["changed_paths"]):
+                missing = sorted(set(expected["changed_paths"]) - changed_set)
+                extra = sorted(changed_set - set(expected["changed_paths"]))
+                raise RetiredSourceMetadataError(
+                    f"receipt must land with its exact change set (missing={missing}, extra={extra})"
+                )
+            migration, _ = _retired_source_metadata_replay(repo_path, Path(path))
+            if _rulespec_migration_git_bytes(
+                repo_path,
+                "ls-tree",
+                "-z",
+                "--full-tree",
+                migration.receipt["base_commit"],
+                "--",
+                path,
+            ):
+                raise RetiredSourceMetadataError(
+                    "historical migration receipts cannot be edited or removed"
+                )
+            if base_ref is not None:
+                protected_base = _rulespec_migration_git(
+                    repo_path,
+                    "rev-parse",
+                    "--verify",
+                    f"{base_ref}^{{commit}}",
+                ).strip()
+                if protected_base != migration.plan.base_commit:
+                    raise RetiredSourceMetadataError(
+                        "migration receipt base_commit does not match the protected base"
+                    )
+        except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+            issues.append(
+                f"{path} retired source metadata change set is invalid: {exc}"
+            )
+    return issues
+
+
+def cmd_migrate_retired_source_metadata(args) -> None:
+    """Install a deterministic migration through the existing apply journal."""
+
+    with _rulespec_migration_clean_ambient_git():
+        _cmd_migrate_retired_source_metadata(args)
+
+
+def _cmd_migrate_retired_source_metadata(args) -> None:
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.policy_repo_path, label="RuleSpec checkout"
+    )
+    _recover_apply_transaction(repo_path)
+    commit, tree = _rulespec_migration_base_identity(repo_path)
+    try:
+        plan_path = Path(os.path.abspath(Path(args.plan).expanduser()))
+        if plan_path.resolve(strict=True) != plan_path:
+            raise UnsafeCorpusPathError("migration plan contains a symlink")
+        plan = load_retired_source_metadata_plan_bytes(
+            read_bounded_regular_file(
+                Path(plan_path.anchor),
+                plan_path,
+                label="retired source metadata plan",
+                max_bytes=1024 * 1024,
+            )
+        )
+        if plan.base_commit != commit:
+            raise RetiredSourceMetadataError(
+                "migration plan base_commit does not match RuleSpec HEAD"
+            )
+        base_files = _retired_source_metadata_base_files(repo_path, commit)
+        migration = build_retired_source_metadata_migration(
+            plan, base_tree=tree, base_files=base_files
+        )
+    except (OSError, ValueError, RuntimeError, UnsafeCorpusPathError) as exc:
+        raise SystemExit(
+            f"Cannot plan retired source metadata migration: {exc}"
+        ) from exc
+    dry_run = bool(getattr(args, "dry_run", False))
+    planned = {item.path: item.after for item in migration.files}
+    planned[migration.receipt_relative] = migration.receipt_bytes
+    expected_identity = None
+    waiver_sha256 = None
+    release_identity = None
+    signer = None
+    if not dry_run:
+        owner_issues = _retired_source_metadata_owner_scope_issues(
+            repo_path, migration, base_files
+        )
+        if owner_issues:
+            raise SystemExit(
+                "Cannot preserve migration manifest ownership: "
+                + "; ".join(owner_issues)
+            )
+        signer = _require_applied_encoding_manifest_signer()
+        local_release = load_rulespec_local_corpus_release(
+            repo_path, Path(args.corpus_path)
+        )
+        release_identity = (
+            local_release.root,
+            local_release.name,
+            local_release.content_sha256,
+            local_release.selector_sha256,
+        )
+        waiver_sha256 = verify_rulespec_validation_waiver_set(repo_path)
+        expected_identity = _current_guard_encoder_execution_identity()
+        provenance = _require_clean_axiom_encode_git_provenance()
+        generated_at = datetime.now(timezone.utc).isoformat()
+        for manifest_path, entries in _retired_source_metadata_manifest_entries(
+            migration, base_files
+        ).items():
+            payload = {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "generated_at": generated_at,
+                "tool": RETIRED_SOURCE_METADATA_TOOL,
+                "axiom_encode_version": __version__,
+                "axiom_encode_git": dict(provenance),
+                VALIDATION_WAIVER_SET_SHA256_FIELD: waiver_sha256,
+                "applied_files": entries,
+                "retired_source_metadata": {
+                    "receipt_path": migration.receipt_relative.as_posix(),
+                    "receipt_sha256": migration.receipt_sha256,
+                },
+            }
+            _sign_applied_encoding_manifest(payload, signer)
+            planned[manifest_path] = (
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            ).encode()
+    tracked = _rulespec_migration_tracked_files(repo_path)
+    expected_originals: dict[Path, str | None] = {}
+    for relative in planned:
+        if relative == migration.receipt_relative and (
+            relative in tracked
+            or (repo_path / relative).exists()
+            or (repo_path / relative).is_symlink()
+        ):
+            raise SystemExit(f"Migration receipt already exists: {relative}")
+        expected_originals[repo_path / relative] = (
+            hashlib.sha256(
+                _rulespec_migration_base_blob(repo_path, commit, relative)
+            ).hexdigest()
+            if relative in tracked
+            else None
+        )
+
+    def pre_install_check() -> None:
+        if _rulespec_migration_base_identity(repo_path) != (commit, tree):
+            raise RuntimeError("RuleSpec base changed after migration planning")
+        if not dry_run:
+            current_release = load_rulespec_local_corpus_release(
+                repo_path, Path(args.corpus_path)
+            )
+            if (
+                current_release.root,
+                current_release.name,
+                current_release.content_sha256,
+                current_release.selector_sha256,
+            ) != release_identity:
+                raise RuntimeError("migration corpus binding changed after planning")
+            if verify_rulespec_validation_waiver_set(repo_path) != waiver_sha256:
+                raise RuntimeError("migration waiver set changed after planning")
+
+    def post_install_check() -> None:
+        replay, _ = _retired_source_metadata_replay(
+            repo_path, migration.receipt_relative
+        )
+        for item in replay.files:
+            if (
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / item.path,
+                    label="migration postimage",
+                    max_bytes=16 * 1024 * 1024,
+                )
+                != item.after
+            ):
+                raise RuntimeError(
+                    f"migration postimage differs from replay: {item.path}"
+                )
+        if not dry_run:
+            for relative in planned:
+                if (
+                    relative.parent == Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR)
+                    or relative.suffix != ".json"
+                ):
+                    continue
+                verified, _, _, issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        repo_path,
+                        relative.as_posix(),
+                        signing_broker=signer,
+                        expected_waiver_set_sha256=waiver_sha256,
+                        expected_encoder_identity=expected_identity,
+                    )
+                )
+                if verified is None or issues:
+                    raise RuntimeError(
+                        "migration manifest failed verification: " + "; ".join(issues)
+                    )
+            retired_source_metadata_change_set(repo_path, migration.receipt_relative)
+
+    _install_apply_transaction(
+        [
+            (repo_path / relative, raw)
+            for relative, raw in sorted(
+                planned.items(), key=lambda pair: pair[0].as_posix()
+            )
+        ],
+        checkout_root=repo_path,
+        expected_originals=expected_originals,
+        pre_install_check=pre_install_check,
+        post_install_check=post_install_check,
+    )
+    print(
+        json.dumps(
+            {
+                "dry_run": dry_run,
+                "base_commit": commit,
+                "base_tree": tree,
+                "receipt_path": migration.receipt_relative.as_posix(),
+                "receipt_sha256": migration.receipt_sha256,
+                "files": migration.receipt["files"],
+                "primaries": migration.receipt["primaries"],
+                "cascade_rewrites": list(migration.cascade_rewrites),
+                "manifest_paths": sorted(
+                    relative.as_posix()
+                    for relative in planned
+                    if _is_applied_encoding_manifest_path(
+                        relative, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+                    )
+                ),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
 def _cmd_migrate_rulespec_paths(args) -> None:
     """Implementation under a command-wide sanitized Git environment."""
 
@@ -22037,6 +22826,11 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
+    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(
+        repo_path, changed, base_ref=base_ref
+    )
+    if retired_metadata_change_issues:
+        return retired_metadata_change_issues
     changed_manifest_paths = [
         path
         for path in changed
@@ -22052,8 +22846,10 @@ def guard_generated_change_issues(
         _guard_manifest_waiver_set_identity(
             repo_path,
             base_ref=base_ref,
+            head_ref=head_ref,
             changed=changed,
             protected=protected,
+            roots=roots,
             current_waiver_set_sha256=current_waiver_set_sha256,
         )
     )
@@ -23002,8 +23798,10 @@ def _guard_manifest_waiver_set_identity(
     repo_path: Path,
     *,
     base_ref: str | None,
+    head_ref: str | None,
     changed: list[str],
     protected: list[str],
+    roots: tuple[str, ...],
     current_waiver_set_sha256: str,
 ) -> tuple[str, list[str]]:
     """Resolve the waiver identity a changed apply manifest must carry.
@@ -23094,12 +23892,22 @@ def _guard_manifest_waiver_set_identity(
         return current_waiver_set_sha256, [
             prefix + "the waiver set did not remove any protected-base entry"
         ]
-    unrelated = sorted(set(removed) - set(protected))
+    unrelated = sorted(
+        path
+        for path in set(removed) - set(protected)
+        if not _unchanged_direct_importer_of_changed_rulespec(
+            repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref or "HEAD",
+            importer_path=path,
+            changed_rulespec_paths=protected,
+            roots=roots,
+        )
+    )
     if unrelated:
         return current_waiver_set_sha256, [
-            prefix
-            + "removed entries must name changed protected RuleSpec modules: "
-            + ", ".join(unrelated)
+            prefix + "removed entries must name changed protected RuleSpec modules or "
+            "unchanged direct importers of them: " + ", ".join(unrelated)
         ]
     invalid_states = [
         path
@@ -23113,6 +23921,53 @@ def _guard_manifest_waiver_set_identity(
             "RuleSpec module: " + ", ".join(invalid_states)
         ]
     return base_sha256, []
+
+
+def _unchanged_direct_importer_of_changed_rulespec(
+    repo_path: Path,
+    *,
+    base_ref: str,
+    head_ref: str,
+    importer_path: str,
+    changed_rulespec_paths: list[str],
+    roots: tuple[str, ...],
+) -> bool:
+    """Allow a passing downstream module's active waiver to retire after apply.
+
+    An unchanged importer can start passing when a signed replacement repairs
+    an imported module. Read its imports from identical base and head blobs so
+    a newly edited importer cannot manufacture this exception to the guard.
+    The validation-waiver ratchet separately requires the retired path to pass.
+    """
+
+    if not _is_protected_rulespec_yaml_path(Path(importer_path), roots=roots):
+        return False
+    base_bytes = _git_show_bytes(repo_path, base_ref, importer_path)
+    if base_bytes is None or base_bytes != _git_show_bytes(
+        repo_path, head_ref, importer_path
+    ):
+        return False
+    try:
+        payload = yaml.safe_load(base_bytes)
+    except (UnicodeDecodeError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict) or not isinstance(payload.get("imports"), list):
+        return False
+    importer_anchor = _rulespec_anchor_base_for_output(repo_path, Path(importer_path))
+    importer_jurisdiction = importer_anchor.split(":", 1)[0]
+    imports = {
+        raw.split("#", 1)[0].strip().strip("/")
+        for raw in payload["imports"]
+        if isinstance(raw, str)
+    }
+    for changed_path in changed_rulespec_paths:
+        changed_anchor = _rulespec_anchor_base_for_output(repo_path, Path(changed_path))
+        changed_jurisdiction, changed_target = changed_anchor.split(":", 1)
+        if changed_anchor in imports or (
+            changed_jurisdiction == importer_jurisdiction and changed_target in imports
+        ):
+            return True
+    return False
 
 
 def _generated_provenance_gate_issues(
@@ -23417,6 +24272,7 @@ def _manifest_coverage_by_file(
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL
             or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+            or payload.get("tool") == RETIRED_SOURCE_METADATA_TOOL
         )
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list):
@@ -23469,6 +24325,7 @@ def _applied_manifest_source_attestation_issues(
     if payload.get("tool") in {
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
+        RETIRED_SOURCE_METADATA_TOOL,
     }:
         return []
     backend = _normalized_manifest_backend(payload)
@@ -23782,14 +24639,11 @@ def _model_apply_validation_execution_issues(
         expected_repository="github.com/TheAxiomFoundation/axiom-rules-engine",
     )
     encoder = execution.get("axiom_encode")
-    # identity_source is informational and may differ between the writing mode
-    # and the verifying mode, so bind on repository + commit + version only.
-    if _encoder_identity_binding_core(encoder) != _encoder_identity_binding_core(
-        dict(expected_encoder_identity)
-    ):
-        issues.append(
-            f"{prefix}.axiom_encode does not match the running pinned encoder"
-        )
+    producer_issue = _encoder_producer_admission_issue(
+        encoder, expected_encoder_identity
+    )
+    if producer_issue:
+        issues.append(f"{prefix}.axiom_encode {producer_issue}")
     payload_encoder = payload.get("axiom_encode_git")
     if isinstance(encoder, dict) and isinstance(payload_encoder, dict):
         if encoder.get("commit") != payload_encoder.get("commit"):
@@ -23929,6 +24783,29 @@ def _applied_manifest_tool_execution_issues(
     backend = payload.get("backend")
     tool = payload.get("tool")
     issues: list[str] = []
+
+    def check_producer(contract: str) -> None:
+        provenance = payload.get("axiom_encode_git")
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("dirty_tracked") is not False
+        ):
+            issues.append(
+                f"{manifest_label} {contract} does not match the running pinned encoder: "
+                "producer provenance must be clean"
+            )
+            return
+        producer_issue = _encoder_producer_admission_issue(
+            {
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": provenance.get("commit"),
+                "version": provenance.get("version"),
+            },
+            expected_encoder_identity,
+        )
+        if producer_issue:
+            issues.append(f"{manifest_label} {contract} {producer_issue}")
+
     if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
         if tool != APPLIED_ENCODING_MODEL_TOOL:
             issues.append(
@@ -23947,16 +24824,7 @@ def _applied_manifest_tool_execution_issues(
             or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
         ):
             issues.append(f"{manifest_label} reviewed RuleSpec ref is invalid")
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} reviewed candidate promotion does not match "
-                "the running pinned encoder"
-            )
+        check_producer("reviewed candidate promotion")
         if "deterministic_execution" in payload:
             issues.append(
                 f"{manifest_label} reviewed candidate promotion must carry "
@@ -23965,6 +24833,39 @@ def _applied_manifest_tool_execution_issues(
         return issues
     if backend is None:
         applied_files = payload.get("applied_files")
+        if tool == RETIRED_SOURCE_METADATA_TOOL:
+            if (
+                not isinstance(applied_files, list)
+                or not applied_files
+                or any(
+                    not isinstance(item, dict) or set(item) != {"path", "sha256"}
+                    for item in applied_files
+                )
+            ):
+                issues.append(
+                    f"{manifest_label} retired source metadata migration has malformed file entries"
+                )
+            provenance = payload.get("axiom_encode_git")
+            if not isinstance(provenance, dict) or (
+                provenance.get("commit") != expected_encoder_identity.get("commit")
+                or provenance.get("version") != expected_encoder_identity.get("version")
+                or provenance.get("dirty_tracked") is not False
+            ):
+                issues.append(
+                    f"{manifest_label} retired source metadata migration does not match the running pinned encoder"
+                )
+            if any(
+                field in payload
+                for field in (
+                    "source_attestation",
+                    "validation_execution",
+                    "deterministic_execution",
+                )
+            ):
+                issues.append(
+                    f"{manifest_label} retired source metadata migration may claim only receipt-bound replay"
+                )
+            return issues
         if tool == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL:
             if not isinstance(applied_files, list) or any(
                 not isinstance(item, dict) or set(item) != {"path", "sha256"}
@@ -23983,16 +24884,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} exact dependent migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} exact dependent migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("exact dependent migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -24025,16 +24917,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} retained successor migration must preserve "
                     "receipt-bound provenance"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} retained successor migration does not match "
-                    "the running pinned encoder"
-                )
+            check_producer("retained successor migration")
             return issues
         if tool == APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL:
             replacement_manifest = payload.get("replacement_manifest")
@@ -24058,16 +24941,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} legacy replacement must preserve nested model "
                     "provenance instead of claiming deterministic generation"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} legacy replacement does not match the "
-                    "running pinned encoder"
-                )
+            check_producer("legacy replacement")
             return issues
         if tool == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -24100,16 +24974,7 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} path migration must preserve prior provenance "
                     "instead of claiming new execution"
                 )
-            provenance = payload.get("axiom_encode_git")
-            if not isinstance(provenance, dict) or (
-                provenance.get("commit") != expected_encoder_identity.get("commit")
-                or provenance.get("version") != expected_encoder_identity.get("version")
-                or provenance.get("dirty_tracked") is not False
-            ):
-                issues.append(
-                    f"{manifest_label} path migration does not match the running "
-                    "pinned encoder"
-                )
+            check_producer("path migration")
             return issues
         if tool != APPLIED_ENCODING_RETIRE_TOOL or not isinstance(applied_files, list):
             issues.append(f"{manifest_label} has no allowlisted tool/backend contract")
@@ -24134,15 +24999,7 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} retire tool must preserve prior provenance instead "
                 "of claiming new execution"
             )
-        provenance = payload.get("axiom_encode_git")
-        if not isinstance(provenance, dict) or (
-            provenance.get("commit") != expected_encoder_identity.get("commit")
-            or provenance.get("version") != expected_encoder_identity.get("version")
-            or provenance.get("dirty_tracked") is not False
-        ):
-            issues.append(
-                f"{manifest_label} retirement does not match the running pinned encoder"
-            )
+        check_producer("retirement")
         return issues
     issues.append(f"{manifest_label} backend is not canonical")
     return issues
@@ -24185,6 +25042,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "legacy retained successor"
+    elif backend is None and tool == RETIRED_SOURCE_METADATA_TOOL:
+        expected_fields = _RETIRED_SOURCE_METADATA_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "retired source metadata migration"
     else:
         return []
 
@@ -27648,6 +28509,11 @@ def _load_verified_applied_encoding_manifest_payload(
             rulespec_snapshots=applied_file_snapshots,
         )
     )
+    issues.extend(
+        _retired_source_metadata_manifest_issues(
+            payload, repo_path=repo_path, manifest_label=manifest_label
+        )
+    )
     source_attestation = payload.get("source_attestation")
     if isinstance(source_attestation, dict):
         toolchain = load_rulespec_toolchain(repo_path)
@@ -28119,12 +28985,14 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
 def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            [shutil.which("git") or "git", "-C", str(repo), "show", f"{ref}:{path}"],
             capture_output=True,
             check=True,
             text=True,
+            timeout=30,
+            env=_read_only_git_environment(),
         ).stdout
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.SubprocessError, UnicodeError):
         return None
 
 
@@ -28233,12 +29101,224 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
     return provenance
 
 
+class _GuardEncoderIdentity(dict[str, str]):
+    """Portable pin identity with verifier-owned, out-of-band Git context.
+
+    The mapping remains the existing repository/commit/version record. Keeping
+    the checkout out of its keys prevents paths from entering signed records or
+    census reports, and prevents a manifest from choosing its own history. Each
+    resolver creates a fresh instance for one guard operation. Historical nested
+    identities remain plain mappings and retain their existing exact binding.
+    """
+
+    def __init__(
+        self,
+        identity: Mapping[str, str],
+        *,
+        history_checkout: Path | None,
+    ) -> None:
+        super().__init__(identity)
+        self.history_checkout = history_checkout
+        self.producer_admission_cache: dict[tuple[str, str], str | None] = {}
+
+
+def _encoder_producer_admission_issue(
+    producer: object,
+    expected_encoder_identity: Mapping[str, str],
+) -> str | None:
+    """Admit an exact pin or a signed producer on newer first-parent main.
+
+    Called only after production-signature verification by the manifest loader.
+    Versions still bind the exact identity and the manifest's internal blocks;
+    they never establish ordering between different commits.
+    """
+
+    mismatch = "does not match the running pinned encoder"
+    core = _encoder_identity_binding_core(producer)
+    expected = _encoder_identity_binding_core(dict(expected_encoder_identity))
+    if core == expected:
+        return None
+    if (
+        not isinstance(core, dict)
+        or set(core) != {"repository", "commit", "version"}
+        or core.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or expected.get("repository") != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+        or not isinstance(core.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", core["commit"]) is None
+        or not isinstance(expected.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", expected["commit"]) is None
+        or not isinstance(core.get("version"), str)
+        or not core["version"]
+    ):
+        return f"{mismatch}: producer identity is malformed"
+    if core["commit"] == expected["commit"]:
+        return f"{mismatch}: the pinned commit's version disagrees"
+    if (
+        not isinstance(expected_encoder_identity, _GuardEncoderIdentity)
+        or expected_encoder_identity.history_checkout is None
+    ):
+        return f"{mismatch}: encoder history is unavailable to prove producer ancestry"
+
+    cache_key = (expected["commit"], core["commit"])
+    cache = expected_encoder_identity.producer_admission_cache
+    if cache_key not in cache:
+        cache[cache_key] = _encoder_git_history_admission_issue(
+            expected_encoder_identity.history_checkout,
+            pin=expected["commit"],
+            producer=core["commit"],
+        )
+    history_issue = cache[cache_key]
+    return f"{mismatch}: {history_issue}" if history_issue else None
+
+
+def _guard_encoder_git_run(
+    checkout: Path, *args: str
+) -> subprocess.CompletedProcess[str]:
+    # `-C` first: the provisioned verification runtime's trusted git wrapper
+    # accepts only `git -C <checkout> <command>`. Replacement objects, grafts and
+    # the commit graph are disabled by _read_only_git_environment() here and by
+    # the wrapper's own environment under the supervisor.
+    return subprocess.run(
+        [shutil.which("git") or "git", "-C", str(checkout), *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_read_only_git_environment(),
+    )
+
+
+def _guard_encoder_git_metadata_issue(checkout: Path) -> str | None:
+    """Refuse graph-rewriting metadata, including shared worktree metadata."""
+
+    try:
+        graft_path = _guard_encoder_git_run(
+            checkout, "rev-parse", "--path-format=absolute", "--git-common-dir"
+        )
+        if graft_path.returncode != 0 or not graft_path.stdout.strip():
+            return "encoder Git metadata is unavailable: git rev-parse failed"
+        # --git-path info/grafts follows GIT_GRAFT_FILE=/dev/null; inspect the
+        # common directory directly so the neutralizer cannot hide metadata.
+        grafts = Path(graft_path.stdout.strip()) / "info/grafts"
+        if grafts.exists() or grafts.is_symlink():
+            return "encoder history contains forbidden graft metadata"
+        replacements = _guard_encoder_git_run(
+            checkout, "for-each-ref", "--format=%(refname)", "refs/replace/"
+        )
+        if replacements.returncode != 0:
+            return "encoder Git metadata is unavailable: git for-each-ref failed"
+        if replacements.stdout.strip():
+            return "encoder history contains forbidden replacement refs"
+    except (OSError, subprocess.SubprocessError, UnicodeError) as exc:
+        return f"cannot verify encoder Git metadata: {exc}"
+    return None
+
+
+def _encoder_git_history_admission_issue(
+    checkout: Path,
+    *,
+    pin: str,
+    producer: str,
+) -> str | None:
+    """Prove ancestry using complete, already fetched canonical main history."""
+
+    def run(*args: str) -> subprocess.CompletedProcess[str]:
+        return _guard_encoder_git_run(checkout, *args)
+
+    def require_success(*args: str) -> str:
+        result = run(*args)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"encoder history is unavailable: git {args[0]} exited {result.returncode}"
+            )
+        return result.stdout.strip()
+
+    try:
+        metadata_issue = _guard_encoder_git_metadata_issue(checkout)
+        if metadata_issue:
+            return metadata_issue
+        shallow = require_success("rev-parse", "--is-shallow-repository")
+        if shallow != "false":
+            return (
+                "encoder history is shallow or unavailable; fetch complete main history"
+            )
+        for label, commit in (("pin", pin), ("producer", producer)):
+            if (
+                require_success("rev-parse", "--verify", f"{commit}^{{commit}}")
+                != commit
+            ):
+                return f"encoder history does not contain the {label} commit"
+
+        # FETCH_HEAD is a Git-written fetch record, not a ref that can redirect
+        # to another branch. Callers authenticate its source and freshness.
+        # Keep Git paths lexical: absolute path formatting resolves filesystem
+        # symlinks before the no-follow checks can inspect them.
+        fetch_head = checkout / require_success("rev-parse", "--git-path", "FETCH_HEAD")
+        if fetch_head.is_symlink():
+            return "encoder fetched main record must not be symbolic"
+        try:
+            fetch_head.lstat()
+        except FileNotFoundError:
+            fetched = None
+        else:
+            raw, _metadata = _read_bounded_nofollow_regular_file(
+                fetch_head,
+                label="encoder fetched main record",
+                max_bytes=4096,
+                require_private=False,
+            )
+            fetched = raw.decode("utf-8")
+        if fetched is not None:
+            record = re.fullmatch(
+                r"([0-9a-f]{40})\t(?:not-for-merge)?\tbranch 'main' of ([^\n]+)\n?",
+                fetched,
+            )
+            if (
+                record is None
+                or _github_repository_identity(record[2])
+                != APPLIED_ENCODING_OFFICIAL_REPOSITORY
+            ):
+                return (
+                    "encoder fetched main record is ambiguous or is not official main"
+                )
+            main_ref, main_commit = "FETCH_HEAD", record[1]
+        else:
+            main_ref = "refs/heads/main"
+            main_path = checkout / require_success("rev-parse", "--git-path", main_ref)
+            if main_path.is_symlink():
+                return "encoder canonical main ref must not be a filesystem symlink"
+            symbolic = run("symbolic-ref", "--quiet", main_ref)
+            if symbolic.returncode == 0:
+                return "encoder canonical main ref must not be symbolic"
+            if symbolic.returncode != 1:
+                return "encoder history is unavailable: git symbolic-ref failed"
+            main_commit = require_success("show-ref", "--verify", "--hash", main_ref)
+        if (
+            require_success("rev-parse", "--verify", f"{main_commit}^{{commit}}")
+            != main_commit
+        ):
+            return "encoder main history does not identify a direct commit"
+        first_parent_main = require_success("rev-list", "--first-parent", main_commit)
+        if producer not in first_parent_main.splitlines():
+            return f"producer is not on the first-parent history of {main_ref}"
+        ancestry = run("merge-base", "--is-ancestor", pin, producer)
+        if ancestry.returncode == 1:
+            return "the pinned encoder commit is not an ancestor of the producer"
+        if ancestry.returncode != 0:
+            return (
+                "encoder history is unavailable: git merge-base exited "
+                f"{ancestry.returncode}"
+            )
+    except (OSError, subprocess.SubprocessError, RuntimeError, UnicodeError) as exc:
+        return f"cannot prove encoder producer ancestry: {exc}"
+    return None
+
+
 def _current_guard_encoder_execution_identity() -> dict[str, str]:
     """Return the clean official encoder identity executing this guard/writer.
 
     This is deliberately derived from the running checkout rather than from a
-    manifest claim.  It makes every accepted apply manifest specific to the
-    exact encoder commit and version pinned by the consumer workflow.
+    manifest claim. Git-backed identities also carry the checkout needed to
+    prove whether a signed producer descends from the consumer workflow's pin.
     """
 
     try:
@@ -28275,6 +29355,9 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     repo_root = checkout_identity.get("path")
     if not isinstance(repo_root, str):
         raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    metadata_issue = _guard_encoder_git_metadata_issue(Path(repo_root))
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
@@ -28283,11 +29366,14 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
             "running axiom-encode version does not match pyproject.toml, "
             "src/axiom_encode/__init__.py, and uv.lock at HEAD"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": __version__,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": __version__,
+        },
+        history_checkout=Path(repo_root),
+    )
 
 
 def _read_only_guard_encoder_execution_identity(
@@ -28315,6 +29401,9 @@ def _read_only_guard_encoder_execution_identity(
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
+    metadata_issue = _guard_encoder_git_metadata_issue(repo_root)
+    if metadata_issue:
+        raise RuntimeError(metadata_issue)
     versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
     checkout_version = versions.get("pyproject")
     if not checkout_version or any(
@@ -28329,11 +29418,14 @@ def _read_only_guard_encoder_execution_identity(
             f"provisioned runtime version {__version__} does not match expected "
             f"encoder checkout version {checkout_version}"
         )
-    return {
-        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
-        "commit": commit,
-        "version": checkout_version,
-    }
+    return _GuardEncoderIdentity(
+        {
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+            "commit": commit,
+            "version": checkout_version,
+        },
+        history_checkout=repo_root,
+    )
 
 
 # =========================================================================
@@ -31492,8 +32584,11 @@ def _admit_retired_replacement_source_verification(
     )
     if not isinstance(verification, dict):
         raise ValueError("replacement legacy source verification must be a mapping")
-    singular = verification.get("corpus_citation_path")
+    declared_singular = verification.get("corpus_citation_path")
     plural = verification.get("corpus_citation_paths")
+    requested = source_unit.resolved_source
+    composed_parent = declared_singular is None
+    singular = source_unit.requested if composed_parent else declared_singular
     if (
         not isinstance(singular, str)
         or singular != source_unit.requested
@@ -31513,6 +32608,26 @@ def _admit_retired_replacement_source_verification(
             )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
+    if composed_parent:
+        # A bodyless parent can be the sole source of a fresh replacement only
+        # when the historical siblings are exactly its attested text-bearing
+        # components. A partial page list must not silently shed source text.
+        component_paths = [row.citation_path for row in requested.component_rows]
+        if (
+            requested.requested != singular
+            or requested.citation_path != singular
+            or not isinstance(requested.row, CorpusRowIdentity)
+            or requested.row.citation_path != singular
+            or requested.slice_required
+            or not component_paths
+            or len(set(component_paths)) != len(component_paths)
+            or set(plural) != set(component_paths)
+            or any(not path.startswith(singular + "/") for path in plural)
+        ):
+            raise ValueError(
+                "replacement plural-only source verification requires the exact "
+                "complete composed parent and its attested descendant rows"
+            )
 
     # Check other locations without changing the input handed to generation.
     # Copy each mapping on this path rather than mutating YAML aliases.
@@ -31520,6 +32635,8 @@ def _admit_retired_replacement_source_verification(
     remaining["module"] = dict(module)
     remaining_verification = dict(verification)
     del remaining_verification["corpus_citation_paths"]
+    if composed_parent:
+        remaining_verification["corpus_citation_path"] = singular
     remaining["module"]["source_verification"] = remaining_verification
     other_issues = find_plural_corpus_citation_path_issues(remaining)
     if other_issues:
@@ -31528,7 +32645,6 @@ def _admit_retired_replacement_source_verification(
             + "; ".join(other_issues)
         )
 
-    requested = source_unit.resolved_source
     admitted_sources = []
     required_unchanged_rules = {}
     for path in dict.fromkeys((singular, *plural)):
@@ -31622,6 +32738,28 @@ def _admit_retired_replacement_source_verification(
                 )
             )
         )
+        exact_composed_descendant = (
+            composed_parent
+            and path != singular
+            and isinstance(historical.row, CorpusRowIdentity)
+            and historical.requested
+            == historical.citation_path
+            == historical.row.citation_path
+            == path
+            and historical.row in requested.component_rows
+            and not historical.component_rows
+            and not historical.slice_required
+            and all(
+                getattr(historical, field) == getattr(requested, field)
+                for field in (
+                    "release_name",
+                    "release_content_sha256",
+                    "release_selector_sha256",
+                    "provision_file",
+                    "provision_file_sha256",
+                )
+            )
+        )
         from .retired_source_evidence import match_contained_segment
 
         containment = []
@@ -31649,9 +32787,9 @@ def _admit_retired_replacement_source_verification(
                     ).hexdigest(),
                 }
             )
-        if not (same_provenance or exact_contained_descendant) or len(
-            containment
-        ) != len(historical.proof_evidence_segments):
+        if not (
+            same_provenance or exact_contained_descendant or exact_composed_descendant
+        ) or len(containment) != len(historical.proof_evidence_segments):
             raise ValueError(
                 f"replacement legacy citation {path} is not fully covered by the "
                 "requested resolver evidence; encode it separately and import it"
@@ -31798,6 +32936,8 @@ def _resolve_encode_replacement_target(
         if isinstance(verification, dict)
         else []
     )
+    if not citation_paths and retired_source_admission is not None:
+        citation_paths = (source_unit.requested,)
     if len(citation_paths) != 1:
         raise ValueError(
             "replacement RuleSpec must declare exactly one corpus citation path"
@@ -32869,6 +34009,34 @@ def _run_encode_attempt(
                 )
             )
             outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_invalid_source_verification_values = (
+                    _try_repair_generated_invalid_source_verification_values_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_invalid_source_verification_values:
+                    outcome["auto_repaired_invalid_source_verification_values"] = (
+                        repaired_invalid_source_verification_values
+                    )
+                    print(
+                        "  apply=auto_repaired_invalid_source_verification_values:"
+                        + ",".join(repaired_invalid_source_verification_values)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
                 repaired_source_relation_types = (
                     _try_repair_generated_invalid_source_relation_types_for_apply(
@@ -42860,6 +44028,11 @@ def _closest_exact_source_excerpt(
             and candidate.end >= direct_match.end()
         ]
         if not enclosing:
+            parenthesized_caption = _parenthesized_numeric_direct_source_match(
+                source, direct_match
+            )
+            if parenthesized_caption is not None:
+                return parenthesized_caption
             return _safe_wrapped_direct_source_match(source, direct_match)
         table_rows = [
             candidate for candidate in enclosing if candidate.kind == "table_row"
@@ -42971,6 +44144,43 @@ def _proof_excerpt_numeric_occurrence_counter(
             ),
         )
     return Counter(values_by_span.values())
+
+
+def _parenthesized_numeric_direct_source_match(
+    source: str,
+    direct_match: re.Match[str],
+) -> str | None:
+    """Keep parentheses only for a published income-table heading caption."""
+
+    start, end = direct_match.span()
+    if (
+        start == 0
+        or end == len(source)
+        or source[start - 1] != "("
+        or source[end] != ")"
+        or re.fullmatch(
+            r"\d+(?:\.\d+)?\s+Percent\s+of\s+Poverty\s+Level",
+            source[start:end],
+            flags=re.IGNORECASE,
+        )
+        is None
+        or re.search(
+            r"(?:Net|Gross)\s+Monthly\s+Income\s+Eligibility\s+Standards"
+            r"(?:\s+for\s+Households\s+Where\s+Elderly\s+Disabled\s+Are\s+a\s+"
+            r"Separate\s+Household)?\s*$",
+            source[max(0, start - 160) : start - 1],
+            flags=re.IGNORECASE,
+        )
+        is None
+        or re.match(
+            r"\s+Household\s+Size\b",
+            source[end + 1 : end + 40],
+            flags=re.IGNORECASE,
+        )
+        is None
+    ):
+        return None
+    return source[start - 1 : end + 1]
 
 
 def _safe_wrapped_direct_source_match(
@@ -44555,7 +45765,7 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
     policy_repo_path: Path,
     issues: list[str],
 ) -> list[str]:
-    """Add deferred outputs for unsupported source gaps in otherwise encoded modules."""
+    """Add only source-corroborated deferrals for gaps in encoded modules."""
     source_gaps = [
         gap
         for issue in issues
@@ -44589,8 +45799,26 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         return []
     module = payload.get("module")
     if not isinstance(module, dict):
-        module = {}
-        payload["module"] = module
+        return []
+    verification = module.get("source_verification")
+    citation_path = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if not isinstance(citation_path, str) or not citation_path.strip():
+        return []
+    try:
+        source_text = _read_eval_source_text(
+            getattr(result, "context_manifest_file", "")
+        )
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not source_text:
+        return []
+    branches = recognize_source_structure(
+        source_text, corpus_citation_path=citation_path
+    )
     deferred_outputs = module.get("deferred_outputs")
     if deferred_outputs is None:
         deferred_outputs = []
@@ -44614,18 +45842,28 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
         output = f"{output_path}#{symbol}"
         if output in existing_outputs:
             continue
-        deferred_outputs.append(
-            {
-                "output": output,
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
+        record = {
+            "output": output,
+            "reason": (
+                "Generated module encodes the supported rules from this "
+                "source, but this source subparagraph depends on policy "
+                "surfaces or entities that are not available in the current "
+                "RuleSpec context. It is deferred instead of being modeled "
+                "as a caller-supplied input or an unsupported local entity."
+            ),
+        }
+        # Coverage is not evidence of a missing capability. Authenticate the
+        # proposed record with the same precise-deferral gate before writing it.
+        proposed = {**payload, "module": {**module, "deferred_outputs": [record]}}
+        covered, deferral_issues = _deferred_coverage(
+            proposed,
+            corpus_citation_path=citation_path,
+            source_text=source_text,
+            branches=branches,
         )
+        if not covered or deferral_issues:
+            continue
+        deferred_outputs.append(record)
         existing_outputs.add(output)
         repaired.append(output)
 
@@ -56192,6 +57430,7 @@ def _is_canonical_apply_transaction_target(
     for receipt_dir in (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        Path(RETIRED_SOURCE_METADATA_RECEIPT_DIR),
     ):
         receipt_prefix = receipt_dir.parts
         if relative.parts[: len(receipt_prefix)] == receipt_prefix:

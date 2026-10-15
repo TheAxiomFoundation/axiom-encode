@@ -56,11 +56,8 @@ def test_composed_program_uses_dedicated_surface_without_legacy_fallback(monkeyp
     assert calls[0][0][1] == "compile-composed"
 
 
-def test_real_engine_accepts_nested_composed_program(tmp_path):
-    raw_binary = os.environ.get("AXIOM_RULES_ENGINE_BINARY")
-    if not raw_binary:
-        pytest.skip("set AXIOM_RULES_ENGINE_BINARY for the real engine contract test")
-    binary = Path(raw_binary).resolve(strict=True)
+def test_real_engine_accepts_nested_composed_program(real_engine, tmp_path):
+    binary = real_engine.binary
     rulespec_root = (tmp_path / "rulespec-us").resolve()
     atomic = rulespec_root / "us/policies/base.yaml"
     atomic.parent.mkdir(parents=True)
