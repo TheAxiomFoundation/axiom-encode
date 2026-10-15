@@ -57,6 +57,7 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
+from axiom_encode.bare_structure import bare_outline, mask_bare_labels
 from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
@@ -1195,7 +1196,8 @@ _EMBEDDED_SCALAR_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 _EMBEDDED_SCALAR_ALLOWED_VALUES = {"-1", "0", "1", "2", "3"}
 _QUOTED_STRING_PATTERN = re.compile(r"'[^']*'|\"[^\"]*\"")
 _STRUCTURAL_SOURCE_LINE_PATTERN = re.compile(
-    r"^[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$", re.IGNORECASE
+    r"^(?!\d+[A-Za-z]?$)[\(\[]?(?:\d+[A-Za-z]?|[ivxlcdm]+|[a-z])[\)\].]?$",
+    re.IGNORECASE,
 )
 _STRUCTURAL_SOURCE_HEADING_PATTERN = re.compile(
     r"^(?:(?:PART|CHAPTER|SCHEDULE|REGULATION)\b|"
@@ -12331,6 +12333,9 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             (_STRUCTURAL_SOURCE_DOTTED_SECTION_REFERENCE_PATTERN,),
         )
     )
+    mask_spans.extend(
+        (label.start, label.marker_end) for label in bare_outline(text) or ()
+    )
     structural_spans = _structural_numeric_component_spans(text, profile="da-DK")
 
     def masked_text() -> str:
@@ -12792,7 +12797,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
     if profile == "da-DK":
         masked = _danish_equal_length_numeric_mask(text).text
         return _TrackedText(masked, list(range(len(masked))))
-    tracked = _TrackedText.identity(text)
+    # A bare number is scaffolding only when the complete shared outline
+    # authenticates it. Uncertain table cells/counts retain their source slots.
+    tracked = _TrackedText.identity(mask_bare_labels(text))
     # A carriage return before a newline becomes a space of its own, so a CRLF
     # line ends in "\n" and keeps its width; one that ends a line by itself
     # (a classic Mac or a mixed-terminator source) becomes the newline it is,

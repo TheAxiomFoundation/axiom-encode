@@ -15,7 +15,11 @@ from axiom_encode.bare_structure import (
     mask_bare_labels,
     slice_bare_path,
 )
-from axiom_encode.harness.source_completeness import authoritative_numeric_recall_text
+from axiom_encode.harness import source_completeness as sc
+from axiom_encode.harness.source_completeness import (
+    authoritative_numeric_recall_text,
+    recognize_source_structure,
+)
 from axiom_encode.harness.validator_pipeline import (
     extract_typed_numeric_inventory_occurrences_from_text,
 )
@@ -39,8 +43,8 @@ def demanded_numbers(source):
 @pytest.mark.parametrize(
     ("section", "fragments", "expected_start", "excluded"),
     (
-        ("72", ("2", "c"), "c\nthe person is aged 65 years", "aged 50 to 64"),
-        ("74", ("1", "a"), "a\nif the person’s qualifying benefit", "11 fortnightly"),
+        ("72", ("2", "c"), "the person is aged 65 years", "aged 50 to 64"),
+        ("74", ("1", "a"), "if the person’s qualifying benefit", "11 fortnightly"),
     ),
 )
 def test_verbatim_nz_corpus_child_slicing(section, fragments, expected_start, excluded):
@@ -60,7 +64,7 @@ def test_verbatim_s71_unpunctuated_paragraph_stops_at_next_definition():
     outline = bare_outline(text)
     assert outline is not None
     assert [label.path for label in outline] == [("a",), ("b",), ("c",)]
-    assert slice_bare_path(text, ("c",)) == "c\nveteran’s pension"
+    assert slice_bare_path(text, ("c",)) == "veteran’s pension"
 
 
 @settings(max_examples=100, deadline=None)
@@ -97,7 +101,9 @@ def test_generated_positive_outline_masks_only_labels(amount, count, year, perce
     assert str(year) in masked
     assert len(source) == len(masked)
     assert source.count("\n") == masked.count("\n")
-    assert demanded_numbers(source) == [amount, count, percentage, year]
+    # Calendar years are intentionally excluded by the existing inventory;
+    # the mask itself must still preserve every character of the year.
+    assert demanded_numbers(source) == [amount, count, percentage]
 
 
 @settings(max_examples=120, deadline=None)
@@ -140,7 +146,7 @@ def test_generated_mixed_outline_preserves_every_operative_number(
     assert f"{count} children" in masked
     assert f"{percentage}%" in masked
     assert str(year) in masked
-    assert demanded_numbers(source) == [1, amount, count, percentage, year] + (
+    assert demanded_numbers(source) == [1, amount, count, percentage] + (
         [standalone, 2] if placement == "before_sibling" else [2, standalone]
     )
 
@@ -218,13 +224,13 @@ def test_nested_roman_numeric_suffix_and_inserted_letter_paths():
         "2\nThe entitlement ends on death.\n"
     )
     assert slice_bare_path(source, ("1", "a", "ii")) == (
-        "ii\nthe second condition is fulfilled; and"
+        "the second condition is fulfilled; and"
     )
     assert slice_bare_path(source, ("1", "c")) == (
-        "c\nthe person meets the third requirement; and"
+        "the person meets the third requirement; and"
     )
     assert slice_bare_path(source, ("1A",)) == (
-        "1A\nAn additional restriction is applicable."
+        "An additional restriction is applicable."
     )
 
 
@@ -234,8 +240,7 @@ def test_multiletter_paragraphs_after_z():
         f"{label}\nthe specified condition is fulfilled; or\n" for label in labels
     )
     assert (
-        slice_bare_path(source, ("aa",))
-        == "aa\nthe specified condition is fulfilled; or"
+        slice_bare_path(source, ("aa",)) == "the specified condition is fulfilled; or"
     )
 
 
@@ -288,7 +293,7 @@ def test_marker_text_containing_means_is_never_an_unlabelled_boundary():
         "2\nThe entitlement ends on death.\n"
     )
     assert slice_bare_path(source, ("1", "a")) == (
-        "a\nqualifying benefit means a payment under this Act; and"
+        "qualifying benefit means a payment under this Act; and"
     )
     paragraph_source = (
         "The following conditions apply—\n"
@@ -296,5 +301,253 @@ def test_marker_text_containing_means_is_never_an_unlabelled_boundary():
         "b\nthe person receives the specified payment.\n"
     )
     assert slice_bare_path(paragraph_source, ("a",)) == (
-        "a\nqualifying benefit means a payment under this Act; and"
+        "qualifying benefit means a payment under this Act; and"
     )
+
+
+@given(
+    introduction=st.sampled_from(
+        (
+            "the number of dependent children is—",
+            "the prescribed amount is:",
+            "the following counts are payable—",
+            "the number of dependent children is as follows.",
+            "the prescribed amount is given below;",
+            "the annual family entitlement amount.",
+        )
+    )
+)
+@settings(max_examples=10, deadline=None)
+def test_generated_expected_sibling_count_after_dangling_intro_stays_demanded(
+    introduction,
+):
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe person receives a qualifying benefit; and\n"
+        f"b\n{introduction}\n"
+        "2\nThe annual family entitlement is payable.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == [1, 2]
+
+
+def test_relative_roman_parent_body_slices_by_evidence():
+    source = "i\nthe first condition is fulfilled; or\nii\nthe second condition is fulfilled.\n"
+    assert slice_bare_path(source, ("ii",)) == "the second condition is fulfilled."
+
+
+def test_unbounded_digit_line_fails_closed_without_integer_conversion():
+    source = "9" * 5000 + "\nA person is entitled if—\na\nthe condition is fulfilled.\n"
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+
+
+@pytest.mark.parametrize("profile", ("legacy", "en-US", "da-DK"))
+@pytest.mark.parametrize("adjacent", (False, True))
+def test_numeric_profiles_retain_uncertified_standalone_table_cells(profile, adjacent):
+    source = (
+        "Table of children\n1\n700\nRate applies.\n"
+        if adjacent
+        else "Table of children\n1\nEligible children.\n2\nQualified children.\n"
+    )
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile=profile
+    )
+    assert [item.value for item in inventory] == [1, 700 if adjacent else 2]
+    assert [source[item.start : item.end] for item in inventory] == [
+        "1",
+        "700" if adjacent else "2",
+    ]
+
+
+def test_definition_introduced_by_last_child_cannot_move_to_ancestor():
+    source = (
+        "1\nThe following definitions apply:—\n"
+        "qualifying benefit means—\n"
+        "a\na main benefit under this Act; or\n"
+        "b\nthe pension has the following meaning—\n"
+        "minimum period means a period of at least 22 weeks.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+
+
+def test_four_letter_insertions_participate_in_sibling_boundaries():
+    source = "A person is entitled if—\n" + "".join(
+        f"{label}\nthe specified condition is fulfilled; or\n"
+        for label in ("a", "aa", "aaa", "aaaa", "b")
+    )
+    assert (
+        slice_bare_path(source, ("aaa",)) == "the specified condition is fulfilled; or"
+    )
+    assert (
+        slice_bare_path(source, ("aaaa",)) == "the specified condition is fulfilled; or"
+    )
+
+
+def test_over_cap_or_unknown_lowercase_lines_are_never_silently_skipped():
+    for token in ("a" * 33, "unrecognised"):
+        source = (
+            "1\nA person is entitled if—\n"
+            "a\nthe first condition is fulfilled; and\n"
+            "b\nthe final condition is fulfilled.\n"
+            f"{token}\nThe additional condition applies.\n"
+        )
+        assert bare_outline(source) is None
+        assert mask_bare_labels(source) == source
+
+
+def test_long_parenthetical_label_blocks_mixed_bare_layout():
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe first condition is fulfilled; and\n"
+        "b\nthe final condition is fulfilled.\n"
+        "(aaaa) An additional condition applies.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+
+
+@pytest.mark.parametrize("ending", ("\n", "\r\n", "\r", "\v", "\u2028"))
+def test_definition_boundaries_and_masks_preserve_original_line_endings(ending):
+    source = ending.join(
+        (
+            "qualifying benefit means—",
+            "a",
+            "a main benefit; or",
+            "b",
+            "a pension.",
+            "winter period means the 22-week period.",
+        )
+    )
+    outline = bare_outline(source)
+    assert outline is not None
+    assert slice_bare_path(source, ("b",)) == "a pension."
+    masked = mask_bare_labels(source, outline)
+    assert len(masked) == len(source)
+    assert masked.count(ending) == source.count(ending)
+    assert "22-week" in masked
+
+
+def test_sliced_leaf_and_subsection_have_no_own_label_or_glued_label():
+    source = (FIXTURES / "s72.txt").read_text()
+    leaf = slice_bare_path(source, ("2", "c"))
+    assert leaf is not None and leaf.startswith("the person is aged 65 years")
+    assert demanded_numbers(leaf) == [65]
+    subsection = slice_bare_path(source, ("2",))
+    assert subsection is not None and not subsection.startswith("2\n")
+    assert bare_outline(subsection) is not None
+    assert 2 not in demanded_numbers(subsection)
+    branches = recognize_source_structure(subsection)
+    assert any(branch.path == ("c",) for branch in branches)
+    assert not any("c the person" in branch.text for branch in branches)
+
+
+def test_singleton_descendant_is_rendered_only_from_parent_certificate():
+    source = "1\nA person is entitled if—\na\nthe person is aged 65 years.\n"
+    assert bare_outline(source) is not None
+    assert (
+        bare_outline("A person is entitled if—\na\nthe person is aged 65 years.")
+        is None
+    )
+    sliced = slice_bare_path(source, ("1",))
+    assert sliced == "A person is entitled if—\n(a)\nthe person is aged 65 years."
+    assert [branch.path for branch in recognize_source_structure(sliced)] == [("a",)]
+    assert demanded_numbers(sliced) == [65]
+    branches = recognize_source_structure(sliced)
+    conditions = sc._source_exception_branches(
+        sliced, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    assert not any("a the person" in item.text for item in conditions)
+
+
+def test_detached_definition_singleton_projection_fails_closed():
+    source = (
+        "1\nThe following definitions apply:—\n"
+        "qualifying benefit means—\na\na main benefit.\n"
+        "minimum period means a period of at least 22 weeks.\n"
+    )
+    assert bare_outline(source) is not None
+    assert slice_bare_path(source, ("1",)) is None
+    assert slice_bare_path(source, ("1", "a")) == "a main benefit."
+
+
+def test_definition_boundary_cannot_leave_later_children_outside_their_ancestor():
+    source = (
+        "1\nThe following definitions apply:—\n"
+        "qualifying benefit means—\n"
+        "a\na benefit that qualifies if—\n"
+        "i\nthe person is eligible.\n"
+        "minimum period means a period of at least 22 weeks.\n"
+        "ii\nthe person is resident.\n"
+        "b\nanother benefit.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert slice_bare_path(source, ("1", "a")) is None
+    assert 22 in demanded_numbers(source)
+
+
+@pytest.mark.parametrize(
+    "term", ("ACC", "Māori benefit", "COVID-19", "person’s benefit")
+)
+def test_detached_definition_terms_preserve_case_unicode_digits_and_apostrophes(term):
+    source = (
+        "benefit means—\na\na main benefit; or\nb\na pension.\n"
+        f"{term} means a payment of 22 dollars.\n"
+    )
+    assert bare_outline(source) is not None
+    assert slice_bare_path(source, ("b",)) == "a pension."
+    assert demanded_numbers(source)[-1] == 22
+    definition = next(
+        branch for branch in recognize_source_structure(source) if branch.label == term
+    )
+    assert definition.path == ()
+    assert definition.text == source[definition.start : definition.end]
+
+
+def test_verbatim_capitalized_definition_stops_the_preceding_paragraph():
+    source = (FIXTURES / "schedule1_part8_clause93.txt").read_text()
+    assert bare_outline(source) is not None
+    assert slice_bare_path(source, ("b",)) == "by Part 1 of the Amendment Act"
+    assert {"amendments", "Amendment Act", "commencement"} <= {
+        branch.label
+        for branch in recognize_source_structure(source)
+        if branch.kind == "definition"
+    }
+
+
+@pytest.mark.parametrize("term", ('"special benefit"', "special_benefit", "§ benefit"))
+@pytest.mark.parametrize("ending", ("\n", "\r", "\u2028"))
+def test_unknown_detached_definition_header_abstains_without_losing_numbers(
+    term, ending
+):
+    source = ending.join(
+        (
+            "benefit means—",
+            "a",
+            "a main benefit; or",
+            "b",
+            "a pension.",
+            f"{term} means a payment of 22 dollars.",
+        )
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert slice_bare_path(source, ("b",)) is None
+    assert 22 in demanded_numbers(source)
+
+
+@settings(max_examples=12, deadline=None)
+@given(amount=st.integers(min_value=1, max_value=999))
+def test_generated_formula_variable_declarations_cannot_be_sliced_or_masked(amount):
+    source = (
+        "1\nThe amount is calculated as a + b.\nwhere—\n"
+        f"a\nis the annual income of ${amount}; and\n"
+        "b\nis the total annual allowance of $25.\n"
+    )
+    assert bare_outline(source) is None
+    assert slice_bare_path(source, ("1", "a")) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == [1, amount, 25]

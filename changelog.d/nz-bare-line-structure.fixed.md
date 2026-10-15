@@ -1,1 +1,1 @@
-Recognize authenticated bare-line statute labels when slicing source provisions and extracting complete-source obligations.
+Recognize authenticated bare-line statute outlines when slicing provisions and extracting complete-source branches, conditions, and deferral targets. Preserve operative standalone numbers unless the same ordered outline proves they are labels; ambiguous layouts retain source obligations.

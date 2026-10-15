@@ -1656,8 +1656,9 @@ def _slice_parent_body(text: str, *, requested_path: str, resolved_path: str) ->
         )
     # Choose by authenticated source layout, never by jurisdiction. Leave
     # the existing parenthetical walker untouched for all other bodies.
-    if bare_outline(text) is not None:
-        sliced = slice_bare_path(text, fragments)
+    outline = bare_outline(text)
+    if outline is not None:
+        sliced = slice_bare_path(text, fragments, outline=outline)
     else:
         sliced = _slice_parenthetical_fragments(
             text,
