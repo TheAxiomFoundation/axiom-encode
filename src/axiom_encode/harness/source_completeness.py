@@ -31191,7 +31191,7 @@ def _exception_witnesses_for_branch(
             and (
                 witness.calendar_attainment_age is not None
                 or _source_exception_selector_is_relevant(
-                    condition_text,
+                    _source_exception_controlling_condition_text(condition_text),
                     witness.selector_name,
                     supporting_texts=tuple(
                         excerpt
@@ -31234,6 +31234,76 @@ def _exception_witnesses_for_branch(
             )
         }
     )
+
+
+# A consequence that states an outcome (eligibility, an amount, a count, an
+# exclusion, a deeming, benefits or an allotment) is the exception's result, not
+# a condition a case pair can toggle. A requirement consequence (`the claimant
+# shall file a joint return`) is itself the tested condition and stays.
+_EXCEPTION_OUTCOME_CONSEQUENCE = re.compile(
+    r"\b(?:in)?eligib(?:le|ility)\b|\bqualif(?:y|ies|ied)\b"
+    r"|\bentitle(?:d|ment)\b|\bdeem(?:s|ed|ing)?\b"
+    r"|\b(?:shall|must|will|may|is|are|be)\s+(?:not\s+)?(?:be\s+)?"
+    r"(?:counted|excluded|included|disregarded|deducted|allowed|denied|"
+    r"terminated|reduced|increased|prorated|budgeted|treated|considered|"
+    r"issued|paid|disqualified)\b"
+    r"|\bbenefits?\b|\ballotments?\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_exception_controlling_condition_text(condition_text: str) -> str:
+    """Return the condition an exception's own clause states, without its result.
+
+    ``_source_exception_condition_text`` runs from the condition cue to the end
+    of the clause, so it also holds the consequence (`If the same sponsor is
+    responsible for the entire household, the entire household is ineligible
+    until ... the needed sponsor information or verification`). A case pair
+    toggles a condition, so when the consequence states an outcome
+    (`_EXCEPTION_OUTCOME_CONSEQUENCE`), selector relevance is read from the
+    condition alone. The condition ends at its first comma outside parentheses
+    that is not followed by `and`/`but`/`or`/`nor` or by the rest of a list (`If
+    the household's income, resources, or household size change, ...`), or at a
+    `)` that closes a parenthesis opened before the cue (`(if he or she has
+    executed USCIS Form I-864 or I-864A) deemed as ...`). The whole clause is
+    kept when the condition has no such end, when the consequence is a
+    requirement rather than an outcome (`if the claimant is married, ..., the
+    claimant shall file a joint return`), or when the cue is a reservation such
+    as `subject to` or `notwithstanding` rather than `if`, `when`, `whenever`,
+    `unless`, `except` or `provided that`.
+    """
+
+    if not re.match(
+        r"\s*(?:if|when|whenever|unless|except|provided\s+that)\b",
+        condition_text,
+        flags=re.IGNORECASE,
+    ):
+        return condition_text
+    end = None
+    depth = 0
+    for index, character in enumerate(condition_text):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            if depth == 0:
+                end = index
+                break
+            depth -= 1
+        elif character == "," and depth == 0:
+            rest = condition_text[index + 1 :]
+            if re.match(r"\s*(?:and|but|or|nor)\b", rest, flags=re.IGNORECASE):
+                continue
+            if re.match(
+                r"\s*[^,;.()]{1,60},\s*(?:and|or)\b", rest, flags=re.IGNORECASE
+            ):
+                continue
+            end = index
+            break
+    if end is None or not _EXCEPTION_OUTCOME_CONSEQUENCE.search(
+        condition_text[end + 1 :]
+    ):
+        return condition_text
+    return condition_text[:end]
 
 
 def _selector_targets_numeric_condition(
