@@ -23,6 +23,7 @@ import importlib.metadata
 import importlib.util
 import io
 import json
+import locale
 import os
 import re
 import shlex
@@ -2327,7 +2328,11 @@ def _repository_test_environment(
 
     CI supplies no PYTEST_* options (PYTEST_ADDOPTS could deselect failing
     tests), no PYTHON* interpreter overrides (PYTHONOPTIMIZE strips asserts)
-    and no GIT_* steering, so none may reach the local run.
+    and no GIT_* steering, so none may reach the local run. For embedded pins
+    the environment is built from the run's inputs alone, except that the
+    caller's ``AXIOM_CORPUS_NO_FETCH`` opt-out is kept. Its fresh ``HOME``
+    holds no corpus cache and no R2 credentials, and it carries no ``R2_*``
+    value, so a repository test can place corpus bytes only from git objects.
     """
 
     # Preserve the legacy executor's environment; embedded pins construct
@@ -2358,6 +2363,11 @@ def _repository_test_environment(
             RULESPEC_TEST_FILE_LIST=str(run.temp / "rulespec-test-files.txt"),
             RULESPEC_VALIDATION_MODE=run.mode,
         )
+        # The one ambient input: the caller's opt-out of corpus placement.
+        # CI never sets it; it only stops a repository test that binds the
+        # release from writing into the linked corpus checkout.
+        if fetch_disabled():
+            environment[NO_FETCH_ENV] = "1"
         return environment
     return {
         name: value
@@ -5813,6 +5823,34 @@ def _run_ci_in_checkout(
     return results, caller, plan, roots
 
 
+_UTF8_CTYPES = ("C.UTF-8", "en_US.UTF-8", "UTF-8")
+
+
+def _adopt_utf8_ctype() -> None:
+    """Decode text in-process as CI's C.UTF-8 runner does.
+
+    ``LC_ALL=C.UTF-8`` in the environment reaches subprocesses and --jobs
+    workers, but this interpreter keeps the LC_CTYPE it started with, and
+    in-process gates read files with ``open()``'s default encoding, which
+    follows it outside UTF-8 mode. Under a non-UTF-8 caller locale a RuleSpec
+    "§" would otherwise decode differently in-process than in CI.
+    """
+
+    for candidate in _UTF8_CTYPES:
+        try:
+            locale.setlocale(locale.LC_CTYPE, candidate)
+        except locale.Error:
+            continue
+        if locale.getencoding().replace("-", "").upper() == "UTF8":
+            return
+    if not sys.flags.utf8_mode:
+        raise ValueError(
+            "ci needs a UTF-8 LC_CTYPE to decode files as CI's C.UTF-8 runner "
+            f"does; none of {', '.join(_UTF8_CTYPES)} is available here "
+            "(or run Python in UTF-8 mode, PYTHONUTF8=1)"
+        )
+
+
 def run_ci(args: argparse.Namespace) -> int:
     source = args.repo.expanduser().resolve()
     mismatches: list[DependencyMismatch] = []
@@ -5833,7 +5871,9 @@ def run_ci(args: argparse.Namespace) -> int:
     os.environ["LANG"] = "C.UTF-8"
     os.environ["LC_ALL"] = "C.UTF-8"
     time.tzset()
+    saved_ctype = locale.setlocale(locale.LC_CTYPE)
     try:
+        _adopt_utf8_ctype()
         # Refs resolve in the source checkout, where branches, upstreams and
         # remote-tracking refs live; the fresh checkout only sees commits.
         head = resolve_commit(source, "HEAD")
@@ -5901,6 +5941,8 @@ def run_ci(args: argparse.Namespace) -> int:
             else:
                 os.environ[name] = value
         time.tzset()
+        with contextlib.suppress(locale.Error):
+            locale.setlocale(locale.LC_CTYPE, saved_ctype)
     gates_passed = all(result.status == "PASS" for result in results)
     verdict = ci_verdict(gates_passed, mismatches)
     if args.json:

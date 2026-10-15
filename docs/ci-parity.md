@@ -65,7 +65,10 @@ Python. The scripts cover:
   branch `--base-ref` names, or `main` for a bare commit (`--base-branch`).
 - **Runner environment.** Gates run on a UTC clock with `LANG` and `LC_ALL`
   set to `C.UTF-8`, as the runner and the supervisor's child environment have
-  them; the caller's values are restored afterwards.
+  them. In-process gates also decode files as UTF-8: `ci` switches its own
+  `LC_CTYPE` to a UTF-8 locale (`C.UTF-8`, `en_US.UTF-8` or `UTF-8`) for the
+  run, and fails resolution if none exists outside Python's UTF-8 mode. The
+  caller's values are restored afterwards.
 - **Engine.** As "Build axiom-rules-engine" does, `ci` builds the debug profile
   from a fresh `git archive` of the verified engine pin in a private temporary
   directory, with an empty private `target/` (`--offline` under `--offline`).
@@ -127,15 +130,16 @@ Python. The scripts cover:
   setup-python installs. The venv is provisioned with CI's install sequence
   (`pip`, then `pytest pyyaml`, then the pinned encoder without extras, then on
   changed-file pull requests the oracle coverage classifier and its exact
-  axiom-oracles pin), using `uv --no-config` (`--offline` under `--offline`). Its
-  environment is built from the run's inputs (`CI`, `GITHUB_ACTIONS`, the
+  axiom-oracles pin), using `uv --no-config` (`--offline` under `--offline`).
+  Its environment is built from the run's inputs (`CI`, `GITHUB_ACTIONS`, the
   selection step's `RULESPEC_*` variables, a UTC clock and `C.UTF-8`); ambient
-  `AXIOM_*`, `DRAIN_*`, `RULESPEC_*`, `PYTHON*` and `GIT_*` values never reach
-  it. Pytest uses a fresh temporary `HOME`, `GIT_CONFIG_GLOBAL` set to the null
-  device and `GIT_CONFIG_NOSYSTEM=1`, so user and system Git configuration cannot
-  change repository tests. If the venv cannot be provisioned, `ci` records a
-  `repository-test-environment` mismatch and runs pytest in its own
-  interpreter, so a passing run is `PASS-WITH-MISMATCHED-DEPS` (exit 3).
+  `AXIOM_*`, `DRAIN_*`, `RULESPEC_*`, `PYTHON*`, `GIT_*` and `R2_*` values never
+  reach it, except the caller's `AXIOM_CORPUS_NO_FETCH` opt-out. Pytest uses a
+  fresh temporary `HOME`, `GIT_CONFIG_GLOBAL` set to the null device and
+  `GIT_CONFIG_NOSYSTEM=1`, so user and system Git configuration cannot change
+  repository tests. If the venv cannot be provisioned, `ci` records a
+  `repository-test-environment` mismatch and runs pytest in its own interpreter,
+  so a passing run is `PASS-WITH-MISMATCHED-DEPS` (exit 3).
 - **Shards job first.** The shards job (unsupported paths, the unmanifested
   pre-check, the shard computation) completes after checkout and before the
   validate job resolves the toolchain, dependency checkouts or release object,
@@ -310,33 +314,37 @@ the environment.
   requires, every root must be distinct across the corpus, retired, apply and
   eval roles.
 - **Capabilities.** It acquires no signing capability and never runs `--apply`.
-- **Writes.** It writes temporary report inputs, the private engine snapshot
-  and target directory, the temporary engine view and the repository-test venv.
+- **Writes.** It writes temporary report inputs, the private engine snapshot and
+  target directory, the temporary engine view and the repository-test venv.
   Cargo and uv may populate their normal local caches. Outside these temporary
-  directories and caches it writes only the pinned public
-  release object at the workflow-defined corpus release path, which the corpus
-  checkout's cleanliness check exempts. It refuses a symlink on that path, so
-  the write stays inside the corpus checkout. In a corpus checkout that keeps
-  its bytes in lock files (`.axiom/corpus-locks/`), binding the release also
-  places the release's provisions artifacts at the paths the checkout's locks
-  pin, under `data/corpus/provisions/`, staged in `data/corpus/.corpus-fetch-tmp/`.
-  There, as axiom-corpus does, it deletes `.corpus-fetch-` leftovers more than
-  a day old. It never replaces an existing file and never follows or creates a
-  symlink there. `AXIOM_CORPUS_NO_FETCH` turns this placement off, for ci's own
-  bind and for every gate: the supervised strip keeps that one opt-out. Like CI's "Link axiom-rules-engine as
-  sibling checkout" step, it links the engine, corpus and rulespec-us
-  dependency checkouts next to the temporary checkout. It creates nothing under
-  `_axiom/` inside it. CI's checkouts there are real directories, which the
-  gates' `find` steps prune. The pinned encoder's symlink audit does walk them
-  and rejects a symlink anywhere in an active RuleSpec checkout, so a symlink
-  tracked by a dependency checkout fails resolution. So does committed
-  `_axiom` content, which CI's checkouts would land on.
+  directories and caches it writes only the pinned public release object at the
+  workflow-defined corpus release path, which the corpus checkout's cleanliness
+  check exempts. It refuses a symlink on that path, so the write stays inside
+  the corpus checkout. In a corpus checkout that keeps its bytes in lock files
+  (`.axiom/corpus-locks/`), binding the release also places the release's
+  provisions artifacts at the paths the checkout's locks pin, under
+  `data/corpus/provisions/`, staged in `data/corpus/.corpus-fetch-tmp/`. There,
+  as axiom-corpus does, it deletes `.corpus-fetch-` leftovers more than a day
+  old. It never replaces an existing file and never follows or creates a symlink
+  there. `AXIOM_CORPUS_NO_FETCH` turns this placement off, for ci's own bind and
+  for every gate: the supervised strip and repository pytest's environment keep
+  that one opt-out. Like CI's "Link axiom-rules-engine as sibling checkout"
+  step, it links the engine, corpus and rulespec-us dependency checkouts next to
+  the temporary checkout. It creates nothing under `_axiom/` inside it. CI's
+  checkouts there are real directories, which the gates' `find` steps prune. The
+  pinned encoder's symlink audit does walk them and rejects a symlink anywhere
+  in an active RuleSpec checkout, so a symlink tracked by a dependency checkout
+  fails resolution. So does committed `_axiom` content, which CI's checkouts
+  would land on.
 - **Network.** Unless `--offline` is set, it downloads that object, and cargo
   and uv may fetch the engine's crates and the repository-test packages. For
   a lock-file corpus checkout, provisions come from the corpus cache
   (`$AXIOM_CORPUS_CACHE`, default `~/.axiom/corpus-cache`), then the
   checkout's git objects, then, without `--offline` and only when R2 read
   credentials are configured, R2. `--offline` holds in `--jobs` workers too.
+  Repository pytest has a fresh `HOME` and no `R2_*` or cache settings, so a
+  repository test can place provisions only from git objects and never
+  reaches R2.
 
 ## Dependency and encoder identity
 

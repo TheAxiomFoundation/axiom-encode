@@ -1145,11 +1145,18 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
 
     if not hasattr(time, "tzset"):
         pytest.skip("tzset unavailable")
+    import locale as locale_module
+
     ambient = {"TZ": zone, "LANG": language, "LC_ALL": locale, "PATH": os.defpath}
     seen = {}
+    ctype = locale_module.setlocale(locale_module.LC_CTYPE)
+    # Start from a non-UTF-8 LC_CTYPE, as under a Latin-1 or C caller locale.
+    locale_module.setlocale(locale_module.LC_CTYPE, "C")
 
     def resolve(*_):
         seen.update({name: os.environ[name] for name in ("TZ", "LANG", "LC_ALL")})
+        # In-process gates decode files as CI's C.UTF-8 runner does.
+        seen["encoding"] = locale_module.getencoding().replace("-", "").upper()
         assert time.localtime(1797814800).tm_gmtoff == 0
         raise ValueError("stop after inspecting the runner environment")
 
@@ -1168,7 +1175,14 @@ def test_runner_clock_and_locale_are_invariant_and_restored(
                 )
                 == 1
             )
-            assert seen == {"TZ": "UTC", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+            assert seen == {
+                "TZ": "UTC",
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "encoding": "UTF8",
+            }
             assert dict(os.environ) == ambient
+            assert locale_module.setlocale(locale_module.LC_CTYPE) == "C"
     finally:
         time.tzset()
+        locale_module.setlocale(locale_module.LC_CTYPE, ctype)
