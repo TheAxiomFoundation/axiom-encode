@@ -32,6 +32,9 @@ from .proof_hash_migration import (
 
 PLAN_SCHEMA: Final = "axiom-encode/retired-source-metadata-migration-plan/v1"
 RECEIPT_SCHEMA: Final = "axiom-encode/retired-source-metadata-migration-receipt/v1"
+PLAN_SCHEMA_V2: Final = "axiom-encode/retired-source-metadata-migration-plan/v2"
+RECEIPT_SCHEMA_V2: Final = "axiom-encode/retired-source-metadata-migration-receipt/v2"
+PLAN_SCHEMAS: Final = (PLAN_SCHEMA, PLAN_SCHEMA_V2)
 MIGRATION_TOOL: Final = "axiom-encode migrate-retired-source-metadata"
 RECEIPT_DIR: Final = Path(".axiom") / "retired-source-metadata-migrations"
 _GIT_OBJECT = re.compile(r"[0-9a-f]{40}")
@@ -65,6 +68,8 @@ class SourceMetadataRewrite:
     removed_values_yaml: str | None
     removed_corpus_citation_paths: tuple[str, ...] | None
     corpus_citation_path: str | None
+    removed_source_urls: tuple[str, ...] | None = None
+    removed_source_urls_yaml: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +166,7 @@ def load_plan_bytes(raw: bytes) -> RetiredSourceMetadataPlan:
         raise RetiredSourceMetadataError(
             "migration plan must contain exactly schema_version, base_commit, modules"
         )
-    if payload["schema_version"] != PLAN_SCHEMA:
+    if payload["schema_version"] not in PLAN_SCHEMAS:
         raise RetiredSourceMetadataError("migration plan schema_version is unsupported")
     base = payload["base_commit"]
     if not isinstance(base, str) or _GIT_OBJECT.fullmatch(base) is None:
@@ -351,16 +356,25 @@ def _history(value: object) -> object:
     )
 
 
-def rewrite_source_metadata(raw: bytes) -> SourceMetadataRewrite:
-    """Byte-surgically perform R1/R2, then prove exact structural equality."""
+def rewrite_source_metadata(
+    raw: bytes, *, plan_schema: str = PLAN_SCHEMA
+) -> SourceMetadataRewrite:
+    """Perform versioned R1/R2/R3 edits, then prove exact structural equality."""
 
+    if plan_schema not in PLAN_SCHEMAS:
+        raise RetiredSourceMetadataError("migration plan schema_version is unsupported")
+    allow_urls = plan_schema == PLAN_SCHEMA_V2
     text, payload, root = _yaml(raw)
     module = payload.get("module")
     verification = (
         module.get("source_verification") if isinstance(module, dict) else None
     )
     if not isinstance(verification, dict) or not (
-        {"values", "corpus_citation_paths"} & verification.keys()
+        (
+            {"values", "corpus_citation_paths"}
+            | ({"source_urls"} if allow_urls else set())
+        )
+        & verification.keys()
     ):
         raise RetiredSourceMetadataError(
             "nothing-to-migrate: module has neither retired shape"
@@ -392,6 +406,49 @@ def rewrite_source_metadata(raw: bytes) -> SourceMetadataRewrite:
     values_yaml = None
     removed_paths = None
     ancestor = None
+    removed_urls = None
+    removed_urls_yaml = None
+    if allow_urls and "source_urls" in verification:
+        citation = verification.get("corpus_citation_path")
+        if not isinstance(citation, str) or not citation.strip():
+            raise RetiredSourceMetadataError(
+                "source_urls removal requires a singular citation"
+            )
+        try:
+            normalize_corpus_identifier(citation)
+        except (TypeError, ValueError) as exc:
+            raise RetiredSourceMetadataError(
+                "source_urls has an invalid singular citation"
+            ) from exc
+        urls = verification["source_urls"]
+        if (
+            not isinstance(urls, list)
+            or not urls
+            or not all(isinstance(url, str) and url.strip() for url in urls)
+        ):
+            raise RetiredSourceMetadataError(
+                "source_urls must be a non-empty string list"
+            )
+        start, end = _block_span(text, *fields["source_urls"], field="source_urls")
+        url_node = fields["source_urls"][1]
+        if (
+            not isinstance(url_node, SequenceNode)
+            or url_node.start_mark.column != 6
+            or any(
+                not isinstance(item, ScalarNode)
+                or item.start_mark.column != 8
+                or item.style in {"|", ">"}
+                or item.start_mark.line != item.end_mark.line
+                for item in url_node.value
+            )
+        ):
+            raise RetiredSourceMetadataError(
+                "source_urls does not have canonical block YAML"
+            )
+        removed_urls = tuple(urls)
+        removed_urls_yaml = text[start:end]
+        edits.append((start, end, ""))
+        del expected_verification["source_urls"]
     if "values" in verification:
         values = verification["values"]
         if not isinstance(values, dict) or not values:
@@ -468,7 +525,15 @@ def rewrite_source_metadata(raw: bytes) -> SourceMetadataRewrite:
         raise RetiredSourceMetadataError(
             "migration changed unrelated RuleSpec structure"
         )
-    return SourceMetadataRewrite(after, values, values_yaml, removed_paths, ancestor)
+    return SourceMetadataRewrite(
+        after,
+        values,
+        values_yaml,
+        removed_paths,
+        ancestor,
+        removed_urls,
+        removed_urls_yaml,
+    )
 
 
 def _atomic_path(path: str) -> bool:
@@ -647,7 +712,9 @@ def build_migration(
                 f"primary is absent from authenticated base: {relative}"
             )
         try:
-            rewrite = rewrite_source_metadata(base_files[relative])
+            rewrite = rewrite_source_metadata(
+                base_files[relative], plan_schema=plan.payload["schema_version"]
+            )
         except RetiredSourceMetadataError as exc:
             raise RetiredSourceMetadataError(f"{relative}: {exc}") from exc
         rewritten[relative] = rewrite.after
@@ -664,6 +731,13 @@ def build_migration(
                 "corpus_citation_path": rewrite.corpus_citation_path,
             }
         )
+        if plan.payload["schema_version"] == PLAN_SCHEMA_V2:
+            primary_records[-1].update(
+                removed_source_urls=list(rewrite.removed_source_urls)
+                if rewrite.removed_source_urls is not None
+                else None,
+                removed_source_urls_yaml=rewrite.removed_source_urls_yaml,
+            )
     final, cascade = _cascade(base_files, rewritten)
     ordered_paths = _leaves_first(
         {path for path, after in final.items() if after != base_files[path]},
@@ -685,7 +759,9 @@ def build_migration(
         for path in ordered_paths
     )
     receipt = {
-        "schema_version": RECEIPT_SCHEMA,
+        "schema_version": RECEIPT_SCHEMA_V2
+        if plan.payload["schema_version"] == PLAN_SCHEMA_V2
+        else RECEIPT_SCHEMA,
         "base_commit": plan.base_commit,
         "base_tree": base_tree,
         "plan": dict(plan.payload),
@@ -743,7 +819,7 @@ def verify_migration_replay(
     if (
         not isinstance(receipt, dict)
         or set(receipt) != keys
-        or receipt.get("schema_version") != RECEIPT_SCHEMA
+        or receipt.get("schema_version") not in (RECEIPT_SCHEMA, RECEIPT_SCHEMA_V2)
     ):
         raise RetiredSourceMetadataError(
             "migration receipt has an unsupported exact schema"
