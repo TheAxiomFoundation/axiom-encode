@@ -17669,6 +17669,12 @@ rules:
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
+        # The identity fixture advertises this synthetic engine as a Git checkout.
+        engine = tmp_path / "axiom-rules-engine"
+        _git(engine, "init")
+        _git(engine, "config", "user.email", "test@example.com")
+        _git(engine, "config", "user.name", "Test User")
+        _git(engine, "commit", "--allow-empty", "-m", "synthetic engine HEAD")
         output_root = tmp_path / "out"
         checkout = tmp_path / "rulespec-us"
         content_root = checkout / "us-la"
@@ -42598,6 +42604,10 @@ class TestGuardGenerated:
 
     @pytest.fixture(autouse=True)
     def _rulespec_toolchain(self, monkeypatch, tmp_path):
+        _git(tmp_path, "init")
+        _git(tmp_path, "config", "user.email", "test@example.com")
+        _git(tmp_path, "config", "user.name", "Test User")
+        _git(tmp_path, "commit", "--allow-empty", "-m", "guard checkout HEAD")
         release = _bind_test_corpus_release(
             tmp_path,
             tmp_path / "axiom-corpus",
@@ -45515,7 +45525,7 @@ rules: []
     def test_guard_generated_command_exits_nonzero_for_manual_change(
         self, capsys, tmp_path
     ):
-        repo = tmp_path / "rulespec-us"
+        repo = tmp_path
         release = _bind_test_corpus_release(
             repo,
             tmp_path / "canonical-axiom-corpus",
@@ -52164,9 +52174,13 @@ class TestCmdCalibrationEdgeCases:
 class TestProgramsRootExcludedFromAtomicGuard:
     """Declarative ProgramSpecs never enter encoder manifest/signing surfaces."""
 
+    def _init_guard_checkout(self, checkout):
+        _init_test_git_repo(checkout)
+        _git(checkout, "commit", "--allow-empty", "-m", "guard checkout HEAD")
+
     def test_canonical_program_file_is_not_an_atomic_guard_target(self, tmp_path):
         checkout = tmp_path / "rulespec-uk"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -52185,7 +52199,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_program_file_cannot_be_forced_into_atomic_guard_roots(self, tmp_path):
         checkout = tmp_path / "rulespec-us"
-        checkout.mkdir()
+        self._init_guard_checkout(checkout)
         corpus_path = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",
@@ -52205,6 +52219,7 @@ class TestProgramsRootExcludedFromAtomicGuard:
 
     def test_guard_command_ignores_repository_root_programs(self, capsys, tmp_path):
         checkout = tmp_path / "rulespec-us"
+        self._init_guard_checkout(checkout)
         release = _bind_test_corpus_release(
             checkout,
             tmp_path / "axiom-corpus",

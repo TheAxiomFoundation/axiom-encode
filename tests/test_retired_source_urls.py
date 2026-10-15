@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from axiom_encode.retired_source_metadata import (
 from axiom_encode.retired_source_metadata_workflow import resolve_request
 from scripts.enforce_attempt_budget import is_retired_source_metadata_plan
 from tests.test_retired_source_metadata_cli import (
+    BROKER,
     COMPANION,
     IMPORTER,
     PRIMARY,
@@ -175,12 +177,24 @@ def test_v2_signed_transaction_cascade_and_tampered_receipt_fail_closed(
             old_hash, hashlib.sha256(source.read_bytes()).hexdigest()
         )
     )
+    # This synthetic base needs generator owners for its new module bytes.
+    for relative, raw_owner in checkout.owners.items():
+        owner = json.loads(raw_owner)
+        for entry in owner["applied_files"]:
+            entry["sha256"] = hashlib.sha256(
+                (checkout.repo / entry["path"]).read_bytes()
+            ).hexdigest()
+        cli._sign_applied_encoding_manifest(owner, BROKER)
+        owner_path = checkout.repo / cli._applied_encoding_manifest_path(Path(relative))
+        owner_path.write_text(json.dumps(owner) + "\n")
+        checkout.owners[relative] = owner_path.read_bytes()
     git(checkout.repo, "add", ".")
     git(checkout.repo, "commit", "-m", "URL-only synthetic base")
+    checkout.base = git(checkout.repo, "rev-parse", "HEAD")
     payload = json.loads(checkout.args.plan.read_text())
     payload.update(
         schema_version=PLAN_SCHEMA_V2,
-        base_commit=git(checkout.repo, "rev-parse", "HEAD"),
+        base_commit=checkout.base,
     )
     checkout.args.plan.write_text(json.dumps(payload))
     companion = (checkout.repo / COMPANION).read_bytes()

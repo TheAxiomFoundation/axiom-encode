@@ -75,6 +75,121 @@ def git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+@pytest.mark.parametrize("all_files", [False, True], ids=["diff", "all_with_base"])
+@pytest.mark.parametrize("argument", ["base_ref", "head_ref"])
+@pytest.mark.parametrize(
+    "ref",
+    ["--output=guard-output", "-p", "--ext-diff", "--no-index"]
+    + [f"HEAD{control}" for control in ("\x00", "\n", "\r", "\t", "\x7f", "\x85")],
+)
+def test_guard_ref_arguments_cannot_be_git_options(
+    checkout, monkeypatch, all_files, argument, ref
+):
+    calls = []
+    real_run = subprocess.run
+
+    def capture(command, **kwargs):
+        calls.append(command)
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", capture)
+    options = {"base_ref": checkout.base, "head_ref": "HEAD"}
+    options[argument] = ref
+    issues = cli.guard_generated_change_issues(
+        checkout.repo,
+        corpus_path=checkout.args.corpus_path,
+        all_files=all_files,
+        **options,
+    )
+    assert any(f"Invalid guard {argument}" in issue for issue in issues), issues
+    assert not (checkout.repo / "guard-output").exists()
+    assert all(
+        not any(
+            value == ref or value.startswith((ref + "^", ref + ":"))
+            for value in command
+        )
+        for command in calls
+    ), calls
+
+
+@pytest.mark.parametrize("all_files", [False, True], ids=["diff", "all_with_base"])
+def test_guard_freezes_symbolic_refs_before_transaction_queries(
+    checkout, capsys, monkeypatch, all_files
+):
+    migrate(checkout, capsys)
+    git(checkout.repo, "add", ".")
+    git(checkout.repo, "commit", "-m", "signed migration")
+    head = git(checkout.repo, "rev-parse", "HEAD")
+    git(checkout.repo, "branch", "guard-base", checkout.base)
+    git(checkout.repo, "tag", "-a", "guard-head", "-m", "migration head")
+    calls = []
+    real_run = subprocess.run
+
+    def capture(command, **kwargs):
+        calls.append(command)
+        result = real_run(command, **kwargs)
+        if command[-1] == "guard-head^{commit}":
+            # Both names move after resolution; queries must use the snapshot.
+            git(checkout.repo, "update-ref", "refs/heads/guard-base", head)
+            git(checkout.repo, "update-ref", "refs/tags/guard-head", checkout.base)
+        return result
+
+    monkeypatch.setattr(cli.subprocess, "run", capture)
+    assert (
+        cli.guard_generated_change_issues(
+            checkout.repo,
+            corpus_path=checkout.args.corpus_path,
+            base_ref="guard-base",
+            head_ref="guard-head",
+            all_files=all_files,
+        )
+        == []
+    )
+    resolutions = [command for command in calls if "rev-parse" in command]
+    for name in ("guard-base", "guard-head"):
+        assert sum(command[-1] == f"{name}^{{commit}}" for command in resolutions) == 1
+        assert all(
+            command[-4:]
+            == ["rev-parse", "--verify", "--end-of-options", f"{name}^{{commit}}"]
+            for command in resolutions
+            if command[-1] == f"{name}^{{commit}}"
+        )
+    diffs = [command for command in calls if "diff" in command]
+    assert diffs
+    for command in diffs:
+        boundary = command.index("--end-of-options")
+        assert command[-1] == "--"
+        assert command[boundary + 1 : -1] in ([checkout.base, head], [head])
+
+
+def test_guard_resolves_identical_base_and_head_once(checkout, monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def capture(command, **kwargs):
+        calls.append(command)
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(cli.subprocess, "run", capture)
+    assert (
+        cli.guard_generated_change_issues(
+            checkout.repo,
+            corpus_path=checkout.args.corpus_path,
+            base_ref="HEAD",
+            head_ref="HEAD",
+        )
+        == []
+    )
+    resolutions = [command for command in calls if command[-1] == "HEAD^{commit}"]
+    assert len(resolutions) == 1
+    assert resolutions[0][-4:] == [
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        "HEAD^{commit}",
+    ]
+
+
 @pytest.fixture
 def checkout(tmp_path, monkeypatch):
     repo = tmp_path / "rulespec-us"

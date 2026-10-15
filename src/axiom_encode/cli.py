@@ -21185,8 +21185,8 @@ def _rulespec_migration_base_blob(
         "ls-tree",
         "-z",
         "--full-tree",
-        commit,
         "--",
+        commit,
         path_text,
     )
     records = [record for record in listing.split(b"\0") if record]
@@ -21202,7 +21202,9 @@ def _rulespec_migration_base_blob(
         raise RuntimeError(
             f"Migration base path is not a regular 0644 file: {path_text}"
         )
-    return _rulespec_migration_git_bytes(repo_path, "show", f"{commit}:{path_text}")
+    return _rulespec_migration_git_bytes(
+        repo_path, "show", "--end-of-options", f"{commit}:{path_text}", "--"
+    )
 
 
 def _rulespec_migration_base_identity(repo_path: Path) -> tuple[str, str]:
@@ -21344,6 +21346,7 @@ def _retired_source_metadata_base_files(
         "ls-tree",
         "-r",
         "-z",
+        "--",
         commit,
     )
     inventory: list[tuple[str, str]] = []
@@ -21598,7 +21601,7 @@ def _retired_source_metadata_replay(
     if not isinstance(commit, str) or re.fullmatch(r"[0-9a-f]{40}", commit) is None:
         raise RetiredSourceMetadataError("migration receipt base_commit is malformed")
     actual_tree = _rulespec_migration_git(
-        repo_path, "rev-parse", f"{commit}^{{tree}}"
+        repo_path, "rev-parse", "--verify", "--end-of-options", f"{commit}^{{tree}}"
     ).strip()
     if payload.get("base_tree") != actual_tree:
         raise RetiredSourceMetadataError(
@@ -21828,19 +21831,13 @@ def _retired_source_metadata_change_set_issues(
         ]
     for path in sorted(receipts):
         try:
-            protected_base = _rulespec_migration_git(
-                repo_path,
-                "rev-parse",
-                "--verify",
-                f"{base_ref}^{{commit}}",
-            ).strip()
             if _rulespec_migration_git_bytes(
                 repo_path,
                 "ls-tree",
                 "-z",
                 "--full-tree",
-                protected_base,
                 "--",
+                base_ref,
                 path,
             ):
                 raise RetiredSourceMetadataError(
@@ -21854,7 +21851,7 @@ def _retired_source_metadata_change_set_issues(
                     f"receipt must land with its exact change set (missing={missing}, extra={extra})"
                 )
             migration, _ = _retired_source_metadata_replay(repo_path, Path(path))
-            if protected_base != migration.plan.base_commit:
+            if base_ref != migration.plan.base_commit:
                 raise RetiredSourceMetadataError(
                     "migration receipt base_commit does not match the protected base"
                 )
@@ -21862,7 +21859,7 @@ def _retired_source_metadata_change_set_issues(
             # authorize a transaction that did not land against this base.
             actual_changed = set(
                 _git_guard_changed_files(
-                    repo_path, base_ref=protected_base, head_ref=head_ref
+                    repo_path, base_ref=base_ref, head_ref=head_ref
                 )
             )
             if actual_changed != set(expected["changed_paths"]):
@@ -22936,6 +22933,12 @@ def guard_generated_change_issues(
 ) -> list[str]:
     """Return issues for RuleSpec changes not bound to the signed local release."""
     repo_path = Path(repo_path).resolve()
+    try:
+        base_ref, head_ref = _resolve_guard_git_refs(
+            repo_path, base_ref=base_ref, head_ref=head_ref
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return [str(exc)]
     if retrospective:
         from axiom_encode.retired_apply import retrospective_head_issue
 
@@ -23468,6 +23471,48 @@ def _all_applied_encoding_manifest_paths(
     return sorted(paths)
 
 
+def _resolve_guard_git_refs(
+    repo_path: Path, *, base_ref: str | None, head_ref: str
+) -> tuple[str | None, str]:
+    """Freeze caller-selected refs once before any guard query can use them."""
+
+    refs = {"base_ref": base_ref, "head_ref": head_ref}
+    for label, ref in refs.items():
+        if ref is None and label == "base_ref":
+            continue
+        if (
+            not isinstance(ref, str)
+            or not ref
+            or ref.startswith("-")
+            or re.search(r"[\x00-\x1f\x7f-\x9f]", ref)
+        ):
+            raise ValueError(
+                f"Invalid guard {label}: refs must be nonempty, must not begin "
+                "with '-', and must not contain control characters"
+            )
+    commits: dict[str, str] = {}
+    with _rulespec_migration_clean_ambient_git():
+        for label, ref in refs.items():
+            if ref is None or ref in commits:
+                continue
+            try:
+                commit = _rulespec_migration_git(
+                    repo_path,
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    f"{ref}^{{commit}}",
+                ).strip()
+                if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+                    raise ValueError("Git did not return a full commit id")
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise ValueError(
+                    f"Cannot resolve guard {label} {ref!r} to a commit: {exc}"
+                ) from exc
+            commits[ref] = commit
+    return commits[base_ref] if base_ref is not None else None, commits[head_ref]
+
+
 def _git_changed_files(
     repo_path: Path, *, base_ref: str | None, head_ref: str
 ) -> list[str]:
@@ -23479,8 +23524,10 @@ def _git_changed_files(
             "--no-renames",
             "--diff-filter=ACDMRT",
             "-z",
+            "--end-of-options",
             base_ref,
             head_ref,
+            "--",
         ]
     else:
         command = [
@@ -23490,7 +23537,9 @@ def _git_changed_files(
             "--no-renames",
             "--diff-filter=ACDMRT",
             "-z",
+            "--end-of-options",
             head_ref,
+            "--",
         ]
     completed = subprocess.run(
         command,
@@ -24785,8 +24834,8 @@ def _applied_manifest_snapshot_exists(
             "ls-tree",
             "-z",
             "--full-tree",
-            base_commit,
             "--",
+            base_commit,
             ancestor.as_posix(),
         )
         records = [record for record in listing.split(b"\0") if record]
@@ -24840,6 +24889,8 @@ def _path_migration_receipt_content_issues(
         actual_tree = _rulespec_migration_git(
             repo_path,
             "rev-parse",
+            "--verify",
+            "--end-of-options",
             f"{base_commit}^{{tree}}",
         ).strip()
     except (OSError, RuntimeError, UnicodeDecodeError) as exc:
@@ -25908,6 +25959,8 @@ def _legacy_replacement_manifest_issues(
         actual_tree = _rulespec_migration_git(
             repo_path,
             "rev-parse",
+            "--verify",
+            "--end-of-options",
             f"{base_commit}^{{tree}}",
         ).strip()
     except RuntimeError as exc:
@@ -28740,7 +28793,15 @@ def _axiom_encode_versions_at_ref(repo: Path, ref: str) -> dict[str, str | None]
 def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
     try:
         return subprocess.run(
-            [shutil.which("git") or "git", "-C", str(repo), "show", f"{ref}:{path}"],
+            [
+                shutil.which("git") or "git",
+                "-C",
+                str(repo),
+                "show",
+                "--end-of-options",
+                f"{ref}:{path}",
+                "--",
+            ],
             capture_output=True,
             check=True,
             text=True,
@@ -28754,7 +28815,7 @@ def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
 def _git_show_bytes(repo: Path, ref: str, path: str) -> bytes | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            ["git", "-C", str(repo), "show", "--end-of-options", f"{ref}:{path}", "--"],
             capture_output=True,
             check=True,
         ).stdout

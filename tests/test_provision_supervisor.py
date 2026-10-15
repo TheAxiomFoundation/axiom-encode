@@ -525,6 +525,18 @@ class TestTrustedGit:
             (["rev-parse", "--is-inside-work-tree"], None),
             (["rev-parse", "--show-toplevel"], None),
             (["rev-parse", "--verify", "HEAD^{commit}"], None),
+            (
+                ["rev-parse", "--verify", "--end-of-options", "HEAD^{commit}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{commit}}"],
+                None,
+            ),
+            (
+                ["rev-parse", "--verify", "--end-of-options", f"{head}^{{tree}}"],
+                None,
+            ),
             (["rev-parse", f"{head}^{{commit}}"], None),
             (["rev-parse", f"{head}^{{tree}}"], None),
             (["status", "--porcelain"], None),
@@ -570,6 +582,33 @@ class TestTrustedGit:
                     "-z",
                     "HEAD",
                     "HEAD",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    "HEAD",
+                    "--",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    head,
+                    head,
+                    "--",
                 ],
                 None,
             ),
@@ -629,6 +668,10 @@ class TestTrustedGit:
             ),
             (["ls-tree", "-r", "-z", "HEAD"], None),
             (["ls-tree", "-r", "-l", "-z", "--full-tree", head], None),
+            (["ls-tree", "-z", "--full-tree", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-l", "-z", "--full-tree", "--", head], None),
+            (["ls-tree", "-z", "--", head, "a.txt"], None),
+            (["ls-tree", "-r", "-z", "--", head], None),
             (
                 [
                     "grep",
@@ -648,6 +691,8 @@ class TestTrustedGit:
             (["merge-base", "--is-ancestor", "HEAD", "HEAD"], None),
             (["rev-list", "--parents", "-n", "1", "HEAD"], None),
             (["show", "HEAD:a.txt"], None),
+            (["show", "--end-of-options", "HEAD:a.txt", "--"], None),
+            (["show", "--end-of-options", f"{head}:a.txt", "--"], None),
         )
         for command, command_input in allowed_commands:
             subprocess.run(
@@ -698,6 +743,16 @@ class TestTrustedGit:
                 "-z",
                 "HEAD",
             ],
+            [
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "--diff-filter=ACDMRT",
+                "-z",
+                "--end-of-options",
+                head,
+                "--",
+            ],
         )
         for command in filtered_worktree_commands:
             refused_filter = subprocess.run(
@@ -710,6 +765,19 @@ class TestTrustedGit:
             assert refused_filter.returncode != 0
             assert "refused worktree filter for" in refused_filter.stderr
         assert not marker.exists()
+        guarded_worktree_diff = filtered_worktree_commands[-1]
+        for attribute in ("text eol=lf", "ident", "working-tree-encoding=UTF-16"):
+            (repository / ".gitattributes").write_text(f"*.txt {attribute}\n")
+            refused_attribute = subprocess.run(
+                [str(wrapper), "-C", str(repository), *guarded_worktree_diff],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_attribute.returncode == 126
+            assert "refused content-transforming attribute" in refused_attribute.stderr
+            assert not marker.exists()
         for driver in ("unspecified", "unset"):
             (repository / ".gitattributes").write_text(f"*.txt filter={driver}\n")
             subprocess.run(
@@ -811,14 +879,42 @@ class TestTrustedGit:
             ],
             ["rev-parse", f"{head}^{{blob}}"],
             ["rev-parse", f"{head}^{{tree}}", "--verify"],
+            ["rev-parse", "--end-of-options", "--verify", "HEAD^{commit}"],
+            ["rev-parse", "--verify", "--end-of-options", "HEAD^{tree}"],
             ["merge-base", "--octopus", "HEAD", "HEAD"],
             ["remote", "add", "blocked", "https://example.invalid/repo.git"],
             ["remote", "update"],
             ["rev-list", "--all"],
             ["rev-parse", "--git-dir"],
             ["show", "--stat", "HEAD"],
+            ["show", "--end-of-options", "HEAD:a.txt"],
+            ["show", "--end-of-options", "HEAD:../a.txt", "--"],
+            ["ls-tree", "-z", "--full-tree", "--", "HEAD", "a.txt"],
+            ["ls-tree", "-z", "--full-tree", "--", head, "../a.txt"],
+            ["ls-tree", "-r", "-z", "--", head, "a.txt"],
             ["status", "--short"],
         )
+        for unsafe_ref in (
+            "--output=option-ref-output",
+            "-p",
+            "--ext-diff",
+            "--no-index",
+        ):
+            refused_arguments += (
+                ["rev-parse", "--verify", "--end-of-options", unsafe_ref],
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "--end-of-options",
+                    unsafe_ref,
+                    "--",
+                ],
+                ["show", "--end-of-options", f"{unsafe_ref}:a.txt", "--"],
+                ["ls-tree", "-z", "--full-tree", "--", unsafe_ref, "a.txt"],
+            )
         for command in refused_arguments:
             refused = subprocess.run(
                 [str(wrapper), "-C", str(repository), *command],
