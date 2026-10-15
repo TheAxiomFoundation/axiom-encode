@@ -31755,18 +31755,73 @@ def _resolve_rulespec_import_file_static(
             return resolved
         return None
 
-    candidate = policy_repo_path / f"{normalized}.yaml"
-    if resolved := validated_existing(candidate):
-        return resolved
+    for candidate_index, candidate in enumerate(
+        _rulespec_import_file_candidates_static(
+            import_path,
+            rules_file=rules_file,
+            policy_repo_path=policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    ):
+        if candidate_index == 0:
+            if resolved := validated_existing(candidate):
+                return resolved
+        else:
+            # Preserve the existing relative fallback's exception behavior:
+            # an invalid secondary candidate is unresolved, while the direct
+            # candidate remains fail closed. Candidate construction stays lazy.
+            with contextlib.suppress(ValueError):
+                if resolved := validated_existing(candidate):
+                    return resolved
+    return None
 
+
+def _rulespec_import_file_candidates_static(
+    import_path: str,
+    *,
+    rules_file: Path,
+    policy_repo_path: Path,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> Iterator[Path]:
+    """Return the resolver's ordered candidates, including absent targets.
+
+    Dependency selection needs the lexical paths that validation would read
+    if they existed. Keeping candidate construction here also catches deleted
+    targets and newly added higher-priority targets without a second resolver.
+    Existing candidates still require the normal resolver's safety checks.
+    """
+
+    normalized = _normalize_rulespec_import_path_static(import_path)
+    if not normalized:
+        return
+    normalized_path = Path(normalized)
+    if normalized_path.is_absolute() or any(
+        part in {"", ".", ".."} for part in normalized_path.parts
+    ):
+        raise UnsafeRulespecContextPath(
+            f"RuleSpec import target is outside the active policy root: {import_path}"
+        )
+    if (
+        not normalized_path.parts
+        or normalized_path.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS
+    ):
+        return
+    if _rulespec_import_prefix_static(import_path):
+        target_ref = _parse_rulespec_target(import_path)
+        if target_ref is None:
+            return
+        yield from _rulespec_target_file_candidates(
+            target_ref,
+            policy_repo_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        return
+    yield policy_repo_path / f"{normalized}.yaml"
     with contextlib.suppress(ValueError):
         relative_parent = rules_file.parent.resolve().relative_to(
             policy_repo_path.resolve()
         )
-        candidate = policy_repo_path / relative_parent / f"{normalized}.yaml"
-        if resolved := validated_existing(candidate):
-            return resolved
-    return None
+        yield policy_repo_path / relative_parent / f"{normalized}.yaml"
 
 
 def _rulespec_import_prefix_static(import_path: str) -> str | None:
@@ -34438,12 +34493,12 @@ def _resolve_rulespec_target_file(
             )
             return cached.target_file
         cache.target_files.pop(cache_key, None)
-    for root in _candidate_rulespec_repo_roots(
-        target_ref.repo_name,
+    for target_file in _rulespec_target_file_candidates(
+        target_ref,
         policy_repo_path,
-        prefix=target_ref.prefix,
         rulespec_dependency_roots=dependency_roots,
     ):
+        root = target_file.parents[len(target_ref.relative_path.parts) - 1]
         if not root.is_dir():
             continue
         root = _validate_explicit_rulespec_directory(
@@ -34473,6 +34528,25 @@ def _resolve_rulespec_target_file(
                 )
         return resolved
     return None
+
+
+def _rulespec_target_file_candidates(
+    target_ref: _RuleSpecTargetRef,
+    policy_repo_path: Path | None,
+    *,
+    rulespec_dependency_roots: Iterable[Path] | None = None,
+) -> tuple[Path, ...]:
+    """Return canonical target candidates even when a target has been deleted."""
+
+    return tuple(
+        root / target_ref.relative_path
+        for root in _candidate_rulespec_repo_roots(
+            target_ref.repo_name,
+            policy_repo_path,
+            prefix=target_ref.prefix,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+    )
 
 
 def _candidate_rulespec_repo_roots(
