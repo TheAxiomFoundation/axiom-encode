@@ -27118,6 +27118,9 @@ def _unconditional_nonapplicability_witnesses(
 ) -> set[tuple[str, int]]:
     """Return unique executable-false evidence for an unconditional rule."""
 
+    asserted_by_rule = _asserted_cases_with_bound_formula_inputs(
+        principal_rules, asserted_by_rule
+    )
     branch_text = _collapse_text(branch.text).lower()
     witnesses: set[tuple[str, int]] = set()
     for rule_name in _rules_covering_branch(branch, principal_rule_paths):
@@ -30506,6 +30509,83 @@ def _exception_witness_satisfies_requirement(
     return True
 
 
+def _asserted_cases_with_bound_formula_inputs(
+    principal_rules: Mapping[str, dict[str, Any]],
+    asserted_by_rule: dict[str, list[dict[str, Any]]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Keep replay facts proven to describe the entity the runner queries.
+
+    Any list-valued derived assertion switches every derived output in its case
+    to table-row queries. Replay still reads flat inputs, so require exact fact
+    equivalence with the sole queried row before using such a case as evidence.
+    Keep original case objects for witness identity and single-input guards.
+    """
+
+    def bound(case: dict[str, Any], rule: dict[str, Any]) -> bool:
+        outputs = case.get("output")
+        if not isinstance(outputs, dict):
+            return False
+        listed = [
+            (str(key).rsplit("#", 1)[-1], value)
+            for key, value in outputs.items()
+            if isinstance(value, list)
+        ]
+        if not listed:
+            return True
+        # Unknown output ownership and non-singleton expectations cannot prove
+        # a single entity binding. Never recursively unwrap nested lists.
+        if any(
+            name not in principal_rules
+            or len(value) != 1
+            or isinstance(value[0], (dict, list))
+            for name, value in listed
+        ):
+            return False
+        entity = str(rule.get("entity") or "Case")
+        if any(
+            str(principal_rules[name].get("entity") or "Case") != entity
+            for name in _test_case_output_names(case) & principal_rules.keys()
+        ):
+            return False
+        tables = case.get("tables")
+        rows = tables.get(entity) if isinstance(tables, dict) else None
+        if (
+            not isinstance(rows, list)
+            or len(rows) != 1
+            or not isinstance(rows[0], dict)
+        ):
+            return False
+        # Match the companion runner's metadata keys, retaining legal input IDs
+        # verbatim so same-named inputs in other modules cannot establish binding.
+        snake_entity = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", entity)
+        snake_entity = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", snake_entity)
+        row_id_keys = {
+            "id",
+            "entity_id",
+            snake_entity.replace("-", "_").lower() + "_id",
+        }
+        row_inputs = {
+            key: value for key, value in rows[0].items() if key not in row_id_keys
+        }
+        inputs = case.get("input")
+        return (
+            isinstance(inputs, dict)
+            and set(inputs) == set(row_inputs)
+            and not any(isinstance(value, (dict, list)) for value in inputs.values())
+            and _case_input_formula_environment(case) is not None
+            and all(
+                _same_formula_value(value, row_inputs[key])
+                for key, value in inputs.items()
+            )
+        )
+
+    return {
+        name: [case for case in cases if bound(case, principal_rules[name])]
+        for name, cases in asserted_by_rule.items()
+        if name in principal_rules
+    }
+
+
 def _toggled_formula_boolean_selectors(
     principal_rules: dict[str, dict[str, Any]],
     *,
@@ -30513,6 +30593,9 @@ def _toggled_formula_boolean_selectors(
     formula_environment: dict[str, Any],
     calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> set[_ExceptionWitness]:
+    asserted_by_rule = _asserted_cases_with_bound_formula_inputs(
+        principal_rules, asserted_by_rule
+    )
     toggled: set[_ExceptionWitness] = set()
     for rule_name, rule in principal_rules.items():
         selector_names = _rule_exception_selector_names(rule)
@@ -30684,6 +30767,9 @@ def _toggled_formula_calendar_age_selectors(
 ) -> set[_ExceptionWitness]:
     """Trace a single Date input through an executed local birthday dependency."""
 
+    asserted_by_rule = _asserted_cases_with_bound_formula_inputs(
+        principal_rules, asserted_by_rule
+    )
     witnesses: set[_ExceptionWitness] = set()
     for rule_name, rule in principal_rules.items():
         cases = asserted_by_rule.get(rule_name, ())
@@ -30920,6 +31006,9 @@ def _toggled_formula_numeric_selectors(
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     formula_environment: dict[str, Any],
 ) -> set[_ExceptionWitness]:
+    asserted_by_rule = _asserted_cases_with_bound_formula_inputs(
+        principal_rules, asserted_by_rule
+    )
     witnesses: set[_ExceptionWitness] = set()
     for rule_name, rule in principal_rules.items():
         selector_names = _rule_numeric_selector_names(rule)
