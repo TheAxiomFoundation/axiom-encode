@@ -10,6 +10,7 @@ from axiom_encode.editorial_source_ancestry import (
     _certify,
     confirms_bibliographic_editorial_scope,
 )
+from axiom_encode.harness import coverage_exemptions as ce
 from axiom_encode.harness import validator_pipeline as vp
 
 FIXTURES = Path(__file__).parent / "fixtures/editorial_source_ancestry"
@@ -154,7 +155,21 @@ def test_authentic_and_adversarial_normal_consumers(name, scope, digest, monkeyp
         ) == vp._high_signal_top_level_subparagraphs(changed)
 
 
-def test_actual_deferred_policy_consumers_require_reviewed_tombstones():
+def test_actual_deferred_policy_consumers_require_reviewed_tombstones(monkeypatch):
+    # Exercise the absence-of-review precondition even after these four exact
+    # occurrences receive reviewed entries. The full registry has separate tests.
+    entries = tuple(
+        e
+        for e in ce.load_coverage_exemptions()
+        if e.owner_evidence["citation_path"]
+        not in {
+            "us/statute/26/3121/a/9",
+            "us/statute/26/3306/b/12",
+            "us/statute/26/3121/b/17",
+            "us/statute/26/3306/b/8",
+        }
+    )
+    monkeypatch.setattr(ce, "load_coverage_exemptions", lambda: entries)
     for name, citation, relative in [
         ("a-9", "us/statute/26/3121", "us/statutes/26/3121/a/9.yaml"),
         ("b-12", "us/statute/26/3306", "us/statutes/26/3306/b/12.yaml"),
