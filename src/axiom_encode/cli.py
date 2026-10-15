@@ -511,6 +511,7 @@ from .toolchain import (
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
+from .validation_waiver_scope import select_validation_waiver_scope
 
 # Default DB path - can be overridden with --db
 DEFAULT_DB = Path.home() / "TheAxiomFoundation" / "axiom-encode" / "encodings.db"
@@ -1831,6 +1832,12 @@ def main():
         type=Path,
         required=True,
         help="File containing one repository-relative changed path per line",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--scope",
+        choices=("full", "incremental"),
+        default="full",
+        help="Audit all waivers (default) or conservatively select changed read sets",
     )
     validation_waivers_audit_parser.add_argument(
         "--partition-key",
@@ -4624,9 +4631,17 @@ def _validation_waiver_changed_paths(path: Path) -> set[str]:
 
 def _emit_validation_waiver_error(args, error: Exception | str) -> None:
     message = str(error)
+    selection = getattr(args, "_validation_waiver_audit_selection", None)
     if getattr(args, "json", False):
-        print(json.dumps({"success": False, "errors": [message]}, indent=2))
+        report = {"success": False, "errors": [message]}
+        if getattr(args, "validation_waivers_command", None) == "audit":
+            report["scope"] = "full"
+            if selection is not None:
+                report.update(selection)
+        print(json.dumps(report, indent=2))
     else:
+        if selection is not None:
+            _print_validation_waiver_selection(selection, stream=sys.stderr)
         print(f"validation-waivers: {message}", file=sys.stderr)
 
 
@@ -4712,7 +4727,12 @@ def _validation_waiver_audit_partition(
 
 
 def _cmd_validation_waivers_audit(args) -> int:
+    if hasattr(args, "_validation_waiver_audit_selection"):
+        del args._validation_waiver_audit_selection
     root = Path(args.root).resolve()
+    requested_scope = getattr(args, "scope", "full")
+    if requested_scope not in {"full", "incremental"}:
+        raise ValueError("--scope must be full or incremental")
     if not root.is_dir():
         raise ValueError(f"RuleSpec repository root does not exist: {root}")
     waiver_path = _validation_waivers.DEFAULT_WAIVER_PATH
@@ -4749,7 +4769,19 @@ def _cmd_validation_waivers_audit(args) -> int:
             "checked": 0,
             "results": [],
             "errors": list(transition_issues),
+            "scope": "full",
         }
+        if requested_scope == "incremental":
+            report.update(
+                selected=0,
+                total_waivers=len(
+                    set(head.active_paths)
+                    | set(head.pending_paths)
+                    | set(base.active_paths)
+                ),
+                selection_reasons={},
+                fallback_reason="protected base transition checks failed",
+            )
         _print_validation_waiver_audit_report(report, as_json=args.json)
         return 1
 
@@ -4761,6 +4793,42 @@ def _cmd_validation_waivers_audit(args) -> int:
     for path in removed_active_paths:
         classified.setdefault(path, "removed")
     classified = dict(sorted(classified.items()))
+    # Ownership must use the complete ledger, independent of each shard's
+    # dependency discovery. A local full fallback must not shift a waiver to
+    # a different shard that selected a smaller incremental scope.
+    all_classified = list(classified.items())
+    total_waivers = len(all_classified)
+    scope = "full"
+    selection_reasons: dict[str, list[str]] = {}
+    fallback_reason = None
+    if requested_scope == "incremental":
+        selection = select_validation_waiver_scope(
+            list(classified),
+            root=root,
+            changed_paths=changed_paths,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            shared_execution_inputs=tuple(
+                Path(value)
+                for value in (
+                    args.corpus_path,
+                    args.axiom_rules_path,
+                    getattr(args, "axiom_compose_path", None),
+                )
+                if isinstance(value, (str, Path))
+            ),
+        )
+        scope = selection.scope
+        selection_reasons = selection.reasons
+        fallback_reason = selection.fallback_reason
+        classified = {path: classified[path] for path in selection.paths}
+        args._validation_waiver_audit_selection = {
+            "scope": scope,
+            "selected": len(classified),
+            "total_waivers": total_waivers,
+            "selection_reasons": selection_reasons,
+        }
+        if fallback_reason is not None:
+            args._validation_waiver_audit_selection["fallback_reason"] = fallback_reason
 
     partition_key = getattr(args, "partition_key", None)
     partition_keys_json = getattr(args, "partition_keys_json", None)
@@ -4770,19 +4838,25 @@ def _cmd_validation_waivers_audit(args) -> int:
         )
     partition: dict[str, Any] | None = None
     if partition_key is not None:
-        all_classified = list(classified.items())
-        selected, partition_index, partition_count = _validation_waiver_audit_partition(
+        owned, partition_index, partition_count = _validation_waiver_audit_partition(
             all_classified,
             partition_key=partition_key,
             partition_keys_json=partition_keys_json,
         )
-        classified = dict(selected)
+        classified = {path: kind for path, kind in owned if path in classified}
         partition = {
             "key": partition_key,
             "index": partition_index,
             "count": partition_count,
             "total_paths": len(all_classified),
         }
+        if requested_scope == "incremental":
+            args._validation_waiver_audit_selection.update(
+                selected=len(classified),
+                selection_reasons={
+                    path: selection_reasons[path] for path in classified
+                },
+            )
 
     deleted_removed: set[str] = set()
     missing_required: set[str] = set()
@@ -4946,7 +5020,16 @@ def _cmd_validation_waivers_audit(args) -> int:
         "checked": len(results),
         "results": results,
         "errors": errors,
+        "scope": scope,
     }
+    if requested_scope == "incremental":
+        report.update(
+            selected=len(classified),
+            total_waivers=total_waivers,
+            selection_reasons={path: selection_reasons[path] for path in classified},
+        )
+        if fallback_reason is not None:
+            report["fallback_reason"] = fallback_reason
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
@@ -4961,6 +5044,8 @@ def _print_validation_waiver_audit_report(
     if as_json:
         print(json.dumps(report, indent=2))
         return
+    if "selected" in report:
+        _print_validation_waiver_selection(report)
     if report["success"]:
         print(f"Validation waiver audit passed ({report['checked']} path(s) checked)")
         return
@@ -4970,6 +5055,18 @@ def _print_validation_waiver_audit_report(
     )
     for error in report["errors"]:
         print(f"- {error}", file=sys.stderr)
+
+
+def _print_validation_waiver_selection(report: dict[str, Any], *, stream=None) -> None:
+    print(
+        f"Audit scope: {report['scope']}; selected {report['selected']} "
+        f"of {report['total_waivers']} waiver path(s)",
+        file=stream,
+    )
+    if "fallback_reason" in report:
+        print(f"Full audit fallback: {report['fallback_reason']}", file=stream)
+    for path, reasons in report["selection_reasons"].items():
+        print(f"{path}: {'; '.join(reasons)}", file=stream)
 
 
 def cmd_validation_waivers(args) -> None:
@@ -33473,6 +33570,34 @@ def _run_encode_attempt(
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_citations = (
+                    _try_repair_generated_deferred_canonical_citations_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_deferred_citations:
+                    outcome["auto_repaired_deferred_canonical_citations"] = (
+                        repaired_deferred_citations
+                    )
+                    print(
+                        "  apply=auto_repaired_deferred_canonical_citations:"
+                        + ",".join(repaired_deferred_citations)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_source_relation_types = (
                     _try_repair_generated_invalid_source_relation_types_for_apply(
                         result,
@@ -44682,6 +44807,141 @@ def _try_repair_generated_invalid_source_verification_values_for_apply(
     except (OSError, RuntimeError, UnicodeError):
         return []
     return ["module.source_verification.values"]
+
+
+def _try_repair_generated_deferred_canonical_citations_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: Sequence[str],
+) -> list[str]:
+    """Use an attested CFR citation spelling in generated deferral reasons.
+
+    A complete-source-unit diagnostic identifies the exact canonical citation.
+    Only replace its equivalent human-readable CFR label in the same generated
+    reason. No missing dependency, reason text, or signed import is invented.
+    """
+    citations: dict[int, str] = {}
+    for issue in issues:
+        if "[complete-source-unit:deferral]" not in str(issue):
+            continue
+        index_match = re.search(r"`module\.deferred_outputs\[(\d+)\]`", str(issue))
+        citation_match = re.search(
+            r"literal canonical citation required in `reason` is `([^`]+)`",
+            str(issue),
+        )
+        if index_match is None or citation_match is None:
+            continue
+        index = int(index_match.group(1))
+        citation = citation_match.group(1)
+        if index in citations and citations[index] != citation:
+            return []
+        citations[index] = citation
+    if not citations:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    try:
+        original = rules_file.read_bytes().decode("utf-8")
+        payload = yaml.safe_load(original)
+        root_node = yaml.compose(original)
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict) or not isinstance(root_node, MappingNode):
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    verification = module.get("source_verification")
+    deferred = module.get("deferred_outputs")
+    if not isinstance(verification, dict) or not isinstance(deferred, list):
+        return []
+    source_root = verification.get("corpus_citation_path")
+    if not isinstance(source_root, str):
+        return []
+    cfr = re.fullmatch(r"us/regulation/(\d+)/(\d+)/(\d+)", source_root)
+    if cfr is None:
+        return []
+    title, part, section = cfr.groups()
+    output_root_anchor = f"us:regulations/{title}-cfr/{part}/{section}"
+
+    def _unique_value(node: object, key: str) -> object | None:
+        if not isinstance(node, MappingNode):
+            return None
+        matches = [
+            value
+            for field, value in node.value
+            if isinstance(field, ScalarNode) and field.value == key
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    module_node = _unique_value(root_node, "module")
+    deferred_node = _unique_value(module_node, "deferred_outputs")
+    if not isinstance(deferred_node, SequenceNode) or len(deferred_node.value) != len(
+        deferred
+    ):
+        return []
+
+    expected = copy.deepcopy(payload)
+    edits: list[tuple[int, int, str]] = []
+    repaired: list[str] = []
+
+    def _replace_cfr_alias(text: str, alias: str, citation: str) -> str | None:
+        matches = list(re.finditer(r"(?<![A-Za-z0-9])" + re.escape(alias), text))
+        if len(matches) != 1:
+            return None
+        match = matches[0]
+        return text[: match.start()] + citation + text[match.end() :]
+
+    for index, citation in sorted(citations.items()):
+        if index >= len(deferred) or not isinstance(deferred[index], dict):
+            return []
+        if not citation.startswith(source_root):
+            return []
+        suffix = citation[len(source_root) :]
+        if not suffix or re.fullmatch(r"(?:\([A-Za-z0-9]+\))+", suffix) is None:
+            return []
+        branch = "/".join(re.findall(r"\(([A-Za-z0-9]+)\)", suffix))
+        output = deferred[index].get("output")
+        if not isinstance(output, str) or output.split("#", 1)[0] != (
+            f"{output_root_anchor}/{branch}"
+        ):
+            return []
+        alias = f"{title} CFR {part}.{section}{suffix}"
+        reason = deferred[index].get("reason")
+        if not isinstance(reason, str):
+            continue
+        repaired_reason = _replace_cfr_alias(reason, alias, citation)
+        if repaired_reason is None:
+            continue
+        reason_node = _unique_value(deferred_node.value[index], "reason")
+        if not isinstance(reason_node, ScalarNode):
+            return []
+        start, end = reason_node.start_mark.index, reason_node.end_mark.index
+        source = original[start:end]
+        repaired_source = _replace_cfr_alias(source, alias, citation)
+        if repaired_source is None:
+            continue
+        edits.append((start, end, repaired_source))
+        expected["module"]["deferred_outputs"][index]["reason"] = repaired_reason
+        repaired.append(f"module.deferred_outputs[{index}].reason")
+    if not edits:
+        return []
+    updated = original
+    for start, end, replacement in sorted(edits, reverse=True):
+        updated = updated[:start] + replacement + updated[end:]
+    try:
+        if yaml.safe_load(updated) != expected:
+            return []
+        mode = stat.S_IMODE(rules_file.stat().st_mode)
+        _atomic_replace_bytes(rules_file, updated.encode("utf-8"), mode=mode)
+    except (OSError, RuntimeError, UnicodeError, ValueError, yaml.YAMLError):
+        return []
+    return repaired
 
 
 def _try_repair_generated_unquoted_source_scalars_for_apply(
