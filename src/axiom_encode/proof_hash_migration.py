@@ -339,6 +339,8 @@ def _resolve_base_bound_cascade(
                     virtual_module_bytes=virtual,
                     current_target_bytes=current_target_bytes,
                 )
+                if replacement == scan.declared_hash:
+                    continue
                 rendered = _render_scalar(replacement, scan.scalar_style)
                 updated = (
                     updated[: scan.start_index] + rendered + updated[scan.end_index :]
