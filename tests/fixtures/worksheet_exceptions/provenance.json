@@ -1,0 +1,8 @@
+{
+  "purpose": "Portable regression fixture for binding existing equality witness objects to selected worksheet source operations. This diagnostic snapshot is not a signed or publishable policy.",
+  "policy_sha256": "d31014b818a68a1dfd829caeaddac392733cdcc593cf98bdeecd94f58837f97d",
+  "cases_sha256": "3ac20d98b63f35ea1ffa0118e3e3df83e45e368799417977a2f7da5844cd2d4b",
+  "provenance": "Unchanged reviewed issue233 T2036 diagnostic42 snapshot; source texts reused from existing worksheet fixtures. No new test facts, formula changes, expected values or source edits made when copying.",
+  "primary_source_sha256": "7637ab494fc385b938e9e3ce4d5f3b1af8bc331ad644fe3cedefaee8434028ee",
+  "secondary_source_sha256": "b4e04bf07be9d4611051a02fb4f045137420d20a419ac90c3dba59a471e5559d"
+}

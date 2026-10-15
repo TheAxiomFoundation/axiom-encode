@@ -1,0 +1,817 @@
+{
+  "id": "us-237-5474dca0-us-ga-statutes-48-48-7-27",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5474dca0ea1d0e751c02a2180ecd54edf170389e",
+  "parent_commit": "c6db535b079ba51d62cb43b2dffe02d27e3b086f",
+  "commit_date": "2026-07-21T12:18:05-04:00",
+  "commit_subject": "Complete state income tax RuleSpec campaign",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/907",
+  "module_path": "us-ga/statutes/48/48-7-27.yaml",
+  "corpus_citation_path": "us-ga/statute/48/48-7-27",
+  "corpus_citation_paths_all": [
+    "us-ga/statute/48/48-7-27",
+    "us-ga/statute/session-laws/2023/sb56/document-1",
+    "us-ga/statute/session-laws/2026/hb463/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "independent Georgia review found and drove fixes for contingent 2027 deductions, transition proofs/tests, DOR worksheet support, and retirement-exclusion amounts and eligibility branches",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        108,
+        108
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        31,
+        36
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        51,
+        55
+      ],
+      [
+        61,
+        70
+      ],
+      [
+        76,
+        85
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        113,
+        117
+      ],
+      [
+        123,
+        132
+      ],
+      [
+        138,
+        147
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        166,
+        166
+      ],
+      [
+        175,
+        179
+      ],
+      [
+        185,
+        194
+      ],
+      [
+        200,
+        209
+      ],
+      [
+        220,
+        220
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        265,
+        265
+      ],
+      [
+        308,
+        330
+      ],
+      [
+        333,
+        333
+      ],
+      [
+        348,
+        415
+      ]
+    ],
+    "rule_names": [
+      "single_or_head_of_household_standard_deduction",
+      "married_separate_standard_deduction",
+      "married_joint_standard_deduction",
+      "retirement_income_exclusion_amount",
+      "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled",
+      "retirement_income_exclusion_amount_for_taxpayer"
+    ],
+    "rule_path": "rules[retirement_income_exclusion_amount].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "905e146941b464a37a593cda381363aba884a5a5937f828ea0a9e5be590a94ed",
+  "post_fix_artifact_sha256": "f9e733b5499754ed829bc6c7610eee597d0ae55ba7dbb1fbdec257859737038e",
+  "provision_sha256": "dbd8cb688074237ba55f973232d5f4f3c4c38eb799a5e9145e79ec08aee1ffd2",
+  "provision_chars": 87503,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ga/statute/48/48-7-27",
+    "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+    "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+    "line_number": 671,
+    "record_id": "2a0abcbf-011b-5d49-a61f-8500b11568b2",
+    "stored_body_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+    "resolved_text_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2022-11-01",
+    "source_as_of": "2022-11-01",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-ga/statute/48/48-7-27",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      }
+    ]
+  },
+  "provision_extension": {
+    "composition": "sources_joined_v1",
+    "first_citation_text_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+    "first_citation_chars": 67427,
+    "added": [
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "text_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+        "chars": 19968,
+        "resolution": {
+          "mode": "axiom_encode_resolver",
+          "resolved_citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+          "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-pit-session-laws.jsonl",
+          "provision_file_sha256": "c6b232170d7be1e7ef03ed431224cc466514c8638b3da30b583b6f083d0e21cd",
+          "line_number": 8,
+          "record_id": "348081bf-ed64-51ef-b727-ff185d689469",
+          "stored_body_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+          "resolved_text_sha256": "d2fe1f196691d9a7d136e87cb790745b54897a35626d1f0f7b40ae565eff496c",
+          "slice_required": false,
+          "component_rows": 0,
+          "expression_date": "2026-05-11",
+          "source_as_of": "2026-05-11",
+          "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6"
+        }
+      }
+    ]
+  },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "single_or_head_of_household_standard_deduction",
+      "married_separate_standard_deduction",
+      "married_joint_standard_deduction",
+      "retirement_income_exclusion_amount",
+      "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled",
+      "retirement_income_exclusion_amount_for_taxpayer"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii)",
+        "where": [
+          "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled.versions[0].formula",
+          "retirement_income_exclusion_amount_for_taxpayer.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/48/48-7-27",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$70,000.00 for each taxpayer meeting the eligibility requirement",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$70,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)",
+        "where": [
+          "retirement_income_exclusion_amount_for_taxpayer.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A taxpayer shall be eligible for the exclusions granted by this paragraph only if the taxpayer",
+        "where": [
+          "retirement_income_exclusion_amount_for_taxpayer.versions[0].formula"
+        ],
+        "cites": "us-ga/statute/48/48-7-27",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For taxable years beginning on or after January 1, 2012, and ending on or before December 31, 2026",
+        "where": [
+          "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled.versions[0].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For taxable years beginning on or after January 1, 2027",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Sections 2-2 through 2-6 of this Act shall be effective on January 1, 2024, and shall be applicable to all taxable years beginning on or after January 1, 2024",
+        "where": [
+          "single_or_head_of_household_standard_deduction.versions[0].effective_to",
+          "single_or_head_of_household_standard_deduction.versions[1].effective_from",
+          "married_separate_standard_deduction.versions[0].effective_to",
+          "married_separate_standard_deduction.versions[1].effective_from",
+          "married_joint_standard_deduction.versions[0].effective_to",
+          "married_joint_standard_deduction.versions[1].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2023/sb56/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "This Act shall become effective upon its approval by the Governor or upon its becoming law without such approval and shall be applicable to all taxable years beginning on or after January 1, 2026",
+        "where": [
+          "single_or_head_of_household_standard_deduction.versions[1].effective_to",
+          "single_or_head_of_household_standard_deduction.versions[2].effective_from",
+          "married_separate_standard_deduction.versions[1].effective_to",
+          "married_separate_standard_deduction.versions[2].effective_from",
+          "married_joint_standard_deduction.versions[1].effective_to",
+          "married_joint_standard_deduction.versions[2].effective_from"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "ending on or before December 31, 2026",
+        "where": [
+          "retirement_income_exclusion_amount.versions[0].effective_to"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "such deduction shall be increased by $375.00 annually beginning on January 1, 2027, until such deduction reaches $18,000.00, provided that such increases in such deduction shall be subject to delays",
+        "where": [
+          "single_or_head_of_household_standard_deduction.versions[2].effective_to",
+          "married_separate_standard_deduction.versions[2].effective_to"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "such deduction shall be increased by $750.00 annually beginning on January 1, 2027, until such deduction reaches $36,000.00, provided that such increases in such deduction shall be subject to delays",
+        "where": [
+          "married_joint_standard_deduction.versions[2].effective_to"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "10"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "10000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "10000",
+          "10,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "11",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "11"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "11000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "11000",
+          "11,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "12",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "12"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "12000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "12000",
+          "12,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "13000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "13000",
+          "13,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "13500",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "13500",
+          "13,500"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "14000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "14000",
+          "14,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "14500",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "14500",
+          "14,500"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "15000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "15000",
+          "15,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1989-01-01",
+        "where": [
+          "retirement_income_exclusion_amount_for_taxpayer.versions[0].effective_from"
+        ],
+        "forms": [
+          "1989-01-01",
+          "January 1, 1989",
+          "1 January 1989"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2012-01-01",
+        "where": [
+          "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled.versions[0].effective_from"
+        ],
+        "forms": [
+          "2012-01-01",
+          "January 1, 2012",
+          "1 January 2012"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "married_joint_standard_deduction.versions[2].effective_to",
+          "married_separate_standard_deduction.versions[2].effective_to",
+          "retirement_income_exclusion_amount.versions[0].effective_to",
+          "single_or_head_of_household_standard_deduction.versions[2].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2027-01-01",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].effective_from"
+        ],
+        "forms": [
+          "2027-01-01",
+          "January 1, 2027",
+          "1 January 2027"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "25000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "25000",
+          "25,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "30000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "30000",
+          "30,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "35000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values",
+          "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled.versions[0].formula"
+        ],
+        "forms": [
+          "35000",
+          "35,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "70000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "70000",
+          "70,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "8000",
+        "where": [
+          "retirement_income_exclusion_amount.versions[1].values"
+        ],
+        "forms": [
+          "8000",
+          "8,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii) ... or an amount of $65,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(xiv) For taxable years beginning on or after January 1, 2027 ... $70,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For taxable years beginning on or after January 1, 2012 ... $35,000.00 ... division (i) or (ii) ... or an amount of $65,000.00 ... division (iii)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be increased by $375.00/$750.00 annually beginning on January 1, 2027",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "such deduction shall be increased by $375.00 annually beginning on January 1, 2027, until such deduction reaches $18,000.00, provided that such increases in such deduction shall be subject to delays as provided in paragraph (1.1)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 36,
+    "post_side_matched": 12,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
+  "judgeable_from_provision": true,
+  "provision_review": {
+    "method": "provision_review_v1",
+    "reviewed_on": "2026-10-10",
+    "verdict": "in_other_citation",
+    "outcome": "provision_extended",
+    "defect_real": "yes",
+    "decisive_quotes": [
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "quote": "For taxable years beginning on or after January 1, 2012, and ending on or",
+        "span": [
+          76984,
+          77057
+        ]
+      },
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "quote": "(xiv) For taxable years beginning on or after January 1, 2027, retirement income from",
+        "span": [
+          77498,
+          77583
+        ]
+      },
+      {
+        "citation_path": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "quote": "of this paragraph or an amount of $70,000.00 for each taxpayer meeting the eligibility",
+        "span": [
+          77763,
+          77849
+        ]
+      }
+    ],
+    "nearest_quotes": [],
+    "why": "HB 463 closes division (xiii), the $65,000 amount, at December 31, 2026. It adds division (xiv), which from January 1, 2027 sets $70,000.00 for division (iii) taxpayers. The pre-fix retirement_income_exclusion_amount table runs open-ended from 1989 with band 12 at 65000. The post-fix module ends that version on 2026-12-31 and adds a 2027 version at 70000.",
+    "missing_basis": "",
+    "pre_fix_restates_it": false,
+    "basis": "readers_agree",
+    "adjudication_note": "",
+    "readers": {
+      "r1": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      },
+      "r2": {
+        "verdict": "in_other_citation",
+        "defect_real": "yes",
+        "confidence": 0.85,
+        "problems": []
+      }
+    },
+    "mechanical_before_review": "present",
+    "default_window": {
+      "chars": 24000,
+      "decisive_text_visible": false
+    }
+  },
+  "fix_stage": "pre_merge_review",
+  "artifacts_shipped": true,
+  "family_id": "us-5474dca0-e6760c23ef59",
+  "family_size": 1,
+  "family_representative": true,
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three 2026 standard-deduction versions ($15,000/$15,000/$30,000) ran open-ended past 2026 despite HB 463's $375.00/$750.00 contingent annual increases from January 1, 2027, and the retirement-income exclusion table was encoded timelessly from 1989 at $65,000, so it neither carried HB 463's new 2027 division (xiv) amount of $70,000 nor distinguished the $35,000 amount the statute sets for taxpayers qualifying under divisions (i) or (ii).",
+    "triage_notes": "Multi-defect module; I picked the retirement-exclusion window as the decisive path because it both closes the timeless 1989-onward version and adds the corrected 2027 table (band 12: 65000 -> 70000). The parallel and equally supported defect is the three standard-deduction rules gaining effective_to 2026-12-31 plus new deferred_outputs entries for the contingent 2027 increases (same pattern as index 0). A third, distinct defect corrected here is an unrepresented_clause: pre-fix the single indexed retirement_income_exclusion_amount applied to every eligible taxpayer, while O.C.G.A. 48-7-27(a)(5)(A)(xiii) (read via the pinned corpus) sets '$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii) ... or an amount of $65,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)'; the fix adds retirement_income_exclusion_amount_for_age_62_to_64_or_disabled (35000) and the derived retirement_income_exclusion_amount_for_taxpayer branch. HB 463 text confirmed for the 2027 division (xiv) $35,000/$70,000 split and the $375.00/$750.00 deduction escalators. The commit body is empty, so the quote is from the PR body; it names both the contingent-2027 deductions and the retirement-exclusion amounts/eligibility branches. Also present in the diff but mechanical: source-string normalizations (e.g. 48-7-27(a) -> O.C.G.A. 48-7-27(a)(1)(B)) and added effective-period excerpts.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "I tried to refute this as mechanical or as mere new coverage and could not: the diff changes real version windows, not just proof atoms — three standard-deduction rules gain `effective_to: '2026-12-31'` on their previously open-ended 2026 versions, and `retirement_income_exclusion_amount` gains `effective_to: '2026-12-31'` on the 1989 version plus a new `effective_from: '2027-01-01'` version. The pinned corpus confirms the pre-fix encoding disagreed with the source for 2027+: HB 463 rewrites (a)(5)(A)(xiii) to end \"on or before December 31, 2026\" and adds \"(xiv) For taxable years beginning on or after January 1, 2027 ... $70,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)\", while the standard deduction \"shall be increased by $375.00/$750.00 annually beginning on January 1, 2027\" subject to the paragraph (1.1) delay tests — so an open-ended $15,000/$30,000/$65,000 asserted amounts the source does not support past 2026. The module already listed `us-ga/statute/session-laws/2026/hb463/document-1` in its corpus_citation_paths and already encoded HB 463's 2026 amounts, so this is a correction of claimed scope, not new coverage. I considered amount_mismatch (the 65000→70000 cell) but that value lands in a newly added window rather than correcting a value inside an existing one, and the three standard-deduction rules change no number at all — the unifying, pinned mechanism is the effective period.",
+    "verifier_quote": "     versions:\n       - effective_from: '1989-01-01'\n+        effective_to: '2026-12-31'\n         values:\n...\n           12: 65000\n+      - effective_from: '2027-01-01'\n+        values:\n...\n+          12: 70000",
+    "verifier_notes": "Source verification (corpus release us-rulespec-2026-07-22-current, corpus commit c5af541326e0): codified 48-7-27(a)(5)(A)(xiii) in the pinned text stops at \"For taxable years beginning on or after January 1, 2012 ... $35,000.00 ... division (i) or (ii) ... or an amount of $65,000.00 ... division (iii)\" with no end date, and HB 463 SECTION 2-3 supplies both the December 31, 2026 cutoff and division (xiv). Verbatim HB 463: \"such deduction shall be increased by $375.00 annually beginning on January 1, 2027, until such deduction reaches $18,000.00, provided that such increases in such deduction shall be subject to delays as provided in paragraph (1.1)\".\n\nA SECOND, coexisting fidelity defect is in the same diff and a reviewer may want it split out as its own case: pre-fix, `retirement_income_exclusion_band` was purely year-based (band 12 = current period → 65000), so a 62-to-64-year-old or permanently disabled taxpayer received $65,000 where the codified statute grants $35,000 under divisions (i)/(ii). The fix adds `retirement_income_exclusion_amount_for_age_62_to_64_or_disabled` (35000) and the derived `retirement_income_exclusion_amount_for_taxpayer` branching on `taxpayer_is_65_years_of_age_or_older_during_any_part_of_taxable_year`. That strand is unrepresented_clause (or wrong_entity_or_scope), not wrong_period; I kept the period kind because it covers four of the rules touched and matches the pinned rule_path rules[retirement_income_exclusion_amount].versions[0].effective_to.\n\nAlso in the diff but non-decisive/provenance-only: `source: 48-7-27(a)` → `O.C.G.A. § 48-7-27(a)(1)(B)` and `48-7-27(a)(1)(C)` → `O.C.G.A. § 48-7-27(a)(1)(B)`. Note the joint-return rule is HB 463's division (i) and the single/HOH/separate rules its division (ii); both are now labeled just (a)(1)(B), which is slightly less precise than before for the joint rule, but citation-string-only and mechanical.\n\nCommands run were read-only (git show, cat, sed, resolve_provision.py). Confidence held at 0.8 rather than higher only because the commit is a 4-module campaign wrap-up whose message is generic; the module-1 diff itself is unambiguous.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen",
+    "screen_reason": "Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10.",
+    "review_override": null,
+    "kind_before_family_settlement": null,
+    "family_kind_votes": null
+  },
+  "triage_notes": "Multi-defect module; I picked the retirement-exclusion window as the decisive path because it both closes the timeless 1989-onward version and adds the corrected 2027 table (band 12: 65000 -> 70000). The parallel and equally supported defect is the three standard-deduction rules gaining effective_to 2026-12-31 plus new deferred_outputs entries for the contingent 2027 increases (same pattern as index 0). A third, distinct defect corrected here is an unrepresented_clause: pre-fix the single indexed retirement_income_exclusion_amount applied to every eligible taxpayer, while O.C.G.A. 48-7-27(a)(5)(A)(xiii) (read via the pinned corpus) sets '$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii) ... or an amount of $65,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)'; the fix adds retirement_income_exclusion_amount_for_age_62_to_64_or_disabled (35000) and the derived retirement_income_exclusion_amount_for_taxpayer branch. HB 463 text confirmed for the 2027 division (xiv) $35,000/$70,000 split and the $375.00/$750.00 deduction escalators. The commit body is empty, so the quote is from the PR body; it names both the contingent-2027 deductions and the retirement-exclusion amounts/eligibility branches. Also present in the diff but mechanical: source-string normalizations (e.g. 48-7-27(a) -> O.C.G.A. 48-7-27(a)(1)(B)) and added effective-period excerpts. | verifier confirmed at 0.80"
+}

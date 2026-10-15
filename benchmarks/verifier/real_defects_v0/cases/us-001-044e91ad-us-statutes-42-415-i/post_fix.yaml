@@ -1,0 +1,120 @@
+format: rulespec/v1
+imports:
+  - us:statutes/42/415/a#primary_insurance_amount
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/42/415/i
+    corpus_citation_paths:
+      - us/statute/42/415/i
+      - us/statute/42/415/i/2
+  summary: |-
+    When the Commissioner determines that a base quarter is a cost-of-living computation quarter, the primary insurance amount is increased effective with December by multiplying it by the applicable increase percentage, and the resulting amount is decreased to the next lower multiple of $0.10 if needed. Section 415(i)(2)(A)(i) directs the Commissioner to make this determination each year beginning with 1975, so the applicable increase percentage is a determination fixed per calendar year rather than a value stated in the statute. This module is therefore year-general: it takes the applicable increase percentage as a free input, and each determination year's percentage is supplied by its own policy module (for 2026, us/policies/ssa/cola/2026). A new determination year is a new policy file, not an edit to this statute module.
+
+    Input contract: cola_applicable_increase_percentage is the year's
+    applicable increase percentage fixed by the Commissioner's annual
+    determination under 415(i)(2)(A). Under lifetime execution it must be
+    supplied period-invariant (identical in every period) or wrapped in an
+    over-periods reduction; the engine rejects period-varying bare inputs
+    outside reductions.
+rules:
+  - name: cola_pia_rounding_multiple
+    kind: parameter
+    dtype: Money
+    unit: USD
+    source: 42 USC 415(i)(2)(A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "not a multiple of $0.10"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "decreased to the next lower multiple of $0.10"
+    versions:
+      - effective_from: '1975-01-01'
+        formula: |-
+          0.10
+  - name: unrounded_pia_after_cost_of_living_increase
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 42 USC 415(i)(2)(A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "determines that the base quarter in any year is a cost-of-living computation quarter"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "the primary insurance amount of each other individual"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "by multiplying each of the amounts described"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "by the applicable increase percentage"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/415/a#primary_insurance_amount
+              output: primary_insurance_amount
+              hash: sha256:bf244b9460ead81724d135bb1f806a1ffb45ebc2e04bfdc33f1175ea28357221
+    versions:
+      - effective_from: '1975-01-01'
+        formula: |-
+          primary_insurance_amount
+          * (1 + cola_applicable_increase_percentage)
+  - name: primary_insurance_amount_after_cost_of_living_increase
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 42 USC 415(i)(2)(A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "any amount so increased that is not a multiple of $0.10"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/42/415/i/2
+              excerpt: "shall be decreased to the next lower multiple of $0.10"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/415/i#unrounded_pia_after_cost_of_living_increase
+              output: unrounded_pia_after_cost_of_living_increase
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/42/415/i#cola_pia_rounding_multiple
+              output: cola_pia_rounding_multiple
+              hash: sha256:local
+    versions:
+      - effective_from: '1975-01-01'
+        formula: |-
+          floor(unrounded_pia_after_cost_of_living_increase / cola_pia_rounding_multiple) * cola_pia_rounding_multiple

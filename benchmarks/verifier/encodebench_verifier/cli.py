@@ -91,6 +91,7 @@ def cmd_build_real(args: argparse.Namespace) -> int:
         triage_statuses=tuple(args.triage_status or ()),
         min_confidence=args.min_confidence,
         jurisdictions=tuple(args.jurisdiction or ()),
+        judgeable_only=not args.include_not_judgeable,
     )
     suite_path, manifest_path = suite.write(Path(args.out))
     _eprint(json.dumps(report, indent=1))
@@ -426,6 +427,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--min-confidence", type=float, default=0.0)
     p.add_argument("--jurisdiction", nargs="*", default=None, help="e.g. us uk")
+    p.add_argument(
+        "--include-not-judgeable",
+        action="store_true",
+        help="keep cases the corpus records as not judgeable from the provision, "
+        "and cases whose decisive text the provision window cuts away",
+    )
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_build_real)
 
