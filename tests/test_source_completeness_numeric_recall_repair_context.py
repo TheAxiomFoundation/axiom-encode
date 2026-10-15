@@ -109,17 +109,19 @@ def test_first_issue_locates_every_missing_value_by_branch():
     first = issues[0]
     assert f"All {len(values)} values of this source without a named scalar" in first
     for value in values:
-        assert re.search(rf"(?:^|[ ,]){re.escape(value)}(?:,| at characters)", first)
+        assert re.search(
+            rf"(?:^|[ ,]){re.escape(value)}(?:,| at [0-9]+:[0-9]+:)", first
+        )
     # Values on one table row share one excerpt.
-    assert "6330, 11610 at characters" in first
+    assert "6330, 11610 at " in first
     assert "`| 1 qualifying child | $6,330 | $11,610 |`" in first
     assert "In us/statute/26/32(c) [Absatz c]:" in first
-    assert "10000 at characters" in first
+    assert "10000 at " in first
     assert "disqualified income exceeds $10,000.`" in first
     # A rate is named by the value the gate demands (34 percent -> 0.34).
-    assert "0.34, 0.1598 at characters" in first
+    assert "0.34, 0.1598 at " in first
     # Excerpts are verbatim source text (whitespace-normalized).
-    excerpts = re.findall(r"characters \d+:\d+(?: in [^`]*)?: `([^`]*)`", first)
+    excerpts = re.findall(r"\d+:\d+(?: in source\.txt, [^`]*)?: `([^`]*)`", first)
     assert len(excerpts) >= 5
     for excerpt in excerpts:
         stripped = excerpt.removeprefix("... ").removesuffix(" ...")
@@ -144,7 +146,10 @@ def test_value_is_located_where_the_recall_view_demands_it():
 def test_single_missing_value_gets_only_its_locator():
     issues = _recall_issues(_analysis("The cap is $1,500 per household."))
     assert len(issues) == 1
-    assert "First source location: characters 12:17" in issues[0]
+    assert (
+        "First source location of 1500: character (code point) offsets 12:17"
+        in issues[0]
+    )
     assert "`The cap is $1,500 per household.`" in issues[0]
     assert "All 1 values" not in issues[0]
 
@@ -174,7 +179,7 @@ def test_retry_feedback_now_shows_every_missing_value():
     for issue in _recall_issues(analysis):
         value = HEAD.match(issue).group(1)
         assert re.search(
-            rf"(?:^|[ ,]){re.escape(value)}(?:,| at characters)", recall[0]
+            rf"(?:^|[ ,]){re.escape(value)}(?:,| at [0-9]+:[0-9]+:)", recall[0]
         )
 
 
@@ -186,4 +191,64 @@ def test_context_is_deterministic(citation):
     assert (
         _analysis(SOURCE, citation=citation).issues
         == _analysis(SOURCE, citation=citation).issues
+    )
+
+
+@pytest.mark.parametrize(
+    "citation, source, locator, operative",
+    (
+        # Review of #1934: the smallest missing value was often a locator.
+        (
+            "us/regulation/7/273/4",
+            "(G) An alien child whose parent has been battered; 2 or\n"
+            "(H) The household pays $1,500 for 12 months.",
+            "2",
+            "12",
+        ),
+        (
+            "us-mo/statute/143.011",
+            "1. The rate is 4.7 percent. 2. (1) The top rate shall be reduced by "
+            "$175 each year.",
+            "2",
+            "0.047",
+        ),
+        (
+            "us-va/statute/58.1/58.1-339.8",
+            "A credit under subdivision 1 or 2 equals 15 percent of the credit.",
+            "2",
+            "0.15",
+        ),
+        (
+            "us-az/statute/43-1072",
+            "43-1072 - Earned credit for property taxes\nThe credit is $502.",
+            "43",
+            "502",
+        ),
+    ),
+)
+def test_locator_values_are_grouped_apart_and_never_the_first_example(
+    citation, source, locator, operative
+):
+    issues = _recall_issues(_analysis(source, citation=citation))
+    first = issues[0]
+    assert f"First source location of {operative}:" in first
+    assert "appear to be citation, caption or section locators" in first
+    tail = first.split("appear to be citation, caption or section locators", 1)[1]
+    assert re.search(rf"(?:^|[ ,]){re.escape(locator)}(?:,| at [0-9]+:[0-9]+:)", tail)
+
+
+def test_excerpt_word_widening_is_bounded():
+    token = "x" * 500
+    source = f"{token} The cap is $1,500 per household. {token}"
+    first = _recall_issues(_analysis(source))[0]
+    excerpt = re.search(r"offsets \d+:\d+ in source\.txt, [^`]*: `([^`]*)`", first)
+    assert excerpt is not None
+    assert (
+        len(excerpt.group(1))
+        < 2
+        * (
+            completeness._NUMERIC_RECALL_EXCERPT_RADIUS
+            + completeness._NUMERIC_RECALL_WORD_WIDENING
+        )
+        + 40
     )
