@@ -31286,7 +31286,14 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
     end = None
     skip_phrase_close = False
     depth = 0
+    in_quote = False
     for index, character in enumerate(condition_text):
+        if character in '\u201c\u201d"':
+            # A comma inside a quotation does not end the condition.
+            in_quote = character != "\u201d" and not in_quote
+            continue
+        if in_quote:
+            continue
         if character == "(":
             depth += 1
         elif character == ")":
@@ -31317,6 +31324,25 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
                 # A short inserted phrase (`..., above, ...`, `..., in 1969, ...`)
                 # and the comma that closes it.
                 skip_phrase_close = True
+                continue
+            if re.search(
+                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with)\s*$",
+                condition_text[:index],
+                flags=re.IGNORECASE,
+            ):
+                # `When one ... is, on the information of ...`: the clause
+                # continues after an inserted phrase, and the comma that closes
+                # it.
+                skip_phrase_close = True
+                continue
+            if re.match(
+                r"\s*\w+(?:\s+that)?\s+(?:at|in|on|upon|during|after|before|for|"
+                r"within|under)\s+(?:\S+\s+){0,4}\S+$",
+                condition_text[:index],
+                flags=re.IGNORECASE,
+            ):
+                # `If at the time of re-determination, the parent fee remains
+                # unpaid ...`: a short introductory phrase, not the condition.
                 continue
             if (
                 inserted_phrase_end is not None and index <= inserted_phrase_end

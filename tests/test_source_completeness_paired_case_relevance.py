@@ -220,6 +220,34 @@ def test_pair_toggling_the_exception_condition_still_witnesses_it():
             "If the benefits described in paragraph (6)(a), above, are included in "
             "federal taxable income",
         ),
+        # A comma inside a quotation does not end the condition.
+        (
+            "if “at any point during the 3-month period ending on the first "
+            "day of such month, the individual was an inmate of a public "
+            "institution.”, the State must deem the individual eligible.",
+            "if “at any point during the 3-month period ending on the first "
+            "day of such month, the individual was an inmate of a public "
+            "institution.”",
+        ),
+        # A comma after a dangling verb or article continues the clause.
+        (
+            "When one assuming to act as tax collector is, on the information of "
+            "the district attorney, declared to be acting without warrant, the "
+            "collector is not entitled to the fees.",
+            "When one assuming to act as tax collector is, on the information of "
+            "the district attorney, declared to be acting without warrant",
+        ),
+        # A short introductory phrase after the cue is not the condition.
+        (
+            "If at the time of re-determination, the parent fee remains unpaid, "
+            "the household shall remain ineligible.",
+            "If at the time of re-determination, the parent fee remains unpaid",
+        ),
+        (
+            "If in these circumstances the household does not provide "
+            "verification, the household's benefits will revert.",
+            "If in these circumstances the household does not provide verification",
+        ),
         # An anaphoric condition (`if so`) keeps its whole clause.
         (
             "if so, whether they are deemed to have demonstrated community engagement.",
