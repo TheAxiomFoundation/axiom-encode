@@ -87,6 +87,10 @@ from axiom_encode.corpus_resolver import (
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
+from axiom_encode.editorial_source_ancestry import (
+    BIBLIOGRAPHIC_NOTICE,
+    confirms_bibliographic_editorial_scope,
+)
 from axiom_encode.encode_timing import (
     PHASE_REVIEW_MODEL_CALL,
     TOOL_CI_STATIC_CHECKS,
@@ -24687,7 +24691,10 @@ def _authoritative_deferred_editorial_source_slice(
     return bool(
         notice_label
         and notice_label[1].lower() == scope[-1]
-        and _authoritative_source_slice_is_editorial_omission(summary)
+        and (
+            _authoritative_source_slice_is_editorial_omission(summary)
+            or _bibliographic_editorial_notice(summary)
+        )
         and _source_scope_is_editorial_omission(source_text, scope)
     )
 
@@ -24708,6 +24715,10 @@ def _source_scope_is_editorial_omission(
     source_text: str, scope: tuple[str, ...]
 ) -> bool:
     """Authenticate one exact requested tombstone in a proven source outline."""
+    # The finite certificate uses raw presentation and a complete sequential
+    # ancestry proof. Refusal leaves the original conservative route intact.
+    if confirms_bibliographic_editorial_scope(source_text, scope):
+        return True
     # Preserve digits inside authoritative headings before removing notice
     # footnotes. A superscript label is still a label, not an annotation.
     heading_text = re.sub(
@@ -24780,6 +24791,11 @@ def _source_scope_is_editorial_omission(
     return _authoritative_source_slice_is_editorial_omission(
         normalized[marker.start : end]
     )
+
+
+def _bibliographic_editorial_notice(source_text: str) -> bool:
+    normalized = _normalized_editorial_source_presentation(source_text).strip()
+    return BIBLIOGRAPHIC_NOTICE.fullmatch(normalized) is not None
 
 
 def _authoritative_source_slice_is_editorial_omission(source_text: str) -> bool:
