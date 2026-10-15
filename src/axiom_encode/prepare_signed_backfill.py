@@ -150,6 +150,12 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
         ),
+        # rulespec-us#1778: independently reviewed signed FY2026 SNAP metadata
+        # migration; its remaining income dependency requires a protected PR.
+        (
+            "us",
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+        ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
             "us",
@@ -202,6 +208,12 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
             "codex/az-nested-engine-pin",
+        ),
+        # rulespec-us#1778: admit only its exact reviewed, signed branch tip.
+        (
+            "us",
+            "87c766a7ecc76d7d36272c648f6daf87b4669317",
+            "axiom/signed-backfill-us-38756101655-1",
         ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
