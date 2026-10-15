@@ -5249,6 +5249,7 @@ def _report_money_atom_verdict(money_run) -> bool:
     return True
 
 
+@_rulespec_routing_cache_scope()
 def cmd_test(args):
     """Execute companion tests from one exact jurisdiction content root."""
     root = _resolve_explicit_existing_directory(
@@ -5322,17 +5323,19 @@ def cmd_test(args):
         tmp_path = Path(tmpdir)
         compiled_cache: dict[Path, tuple[Path, dict]] = {}
         for test_file in test_files:
-            result = _execute_rulespec_test_file(
-                test_file,
-                binary=binary,
-                pipeline=pipeline,
-                axiom_rules_path=Path(axiom_rules_path),
-                env=rulespec_env,
-                rulespec_roots=rulespec_roots,
-                tmp_path=tmp_path,
-                compiled_cache=compiled_cache,
-                policy_repo_path=root,
-            )
+            # Keep resolution state local to this module, as in waiver audits.
+            with _rulespec_resolution_cache_scope():
+                result = _execute_rulespec_test_file(
+                    test_file,
+                    binary=binary,
+                    pipeline=pipeline,
+                    axiom_rules_path=Path(axiom_rules_path),
+                    env=rulespec_env,
+                    rulespec_roots=rulespec_roots,
+                    tmp_path=tmp_path,
+                    compiled_cache=compiled_cache,
+                    policy_repo_path=root,
+                )
             case_count += result["cases"]
             compiled_count += result["compiled"]
             failures.extend(result["failures"])
@@ -22828,8 +22831,10 @@ def guard_generated_change_issues(
         _guard_manifest_waiver_set_identity(
             repo_path,
             base_ref=base_ref,
+            head_ref=head_ref,
             changed=changed,
             protected=protected,
+            roots=roots,
             current_waiver_set_sha256=current_waiver_set_sha256,
         )
     )
@@ -22966,8 +22971,10 @@ def _guard_manifest_waiver_set_identity(
     repo_path: Path,
     *,
     base_ref: str | None,
+    head_ref: str | None,
     changed: list[str],
     protected: list[str],
+    roots: tuple[str, ...],
     current_waiver_set_sha256: str,
 ) -> tuple[str, list[str]]:
     """Resolve the waiver identity a changed apply manifest must carry.
@@ -23058,12 +23065,22 @@ def _guard_manifest_waiver_set_identity(
         return current_waiver_set_sha256, [
             prefix + "the waiver set did not remove any protected-base entry"
         ]
-    unrelated = sorted(set(removed) - set(protected))
+    unrelated = sorted(
+        path
+        for path in set(removed) - set(protected)
+        if not _unchanged_direct_importer_of_changed_rulespec(
+            repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref or "HEAD",
+            importer_path=path,
+            changed_rulespec_paths=protected,
+            roots=roots,
+        )
+    )
     if unrelated:
         return current_waiver_set_sha256, [
-            prefix
-            + "removed entries must name changed protected RuleSpec modules: "
-            + ", ".join(unrelated)
+            prefix + "removed entries must name changed protected RuleSpec modules or "
+            "unchanged direct importers of them: " + ", ".join(unrelated)
         ]
     invalid_states = [
         path
@@ -23077,6 +23094,53 @@ def _guard_manifest_waiver_set_identity(
             "RuleSpec module: " + ", ".join(invalid_states)
         ]
     return base_sha256, []
+
+
+def _unchanged_direct_importer_of_changed_rulespec(
+    repo_path: Path,
+    *,
+    base_ref: str,
+    head_ref: str,
+    importer_path: str,
+    changed_rulespec_paths: list[str],
+    roots: tuple[str, ...],
+) -> bool:
+    """Allow a passing downstream module's active waiver to retire after apply.
+
+    An unchanged importer can start passing when a signed replacement repairs
+    an imported module. Read its imports from identical base and head blobs so
+    a newly edited importer cannot manufacture this exception to the guard.
+    The validation-waiver ratchet separately requires the retired path to pass.
+    """
+
+    if not _is_protected_rulespec_yaml_path(Path(importer_path), roots=roots):
+        return False
+    base_bytes = _git_show_bytes(repo_path, base_ref, importer_path)
+    if base_bytes is None or base_bytes != _git_show_bytes(
+        repo_path, head_ref, importer_path
+    ):
+        return False
+    try:
+        payload = yaml.safe_load(base_bytes)
+    except (UnicodeDecodeError, yaml.YAMLError, ValueError):
+        return False
+    if not isinstance(payload, dict) or not isinstance(payload.get("imports"), list):
+        return False
+    importer_anchor = _rulespec_anchor_base_for_output(repo_path, Path(importer_path))
+    importer_jurisdiction = importer_anchor.split(":", 1)[0]
+    imports = {
+        raw.split("#", 1)[0].strip().strip("/")
+        for raw in payload["imports"]
+        if isinstance(raw, str)
+    }
+    for changed_path in changed_rulespec_paths:
+        changed_anchor = _rulespec_anchor_base_for_output(repo_path, Path(changed_path))
+        changed_jurisdiction, changed_target = changed_anchor.split(":", 1)
+        if changed_anchor in imports or (
+            changed_jurisdiction == importer_jurisdiction and changed_target in imports
+        ):
+            return True
+    return False
 
 
 def _generated_provenance_gate_issues(
