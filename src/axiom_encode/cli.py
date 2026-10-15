@@ -22754,6 +22754,13 @@ def guard_generated_change_issues(
     changes, and live modules retain verified coverage from the base.
     """
     repo_path = Path(repo_path).resolve()
+    path_case_issues = [
+        issue
+        for label in changed_files or []
+        if (issue := _guard_provenance_path_case_issue(Path(label))) is not None
+    ]
+    if path_case_issues:
+        return path_case_issues
     inventory_issues = _guard_provenance_inventory_git_issues(
         repo_path, base_ref=base_ref, head_ref=head_ref
     )
@@ -22788,6 +22795,9 @@ def guard_generated_change_issues(
             )
         except RuntimeError as exc:
             return [str(exc)]
+    container_issues = _guard_changed_provenance_container_issues(repo_path, changed)
+    if container_issues:
+        return container_issues
     if all_files:
         protected = sorted(
             set(_all_protected_rulespec_yaml_paths(repo_path, roots=roots))
@@ -22813,9 +22823,6 @@ def guard_generated_change_issues(
             if _is_noncanonical_rulespec_yml_path(Path(path), roots=roots)
             and (repo_path / path).exists()
         ]
-    container_issues = _guard_changed_provenance_container_issues(repo_path, changed)
-    if container_issues:
-        return container_issues
     if noncanonical_yml:
         return [
             f"{path} uses the removed .yml RuleSpec extension; rename it to canonical .yaml"
@@ -23405,15 +23412,76 @@ def _is_auxiliary_provenance_receipt_path(path: Path) -> bool:
     )
 
 
+def _provenance_inventory_prefix(path: Path) -> tuple[str, ...] | None:
+    """Classify inventory ancestors and descendants by folded components."""
+
+    folded = tuple(part.casefold() for part in path.parts)
+    for inventory in (
+        APPLIED_ENCODING_MANIFEST_DIR,
+        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+    ):
+        prefix = inventory.parts
+        shared = min(len(folded), len(prefix))
+        if folded[:shared] == tuple(part.casefold() for part in prefix[:shared]):
+            return prefix
+    return None
+
+
 def _overlaps_provenance_inventory(path: Path) -> bool:
-    return any(
-        path.is_relative_to(inventory) or inventory.is_relative_to(path)
-        for inventory in (
-            APPLIED_ENCODING_MANIFEST_DIR,
-            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
-            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+    return _provenance_inventory_prefix(path) is not None
+
+
+def _guard_provenance_path_case_issue(path: Path) -> str | None:
+    """Refuse aliases before any receipt suffix or inventory filtering.
+
+    Folding only classifies reserved names; readers retain the original path.
+    This policy therefore does not depend on filesystem case sensitivity.
+    """
+
+    prefix = _provenance_inventory_prefix(path)
+    if prefix is None:
+        return None
+    shared = min(len(path.parts), len(prefix))
+    if path.parts[:shared] != prefix[:shared]:
+        return (
+            f"{path.as_posix()} uses noncanonical provenance inventory spelling; "
+            f"expected {Path(*prefix).as_posix()} with canonical case"
         )
-    )
+    for part in path.parts[len(prefix) :]:
+        suffix = Path(part).suffix
+        if suffix.casefold() == ".json" and suffix != ".json":
+            return (
+                f"{path.as_posix()} uses a noncanonical receipt suffix; "
+                "expected .json with canonical case"
+            )
+    return None
+
+
+def _guard_provenance_worktree_case_issues(repo_path: Path) -> list[str]:
+    """Inspect stored spellings even when --all skips change discovery."""
+
+    issues: list[str] = []
+    pending = [Path(".")]
+    while pending:
+        parent = pending.pop()
+        try:
+            with os.scandir(repo_path / parent) as entries:
+                for entry in entries:
+                    relative = parent / entry.name
+                    if not _overlaps_provenance_inventory(relative):
+                        continue
+                    issue = _guard_provenance_path_case_issue(relative)
+                    if issue is not None:
+                        issues.append(issue)
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(relative)
+        except OSError as exc:
+            issues.append(
+                f"{parent.as_posix()} provenance inventory cannot be read safely: {exc}"
+            )
+    return sorted(issues)
 
 
 def _guard_changed_provenance_container_issues(
@@ -23424,6 +23492,10 @@ def _guard_changed_provenance_container_issues(
     issues: list[str] = []
     for label in changed:
         path = Path(label)
+        case_issue = _guard_provenance_path_case_issue(path)
+        if case_issue is not None:
+            issues.append(case_issue)
+            continue
         if path.suffix == ".json" or not _overlaps_provenance_inventory(path):
             # JSON paths already reach the bounded receipt readers.
             continue
@@ -23448,7 +23520,7 @@ def _guard_provenance_inventory_git_issues(
     base_ref: str | None,
     head_ref: str,
 ) -> list[str]:
-    """Refuse Git entries that hide inventory contents before classifying paths.
+    """Refuse opaque or case-aliased inventories before classifying receipts.
 
     Git reports a submodule pointer or directory symlink as one path, without
     the receipt filenames beneath it. Inspect both immutable trees and every
@@ -23457,15 +23529,20 @@ def _guard_provenance_inventory_git_issues(
 
     # Explicit-file verification also supports not-yet-initialized checkouts.
     if not (repo_path / ".git").exists():
-        return []
+        return _guard_provenance_worktree_case_issues(repo_path)
     # Match the production trusted-git wrapper's exact full-tree query shape.
     # Its extra size column does not affect the mode/path checks below.
     queries = [("index", ["ls-files", "--stage", "-z"])]
     if base_ref is not None:
         queries.append(
-            ("immutable base", ["ls-tree", "-r", "-l", "-z", "--full-tree", base_ref])
+            (
+                "immutable base",
+                ["ls-tree", "-r", "-t", "-l", "-z", "--full-tree", base_ref],
+            )
         )
-    queries.append(("head", ["ls-tree", "-r", "-l", "-z", "--full-tree", head_ref]))
+    queries.append(
+        ("head", ["ls-tree", "-r", "-t", "-l", "-z", "--full-tree", head_ref])
+    )
     issues: list[str] = []
     for location, arguments in queries:
         try:
@@ -23508,6 +23585,10 @@ def _guard_provenance_inventory_git_issues(
                 metadata, encoded_path = record.split(b"\t", 1)
                 mode = metadata.split()[0].decode("ascii")
                 path = Path(os.fsdecode(encoded_path))
+                case_issue = _guard_provenance_path_case_issue(path)
+                if case_issue is not None:
+                    issues.append(f"{case_issue} in the {location}")
+                    continue
                 if not _overlaps_provenance_inventory(path):
                     continue
                 label = path.as_posix()
@@ -23534,7 +23615,7 @@ def _guard_provenance_inventory_git_issues(
                     )
         except (OSError, ValueError, IndexError, UnicodeError):
             issues.append(f"Cannot inspect the {location} provenance inventory")
-    return issues
+    return issues + _guard_provenance_worktree_case_issues(repo_path)
 
 
 def _guard_head_manifest_inventory(
