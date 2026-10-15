@@ -1,0 +1,2173 @@
+{
+  "by_suite": {
+    "tests/test_source_completeness_manual_procedure_conditions.py": 2,
+    "tests/test_source_completeness_manual_procedure_guards.py": 31,
+    "tests/test_source_completeness_manual_procedure_regressions.py": 161
+  },
+  "counts": {
+    "a": 0,
+    "b": 194,
+    "c": 0
+  },
+  "failures": [
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0c9816ade4f2dbe6039978e36d31031d0a519be4806c14573974db32568d7e52"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_conditions.py::test_exact_manual_keys_remove_only_the_exempted_demand[Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "f031eb8edf1b2e0e71de8985c8ef1a7cacd837b9abaeb3f54b49d269f1b081e5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_conditions.py::test_exact_manual_keys_remove_only_the_exempted_demand[Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f92691c08d4547b7fbe5ee731c8466585b31314424693c47db1b6d28a52dee2e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_determined_facts_keep_their_gate_obligation[When the eligibility specialist has determined that the applicant is disabled, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "6d75370485e41bbb59dbbe33d01d70292c4d829e2d5129f7fde1a02d219ae23b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_determined_facts_keep_their_gate_obligation[When the applicant is determined eligible, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2f728360f091ac2dba0b4cee292100c1f89bdb61f356c3217c334a0c446df684"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_determined_facts_keep_their_gate_obligation[When the worker has determined income, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "98ebc8a39cb82ab90a201483aadfad897a696564aec8588530c9fed93645e33f"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_incomplete_value_determination_keeps_its_paired_gate_obligation",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ef0f4b1e9ea85d95444c2494a22f9fff0f4029622d1ceaa60e0f91513e8872fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[Subject to the household having a disabled member, ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "75e2f1c225b0797400412046143a119baa140e9b993e6b8084975fc0548243da"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[Only for households with an elderly member, ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b0890c16e87718d23b691300599d6c4265eb7bb497fbca0d73ccc1b48caafdfc"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[For residents, ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "229480a89be6269744b5057e7a7d90979b39ff901f2e0921e83f0bc1740f1096"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[Provided that the household has a disabled member, ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "fe5a94fd6fdfb2122437a745cae56790400caebe98e06db4cee6e4a174ba4e05"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[The gross income standard applies only to households with an elderly member, and ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "eec58153b763c9bb46fec065b87b9de70bf015407fb622e6302354b4a72e2220"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[The gross income standard applies only to households with an elderly member, or ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "bf57f8430a93f3d7875a746abae45e273e60b6b5231f2024fc97d04191c5113b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[The gross income standard applies only to households with an elderly member; ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "145327411fb24d66b7092e679512f38399ae1c2cae3593d8dc3ba9906ab4cb56"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[Subject to the household having a disabled member; ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "280230bf16d778eac4d78ab77c40dde9ca37f76d29c0a392c2644885e769eb29"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[For residents; ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d64aebaf6bdfca047d8c905b4626e9f9d86d2c4ca80f55a173c150fe06df0b0b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[(Subject to the household having a disabled member), ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8830bab5acff0e1c5b38bb4568ac3267e2b5c26a2e52daee4310dad09543f5c6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_qualification_before_quantity_sequence_keeps_paired_obligation[If the household has a disabled member, ]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8c7a65ee8efb56de091b94ec2c0f935022555f5f57a4d0eac34dc602e9b6d4b8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_inline_parenthesized_exception_keeps_header_with_only_first_item_pair",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7be4520be77112f62e2eb39fd41a054882e4e9b6b23d8b0b987f9f4e2292b156"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_later_item_qualification_keeps_header_despite_independent_item_pairs",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "910270898a6532aa0af10b3d082e6c93731f9049a05f47384aa4914088b301c1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_quantity_sequence_never_erases_a_leading_qualification",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "a9ef5175db89757c4877c0641dd4550159f670fa629dacdb72a580aa8bda67b8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_exception_header_obligation_survives_list_shape_and_item_qualifications",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "de83cb49ca20c89524f78817338cf9fe8e734ee53a4910f365e6b0d928656f34"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[a person who qualifies only if disabled]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0ab229b3e90eb0a01d71fb87832c880ed4c39c0cdfdc389a2a70fb76e50c44b9"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[a person who qualifies if disabled]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "78d883bf9f8ffa7c30ae009c45a5c02ba96c69d65df387b106d6f5f859e47e85"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[a person who qualifies]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "27b1ffc52ea869e0ee21815394cb35073c860e2bcaba362763e787e9a878596f"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[a person unless resident]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "1947082ead3ffdc48017b35a4664e799fcd7347990e76e5fdcd01de27ad268dc"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[a person when eligible]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3965fc04e6c61ae56a95d71789b536e1030f6d50fee9bb2cd3a60792d79fdcc7"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusions_keep_nested_conditions_and_operative_effect[the elderly or disabled person and their spouse]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "bfc476a6cc67877bee1a2775831dd8adae92ee0f0be2567b91b7ee0eb2ec51b2"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[determination-boarders]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2ce109fd0e382b53f1ef5e42daa9a03e9f3d78e442c45469dff576959819794d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[determination-the others]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "704d9705986976968638b082faad9e7168f0051948356b510a0c24678d9c0f96"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[test-boarders]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3ed462e6767876b093482489fdb9bbb035c5c5035b77410485a6a271f371b5b7"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[test-the others]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "51550e17686522d6fea789659492dc1b7b5082a1d45e8a57642435d964e0790c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[calculation-boarders]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "17c61201f015284efa9d70ebd944557b975888ecde04da4189c8a65f1afbcdc6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_guards.py::test_income_exclusion_without_subject_condition_keeps_operative_obligation[calculation-the others]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f0c2798684b352754ad697fef7f76ae37114645264754a8e8e8dd81d04c5b5cb"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[False-If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ed61ce8d3fd14acccd9214da62184eece94b9154b0ca80e3fc16ed0a789cd103"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[True-Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b11055b6d9449da2360fcadcaef01ae781a4818e8a58a746e2d8a4a8cf807fcf"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[True-The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "14c1aeb1bf47509cbe2b07f6b53d2ec10ac41d2d7550369ed120ca99221b2957"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[True-This comparison applies only to households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "047ac6f480ac2fd89a6a143d13afbcc08c19270b9a10142e60f5f2d9d24827ca"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[True-That income is compared only for residents.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "02ff5edb39f901d76f366d2aabe6f39d951f75cf644de2f084c7602ecc9be1b0"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_sentence_boundary_diagnostics_preserve_baseline_extraction[True-If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "16baccd00607539e8e52dc7179f7a08215870dcc6df80ba64afc7ad2c9fb9672"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[; -Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "e6b450012615c8435c14273800aaa4207415a1758c3964850c18debf975edde8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[; -The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f5987bbd8b632b9d4a7b5f96a202782f07b3f7dd27d5bb93328fb280013e1372"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[; -If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b99eaf4573d46cfdd02d5f7c4c673a84b77bf2e809803658b02d6177411dcd15"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[; -The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "88eb1092af9c2ccc296c45d265ee6153869a536b7e277975f4876839af9beeed"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[; -Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ed61ce8d3fd14acccd9214da62184eece94b9154b0ca80e3fc16ed0a789cd103"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[. -Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b11055b6d9449da2360fcadcaef01ae781a4818e8a58a746e2d8a4a8cf807fcf"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[. -The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "02ff5edb39f901d76f366d2aabe6f39d951f75cf644de2f084c7602ecc9be1b0"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[. -If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d393cf2f91f0b2186a8540eda2d6e72d35200fe28b8fe305c4c93f7f3c139654"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[. -The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "09118e5bf903661b012bbc29f749d4c3b561ceb0c308cb3088b3b3740a2f44f8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[. -Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "42e2be349fc2d324c1aeff822f2ae751bdf2c1b10ba06dd574b46e5ee95a0f2d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[, -Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b3b00530b2e6fdc8d9c91e2bc763a61e77de361ebba24da9fcd8eca00a96dcbd"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[, -The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f6b15b17cd33f44fd2e91155102f0a12915b665dfad6c02092d52ceedbdb257a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[, -If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4b2fe6507c8fb69358251fc632175aea9ff16d09eed86d06595c6f73590909d2"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[, -The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "740bb2dcecefb8f90082db1e2865e8c63d314bb84c74ae3a2708169ad7efe5f8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[, -Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f18137dc4c15a001a1c403509d480f7fe78ba752d00af69be2f909ff57bf6a57"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ and -Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "27276699367a4c95196513aaee74fc1fd029fb65e4efe3e2081035048c6dc98d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ and -The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8a993222a83be01a4722e2a006483204254ff7b57e1ba41fe3db171da5caf0b1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ and -If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2516990cbf7a158017434e69a75d008e414504426a4d6adac7b79ff3ebcad44c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ and -The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "e70b299fa6c69fb0ffbe080607d7153d066f7c959f58b70afd587854522e8dd9"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ and -Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "566ddd207b34d450b7075ab0878e4504853526c980390e0a3c87ee22a7e04e29"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ -- -Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b533cd2125b9f81e8f01ff3a294ee1ac7f938d708b0b1adc57ecf868e969189a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ -- -The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "54a951be9e9c3c5dff52658d7506829b21aeefaea20156c19950c5c8209636d1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ -- -If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "9d0fada9ec186fd603701e2a0566c083645525680708ea6fefb51a473d83d71e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ -- -The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3869d7f76262d2b9b62b1ef03d033ae398c986f22d8b2896a34fac0e74f1692c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[ -- -Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ae6b682384b5520030df26fc55c97011a977c4dd5dffdf341b6b03b1fbee56df"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[\\n-Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "1f1a06e273714f1700021b495407042d4b64d9e2e6ba7996aab44a2331a0ccbc"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[\\n-The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "9f049a15985f1730f8eca0ef0ed8d1e1a643b74997dcbc6f45e53fbe39ee5dc5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[\\n-If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "da8e54f44cd2ed0fcff16bb997217ae737a6847598961647cc269c6d7ae9044f"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[\\n-The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "a1bf7ced6f5aab964130381666c8059133973e1451b893a92d5bf2c0ee93e74c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_tail_delimiters_keep_preexisting_paired_issue[\\n-Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f92691c08d4547b7fbe5ee731c8466585b31314424693c47db1b6d28a52dee2e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[determination_actual_decision_true_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f92691c08d4547b7fbe5ee731c8466585b31314424693c47db1b6d28a52dee2e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[determination_actual_decision_is_disabled_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "de83cb49ca20c89524f78817338cf9fe8e734ee53a4910f365e6b0d928656f34"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exclusion_embedded_disability_applicability_true_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "de83cb49ca20c89524f78817338cf9fe8e734ee53a4910f365e6b0d928656f34"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exclusion_embedded_disability_applicability_is_disabled_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4d05ea519a808ab8370962f1dff07a90fdc0b2bc34f86865406307a69d1b60c6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exception_items_no_cues_true_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4d05ea519a808ab8370962f1dff07a90fdc0b2bc34f86865406307a69d1b60c6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exception_items_no_cues_true_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4d05ea519a808ab8370962f1dff07a90fdc0b2bc34f86865406307a69d1b60c6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exception_items_no_cues_is_disabled_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4d05ea519a808ab8370962f1dff07a90fdc0b2bc34f86865406307a69d1b60c6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[exception_items_no_cues_is_disabled_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ef0f4b1e9ea85d95444c2494a22f9fff0f4029622d1ceaa60e0f91513e8872fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[prefix_subject_to]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "bf57f8430a93f3d7875a746abae45e273e60b6b5231f2024fc97d04191c5113b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[prefix_operative_standard]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "fe5a94fd6fdfb2122437a745cae56790400caebe98e06db4cee6e4a174ba4e05"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[prefix_operative_standard_joined]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8c7a65ee8efb56de091b94ec2c0f935022555f5f57a4d0eac34dc602e9b6d4b8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[inline_parenthetic_item]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7be4520be77112f62e2eb39fd41a054882e4e9b6b23d8b0b987f9f4e2292b156"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_rule_diagnostics_keep_preexisting_paired_issue[multi_sentence_item]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d85fb2d23ce37e99641c0cdec1eaab61c38d349982941b33c27ef18269cde9ef"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When the eligibility specialist has determined that the applicant is disabled, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "c818fb68868c1eb2148a6409e06bcf29e8fcbc16f16bfc4a39e02bc084442dd8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When the applicant is determined eligible, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "9c851e434d15c2cd797211ffeca8a61e7045435e9f2687e2cf9b7ba0e18e81ae"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When the worker has determined income, apply the earned income deduction.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "c4478d355ef4b474081c200fb1be06f5937f480c8409120c37d378d5f8db92b1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Subject to the household having a disabled member, when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "980d5e0e90a6969ae3bb5ef68fa97a0e7e248157c2c1567854e73871c022a482"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Only for households with an elderly member, when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "12697748b07a4b294c3361b778ca538933f31f0af4bc8b5b95e34dbde8d19126"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[For residents, when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f42f74209adcd9effa76281a897ab166a31fde724b45a7b1a6b7b42fe5b6cb06"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Provided that the household has a disabled member, when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d8e2ecc208956894a87098e7a371e1196405dd54d2795c94055e125a96f02af3"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[The gross income standard applies only to households with an elderly member; when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "28b170170a1c938ae1b69d78b9b65efd14a7b0ca84d4c689638145afbc001ffc"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[The gross income standard applies only to households with an elderly member, and when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ec9db11ab318522a2107424bba9406e5c85cd193307b4226011eebf699b54576"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[The gross income standard applies only to households with an elderly member, or when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "415493dbbf748142a2320c8641b49296fc5e2e0630ca785043d879e81799009b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Subject to the household having a disabled member; when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d05d76e05ad065884ffde929e952984d71fd671be97b8f1ecf73b03ca74c4e54"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[For residents; when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "cc4c229ec0e9967195f01e2eaf820f27cf7f7d5c8ce592760efd4419c841ee72"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[(Subject to the household having a disabled member), when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f40ce4d59a56117f6e1389d916396bf009d5042656d1285c1e50f9b4e6417cca"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the household has a disabled member, when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "60ad3812ae1a32c8c1875fe2426e178f8e3127609368100748bb45b797405c4c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size. Only for households with an elderly member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "12bbe3094d1c2fabf8d62360fb7377fa8e9eeb6f3009483f7a33c631990e10b2"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size. The household must have a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "86ff97c73181bc24875ff8ede8e4161f7814c11e405000ac351f413c5dd90551"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size. If the applicant is resident, the test applies.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7254f6b4519d7e89a56b66297afba4ccd80a85c8a1da4459b912db3fc1e1271d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size. The benefit amount is zero.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "490419d44782e498d7129a5abaed4820af58e4afceb6b3d02c2a3ea12fc9b7a8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[when gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size. Review the application.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 2,
+          "source_sha256": "b579c770e3084aa4007769793adb556371f75d1dfc57eab1a3e59d7fef075107"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Assistance groups must meet the standards with the following exceptions:\\n1. Households with an elderly member; and (2) Households with a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 3,
+          "source_sha256": "a59b568b8fabaddc72024e36203b707e90b8480415d2c9f3b3a6013d0f5707e5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Assistance groups must meet the standards with the following exceptions:\\n1. Households with an elderly member. That member must also be disabled.\\n2. Households with a resident member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 3,
+          "source_sha256": "d863fda2cc086fa2c425391b3cda9834ae7a076f9f4b3f7509e2244d702df958"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Assistance groups must meet the gross income standards with the following exceptions:\\n1. Households with an elderly member.\\n2. Households with a disabled member.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "a54f444d93d9332ffc679bc0df95f5285517596623176a22f7364cbc48ea2bbe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant qualifies, the credit is not allowed, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0f95416441d7d7c28c44b196aa668c5cd90689e52c9258c99daef3fc3565ad66"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[The individual (and spouse or children if required) is ineligible, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f958b0d35d229ac8fbe67d596404dad9d203da54981d7a6bbaefae77d8299906"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is equal to or exceeds the income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3f36d47bf24c92cba242a185c9c278fc3a468ee4d4d6dc891c1a7e744576f68a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant qualifies, the worker reviews the record, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "6a0326720fefbb42077361d5685dd224f541e0fe726890c1c575a5c70bb88d05"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant qualifies, the applicant who is ineligible receives the credit, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "5c27b7f984cb5ad682898ffee10a708dbf5bea445636a7cd4e3a2cedb614769f"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant qualifies, the credit is not allowed to expire, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "6ca116ac09edc62ca609aee4d21eb75507fc10c0261c9fed8af24044df63d0c3"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of a person who qualifies only if disabled is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "eec66552e436cd5b7e670a5e0e0db867e507a9c2c19d3f4de0e2f063a7901289"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of a person who qualifies if disabled is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "601c0e28ffb6755f8fa283278fa24b20d779e4718f656b6bd55e75b76d371d1b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of a person who qualifies is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3374abad3c80074b4ad11246933cd5d308c5f1b143d566c58c1638d12cdad9a4"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of a person unless resident is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2cb72d04eecb3255f28d7259239fe7786d554a3e74affb71ff7899962435b32d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of a person when eligible is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7e5255c0660ea170bd76dfdf59c9c66c94798bf0646eb93a93774e208e92ce9e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of the elderly or disabled person and their spouse is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "488ba987942d09e5503a65aa9b5db1ca860aca19de2dd47a4fff6268e8cb2b6c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of boarders is excluded from this determination.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "5f682e57490864284fabec7bcf931d682f3834cc58e1cebf0675fddc2f6012b1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of the others is excluded from this test.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "acfdbe075b2af327813e070d373ae94153d520a5f3f8283fcf6b39f9dc4379f9"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[When applying the gross income test, the income of the others is excluded from this calculation.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2e764a250f2d1a9c4e2d22d86898b5bef921d172cc3ab17f33a47f306fca122b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to the income threshold and the applicant is a resident, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8ed0256489c2ac05a3cdae27cc5a0f1dcd88c434878189086cddd3352dc7b0fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to the income threshold or the applicant is a resident, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0d1dd14110dd1a38ce48f6b40701aa4e0635afd05f64ccead8e177219f1ce098"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to the income threshold or assets are greater than or equal to the asset threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8b047d425124dfc4fd88a76fe5f7619513867ce7eac5c89b5684db2d78a2dfbf"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If both income and assets are greater than or equal to the income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "9d45fb6d27310c320c1e40d5488aaceebfbcf6b03f4f52e19b4becfc0c957ab8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant is disabled, the credit is allowed, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "154f350738ac15e139f5d25daf6d2431f79df263db66cd1c8a7de33b42e8d5ef"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[Unless the applicant is disabled, the credit is allowed, provided income does not exceed the income threshold.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2e168cbaee40014b798aaa4f32f0fa1dd8420b8f00c11436c84dd2fa77af6201"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If total earned and unearned income is greater than or equal to the income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "e98dbf83390f7cff803bcacd7fca397ad3c2ce7144f66b812c7380be3280ed3d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to the earned and unearned income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3d63d4f97ab3ac11908714975a2ade4430151046bdb28eb23198e41cbd440174"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If both earned and unearned income are greater than or equal to the income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ce6373721ab41e5a7fa0c9bff7090c3a685fd78f4c4913ea33c9949fa40a93fd"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to both earned and unearned income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "85aac3db40b713683d360ecda96823cc9733af06094b5daea1eec702e0703794"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to both earned and unearned income thresholds, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "74fa6728cbf40bc32ba7a0db62e18378b9f1f8fa42ff20c86c49388ab216f3b2"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If both earned and unearned income are greater than or equal to both gross and net income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7c148df2a1a3e58f71544c628a7d5915a285fec2bc70e485c5e608ffabc91c5b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant is a resident and the household is a resident, the credit is allowed.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0deebbe8eeacf83cc8d46f140e9d74d29552ee806921317d6dad77feca913028"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant is disabled and the household is disabled, the credit is allowed.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "fd671ff1c6c0a66e2fdf14417d5277ab9dd995f703e6e0b74ad2c1ec24c26c5c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant qualifies and the household qualifies, the credit is allowed.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "055ef9258b0842c311e5096b9631f6c20fa03ee495d9badf63d9495de5ccdb8d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If income is greater than or equal to the income threshold, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "fad3ab3b14c022581b297c6842fcd135a690b295b63d9cb59d316f23a4fb9985"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the income threshold is less than or equal to income, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "4b25f5ef9b0e05afba3a4e912a286ed4575f0c8868fcfa089322ad3059f3b2d4"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_review_conditions_keep_issue_without_paired_cases[If the applicant is disabled, the applicant is ineligible.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "3d63d4f97ab3ac11908714975a2ade4430151046bdb28eb23198e41cbd440174"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[shared_subject_projection]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "ce6373721ab41e5a7fa0c9bff7090c3a685fd78f4c4913ea33c9949fa40a93fd"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[shared_object_singular_projection]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "85aac3db40b713683d360ecda96823cc9733af06094b5daea1eec702e0703794"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[shared_object_plural_projection]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2e764a250f2d1a9c4e2d22d86898b5bef921d172cc3ab17f33a47f306fca122b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[and_bool-only]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2e764a250f2d1a9c4e2d22d86898b5bef921d172cc3ab17f33a47f306fca122b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[and_other-operand]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8ed0256489c2ac05a3cdae27cc5a0f1dcd88c434878189086cddd3352dc7b0fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[or_bool-only]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8ed0256489c2ac05a3cdae27cc5a0f1dcd88c434878189086cddd3352dc7b0fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[or_other-operand]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f958b0d35d229ac8fbe67d596404dad9d203da54981d7a6bbaefae77d8299906"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[ordinary_side_equality_two_points]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2e764a250f2d1a9c4e2d22d86898b5bef921d172cc3ab17f33a47f306fca122b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[resident_only_toggle_at_equality]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0d1dd14110dd1a38ce48f6b40701aa4e0635afd05f64ccead8e177219f1ce098"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[disjunct_without_assets_boundary]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "055ef9258b0842c311e5096b9631f6c20fa03ee495d9badf63d9495de5ccdb8d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[equality_only_three_points]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "fad3ab3b14c022581b297c6842fcd135a690b295b63d9cb59d316f23a4fb9985"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[equality_only_three_points_mirrored]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "8b047d425124dfc4fd88a76fe5f7619513867ce7eac5c89b5684db2d78a2dfbf"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dishonest_both_four_combinations_formula_output]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "b8ffebee18732de294e42e1dfcd4597e20abd27b86702ba5075c7c937bf8330c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_resident_and_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7c148df2a1a3e58f71544c628a7d5915a285fec2bc70e485c5e608ffabc91c5b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_resident_and_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "c770ccc59cebca9ff9b8d7f348e05bc318b45fbd315369431600397b1482da16"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_resident_or_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "f3be32521e5a4e4789fe3e077bfda65e5fe0813e803fe45b399100c3f928160d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_resident_or_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "81926151f35fc8eab11fb82f43a1abf75a193eb73d3de0dc1cdc71996cec2590"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_disabled_and_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "0deebbe8eeacf83cc8d46f140e9d74d29552ee806921317d6dad77feca913028"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_disabled_and_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d8e0da8208ed033b8450e9031fcd4f89a2218505c9d69aafab7e6a71e59209db"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_disabled_or_False]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "386c3fc5f2d10f50d193334619e7a7aa74f238752d12b8497d6d1200e040bba4"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_verbatim_diagnostic_conditions_keep_issue_without_paired_cases[dropped_household_disabled_or_True]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "0133e0f342df6194b31f4f0bff250ceaf5b609c3f3cea62004db886e9c58a926"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[-and]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "ae84825c3076ee11900bf165fab4f74be452b7e07539e4babc5241cd26fb3346"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[-or]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "d7f2232245744a5af7fbafe9c98fc3602bee4ea6b6d30df70d29ebce6dd0fec3"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[-then]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "a149e8c5e0a6390f41f1c5db78fdc63bf73f87bf94d918d866a852065f512c6c"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[ -and]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "b8848a2f12edb4fdba1d00b93e647a6cd3da15ec8d61a696134d10f720007503"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[ -or]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 4,
+          "source_sha256": "1429ebd36d9977ded65aaf171eab2e9ec36273c551b676512d7cbc7b8e9c783b"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_round1_attached_inline_exception_marker_keeps_header_issue[ -then]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "c49d0e257e660d6fc161f19c425ef33a2644b4ea36f8befca97eb924298fab50"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents; -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "682d6dd7c73aec36bcc8bd60390ffd04ca8565c0441c9b3262b936ef0dae126d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents; -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "d39bdf55f8b804dba103720adaf9abc797aef1fc4af36d85550fc8306c48ee98"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents. -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "db5fe0843abdcbc592258bb50ed38be3b62366b840c8fe7134ba31371df7efaf"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents. -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "50c7921809344f5df9add7bfc069f839cec1f78d5d52743e4e360c4a2b3c6c0e"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents.\\n-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "ffe87ae3d47c7862150347fd082fe0760cf2d00836e20462665ce6e1a9d420cd"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[For residents.\\n-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "140c0b5bd1951fdccc936884756a131fc45aa6ae0fc05da8ed1036bcd65e2d8d"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member; -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "ba04a8f049a070724882ffc4efe581320ca8d77b95188eff5c0c7ff643329d59"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member; -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "7e22f5dae9646958297e14e94ac9a4970896f9e9d7df5c8868fde5b21aca13dd"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member. -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "c75f66f24f353b2bacbce809ec7929aba669523b68fda226ab746d2abe8ee54a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member. -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "d1292966303d71a8e21f9d6f68c18ce6008fa3c7a0c717c8f7370757f3cc74a0"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member.\\n-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "cf8f1a2b2f5a8f1e0bf8acd2341b5a4627e5791ccbd4151267e1f3fec3f971a6"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Only for households with an elderly member.\\n-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "db7bcc8a8b9cf2d71fcaca6cd8bc2ca9d2598bc1feac47951fb809bf2e6cfd72"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Subject to the household having a disabled member; -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "b3f84d54eaba4b8e96bbad34d520eab8ce465298a1c8978f6e9ee360b21f4f76"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[Subject to the household having a disabled member; -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 5,
+          "source_sha256": "663b81e07c0bde09c39e972ae5ae661739205775e38d63bfda1ca87934cb242a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[If the applicant is disabled; -Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "da2178fa93af27d01e13b3e0d941b67f032573675e34cec5b2b11690552affa5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_leading_qualification_keeps_full_corpus_instruction_issue[If the applicant is disabled; -Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "cc44d3f08f929e4ee2cb34cffe77016c7786fcd1095dc4458605c902e831f3e8"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ Only for households with an elderly member.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "c2fc316abca23826c252ec2072b30867bdf4d1683f6fbcd495b31f5813b6e8fe"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ Only for households with an elderly member.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "2ed473d701966e3d4412252c7b02d8ad4e5ebc55173032bb070d3cb8e5195f93"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[\\nOnly for households with an elderly member.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "d7625cc913c29a755971080ea39c426ccbc46c93482d825636500e3931364e97"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[\\nOnly for households with an elderly member.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "969a7f086465ab6f952570f415906784178a2e176cffad7e9548b32e77ece2ec"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ For residents.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "2a5f8bc49fd5bd93d02f14c5a087d243e6fc7ebd1339c841a216b0e29773e89a"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ For residents.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "1d070fcf37d4f027852f87ede5ef85304b0a8c68c5fb3d81b080b24dd61a86da"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[\\nFor residents.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "baec98a1c1704cff7fac061886a3aba9602f413ee3eab415d80059939b9795bc"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[\\nFor residents.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "7be3e199b14e5cd529baddbd95c7c51161b3e8f3c09a8486dc4decf7043aea55"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ This comparison applies only to households with an elderly member.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "7ed9b2fd55c2ef318752b67ce67d28aab27953d5582b94d5d65e54745dc177fb"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ This comparison applies only to households with an elderly member.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "1776244726c66913bc9884cd98f100a5c9d8f02616da4be5be5191c95b6124ad"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ If the applicant is disabled, the applicant is ineligible.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "f18e5c731bbd807b9768d798c5e7f4b437037e3253617f7ab90de24329195ef5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ If the applicant is disabled, the applicant is ineligible.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 0,
+          "source_sha256": "27e96fbd93d73d0f04bf9bf0299a17f331bd8d5ef29a132ca25f082be257b5a1"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ Unless the household is a resident, the applicant is ineligible.-Chapter: 2600 Calculation of Benefits Program: FS 1 2610.0000 Food Stamps When the eligibility specialist has determined available income as per Chapters 1800 and 2400, the policy in this chapter must be used to perform the budgets and tests to determine eligibility for benefits and the benefit amount. 2610.0100 BUDGETS AND TEST CALCULATIONS (FS) Each program has budgets and tests that must be executed in order to determine eligibility.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    },
+    {
+      "class": "b",
+      "main_analyses": [
+        {
+          "main_issue_set": 1,
+          "source_sha256": "08b73e0afa5c9cda77a4576c09028fef04fd812c042e42f8bfe114b3498540c5"
+        }
+      ],
+      "nodeid": "tests/test_source_completeness_manual_procedure_regressions.py::test_following_qualification_keeps_full_corpus_instruction_obligation[ Unless the household is a resident, the applicant is ineligible.-Refer to Appendix A-1 for the 165% Need Standard Table. 2610.0104.03 Gross Income Test (FS) When gross income is determined, that income is compared to the allowable gross income limit for the assistance group's size.]",
+      "reason": "Main filters US-manual paired demands to stated numeric limits; this fixture has none. Its original absolute paired-issue expectation is stale."
+    }
+  ],
+  "main_issue_sets": [
+    [],
+    [
+      "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 1 has no named scalar representation. `module.summary` is not consulted.",
+      "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 165 has no named scalar representation. `module.summary` is not consulted."
+    ],
+    [
+      "[complete-source-unit:structure] Source branch 1. at us-fl/manual/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-8(1) [Absatz 1, Nummer 1] is neither encoded nor precisely deferred."
+    ],
+    [
+      "[complete-source-unit:structure] Source branch 1. at us-fl/manual/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-8(1) [Absatz 1, Nummer 1] is neither encoded nor precisely deferred.",
+      "[complete-source-unit:structure] Source branch 2. at us-fl/manual/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-8(1) [Absatz 1, Nummer 2] is neither encoded nor precisely deferred."
+    ],
+    [
+      "[complete-source-unit:structure] Source branch 1. at us-fl/manual/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-8(1) [Absatz 1] is neither encoded nor precisely deferred."
+    ],
+    [
+      "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2600 has no named scalar representation. `module.summary` is not consulted.",
+      "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2610 has no named scalar representation. `module.summary` is not consulted.",
+      "[complete-source-unit:numeric-recall] Authoritative corpus numeric value 2610.01 has no named scalar representation. `module.summary` is not consulted."
+    ]
+  ],
+  "main_revision": "c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3",
+  "original_head": "ac525216a",
+  "scope": "All 194 original failures reproduced with the closed list disabled. The entire production module equals main after removing only the independently authenticated exemption additions (see corpus receipt). All replayed sources are manual citations without a stated numeric limit; none has a paired issue on main. Existing numeric and structural issues are retained in full."
+}

@@ -7,8 +7,10 @@ paired obligation instead of gaining a new way to discharge coverage.
 
 from __future__ import annotations
 
+import ast
 import functools
 import hashlib
+import inspect
 import re
 
 import pytest
@@ -282,7 +284,7 @@ rules:
 
 
 @pytest.mark.parametrize("clause", PROCEDURE_CLAUSES)
-def test_exact_manual_keys_remove_only_the_exempted_demand(clause):
+def test_exact_manual_keys_preserve_main_analyzer_obligations(clause):
     actual = sc._source_exception_requires_paired_witness(
         clause, corpus_citation_path=MANUAL_CITATION, source_text=clause
     )
@@ -294,16 +296,15 @@ def test_exact_manual_keys_remove_only_the_exempted_demand(clause):
         )
         baseline_result = _analyze_exact_key(clause, MANUAL_CITATION)
     assert baseline and not actual
-    removed = tuple(
-        issue for issue in baseline_result.issues if "paired positive/blocking" in issue
+    # Main's manual-only numeric-limit filter already omits both procedure
+    # clauses before the paired-witness gate. Every other obligation survives.
+    assert not any(
+        "paired positive/blocking" in issue for issue in baseline_result.issues
     )
-    assert len(removed) == 1
-    assert result.issues == tuple(
-        issue for issue in baseline_result.issues if issue not in removed
-    )
+    assert result.issues == baseline_result.issues
 
 
-def _manual_source_demands(source):
+def _manual_source_demands(source, *, numeric_limits_only=True):
     branches = sc.recognize_source_structure(
         source, corpus_citation_path=MANUAL_CITATION
     )
@@ -312,6 +313,7 @@ def _manual_source_demands(source):
         branches=branches,
         active_branches=branches,
         deferred_paths=set(),
+        numeric_limits_only=numeric_limits_only,
     )
     return {
         (branch.path, branch.kind, branch.start, branch.end, branch.text)
@@ -325,7 +327,10 @@ def _manual_source_demands(source):
     }
 
 
-def test_authenticated_page_removes_exactly_the_two_reviewed_demands():
+@pytest.mark.parametrize("numeric_limits_only", (False, True))
+def test_authenticated_page_preserves_production_demands_and_exact_gate_keys(
+    numeric_limits_only,
+):
     assert hashlib.sha256(AUTHENTICATED_SOURCE.encode()).hexdigest() == (
         "a0b4fac87f905e6a6989b505b866f5f0306fe361531801c4226d9184e62723e5"
     )
@@ -333,7 +338,9 @@ def test_authenticated_page_removes_exactly_the_two_reviewed_demands():
         hashlib.sha256(_normalized_key_text(AUTHENTICATED_SOURCE).encode()).hexdigest()
         == "e17c82b40e09f545b80f2cedfad3bfc91daea3eea87801f9cb3c10188fccf0a0"
     )
-    actual_demands = _manual_source_demands(AUTHENTICATED_SOURCE)
+    actual_demands = _manual_source_demands(
+        AUTHENTICATED_SOURCE, numeric_limits_only=numeric_limits_only
+    )
     result = _analyze_exact_key(AUTHENTICATED_SOURCE, MANUAL_CITATION)
     assert all(
         not sc._source_exception_requires_paired_witness(
@@ -345,7 +352,9 @@ def test_authenticated_page_removes_exactly_the_two_reviewed_demands():
     )
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(sc, "_MANUAL_PROCEDURE_CLAUSES", frozenset())
-        baseline_demands = _manual_source_demands(AUTHENTICATED_SOURCE)
+        baseline_demands = _manual_source_demands(
+            AUTHENTICATED_SOURCE, numeric_limits_only=numeric_limits_only
+        )
         baseline_result = _analyze_exact_key(AUTHENTICATED_SOURCE, MANUAL_CITATION)
         assert all(
             sc._source_exception_requires_paired_witness(
@@ -361,7 +370,9 @@ def test_authenticated_page_removes_exactly_the_two_reviewed_demands():
         if _normalized_key_text(key[-1])
         in {_normalized_key_text(clause) for clause in PROCEDURE_CLAUSES}
     }
-    assert len(expected_removals) == 2
+    # The unfiltered gate still recognizes exactly the two reviewed clauses.
+    # Production uses main's numeric-limit filter, so neither is demanded there.
+    assert len(expected_removals) == (0 if numeric_limits_only else 2)
     assert baseline_demands - actual_demands == expected_removals
     assert not actual_demands - baseline_demands
     assert tuple(
@@ -376,6 +387,92 @@ def test_authenticated_page_removes_exactly_the_two_reviewed_demands():
         sum("paired positive/blocking" in issue for issue in baseline_result.issues)
         == 1
     )
+
+
+def _paired_witness_with_footer_first():
+    """Reorder the actual gate's exemption and footer blocks for comparison."""
+
+    tree = ast.parse(inspect.getsource(sc._source_exception_requires_paired_witness))
+    (function,) = tree.body
+    exemption_index = next(
+        index
+        for index, statement in enumerate(function.body)
+        if isinstance(statement, ast.If)
+        and any(
+            isinstance(node, ast.Name) and node.id == "_MANUAL_PROCEDURE_CITATION"
+            for node in ast.walk(statement.test)
+        )
+    )
+    exemption = function.body.pop(exemption_index)
+    footer_index = next(
+        index
+        for index, statement in enumerate(function.body)
+        if isinstance(statement, ast.If)
+        and any(
+            isinstance(node, ast.Name) and node.id == "without_footer"
+            for node in ast.walk(statement.test)
+        )
+    )
+    function.body.insert(footer_index + 1, exemption)
+    namespace = vars(sc).copy()
+    exec(compile(tree, "<manual-procedure-footer-order>", "exec"), namespace)
+    return namespace[function.name]
+
+
+@pytest.mark.parametrize("clause", PROCEDURE_CLAUSES)
+@pytest.mark.parametrize("full_page", (False, True))
+def test_footer_order_preserves_both_authenticated_manual_keys(clause, full_page):
+    source = AUTHENTICATED_SOURCE if full_page else clause
+    footer_first = _paired_witness_with_footer_first()
+    kwargs = {"corpus_citation_path": MANUAL_CITATION, "source_text": source}
+    assert not sc._source_exception_requires_paired_witness(clause, **kwargs)
+    assert not footer_first(clause, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        (
+            "Guidance documents lack the force and effect of law, unless "
+            "expressly authorized by statute or incorporated into a contract.",
+            False,
+        ),
+        (
+            "USDA may not cite, use, or rely on any guidance that is not "
+            "available through its guidance portal, except to establish historical facts.",
+            False,
+        ),
+        (
+            "Each additional member $757 $946 $871 through their guidance "
+            "portal, except to establish historical facts.",
+            False,
+        ),
+        (
+            "Guidance documents lack the force and effect of law, unless expressly "
+            "authorized by statute or applicants are eligible if citizens.",
+            True,
+        ),
+        (
+            "If household size exceeds eight, add $757 for each additional member. "
+            "Guidance documents lack the force and effect of law, unless expressly "
+            "authorized by statute or",
+            True,
+        ),
+        *(
+            (clause + " incorporated into a contract.", True)
+            for clause in PROCEDURE_CLAUSES
+        ),
+    ),
+)
+def test_footer_handling_outside_exact_keys_matches_main(source, expected):
+    footer_first = _paired_witness_with_footer_first()
+    kwargs = {"corpus_citation_path": MANUAL_CITATION, "source_text": source}
+    actual = sc._source_exception_requires_paired_witness(source, **kwargs)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sc, "_MANUAL_PROCEDURE_CLAUSES", frozenset())
+        baseline = sc._source_exception_requires_paired_witness(source, **kwargs)
+    assert actual is baseline is expected
+    assert footer_first(source, **kwargs) is baseline
 
 
 def _perturb_key(text, *, token_edit, operation, position, payload):
