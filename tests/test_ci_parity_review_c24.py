@@ -10,6 +10,7 @@ threads and processes do not inherit.
 
 from __future__ import annotations
 
+import base64
 import io
 import locale
 import os
@@ -21,9 +22,11 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
+from cryptography.hazmat.primitives import serialization
 
 from axiom_encode import ci_parity, cli
 from axiom_encode import corpus_materialize as cm
+from axiom_encode.harness import eval_evidence
 from axiom_encode.toolchain import local_corpus_release_verification
 from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
 from tests.test_corpus_materialize import (
@@ -378,3 +381,87 @@ def test_c_utf8_is_adopted_first_wherever_it_exists(
 
     assert seen == {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "LC_CTYPE": "C.UTF-8"}
     assert restored == caller
+
+
+_CURRENT_ROOT = base64.b64encode(bytes(range(32))).decode("ascii")
+_APPLY_ROOT = bytes(range(64, 96))
+_EVAL_ROOT = bytes(range(96, 128))
+
+
+class _RetiredRootBroker:
+    """An attached broker whose apply trust includes a retired root (#1903)."""
+
+    apply_public_key_raw = bytes(range(160, 192))
+    retired_apply_public_keys_raw = (bytes(range(192, 224)),)
+    eval_public_key_raw = bytes(range(224, 256))
+
+
+def _attach_broker(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    calls: list[object] = []
+
+    def attached(*args: object, **kwargs: object) -> _RetiredRootBroker:
+        calls.append((args, kwargs))
+        return _RetiredRootBroker()
+
+    monkeypatch.setattr(cli, "get_signing_broker", attached)
+    monkeypatch.setattr(eval_evidence, "get_signing_broker", attached)
+    return calls
+
+
+def _raw(key: object) -> bytes:
+    return key.public_bytes(  # type: ignore[attr-defined]
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+
+
+def test_ci_verifies_apply_and_eval_only_with_its_own_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Cycle 28: without --apply-public-key, ci fell back to an attached
+    # broker, whose retired roots (#1903) judge historical manifests unlike
+    # the pinned CI; ci's own roots are now its only apply and eval trust.
+    calls = _attach_broker(monkeypatch)
+
+    with local_corpus_release_verification(_CURRENT_ROOT):
+        assert cli._applied_encoding_manifest_verifier() is None
+        with pytest.raises(ValueError, match="--eval-public-key"):
+            eval_evidence.load_eval_evidence_public_key_from_broker()
+    with local_corpus_release_verification(
+        _CURRENT_ROOT,
+        apply_public_key=base64.b64encode(_APPLY_ROOT).decode("ascii"),
+        eval_public_key=base64.b64encode(_EVAL_ROOT).decode("ascii"),
+    ):
+        assert _raw(cli._applied_encoding_manifest_verifier()) == _APPLY_ROOT
+        assert _raw(eval_evidence.load_eval_evidence_public_key_from_broker()) == (
+            _EVAL_ROOT
+        )
+    assert calls == []
+
+    # Outside ci the attached broker is the trust, as before.
+    assert isinstance(cli._applied_encoding_manifest_verifier(), _RetiredRootBroker)
+    assert _raw(eval_evidence.load_eval_evidence_public_key_from_broker()) == (
+        _RetiredRootBroker.eval_public_key_raw
+    )
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("callers", ["de_DE.UTF-8", "en_US.UTF-8", "UTF-8"])
+def test_c_utf8_is_preferred_to_a_callers_own_utf8_locale(
+    monkeypatch: pytest.MonkeyPatch, callers: str
+) -> None:
+    # Cycle 28: the real-locale ordering test can skip on a host whose only
+    # UTF-8 locale is C.UTF-8; this one pins the order everywhere.
+    current = {"name": callers}
+
+    def host(category: int, name: str | None = None) -> str:
+        if name is None:
+            return current["name"]
+        if name in {"C.UTF-8", callers}:
+            current["name"] = name
+            return name
+        raise locale.Error("unsupported locale setting")
+
+    monkeypatch.setattr(ci_parity.locale, "setlocale", host)
+    monkeypatch.setattr(ci_parity.locale, "getencoding", lambda: "UTF-8")
+
+    assert ci_parity._adopt_utf8_ctype() == "C.UTF-8"

@@ -5754,6 +5754,11 @@ def _run_ci_in_checkout(
             "no --apply-public-key: signed encoder apply manifests cannot be "
             "verified, so a change that CI accepts on its manifest fails here"
         )
+    if "eval" not in signing_roots:
+        notes.append(
+            "no --eval-public-key: any gate that verifies authenticated eval "
+            "result evidence fails here"
+        )
     with (
         contextlib.ExitStack() as run_resources,
         local_corpus_release_verification(

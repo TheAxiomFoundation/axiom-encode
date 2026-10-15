@@ -69,8 +69,9 @@ Python. The scripts cover:
   `LC_CTYPE` to a UTF-8 locale (`C.UTF-8`, `en_US.UTF-8`, `UTF-8`, or else the
   caller's own if it is UTF-8) for the run, exports that same locale to the
   child processes that inherit its environment (`C.UTF-8` wherever it exists),
-  and fails resolution if none exists outside Python's UTF-8 mode. The
-  repository pytest step keeps `C.UTF-8`, as CI's does.
+  and fails resolution if none exists outside Python's UTF-8 mode. For pins
+  that run the workflow's own scripts, the repository pytest step keeps
+  `C.UTF-8`, as CI's does; the legacy pins' step inherits `ci`'s environment.
   The caller's values are restored afterwards.
 - **Engine.** As "Build axiom-rules-engine" does, `ci` builds the debug profile
   from a fresh `git archive` of the verified engine pin in a private temporary
@@ -316,7 +317,10 @@ the environment.
 - **Apply and eval roots.** They verify persisted apply manifests and eval
   evidence, as the supervisor's apply and eval roots do. As the supervisor
   requires, every root must be distinct across the corpus, retired, apply and
-  eval roles.
+  eval roles. They are the only apply and eval trust inside `ci`: without
+  `--apply-public-key` no apply manifest verifies, and without
+  `--eval-public-key` no eval evidence does. An attached signing broker never
+  stands in, so its retired roots cannot admit what the pinned CI refuses.
 - **Capabilities.** It acquires no signing capability and never runs `--apply`.
 - **Writes.** It writes temporary report inputs, the private engine snapshot and
   target directory, the temporary engine view and the repository-test venv.

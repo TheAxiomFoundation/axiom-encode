@@ -514,6 +514,7 @@ from .toolchain import (
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
     local_signing_public_key,
+    local_verification_active,
     verify_rulespec_validation_waiver_set,
 )
 from .validation_waiver_scope import select_validation_waiver_scope
@@ -29618,9 +29619,12 @@ def _historical_nested_signature_issue(
 def _applied_encoding_manifest_verifier() -> SigningBroker | Ed25519PublicKey | None:
     """Load the protected broker trust root for persisted apply manifests."""
 
-    # `axiom-encode ci` supplies a verification-only root explicitly.
-    local_public_key = local_signing_public_key("apply")
-    if local_public_key is not None:
+    # `axiom-encode ci` supplies a verification-only root explicitly; without
+    # --apply-public-key it verifies no apply manifest, as its run note says.
+    if local_verification_active():
+        local_public_key = local_signing_public_key("apply")
+        if local_public_key is None:
+            return None
         return Ed25519PublicKey.from_public_bytes(local_public_key)
     try:
         broker = get_signing_broker()
