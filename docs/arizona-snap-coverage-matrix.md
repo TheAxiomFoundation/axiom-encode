@@ -296,13 +296,14 @@ should target that parent rather than one page or a removed plural field.
 However, the existing income-standards module declares **only** the two
 sibling page citations, not a singular parent. The current encoder's retired
 replacement admission requires an existing exact singular citation alongside
-the plural history, and the draft deterministic migration in
+the plural history, and the merged deterministic migration in
 [axiom-encode #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
 admits a plural collapse only when one cited path is an ancestor of all the
 others. Neither route currently admits this module. The values-only deductions
 and maximum-allotments modules are candidates for #1811's narrower signed
-transaction, subject to its review, waiver, and signing gates; that transaction
-alone would not make Arizona composition compile. A canceled parent-source
+transaction; its protected run is awaiting production-signing approval, so no
+signed RuleSpec change exists yet. That transaction alone would not make Arizona
+composition compile. A canceled parent-source
 [attempt 38425793435](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38425793435)
 did not reach encoding and is not evidence that replacement succeeds.
 The same pinned engine also fails to compile the existing FAA6 Arizona utility
@@ -337,10 +338,10 @@ migration. Thus, the federal imports and 2012(j) relation need a coordinated,
 source-bound protected migration, followed by final program validation and
 fresh signatures.
 
-As of 2026-10-14, the protected income-standards replacement produced signed
+As of 2026-10-15, the protected income-standards replacement produced signed
 [RuleSpec #1770](https://github.com/TheAxiomFoundation/rulespec-us/pull/1770),
 but it remains draft and unmerged. Its Arizona validation shard passed, while
-the full exact-head run has two failures and other shards remain live.
+the full exact-head run finished with seven failed validation jobs.
 Colorado's unchanged direct importer now passes,
 making its active validation waiver stale, while a New York validation
 fingerprint changed because the imported 7 CFR 273.10 module reaches the
@@ -348,14 +349,19 @@ still-invalid federal FY 2026 deductions and maximum-allotments modules.
 Compiling the New York root, 273.10, and those two modules separately on
 RuleSpec `09007382ad02b0928c91c022b2215be464285632` with the pinned engine
 `89571cc2a938707fd60a5489b951135345697296` reproduces the removed
-`source_verification.values` error in the two federal modules. The proposed
+`source_verification.values` error in the two federal modules. The merged
 [encoder #1907](https://github.com/TheAxiomFoundation/axiom-encode/pull/1907)
 permits narrowly checked post-apply waiver retirement for an unchanged direct
 importer, but is not a substitute for repairing the federal imports. The
 model-free signed metadata migration [encoder #1811](https://github.com/TheAxiomFoundation/axiom-encode/pull/1811)
-is also draft: an independent review reproduced an unrelated proof-pin rewrite
-in its cascade, and its waiver/signing protocol and exact-head CI remain open.
-Neither draft establishes a usable signed repair or Arizona household parity.
+also merged after an independent review-fix cycle and green exact-head CI; it
+adds a receipt-bound protected rewrite and proof-hash cascade for the two
+values-only federal imports, not for the sibling-cited income module. Its
+[two-primary protected run 38667673443](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/38667673443)
+passed the attempt-budget gate on encoder main `dde29e542fa890643ce48d213aa16cfd8540fc83`
+and RuleSpec main `172bf04e4ddabff0929d4514ecac5020869b8b40`, but is
+waiting for production-signing approval. No migration PR, usable signed repair,
+or Arizona household parity follows from that dispatch.
 
 The newer [protected deductions replacement run](https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/37525058038)
 passed its attempt-budget check and provisioned the protected signing
