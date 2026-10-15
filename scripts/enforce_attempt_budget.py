@@ -327,10 +327,23 @@ def _render_summary(
         )
     elif not enforced:
         lines.append(
-            "- Report-only: queue dispatch, authenticated repair path, or override; "
+            "- Report-only: queue dispatch, authenticated repair path, "
+            "deterministic migration, or override; "
             "not blocking."
         )
     return lines
+
+
+def is_retired_source_metadata_plan(source_bundle_json: str) -> bool:
+    """Recognize the model-free lane; the protected resolver validates it."""
+
+    try:
+        payload = json.loads(source_bundle_json)
+    except (ValueError, RecursionError):
+        return False
+    return isinstance(payload, dict) and payload.get("schema_version") == (
+        "axiom-encode/retired-source-metadata-migration-plan/v1"
+    )
 
 
 def main() -> int:
@@ -340,6 +353,9 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    metadata_migration = is_retired_source_metadata_plan(
+        os.environ.get("SOURCE_BUNDLE_JSON", "")
+    )
     override = os.environ.get("ATTEMPT_BUDGET_OVERRIDE", "").strip().lower()
     try:
         budget = int(os.environ.get("ATTEMPT_BUDGET", str(DEFAULT_BUDGET)))
@@ -400,7 +416,12 @@ def main() -> int:
             lambda run_id: _fetch_run_jobs(repo=repo, token=token, run_id=run_id)
         ),
     )
-    enforced = queue_id == "" and repair_run_id == "" and override != "true"
+    enforced = (
+        queue_id == ""
+        and repair_run_id == ""
+        and not metadata_migration
+        and override != "true"
+    )
     blocked = enforced and decision.exhausted
     print(
         f"attempt-budget: citation={citation} streak={decision.streak} "
@@ -418,6 +439,11 @@ def main() -> int:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
+        )
+    if metadata_migration:
+        print(
+            "attempt-budget: retired source metadata migration makes no model call; "
+            "not blocking."
         )
     return 1 if blocked else 0
 

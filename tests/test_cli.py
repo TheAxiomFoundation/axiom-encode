@@ -42818,6 +42818,8 @@ class TestGuardGenerated:
         base_waiver_text: str,
         head_waiver_text: str = TEST_VALIDATION_WAIVER_TEXT,
         delete_rule: bool = False,
+        unchanged_importer: str | None = None,
+        importer_ref: str = "us:regulations/example",
     ) -> tuple[Path, str]:
         repo = self._canonical_guard_repo(tmp_path)
         _git(repo, "init")
@@ -42827,6 +42829,12 @@ class TestGuardGenerated:
         rule = repo / relative
         self._source_backed_rule(rule)
         rule.write_text(rule.read_text() + "# protected-base version\n")
+        if unchanged_importer is not None:
+            importer = repo / unchanged_importer
+            self._source_backed_rule(importer)
+            importer.write_text(
+                importer.read_text() + f"imports:\n  - {importer_ref}\n"
+            )
         waiver = repo / "known-validation-gaps.yaml"
         waiver.write_text(base_waiver_text)
         _write_test_rulespec_toolchain(
@@ -43856,6 +43864,45 @@ class TestGuardGenerated:
         )
 
         assert issues == []
+
+    def test_accepts_post_apply_retirement_of_unchanged_direct_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_rejects_retirement_of_unchanged_unrelated_importer(self, tmp_path):
+        importer = "us-co/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(importer)
+            ),
+            unchanged_importer=importer,
+            importer_ref="us:regulations/other",
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any("unchanged direct importers" in issue for issue in issues)
 
     def test_accepts_pending_waiver_retirement_with_matching_deletion(self, tmp_path):
         relative = "us/regulations/example.yaml"

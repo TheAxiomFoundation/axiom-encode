@@ -2710,6 +2710,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     ) + 1 == steps.index(failure_package_step)
     assert failure_package_step["if"] == "${{ failure() && !cancelled() }}"
     assert set(failure_package_step["env"]) == {
+        "RETIRED_SOURCE_METADATA_REQUEST_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_REQUEST_OUTCOME",
+        "RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_CONCLUSION",
+        "PACKAGE_RETIRED_SOURCE_METADATA_CHANGES_OUTCOME",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_CONCLUSION",
+        "COMMIT_RETIRED_SOURCE_METADATA_MIGRATION_OUTCOME",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_CONCLUSION",
+        "PUBLISH_RETIRED_SOURCE_METADATA_PULL_REQUEST_OUTCOME",
         "ATOMIC_SOURCE_JSON",
         "CITATION",
         "CORPUS_REF",
@@ -2978,7 +2988,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
-    assert secret_steps == [apply_step]
+    metadata_migration_step = next(
+        step for step in steps if step.get("name") == "Migrate retired source metadata"
+    )
+    assert secret_steps == [metadata_migration_step, apply_step]
 
     publish_step = next(
         step
@@ -2986,7 +2999,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Push lane branch and open draft pull request"
     )
     assert publish_step["id"] == "publish_lane_pull_request"
-    assert publish_step["if"] == "${{ inputs.open_pr }}"
+    assert publish_step["if"] == (
+        "${{ inputs.open_pr && "
+        "steps.retired_source_metadata_request.outputs.enabled != 'true' }}"
+    )
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
@@ -3029,7 +3045,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     checksum_command = checksum_step["run"]
     assert 'artifact="$RUNNER_TEMP/targeted-reencode"' in checksum_command
     assert 'cd "$artifact"' in checksum_command
-    assert "sha256sum * > SHA256SUMS" in checksum_command
+    assert "find . -type f ! -path ./SHA256SUMS -print0" in checksum_command
+    assert "xargs -0 -r sha256sum > SHA256SUMS" in checksum_command
+    assert "sha256sum --check SHA256SUMS" in checksum_command
     assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' not in checksum_command
     assert upload_step["id"] == "upload_signed_reencode_artifact"
     assert upload_step["with"]["name"] == (
@@ -3037,6 +3055,46 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def test_targeted_reencode_checksums_include_nested_admission_files(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    artifact = tmp_path / "targeted-reencode"
+    admission = artifact / "source-admission" / "target"
+    admission.mkdir(parents=True)
+    (artifact / "lane-pull-request.json").write_text('{"number":1770}\n')
+    (admission / "source.json").write_text('{"admitted":true}\n')
+
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    checksums = (artifact / "SHA256SUMS").read_text()
+    assert "./lane-pull-request.json" in checksums
+    assert "./source-admission/target/source.json" in checksums
+    assert "./SHA256SUMS" not in checksums
+
+    (artifact / "unexpected-link").symlink_to(admission / "source.json")
+    rejected = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "artifact contains a symlink" in rejected.stderr
 
 
 def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:
