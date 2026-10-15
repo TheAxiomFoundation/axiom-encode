@@ -155,6 +155,106 @@ def test_subdivision_mask_requires_a_complete_locator(source):
     assert _clean(source) == source
 
 
+@pytest.mark.parametrize("suffix", ("K", "İ", "ſ", "ı"))
+@pytest.mark.parametrize("entry_point", ("recall", "complete_source"))
+def test_unicode_subdivision_suffix_never_crashes_or_masks_quantity(
+    suffix, entry_point
+):
+    source = f"Under subdivision 15{suffix} is required."
+    if entry_point == "recall":
+        assert _clean(source) == source
+    else:
+        extracted_texts = []
+
+        def extract_numbers(text):
+            extracted_texts.append(text)
+            return EXTRACT_NUMBERS(text)
+
+        result = completeness.analyze_complete_source_unit(
+            "format: rulespec/v1\nmodule: {}\nrules: []\n",
+            source,
+            corpus_citation_path=VA_CITATION,
+            test_cases=[],
+            extract_numeric_occurrences=extract_numbers,
+            extract_named_scalars=extract_named_scalar_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+        # Glued Unicode suffixes are not currently typed numeric tokens. Prove
+        # that the gate receives their intact text, without inventing demands.
+        assert source in extracted_texts
+        assert result.source_numeric_occurrence_count == len(EXTRACT_NUMBERS(source))
+
+
+@given(
+    quantity=st.integers(min_value=1, max_value=999),
+    suffix=st.text(
+        alphabet=st.characters(categories=("L", "N", "M")),
+        min_size=1,
+        max_size=8,
+    ),
+    ending=st.sampled_from((".", " is required.", " of this section;")),
+)
+@example(quantity=15, suffix="K", ending=" is required.")
+@example(quantity=15, suffix="İ", ending=".")
+@example(quantity=15, suffix="ſ", ending=" of this section;")
+@example(quantity=15, suffix="ı", ending=".")
+@example(quantity=15, suffix="m", ending=".")
+@example(quantity=15, suffix="\u0301", ending=".")
+@example(quantity=15, suffix="٢", ending=".")
+@example(quantity=15, suffix="2", ending=".")
+@example(quantity=1, suffix="AA", ending=".")
+@settings(max_examples=100, deadline=None)
+def test_unicode_subdivision_suffix_masks_only_proven_ascii_locators(
+    quantity, suffix, ending
+):
+    label = f"{quantity}{suffix}"
+    source = f"Under subdivision {label}{ending}"
+    # Public recall must never raise. Check the subdivision masks separately
+    # from unrelated legacy cleanup (for example, glued sentence marker 1AA).
+    _clean(source)
+    cleaned = completeness._mask_numeric_spans(
+        source, completeness._english_subdivision_numeric_recall_spans(source)
+    )
+    # An unparenthesized letter can denote a unit. Only an entirely ASCII
+    # numeric label with a completed reference is proven in this grammar.
+    if re.fullmatch(r"[0-9]+", label) and ending != " is required.":
+        assert cleaned == f"Under subdivision {' ' * len(label)}{ending}"
+    else:
+        assert cleaned == source
+
+
+@given(
+    quantity=st.integers(min_value=100, max_value=999),
+    suffix=st.characters(categories=("L", "N", "M")),
+    ending=st.sampled_from((".", " is required.", " of this section;")),
+)
+@settings(max_examples=100, deadline=None)
+def test_public_recall_preserves_arbitrary_unicode_subdivision_suffixes(
+    quantity, suffix, ending
+):
+    # Three-digit numbers avoid the independent one/two-digit German sentence
+    # marker grammar. Every Unicode letter, number and mark remains eligible.
+    label = f"{quantity}{suffix}"
+    source = f"Under subdivision {label}{ending}"
+    if suffix in "0123456789" and ending != " is required.":
+        assert _clean(source) == f"Under subdivision {' ' * len(label)}{ending}"
+    else:
+        assert _clean(source) == source
+
+
+@pytest.mark.parametrize("ending", (".", " is required.", " of this section;"))
+def test_untokenizable_subdivision_citation_keeps_every_number(monkeypatch, ending):
+    class NoLocatorTokens:
+        def finditer(self, *args):
+            return iter(())
+
+    monkeypatch.setattr(
+        completeness, "_ENGLISH_SUBDIVISION_LOCATOR_TOKEN", NoLocatorTokens()
+    )
+    source = f"Under subdivision 15{ending}"
+    assert _clean(source) == source
+
+
 def test_subdivision_continuations_keep_decimal_rates_and_grouped_thresholds():
     source = "Under subdivision 2, the credit is 20.5 percent above $2,000."
     assert "20.5 percent above $2,000" in _clean(source)

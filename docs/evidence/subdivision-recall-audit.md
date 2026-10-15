@@ -2,8 +2,12 @@
 
 The [reproduction helper](../../scripts/reproduce_subdivision_recall_audit.py)
 runs the repository's independent span audit against a fixed signed corpus
-release and the PR's merge base with `origin/main`. It downloads and verifies
-one corpus artifact at a time. Each audit subprocess has a 480-second timeout
+release and the pinned audit baseline `4f3547461300bfa70569f57c83728b2ad25d9d0b`.
+The baseline's production module is byte-identical to the current merge base with
+`origin/main`, `c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3`; both have SHA-256
+`875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62`.
+The helper downloads and verifies one corpus artifact at a time. Each audit
+subprocess has a 480-second timeout
 within a 540-second shard budget. Run each shard as a separate command; a whole
 audit is longer than one shard.
 
@@ -38,7 +42,7 @@ the masked locators in the signed corpus below.
 The final tested production and audit bytes, identified in the summary,
 passed all 79,687 signed rows across 196 files in 27 completed shards. Every
 row ran all three cleanup paths. Counts compare production with the pinned
-merge-base baseline:
+audit baseline:
 
 | Measurement | Count |
 | --- | ---: |
@@ -55,22 +59,20 @@ one locator is absent from the baseline typed inventory. The generated case
 and typography controls exercise the quantity guard even though this signed
 corpus has no matching quantity restoration.
 
-These counts match the round-3 independent review: 22 changed rows, 52 masked
-spans, 51 typed removals and zero additions. The regenerated changed-row
-ledger is byte-identical to the previously checked-in ledger.
-
-This run used checkout HEAD `1bbb52d6f177c07f2e43a921b9a2212899dab8a2` with
-this nit-fix working-tree patch applied; no new commit was created. The
-unmodified HEAD production module's SHA-256 was
-`a2e08252a7cd4b2142546820f61c4306ea8f528beab93ded83e0f6b897be74c4`.
-The production-module hash below identifies the final tested working-tree bytes.
+The round-4 rerun used the unchanged committed audit and reproduction scripts.
+All 27 shards passed, and the totals match both the prior audit and the
+independent round-4 review. The complete row and changed-row ledger hashes
+are unchanged; the changed-row ledger is byte-identical to the previously
+checked-in ledger. The production-module hash below identifies the final
+tested working-tree bytes.
 
 | Audited content | SHA-256 |
 | --- | --- |
-| Production module | `b3f687fd6dd664b7dc7452f4e71048c5690b9b44a821efb03080ce45f0eb1b14` |
+| Production module | `75275e2cc92251b6d22385036e904e8cc5a4af895e15e01cbdbf1a01614e6925` |
 | Audit script | `c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca` |
 | Reproduction helper | `5178432ed1f89aeda789702f98e6eb53d7a4fd23baebe5a34e688f9651a878b5` |
-| Summary | `aeacd21fe4580eea9781d0c56cd4c57feadecaf13dc0c7741fd945c589b1a3f8` |
+| Summary | `46a293a715479d4ec596b1c8b2678c9e13488a5077504a51f5c597f203e588a7` |
+| Complete row ledger (regenerated) | `f19e64c7f9f8034423f5e92d6e622c790ebd5f118d18fe1ef33b63177977de05` |
 | Changed-row ledger | `2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c` |
 
 ## Pinned inputs
@@ -82,7 +84,8 @@ The production-module hash below identifies the final tested working-tree bytes.
 | Release object SHA-256 | `8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a` |
 | Release object bytes | `7150325` |
 | Corpus revision | `e79781bddeaba4d3697c5375c7371b2a038f0f74` |
-| Baseline revision (merge base with `origin/main`) | `4f3547461300bfa70569f57c83728b2ad25d9d0b` |
+| Pinned audit baseline revision | `4f3547461300bfa70569f57c83728b2ad25d9d0b` |
+| Current merge base with `origin/main` (production-byte-identical) | `c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3` |
 | Baseline module SHA-256 | `875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62` |
 
 The immutable, content-addressed
@@ -123,7 +126,7 @@ export UV_CACHE_DIR=/private/tmp/hub-shared-uv-cache
 export OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4
 export VECLIB_MAXIMUM_THREADS=4 NUMEXPR_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
 uv sync --locked --python 3.13 --extra dev
-uv run --locked python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/nitfix/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/round4/corpus
 ```
 
 The checked-in summary records the successful artifact and row bounds. Print
@@ -140,7 +143,7 @@ for batch in summary["batches"]:
     command = [
         "uv", "run", "--locked", "python",
         "scripts/reproduce_subdivision_recall_audit.py", "shard",
-        "--directory", ".hub-scratch/nitfix/corpus",
+        "--directory", ".hub-scratch/round4/corpus",
         "--artifact-start", str(batch["artifact_start"]),
         "--artifact-limit", str(batch["artifact_end"] - batch["artifact_start"]),
     ]
@@ -162,7 +165,7 @@ Summarization requires contiguous, complete signed coverage across all slices.
 After every shard exits successfully, run:
 
 ```sh
-uv run --locked python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/nitfix/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/round4/corpus
 ```
 
 `summary.json`, `combined.rows.jsonl` and `combined.removals.jsonl` are produced

@@ -2228,13 +2228,14 @@ _NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
         "—": "-",
     }
 )
+# Keep locator readers ASCII: Unicode case folding must not prove unit suffixes.
 _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR = (
     r"(?<![A-Za-z])(?:[A-Za-z][ \t]*)?\d+[A-Za-z]?"
     r"(?:[ \t]+[A-Za-z]\b)?(?:\([A-Za-z]\))*"
     r"(?!\w|[.,]\d)"
 )
 _ENGLISH_SUBDIVISION_LOCATOR_TOKEN = re.compile(
-    _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
+    _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR, flags=re.ASCII
 )
 _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION = re.compile(
     r"\b(?P<keyword>subdivisions?)[ \t]+(?P<labels>"
@@ -2243,7 +2244,7 @@ _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION = re.compile(
     r"(?:and|or|through|to)[ \t]+|[-–—][ \t]*)"
     + _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR
     + r")*)",
-    flags=re.IGNORECASE,
+    flags=re.IGNORECASE | re.ASCII,
 )
 _ENGLISH_SUBDIVISION_STATUTORY_TAIL = re.compile(
     r"[ \t]+of[ \t]+(?:(?:this|the|that)[ \t]+"
@@ -13835,6 +13836,9 @@ def _english_subdivision_numeric_recall_spans(
                 source_text, citation.start("labels"), citation.end("labels")
             )
         )
+        if not labels:
+            # An unrecognized label proves no locator; keep every demand.
+            continue
         statutory_tail = _ENGLISH_SUBDIVISION_STATUTORY_TAIL.match(
             source_text, citation.end()
         )
@@ -13846,7 +13850,9 @@ def _english_subdivision_numeric_recall_spans(
         ambiguous_labels = {
             label.span()
             for label in labels
-            if re.search(r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])", label.group())
+            if re.search(
+                r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])", label.group(), flags=re.ASCII
+            )
         }
         if ambiguous_labels:
             complete = False
