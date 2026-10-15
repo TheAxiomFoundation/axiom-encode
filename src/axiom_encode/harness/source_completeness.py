@@ -31247,12 +31247,12 @@ _EXCEPTION_OUTCOME_PARTICIPLE = (
     r"(?:(?:in)?eligible|entitled|qualified|disqualified|deemed|counted|excluded|"
     r"included|disregarded|deducted|allowed|denied|terminated|reduced|increased|"
     r"prorated|budgeted|treated|considered|issued|paid|restored|reinstated|"
-    r"expunged|suspended|exempt|reissued|recomputed)"
+    r"expunged|suspended|exempt|reissued|recomputed|computed)"
 )
 _EXCEPTION_OUTCOME_CONSEQUENCE = re.compile(
     r"\s*(?:then\b\s*,?\s*)?"
     r"(?:(?!(?:that|which|who|whom|whose|if|whether|when|unless|because)\b)"
-    r"[\w'\u2019./-]+\s+){0,10}?"
+    r"[\w'\u2019\u201c\u201d\"./-]+\s+){0,14}?"
     r"(?:"
     r"(?:(?:is|are|was|were|becomes?|remains?|shall|must|will|would|may|can)"
     r"(?:\s+not)?(?:\s+(?:be|become|remain))?"
@@ -31261,7 +31261,7 @@ _EXCEPTION_OUTCOME_CONSEQUENCE = re.compile(
     + r"|(?:shall|must|will|would|may|can|does|do)(?:\s+not)?(?:\s+also)?\s+"
     r"(?:deem|count|exclude|include|disregard|deduct|allow|deny|terminate|reduce|"
     r"increase|prorate|budget|treat|consider|issue|pay|disqualify|restore|"
-    r"reinstate|suspend|qualify|receive|reissue|recompute|revert)"
+    r"reinstate|suspend|qualify|receive|reissue|recompute|revert|compute)"
     r"|(?:deems|counts|excludes|includes|disregards|pays|treats|qualif(?:y|ies)|"
     r"deem|count|exclude|include|disregard|pay|treat)"
     r")\b",
