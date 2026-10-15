@@ -7103,7 +7103,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2207"')
+        .startswith('__version__ = "0.2.2208"')
     )
 
 
@@ -7335,13 +7335,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2207"
+    assert encoder_package["version"] == "0.2.2208"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2207"
+    assert project["project"]["version"] == "0.2.2208"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2207"')
+        .startswith('__version__ = "0.2.2208"')
     )
 
 
@@ -7603,13 +7603,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2207"
+    assert encoder_package["version"] == "0.2.2208"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2207"
+    assert project["project"]["version"] == "0.2.2208"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2207"')
+        .startswith('__version__ = "0.2.2208"')
     )
 
 
@@ -44928,7 +44928,9 @@ rules: []
     )
 
 
-def test_source_subparagraph_coverage_allows_repealed_empty_slice(tmp_path):
+def test_source_subparagraph_coverage_requires_reviewed_evidence_for_repealed_empty_slice(
+    tmp_path,
+):
     source_text = """Wages
 (a) Wages means all remuneration for employment.
 """
@@ -44951,16 +44953,16 @@ rules: []
     assert len(issues) == 1
     assert "26 USC 3121(a)" in issues[0]
 
-    # A generated repeal needs a matching source notice in a proven outline.
+    # Matching source text is still insufficient without a reviewed tombstone
+    # entry or the exact requested corpus row's authoritative repealed status.
     source_text += "(3) Repealed.\n(b) Employment details.\n"
-    assert (
-        find_source_subparagraph_coverage_issues(
-            content,
-            rules_file=rules_file,
-            source_texts={"us/statute/26/3121": source_text},
-        )
-        == []
+    issues = find_source_subparagraph_coverage_issues(
+        content,
+        rules_file=rules_file,
+        source_texts={"us/statute/26/3121": source_text},
     )
+    assert len(issues) == 1
+    assert "26 USC 3121(a)" in issues[0]
 
 
 def test_source_subparagraph_coverage_allows_rule_citing_child():
