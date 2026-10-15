@@ -67,9 +67,10 @@ Python. The scripts cover:
   set to `C.UTF-8`, as the runner and the supervisor's child environment have
   them. In-process gates also decode files as UTF-8: `ci` switches its own
   `LC_CTYPE` to a UTF-8 locale (`C.UTF-8`, `en_US.UTF-8`, `UTF-8`, or else the
-  caller's own if it is UTF-8) for the run, exports that same locale to child
-  processes (`C.UTF-8` wherever it exists), and fails resolution if none
-  exists outside Python's UTF-8 mode.
+  caller's own if it is UTF-8) for the run, exports that same locale to the
+  child processes that inherit its environment (`C.UTF-8` wherever it exists),
+  and fails resolution if none exists outside Python's UTF-8 mode. The
+  repository pytest step keeps `C.UTF-8`, as CI's does.
   The caller's values are restored afterwards.
 - **Engine.** As "Build axiom-rules-engine" does, `ci` builds the debug profile
   from a fresh `git archive` of the verified engine pin in a private temporary
