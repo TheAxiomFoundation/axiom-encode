@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import pickle
 from base64 import b64encode
 from collections import Counter
 from dataclasses import replace
@@ -28,6 +29,113 @@ from tests.test_signing_broker import _base_protocol_status, _client_for_status
 
 frozen = _frozen_fixtures.frozen
 frozen_repo = _reader_fixtures.frozen_repo
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "__init__",
+        "__setstate__",
+        "__setattr__",
+        "__delattr__",
+        "object.__setattr__",
+        "object.__delattr__",
+        "__dict__",
+        "__reduce__",
+        "__reduce_ex__",
+        "pickle",
+        "copy",
+        "deepcopy",
+        "repository-comparison",
+        "artifacts-comparison",
+        "artifact-comparison",
+        "covered-comparison",
+    ],
+)
+def test_attached_inventory_cannot_change_broker_admission(frozen, mutation):
+    replayed = frozen.manifest.with_name("not-frozen.json")
+    replayed.write_bytes(frozen.manifest_bytes)
+    new_head = frozen.commit("replay outside protected inventory")
+    context = replace(frozen.context, artifact_path=replayed)
+    replacement_wire = copy.deepcopy(frozen.inventory)
+    repository = replacement_wire["repositories"][0]
+    repository["cutoff_commit"] = new_head
+    repository["artifacts"][0]["path"] = replayed.relative_to(frozen.repo).as_posix()
+    replacement = RetiredApplyInventory(replacement_wire)
+    status = _base_protocol_status()
+    status["retired_apply_public_keys"] = [b64encode(b"d" * 32).decode()]
+    status["retired_apply_inventory"] = frozen.inventory
+    client = _client_for_status(status)
+    try:
+        inventory = client.retired_apply_inventory
+
+        def assert_authority_unchanged():
+            assert client.retired_apply_inventory is inventory
+            with retired_apply_operation():
+                assert retired_apply_admission_issue(inventory, frozen.context) is None
+                assert "not frozen" in retired_apply_admission_issue(inventory, context)
+
+        assert_authority_unchanged()
+        if mutation == "__init__":
+            # Immutable tuple storage makes repeated initialization a no-op.
+            inventory.__init__(replacement_wire)
+        elif mutation.endswith("-comparison"):
+            identity = "TheAxiomFoundation/rulespec-us"
+            original_repository = inventory[identity]
+            replacement_repository = replacement[identity]
+            original_artifacts = original_repository["artifacts"]
+            replacement_artifacts = replacement_repository["artifacts"]
+            original_artifact = next(iter(original_artifacts.values()))
+            replacement_artifact = next(iter(replacement_artifacts.values()))
+            layers = {
+                "repository-comparison": (
+                    original_repository,
+                    replacement_repository,
+                ),
+                "artifacts-comparison": (original_artifacts, replacement_artifacts),
+                "artifact-comparison": (original_artifact, replacement_artifact),
+                "covered-comparison": (
+                    original_artifact["covered_files"][0],
+                    {"path": "changed.yaml", "sha256": "d" * 64},
+                ),
+            }
+            original, changed = layers[mutation]
+
+            class ReflectedMutation:
+                def __eq__(self, other):
+                    if isinstance(other, dict):
+                        other.clear()
+                        other.update(changed)
+                    return False
+
+            assert (original == ReflectedMutation()) is False
+        else:
+            target = inventory
+            if mutation in {"copy", "deepcopy"}:
+                target = getattr(copy, mutation)(inventory)
+                assert target is inventory
+            with pytest.raises((AttributeError, TypeError)):
+                if mutation in {"__setstate__", "copy", "deepcopy"}:
+                    target.__setstate__([dict(replacement)])
+                elif mutation == "__setattr__":
+                    target.__setattr__("_repositories", dict(replacement))
+                elif mutation == "__delattr__":
+                    target.__delattr__("_repositories")
+                elif mutation == "object.__setattr__":
+                    object.__setattr__(target, "_repositories", dict(replacement))
+                elif mutation == "object.__delattr__":
+                    object.__delattr__(target, "_repositories")
+                elif mutation == "__dict__":
+                    target.__dict__["_repositories"] = dict(replacement)
+                elif mutation == "__reduce__":
+                    target.__reduce__()
+                elif mutation == "__reduce_ex__":
+                    target.__reduce_ex__(pickle.HIGHEST_PROTOCOL)
+                else:
+                    pickle.loads(pickle.dumps(target))
+        assert_authority_unchanged()
+    finally:
+        client.close()
 
 
 def test_guard_validates_and_copies_inventory_only_at_attach(frozen_repo):
@@ -192,6 +300,9 @@ def test_operation_tracks_changed_head_and_retrospective_mode(frozen):
         assert retired_apply_admission_issue(index, frozen.context) is None
         (frozen.repo / "README.txt").write_text("New HEAD\n")
         frozen.commit()
+        # Warm the new HEAD before asking for the stale explicit SHA. Otherwise
+        # a key missing head_ref still reruns preflight on the changed HEAD.
+        assert retired_apply_admission_issue(index, frozen.context) is None
         # A prior HEAD-keyed snapshot cannot bypass either the head_ref binding
         # or the retrospective cutoff restriction on this new HEAD.
         pinned = replace(frozen.context, head_ref=frozen.cutoff)
@@ -271,6 +382,59 @@ def _synthetic_inventory(count, cutoff):
             }
         ],
     }, payload
+
+
+def test_inventory_mapping_handles_collisions_without_exposing_mutable_storage(
+    monkeypatch,
+):
+    monkeypatch.setattr(retired_apply, "hash", lambda key: 0, raising=False)
+    inventory, _ = _synthetic_inventory(32, "a" * 40)
+    index = RetiredApplyInventory(inventory)
+    identity = "TheAxiomFoundation/rulespec-us"
+    assert list(index) == [identity]
+    assert identity in index and "missing" not in index
+    artifacts = index[identity]["artifacts"]
+    paths = [artifact["path"] for artifact in inventory["repositories"][0]["artifacts"]]
+    assert list(artifacts) == paths
+    assert len(artifacts) == len(paths)
+    assert artifacts == dict(artifacts)
+    assert not artifacts != dict(artifacts)
+    for path in paths:
+        assert artifacts[path]["path"] == path
+    with pytest.raises(KeyError):
+        artifacts["missing"]
+
+    def assert_native_storage(value):
+        if type(value) is tuple:
+            for child in value:
+                assert_native_storage(child)
+        else:
+            assert type(value) in {str, int, type(None)}
+
+    # Even explicit base-class tuple access exposes only immutable native data.
+    for value in tuple.__iter__(index):
+        assert_native_storage(value)
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_inventory_class_spoof_does_not_bypass_validation(warm):
+    class Counterfeit(tuple):
+        __slots__ = ()
+
+        @property
+        def __class__(self):
+            return RetiredApplyInventory
+
+    # isinstance honors a spoofed __class__; trusted instances need exact types.
+    inventory, _ = _synthetic_inventory(1, "a" * 40)
+    index = RetiredApplyInventory(inventory)
+    with retired_apply_operation():
+        if warm:
+            assert retired_apply._inventory_index(index) is index
+        object.__setattr__(index, "__class__", Counterfeit)
+        assert isinstance(index, RetiredApplyInventory)
+        with pytest.raises(ValueError, match="retired apply inventory"):
+            retired_apply._inventory_index(index)
 
 
 def _synthetic_admission_times(frozen, monkeypatch, counts=(1000, 5000)):

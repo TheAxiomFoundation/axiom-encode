@@ -328,8 +328,7 @@ def test_broker_preserves_retired_roots_and_indexes_inventory_once() -> None:
             exposed = client.retired_apply_inventory
             assert exposed is not None
             assert not hasattr(exposed, "__dict__")
-            with pytest.raises(TypeError, match="already initialized"):
-                exposed.__init__(inventory)
+            exposed.__init__(inventory)  # Tuple initialization cannot replace data.
             with pytest.raises(AttributeError):
                 exposed._repositories = {}
             repository = exposed["TheAxiomFoundation/rulespec-us"]

@@ -526,7 +526,12 @@ its actual checkout head must equal or precede the trusted cutoff, and its
 `--head-ref` must be `HEAD` or that exact SHA.
 
 The broker validates and detaches the inventory once at attachment, exposing a
-deeply immutable index by repository and artifact path. Each guard invocation
+read-only index by repository and artifact path. Its hash tables and nested data
+are stored in native tuples, with no mutable backing dictionaries or replaceable
+instance attributes. Reinitialization is a no-op; state restoration and pickling
+are rejected, and shallow/deep copies return the same view. These are protections
+for the exposed values, not an isolation boundary against arbitrary Python code
+that replaces classes or changes the verifier. Each guard invocation
 owns fresh repository-history and covered-source caches, including retrospective
 preflight. Successful repository checks (identity, complete history,
 graft/replacement exclusion and cutoff ancestry) are snapshots

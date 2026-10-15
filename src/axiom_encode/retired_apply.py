@@ -20,7 +20,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 
 RETIRED_APPLY_INVENTORY_SCHEMA = "axiom-encode/retired-apply-inventory/v1"
@@ -156,47 +155,110 @@ def validate_retired_apply_inventory(value: object) -> dict[str, object]:
     }
 
 
-@dataclass(frozen=True, init=False, eq=False, slots=True)
-class RetiredApplyInventory(Mapping[str, Mapping[str, Any]]):
-    """Detached, deeply immutable repository/path index of validated trust.
+def _frozen_mapping_data(value: Mapping[str, Any]) -> tuple:
+    """Build an immutable open-addressed hash table, including all nested data."""
+
+    def freeze(item: Any) -> tuple:
+        if isinstance(item, dict):
+            return ("mapping", _frozen_mapping_data(item))
+        if isinstance(item, list):
+            return ("sequence", tuple(freeze(child) for child in item))
+        return ("scalar", item)
+
+    entries = tuple((key, freeze(item)) for key, item in value.items())
+    capacity = 2
+    while capacity < 2 * len(entries):
+        capacity *= 2
+    slots = [None] * capacity
+    for number, (key, _) in enumerate(entries):
+        slot = hash(key) & (capacity - 1)
+        while slots[slot] is not None:
+            slot = (slot + 1) & (capacity - 1)
+        slots[slot] = number
+    return entries, tuple(slots)
+
+
+def _frozen_value_view(value: tuple) -> Any:
+    kind, data = value
+    if kind == "mapping":
+        return tuple.__new__(_FrozenMapping, data)
+    if kind == "sequence":
+        return tuple(_frozen_value_view(item) for item in data)
+    return data
+
+
+class _FrozenMapping(tuple, Mapping[str, Any]):
+    """Mapping views over tuple-only storage, with expected O(1) lookup.
+
+    MappingProxyType cannot be used here: reflected comparison/union methods
+    can receive its mutable backing dict. Nested views are created on access;
+    only native tuples and scalar values are retained in the authority.
+    """
+
+    __slots__ = ()
+    __hash__ = None
+    __contains__ = Mapping.__contains__
+    __eq__ = Mapping.__eq__
+
+    def __ne__(self, other: object) -> bool:
+        return not self == other
+
+    def __getitem__(self, key: str) -> Any:
+        entries, slots = tuple.__iter__(self)
+        slot = hash(key) & (len(slots) - 1)
+        while (number := slots[slot]) is not None:
+            candidate, value = entries[number]
+            if candidate == key:
+                return _frozen_value_view(value)
+            slot = (slot + 1) & (len(slots) - 1)
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        return (key for key, _ in tuple.__getitem__(self, 0))
+
+    def __len__(self) -> int:
+        return len(tuple.__getitem__(self, 0))
+
+    def __setstate__(self, state: object) -> None:
+        raise TypeError("retired apply inventory cannot restore state")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("retired apply inventory cannot be pickled")
+
+    def __reduce_ex__(self, protocol: int) -> Any:
+        return self.__reduce__()
+
+    def __copy__(self) -> _FrozenMapping:
+        return self
+
+    def __deepcopy__(self, memo: dict) -> _FrozenMapping:
+        return self
+
+
+class RetiredApplyInventory(_FrozenMapping):
+    """Detached repository/path index with immutable tuple-only storage.
 
     Only broker attachment constructs this view in production. The wire-schema
     validator remains shared with the trust-file consumers; admission never
     revalidates an instance of this class.
     """
 
-    _repositories: Mapping[str, Mapping[str, Any]]
+    __slots__ = ()
 
-    def __init__(self, value: object) -> None:
-        if hasattr(self, "_repositories"):
-            raise TypeError("retired apply inventory is already initialized")
+    def __new__(cls, value: object) -> RetiredApplyInventory:
         validated = validate_retired_apply_inventory(value)
         repositories = {}
         for repository in validated["repositories"]:
-            artifacts = {}
-            for artifact in repository["artifacts"]:
-                artifacts[artifact["path"]] = MappingProxyType(
-                    {
-                        **artifact,
-                        "covered_files": tuple(
-                            MappingProxyType(covered)
-                            for covered in artifact["covered_files"]
-                        ),
-                    }
-                )
-            repositories[repository["repository"]] = MappingProxyType(
-                {**repository, "artifacts": MappingProxyType(artifacts)}
-            )
-        object.__setattr__(self, "_repositories", MappingProxyType(repositories))
+            repositories[repository["repository"]] = {
+                **repository,
+                "artifacts": {
+                    artifact["path"]: artifact for artifact in repository["artifacts"]
+                },
+            }
+        return tuple.__new__(cls, _frozen_mapping_data(repositories))
 
-    def __getitem__(self, repository: str) -> Mapping[str, Any]:
-        return self._repositories[repository]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._repositories)
-
-    def __len__(self) -> int:
-        return len(self._repositories)
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        raise TypeError("retired apply inventory cannot be subclassed")
 
 
 @dataclass
@@ -237,7 +299,7 @@ def retired_apply_operation() -> Iterator[None]:
 
 def _inventory_index(inventory: object) -> RetiredApplyInventory:
     operation = _operation.get()
-    if isinstance(inventory, RetiredApplyInventory):
+    if type(inventory) is RetiredApplyInventory:
         if operation is not None:
             operation.inventories.setdefault(id(inventory), (inventory, inventory))
         return inventory
@@ -246,7 +308,10 @@ def _inventory_index(inventory: object) -> RetiredApplyInventory:
     key = id(inventory)
     if key not in operation.inventories:
         operation.inventories[key] = (inventory, RetiredApplyInventory(inventory))
-    return operation.inventories[key][1]
+    indexed = operation.inventories[key][1]
+    if type(indexed) is not RetiredApplyInventory:
+        raise ValueError("retired apply inventory cached index type changed")
+    return indexed
 
 
 @dataclass(frozen=True)
