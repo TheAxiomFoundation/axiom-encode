@@ -21649,6 +21649,7 @@ def _case_asserted_dependency_environment(
     case: dict[str, Any],
     *,
     formula_environment: dict[str, Any],
+    allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
     """Resolve only derived values corroborated by this case's assertions."""
 
@@ -21657,6 +21658,7 @@ def _case_asserted_dependency_environment(
         case,
         formula_environment=formula_environment,
         require_asserted_value=True,
+        allow_bound_row_assertions=allow_bound_row_assertions,
     )
 
 
@@ -21667,6 +21669,7 @@ def _case_dependency_environment(
     formula_environment: dict[str, Any],
     require_asserted_value: bool,
     allowed_names: set[str] | None = None,
+    allow_bound_row_assertions: bool = False,
 ) -> dict[str, Any]:
     """Evaluate an acyclic reached subset of local principal outputs."""
 
@@ -21711,7 +21714,13 @@ def _case_dependency_environment(
             if value is _UNRESOLVED_CONDITION_VALUE:
                 if not require_asserted_value:
                     continue
-                asserted = _test_case_asserted_output_value(case, name)
+                asserted = _test_case_asserted_output_value(
+                    case,
+                    name,
+                    principal_rules=principal_rules
+                    if allow_bound_row_assertions
+                    else None,
+                )
                 if (
                     asserted is _UNRESOLVED_CONDITION_VALUE
                     or not _formula_execution_is_blocked_only_by_external_imports(
@@ -21723,7 +21732,13 @@ def _case_dependency_environment(
                     continue
                 value = asserted
             if require_asserted_value:
-                asserted = _test_case_asserted_output_value(case, name)
+                asserted = _test_case_asserted_output_value(
+                    case,
+                    name,
+                    principal_rules=principal_rules
+                    if allow_bound_row_assertions
+                    else None,
+                )
                 if (
                     asserted is _UNRESOLVED_CONDITION_VALUE
                     or not _asserted_formula_runtime_values_equal(
@@ -27138,13 +27153,18 @@ def _unconditional_nonapplicability_witnesses(
         ):
             continue
         for case_index, case in enumerate(asserted_by_rule.get(rule_name, ())):
-            asserted = _test_case_asserted_output_value(case, rule_name)
+            asserted = _test_case_asserted_output_value(
+                case,
+                rule_name,
+                principal_rules=principal_rules,
+            )
             if _boolean_value(asserted) is not False:
                 continue
             dependencies = _case_asserted_dependency_environment(
                 principal_rules,
                 case,
                 formula_environment=formula_environment,
+                allow_bound_row_assertions=True,
             )
             execution = _case_formula_execution(
                 rule,
@@ -27557,6 +27577,7 @@ def _source_owned_residence_text_intervention(
             dict(principal_rules),
             case,
             formula_environment=formula_environment,
+            allow_bound_row_assertions=True,
         )
         execution = _case_formula_execution(
             helper, case, formula_environment=formula_environment
@@ -27578,12 +27599,20 @@ def _source_owned_residence_text_intervention(
             value is None
             or value != (inputs[definition.input_name] == place)
             or _boolean_value(
-                _test_case_asserted_output_value(case, witness.selector_name)
+                _test_case_asserted_output_value(
+                    case,
+                    witness.selector_name,
+                    principal_rules=principal_rules,
+                )
             )
             != value
             or not _formula_runtime_values_equal(
                 _formula_execution_runtime_value(principal),
-                _test_case_asserted_output_value(case, witness.rule_name),
+                _test_case_asserted_output_value(
+                    case,
+                    witness.rule_name,
+                    principal_rules=principal_rules,
+                ),
             )
         ):
             return False
@@ -27892,6 +27921,7 @@ def _source_qualified_cardinality_evidence(
             principal_rules or {str(rule["name"]): rule},
             case,
             formula_environment=formula_environment or {},
+            allow_bound_row_assertions=True,
         )
         execution = _case_formula_execution(
             rule,
@@ -27902,7 +27932,11 @@ def _source_qualified_cardinality_evidence(
         if execution is None or not _asserted_formula_runtime_values_equal(
             rule,
             _formula_execution_runtime_value(execution),
-            _test_case_asserted_output_value(case, str(rule["name"])),
+            _test_case_asserted_output_value(
+                case,
+                str(rule["name"]),
+                principal_rules=principal_rules,
+            ),
         ):
             return None
         reached = []
@@ -28151,6 +28185,7 @@ def _source_owned_equality_witness(
             principal_rules,
             case,
             formula_environment=formula_environment,
+            allow_bound_row_assertions=True,
         )
         environment = _formula_case_runtime_environment(
             case,
@@ -28173,7 +28208,11 @@ def _source_owned_equality_witness(
             for value in values
         ):
             return False
-        expected = _test_case_asserted_output_value(case, str(rule["name"]))
+        expected = _test_case_asserted_output_value(
+            case,
+            str(rule["name"]),
+            principal_rules=principal_rules,
+        )
         if not _asserted_formula_runtime_values_equal(
             rule,
             _formula_execution_runtime_value(execution),
@@ -28347,7 +28386,10 @@ def _greater_alternative_definition_comparison_is_executed(
     source_results = []
     for case in cases:
         dependencies = _case_asserted_dependency_environment(
-            principal_rules, case, formula_environment=formula_environment
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            allow_bound_row_assertions=True,
         )
         execution = _case_formula_execution(
             rule,
@@ -30609,6 +30651,7 @@ def _toggled_formula_boolean_selectors(
                         principal_rules,
                         case,
                         formula_environment=formula_environment,
+                        allow_bound_row_assertions=True,
                     )
                 ),
                 _case_boolean_selector_environment(
@@ -30658,6 +30701,7 @@ def _toggled_formula_boolean_selectors(
                         right_case=right_case,
                         right_dependencies=right_dependencies,
                         formula_environment=formula_environment,
+                        principal_rules=principal_rules,
                     )
                     if witness is not None:
                         toggled.add(witness)
@@ -30852,7 +30896,13 @@ def _toggled_formula_calendar_age_selectors(
                 ]
                 if not all(
                     _asserted_formula_runtime_values_equal(
-                        rule, value, _test_case_asserted_output_value(case, rule_name)
+                        rule,
+                        value,
+                        _test_case_asserted_output_value(
+                            case,
+                            rule_name,
+                            principal_rules=principal_rules,
+                        ),
                     )
                     for case, value in zip((left_case, right_case), values)
                 ) or not _exception_effect_changes(*values):
@@ -30877,7 +30927,9 @@ def _toggled_formula_calendar_age_selectors(
                     if not all(
                         (
                             asserted := _test_case_asserted_output_value(
-                                case, birthday_name
+                                case,
+                                birthday_name,
+                                principal_rules=principal_rules,
                             )
                         )
                         is _UNRESOLVED_CONDITION_VALUE
@@ -31055,11 +31107,13 @@ def _toggled_formula_numeric_selectors(
                     principal_rules,
                     left_case,
                     formula_environment=formula_environment,
+                    allow_bound_row_assertions=True,
                 )
                 right_dependencies = _case_asserted_dependency_environment(
                     principal_rules,
                     right_case,
                     formula_environment=formula_environment,
+                    allow_bound_row_assertions=True,
                 )
                 selector_values = {
                     name: (float(left_value), float(right_value))
@@ -31183,10 +31237,12 @@ def _toggled_formula_numeric_selectors(
                 left_asserted = _test_case_asserted_output_value(
                     left_case,
                     rule_name,
+                    principal_rules=principal_rules,
                 )
                 right_asserted = _test_case_asserted_output_value(
                     right_case,
                     rule_name,
+                    principal_rules=principal_rules,
                 )
                 if not (
                     left_asserted is not _UNRESOLVED_CONDITION_VALUE
@@ -31303,8 +31359,16 @@ def _case_pair_stable_asserted_formula_dependencies(
         require_asserted_value=False,
     )
     for name in sorted(candidate_names):
-        left_value = _test_case_asserted_output_value(left_case, name)
-        right_value = _test_case_asserted_output_value(right_case, name)
+        left_value = _test_case_asserted_output_value(
+            left_case,
+            name,
+            principal_rules=principal_rules,
+        )
+        right_value = _test_case_asserted_output_value(
+            right_case,
+            name,
+            principal_rules=principal_rules,
+        )
         if (
             left_value is _UNRESOLVED_CONDITION_VALUE
             or right_value is _UNRESOLVED_CONDITION_VALUE
@@ -31692,6 +31756,7 @@ def _exception_witness_for_case_pair(
     rule_name: str,
     rule: dict[str, Any],
     *,
+    principal_rules: dict[str, dict[str, Any]],
     selector_name: str,
     active_value: bool,
     left_case: dict[str, Any],
@@ -31750,10 +31815,12 @@ def _exception_witness_for_case_pair(
     ordinary_asserted = _test_case_asserted_output_value(
         ordinary_case,
         rule_name,
+        principal_rules=principal_rules,
     )
     exception_asserted = _test_case_asserted_output_value(
         exception_case,
         rule_name,
+        principal_rules=principal_rules,
     )
     if (
         ordinary_asserted is _UNRESOLVED_CONDITION_VALUE
@@ -32026,8 +32093,15 @@ def _formula_execution_effect_signature(
 def _test_case_asserted_output_value(
     case: dict[str, Any],
     rule_name: str,
+    *,
+    principal_rules: Mapping[str, dict[str, Any]] | None = None,
 ) -> Any:
-    """Read scalar formula evidence, including one-row companion assertions."""
+    """Read assertions; unwrap a row only with a proven replay-input binding.
+
+    Unbound consumers retain list expectations verbatim, as before singleton
+    exception support. Opting in requires the complete output ownership map so
+    the binding check also covers scalar assertions with list-valued siblings.
+    """
 
     outputs = case.get("output")
     if not isinstance(outputs, dict):
@@ -32040,8 +32114,13 @@ def _test_case_asserted_output_value(
     if len(values) != 1:
         return _UNRESOLVED_CONDITION_VALUE
     value = values[0]
-    # The companion runner compares list expectations per entity row. A single
-    # row has the same scalar assertion; multiple rows need row-aware replay.
+    if principal_rules is None:
+        return value
+    if not _asserted_cases_with_bound_formula_inputs(
+        principal_rules, {rule_name: [case]}
+    ).get(rule_name):
+        return _UNRESOLVED_CONDITION_VALUE
+    # Only the sole queried row whose facts match replay can supply a scalar.
     if isinstance(value, list) and len(value) == 1 and not isinstance(value[0], list):
         return value[0]
     return value
