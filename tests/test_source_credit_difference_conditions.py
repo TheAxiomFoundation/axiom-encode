@@ -43,7 +43,7 @@ def _credit_candidate(
     state_name="state_credit",
     federal_name="federal_credit",
     state_description="The amount of the state child care credit for which the taxpayer is eligible.",
-    federal_description="The federal credit for child and dependent care expenses deductible from federal tax liability.",
+    federal_description="The federal credit for child and dependent care expenses deductible from the taxpayer's federal tax liability for the same taxable year.",
     source=CLAUSE,
 ):
     rule = {
@@ -172,6 +172,118 @@ def test_public_credit_difference_accepts_bound_operands():
     assert _public_gate(payload, "E. " + CLAUSE, cases) == ()
 
 
+@pytest.mark.parametrize(
+    "operand,description",
+    [
+        ("state", "The state child care credit plus the amount of eligible wages."),
+        ("state", "The state child care credit for which the spouse is eligible."),
+        (
+            "federal",
+            "The federal credit for child and dependent care expenses deductible "
+            "from the spouse's federal tax liability.",
+        ),
+        (
+            "state",
+            "The state child care credit for which the taxpayer is eligible plus wages.",
+        ),
+        (
+            "federal",
+            "The federal credit for child and dependent care expenses deductible "
+            "from the taxpayer's federal tax liability plus wages.",
+        ),
+        (
+            "federal",
+            "The federal credit for child and dependent care expenses deductible "
+            "from federal tax liability for the same taxable year.",
+        ),
+        (
+            "federal",
+            "The federal credit for child and dependent care expenses deductible "
+            "from the taxpayer's federal tax liability.",
+        ),
+    ],
+)
+def test_round3_credit_qualifications_bind_the_complete_amount_and_taxpayer(
+    operand, description
+):
+    payload, cases = _credit_candidate(**{operand + "_description": description})
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
+@given(
+    source_case=st.sampled_from(["original", "upper", "mixed"]),
+    whitespace=st.sampled_from([" ", "\t", "  "]),
+    operand=st.sampled_from(["state", "federal"]),
+    claimant=st.sampled_from(["spouse", "caregiver", "employer"]),
+    qualification=st.sampled_from(["wrong_claimant", "extra_amount", "negated"]),
+)
+@settings(deadline=None, max_examples=18)
+def test_public_credit_qualified_operands_never_accept_contradictory_evidence(
+    source_case, whitespace, operand, claimant, qualification
+):
+    source = _credit_source_variant(source_case, whitespace)
+    if operand == "state":
+        description = "The state child care credit for which the taxpayer is eligible"
+        negative = "not eligible"
+        affirmative = "eligible"
+    else:
+        description = (
+            "The federal credit for child and dependent care expenses the taxpayer "
+            "is able to deduct from federal tax liability for the same taxable year"
+        )
+        negative = "not able"
+        affirmative = "able"
+    if qualification == "wrong_claimant":
+        description = description.replace("taxpayer", claimant)
+    elif qualification == "extra_amount":
+        description += " plus the amount of eligible wages"
+    else:
+        description = description.replace(affirmative, negative)
+    payload, cases = _credit_candidate(
+        source=source, **{operand + "_description": description + "."}
+    )
+    assert _public_gate(payload, "E. " + source, cases)
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "The federal credit for child and dependent care expenses deductible "
+        "from the spouse's federal tax liability for the same taxable year.",
+        "The federal credit for child and dependent care expenses deductible "
+        "from the taxpayer's federal tax liability for the same taxable year plus wages.",
+    ],
+)
+def test_public_federal_operand_proof_cannot_override_a_wrong_amount(description):
+    payload, cases = _derived_credit_candidate("proof")
+    payload["rules"][2]["description"] = description
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
+@pytest.mark.parametrize(
+    "state_name",
+    ["spouse_state_child_care_credit", "taxpayer_is_ineligible_for_state_credit"],
+)
+def test_public_credit_operand_description_cannot_override_a_conflicting_name(
+    state_name,
+):
+    payload, cases = _credit_candidate(state_name=state_name)
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
+@pytest.mark.parametrize(
+    "credit", ["child care credit", "credit for child care expenses"]
+)
+def test_public_federal_operand_requires_the_complete_child_and_dependent_credit(
+    credit,
+):
+    payload, cases = _credit_candidate(
+        federal_description=f"The federal {credit} deductible from the taxpayer's "
+        "federal tax liability for the same taxable year."
+    )
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
 @pytest.mark.parametrize("source_case", ["upper", "mixed"])
 def test_public_credit_difference_rejects_wrong_operands_regardless_of_source_case(
     source_case,
@@ -297,11 +409,94 @@ def test_public_credit_difference_accepts_individually_bound_derived_operands(bi
     assert _public_gate(payload, "E. " + CLAUSE, cases) == ()
 
 
+@pytest.mark.parametrize("binding", ["description", "proof"])
+@pytest.mark.parametrize("operand_index", [1, 2])
+@pytest.mark.parametrize("alias", [False, True])
+def test_public_credit_operand_cannot_hide_unrelated_arithmetic(
+    binding, operand_index, alias
+):
+    payload, cases = _derived_credit_candidate(binding)
+    operand = payload["rules"][operand_index]
+    operand["versions"][0]["formula"] += " + wages"
+    payload["inputs"].append(
+        {"name": "wages", "description": "Unrelated eligible wages.", "dtype": "Money"}
+    )
+    for case in cases:
+        case["input"]["wages"] = 50
+        case["output"][operand["name"]] += 50
+        state = case["output"]["state_credit"]
+        federal = case["output"]["federal_credit"]
+        case["output"]["child_care_credit"] = (
+            state - federal
+            if case["input"]["resident_has_federal_tax_liability"]
+            else state
+        )
+    if alias:
+        payload, cases = _with_credit_result_alias(payload, cases)
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
+@pytest.mark.parametrize("arithmetic", [True, False])
+def test_public_credit_operand_follows_the_complete_local_alias_chain(arithmetic):
+    payload, cases = _derived_credit_candidate("proof")
+    operand = payload["rules"][1]
+    formula = "amount_1 + wages" if arithmetic else "amount_1"
+    payload["rules"].append(
+        {
+            "name": "intermediate_state_amount",
+            "kind": "derived",
+            "dtype": "Money",
+            "versions": [{"effective_from": "2026-01-01", "formula": formula}],
+        }
+    )
+    operand["versions"][0]["formula"] = "intermediate_state_amount"
+    payload["inputs"].append(
+        {"name": "wages", "description": "Unrelated eligible wages.", "dtype": "Money"}
+    )
+    for case in cases:
+        case["input"]["wages"] = 50
+        state = case["input"]["amount_1"] + (50 if arithmetic else 0)
+        federal = case["input"]["amount_2"]
+        case["output"]["state_credit"] = state
+        case["output"]["intermediate_state_amount"] = state
+        case["output"]["child_care_credit"] = (
+            state - federal
+            if case["input"]["resident_has_federal_tax_liability"]
+            else state
+        )
+    issues = _public_gate(payload, "E. " + CLAUSE, cases)
+    if arithmetic:
+        assert issues
+    else:
+        assert issues == (), issues
+
+
+@pytest.mark.parametrize("operand_index", [1, 2])
+@pytest.mark.parametrize(
+    "description",
+    [
+        "The amount of eligible wages.",
+        "The state child care credit for which the spouse is eligible.",
+        "The state child care credit for which the taxpayer is not eligible.",
+        "An amount with an unrecognized qualification.",
+    ],
+)
+def test_public_credit_identity_proof_cannot_relabel_a_different_upstream_amount(
+    operand_index, description
+):
+    payload, cases = _derived_credit_candidate("proof")
+    payload["inputs"][operand_index]["description"] = description
+    assert _public_gate(payload, "E. " + CLAUSE, cases)
+
+
 @pytest.mark.parametrize(
     "description",
     [
         "The ineligible state child care credit.",
         "The state child care credit for which the taxpayer might be eligible.",
+        "The state child care credit for which the spouse is eligible.",
+        "The state child care credit plus the amount of eligible wages.",
+        "The state child care credit for which the taxpayer is eligible. Plus wages.",
     ],
 )
 def test_public_credit_operand_proof_cannot_override_contradictory_description(
@@ -516,6 +711,276 @@ def test_dependent_care_subject_matter_is_not_dependency_polarity():
 
 
 @pytest.mark.parametrize(
+    ("source", "facts"),
+    [
+        (
+            "If the taxpayer is resident and dependent care expenses;",
+            (
+                ("taxpayer_is_resident", "The taxpayer is resident.", True),
+                ("taxpayer_care_fact", "There are no care expenses.", True),
+            ),
+        ),
+        (
+            "The credit applies if the taxpayer is resident and has no dependent care expenses.",
+            (
+                ("taxpayer_is_resident", "The taxpayer is resident.", True),
+                (
+                    "taxpayer_has_no_dependent_care_expenses",
+                    "The taxpayer has no dependent care expenses and there are dependent care expenses.",
+                    True,
+                ),
+            ),
+        ),
+        (
+            "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer.",
+            (
+                ("taxpayer_is_resident", "The taxpayer is not resident.", True),
+                (
+                    "taxpayer_care_expense",
+                    "Dependent care expense billed to the taxpayer.",
+                    True,
+                ),
+            ),
+        ),
+        (
+            "If the taxpayer is resident and dependent care expenses;",
+            (
+                ("taxpayer_is_resident", "The taxpayer is resident.", True),
+                ("there_are_no_care_expenses", "dependent care expenses.", True),
+            ),
+        ),
+    ],
+    ids=[
+        "unrecognized-absence",
+        "contradictory-presence",
+        "negated-residence",
+        "unknown-name",
+    ],
+)
+def test_reviewed_care_sources_require_complete_reviewed_terminal_witnesses(
+    source, facts
+):
+    payload, cases = _property_boolean_candidate(source, facts)
+    assert any(
+        "[complete-source-unit:source-explicit-conditions]" in issue
+        for issue in _public_gate(payload, source, cases)
+    )
+
+
+@given(
+    family=st.sampled_from(["presence", "absence", "residence"]),
+    tail_index=st.integers(min_value=0, max_value=2),
+    qualification=st.text(alphabet="abcxyz ", min_size=0, max_size=12),
+)
+@settings(deadline=None, max_examples=12)
+def test_reviewed_care_sources_reject_qualified_or_contradictory_terminal_tails(
+    family, tail_index, qualification
+):
+    source = "If the taxpayer is resident and dependent care expenses;"
+    facts = [
+        ("taxpayer_is_resident", "The taxpayer is resident.", True),
+        ("taxpayer_care_fact", "dependent care expenses.", True),
+    ]
+    index = 1
+    if family == "presence":
+        tails = [
+            " that do not exist",
+            " when there are no care expenses",
+            " despite the absence of all care expenses",
+        ]
+    elif family == "absence":
+        source = "The credit applies if the taxpayer is resident and has no dependent care expenses."
+        facts[1] = (
+            "taxpayer_has_no_dependent_care_expenses",
+            "The taxpayer has no dependent care expenses.",
+            True,
+        )
+        tails = [
+            " and there are dependent care expenses",
+            " although care expenses exist",
+            " and the taxpayer has dependent care expenses",
+        ]
+    else:
+        index = 0
+        tails = [
+            " and the taxpayer is not resident",
+            " although the taxpayer is never resident",
+            " but the taxpayer lives outside the jurisdiction",
+        ]
+    name, description, active = facts[index]
+    facts[index] = (
+        name,
+        description.removesuffix(".") + tails[tail_index] + f" ({qualification}).",
+        active,
+    )
+    payload, cases = _property_boolean_candidate(source, tuple(facts))
+    assert any(
+        "[complete-source-unit:source-explicit-conditions]" in issue
+        for issue in _public_gate(payload, source, cases)
+    )
+
+
+def _reviewed_billed_care_candidate():
+    source = "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer."
+    payload, cases = _property_boolean_candidate(
+        source,
+        (
+            ("taxpayer_is_resident", "The taxpayer is resident.", True),
+            (
+                "taxpayer_care_expense",
+                "Dependent care expense billed to the taxpayer.",
+                True,
+            ),
+        ),
+    )
+    return source, payload, cases
+
+
+@pytest.mark.parametrize("output_dtype", ["Judgment", "Boolean", "Bool"])
+@pytest.mark.parametrize("negated", ["residence", "care"])
+def test_reviewed_care_formula_requires_positive_fact_orientation(
+    output_dtype, negated
+):
+    source, payload, cases = _reviewed_billed_care_candidate()
+    root = payload["rules"][0]
+    root["dtype"] = output_dtype
+    condition = (
+        "not taxpayer_is_resident and taxpayer_care_expense"
+        if negated == "residence"
+        else "taxpayer_is_resident and not taxpayer_care_expense"
+    )
+    root["versions"][0]["formula"] = f"if {condition}: true else: false"
+    for case in cases:
+        resident = case["input"]["taxpayer_is_resident"]
+        care = case["input"]["taxpayer_care_expense"]
+        case["output"]["credit_applies"] = (
+            not resident and care if negated == "residence" else resident and not care
+        )
+    assert any(
+        "[complete-source-unit:source-explicit-conditions]" in issue
+        for issue in _public_gate(payload, source, cases)
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "extra-restriction",
+        "nonboolean-input",
+        "derived-alias",
+        "import-shadow",
+        "rule-shadow",
+        "duplicate-input",
+        "unselected-version",
+        "other-source-witness",
+    ],
+)
+def test_reviewed_care_contract_rejects_unreviewed_fact_and_formula_bindings(mutation):
+    source, payload, cases = _reviewed_billed_care_candidate()
+    root = payload["rules"][0]
+    if mutation == "extra-restriction":
+        extra = "dependent_care_expense_billed_to_taxpayer"
+        payload["inputs"].append(
+            {
+                "name": extra,
+                "description": "The taxpayer has dependent care expenses.",
+                "dtype": "Boolean",
+            }
+        )
+        root["versions"][0]["formula"] = (
+            f"if taxpayer_is_resident and taxpayer_care_expense and {extra}: true else: false"
+        )
+        for case in cases:
+            case["input"][extra] = True
+    elif mutation == "nonboolean-input":
+        payload["inputs"][1]["dtype"] = "Money"
+    elif mutation == "derived-alias":
+        root["versions"][0]["formula"] = (
+            "if taxpayer_is_resident and care_alias: true else: false"
+        )
+        payload["rules"].append(
+            {
+                "name": "care_alias",
+                "kind": "derived",
+                "dtype": "Boolean",
+                "versions": [{"formula": "taxpayer_care_expense"}],
+            }
+        )
+    elif mutation == "import-shadow":
+        payload["imports"] = [CITATION + "#taxpayer_care_expense"]
+    elif mutation == "rule-shadow":
+        payload["rules"].append(
+            {
+                "name": "taxpayer_care_expense",
+                "kind": "derived",
+                "dtype": "Boolean",
+                "versions": [{"formula": "true"}],
+            }
+        )
+    elif mutation == "duplicate-input":
+        payload["inputs"].append(dict(payload["inputs"][1]))
+    elif mutation == "unselected-version":
+        root["versions"].append(
+            {
+                "effective_from": "2030-01-01",
+                "formula": "if taxpayer_is_resident and not taxpayer_care_expense: true else: false",
+            }
+        )
+        root["metadata"]["proof"]["atoms"].append(
+            {
+                **root["metadata"]["proof"]["atoms"][0],
+                "path": "versions[1].formula",
+            }
+        )
+    else:
+        source = "If the taxpayer is resident and dependent care expenses;"
+        payload, cases = _property_boolean_candidate(
+            source,
+            (
+                ("taxpayer_is_resident", "The taxpayer is resident.", True),
+                (
+                    "parent_care_action",
+                    "The parent requires dependent care expenses.",
+                    True,
+                ),
+            ),
+        )
+    assert any(
+        "[complete-source-unit:source-explicit-conditions]" in issue
+        for issue in _public_gate(payload, source, cases)
+    )
+
+
+@given(
+    negated=st.sampled_from(["residence", "care", "both"]),
+    whitespace=st.sampled_from([" ", "  ", "\t"]),
+)
+@settings(deadline=None, max_examples=9)
+def test_reviewed_care_source_never_accepts_negated_positive_facts(negated, whitespace):
+    source, payload, cases = _reviewed_billed_care_candidate()
+    resident = "taxpayer_is_resident"
+    care = "taxpayer_care_expense"
+    if negated in {"residence", "both"}:
+        resident = "not " + resident
+    if negated in {"care", "both"}:
+        care = "not " + care
+    condition = f"{resident} and {care}".replace(" ", whitespace)
+    payload["rules"][0]["versions"][0]["formula"] = f"if {condition}: true else: false"
+    for case in cases:
+        resident_value = case["input"]["taxpayer_is_resident"]
+        care_value = case["input"]["taxpayer_care_expense"]
+        if negated in {"residence", "both"}:
+            resident_value = not resident_value
+        if negated in {"care", "both"}:
+            care_value = not care_value
+        case["output"]["credit_applies"] = resident_value and care_value
+    assert any(
+        "[complete-source-unit:source-explicit-conditions]" in issue
+        for issue in _public_gate(payload, source, cases)
+    )
+
+
+@pytest.mark.parametrize(
     ("clause", "expected_predicates"),
     [
         (
@@ -573,10 +1038,12 @@ def test_dependent_care_actions_require_distinct_corroborating_terminals():
             },
         ]
     }
-    assert sc._terminal_names_corroborate_source_gates(
+    # Distinct facts cannot repair an unresolved source actor in the reporting
+    # clause (``parent or guardian report that they ... provide``).
+    assert not sc._terminal_names_corroborate_source_gates(
         frozenset(item["name"] for item in distinct["inputs"]),
         gates,
-        terminal_evidence=sc._terminal_gate_evidence(distinct),
+        terminal_evidence=sc._terminal_gate_evidence(distinct, care_source_text=clause),
     )
 
 
@@ -658,7 +1125,8 @@ def test_care_noun_retains_its_non_dependency_tokens_and_gate_count(
     assert len(gates) == 2
     assert "resident" in gates[0][1]
     assert expected_predicates <= gates[1][1]
-    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+    reviewed = not uppercase and whitespace == " "
+    assert any("unknown_dependent" in predicates for _, predicates in gates) != reviewed
 
     _assert_public_boolean_facts(
         source,
@@ -666,6 +1134,7 @@ def test_care_noun_retains_its_non_dependency_tokens_and_gate_count(
             ("taxpayer_is_resident", "The taxpayer is resident.", True),
             ("taxpayer_care_fact", wording + ".", True),
         ),
+        reviewed=reviewed,
     )
 
 
@@ -694,7 +1163,13 @@ def test_dependent_care_noun_keeps_transitive_action_facts(
     assert any(token.startswith(("requir", "earmark")) for token in gates[0][1])
     assert "spouse" in gates[1][0]
     assert "disabled" in gates[1][1]
-    assert not any("unknown_dependent" in predicates for _, predicates in gates)
+    reviewed = (
+        not uppercase
+        and whitespace == " "
+        and subject == "parent"
+        and action == "requires"
+    )
+    assert any("unknown_dependent" in predicates for _, predicates in gates) != reviewed
 
     _assert_public_boolean_facts(
         source,
@@ -706,6 +1181,7 @@ def test_dependent_care_noun_keeps_transitive_action_facts(
             ),
             ("spouse_is_disabled", "The spouse is disabled.", True),
         ),
+        reviewed=reviewed,
     )
 
 
@@ -906,9 +1382,12 @@ def test_care_subject_preserves_other_predicate_negation_windows(padding, predic
     suffix = "qualifier " * padding + predicate
     neutral = prefix.format("ancillary") + suffix
     subject = prefix.format("dependent") + suffix
-    assert sc._source_gate_predicate_polarities(
-        subject
-    ) == sc._source_gate_predicate_polarities(neutral)
+    ordinary = sc._source_gate_predicate_polarities(neutral)
+    conservative = sc._source_gate_predicate_polarities(subject)
+    assert all(
+        base in conservative and conservative[base] in {negative, None}
+        for base, negative in ordinary.items()
+    )
 
     _assert_public_care_window_fact_preserved(neutral, subject, predicate)
 
@@ -924,9 +1403,12 @@ def test_care_subject_preserves_guarded_yet_character_windows(padding, predicate
     suffix = "q" * padding + " " + predicate
     neutral = prefix.format("ancillary") + suffix
     subject = prefix.format("dependent") + suffix
-    assert sc._source_gate_predicate_polarities(
-        subject
-    ) == sc._source_gate_predicate_polarities(neutral)
+    ordinary = sc._source_gate_predicate_polarities(neutral)
+    conservative = sc._source_gate_predicate_polarities(subject)
+    assert all(
+        base in conservative and conservative[base] in {negative, None}
+        for base, negative in ordinary.items()
+    )
 
     _assert_public_care_window_fact_preserved(neutral, subject, predicate)
 
@@ -985,10 +1467,16 @@ def _property_boolean_candidate(source, facts):
     return payload, cases
 
 
-def _assert_public_boolean_facts(source, facts):
+def _assert_public_boolean_facts(source, facts, *, reviewed=True):
     payload, cases = _property_boolean_candidate(source, facts)
     issues = _public_gate(payload, source, cases)
-    assert issues == (), issues
+    if reviewed:
+        assert issues == (), issues
+    else:
+        assert any(
+            "[complete-source-unit:source-explicit-conditions]" in issue
+            for issue in issues
+        ), issues
     for missing in range(len(facts)):
         payload, cases = _property_boolean_candidate(
             source, facts[:missing] + facts[missing + 1 :]
@@ -1034,4 +1522,6 @@ def _assert_public_care_window_fact_preserved(neutral, subject, predicate):
             "[complete-source-unit:source-explicit-conditions]" in issue
             for issue in issues
         ), issues
-    assert complete_outcomes[0] is complete_outcomes[1]
+    # Unreviewed care adjuncts may introduce an opaque dependency obligation,
+    # but can never turn an ordinarily rejected candidate into acceptance.
+    assert not complete_outcomes[0] or complete_outcomes[1]

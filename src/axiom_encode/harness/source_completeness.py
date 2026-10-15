@@ -4913,6 +4913,7 @@ def analyze_complete_source_unit(
                 payload,
                 content=content,
                 source_text=source_text,
+                raw_source_text=authoritative_source_text,
                 corpus_citation_path=corpus_citation_path,
                 test_cases=test_cases,
                 extract_numeric_occurrences=extract_numeric_occurrences,
@@ -5028,6 +5029,7 @@ def _analyze_rulespec_payload(
     imported_symbol_contents: Sequence[tuple[str, str]],
     resolved_dependency_outputs: Sequence[str],
     source_context: Mapping[str, str | None] | None = None,
+    raw_source_text: str | None = None,
 ) -> CompleteSourceUnitAnalysis:
     payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(
@@ -5104,6 +5106,7 @@ def _analyze_rulespec_payload(
     source_condition_issues = _opaque_same_source_condition_input_issues(
         payload,
         source_text=source_text,
+        care_source_text=raw_source_text,
         branches=branches,
         principal_rules=principal_rules,
         corpus_citation_path=corpus_citation_path,
@@ -13878,6 +13881,195 @@ def _source_gate_normalized_token(token: str) -> str:
 _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE = re.compile(
     r"\bdependent(?=\s+care\b)", flags=re.IGNORECASE
 )
+# These exact texts have reviewed noun-adjunct readings. Equality is deliberately
+# byte-sensitive: changed case, spacing, tails, or predicates retain the ordinary
+# dependency obligation. The corresponding tests retain the care action, actor,
+# expense-presence, and distinct-conjunct checks; this is not a corpus-wide rule.
+_SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES = frozenset(
+    {
+        "the federal credit for child and dependent care expenses",
+        "If a parent or guardian report that they are unable to provide care "
+        "for the child and require dependent care, see Special Dependent Care Situations.",
+        "If a school, institution, program, or other grantor earmarks part of "
+        "educational assistance for dependent care expenses, and this income "
+        "is excluded for SNAP purposes, it cannot be allowed as a deduction.",
+        "If the ineligible member has income and dependent care expense billed "
+        "to or paid by the ineligible member(s), we determine the deduction by "
+        "dividing the expenses evenly among eligible and ineligible members.",
+        "If a resident individual has federal adjusted gross income below "
+        "sixty thousand dollars and the individual claims the federal "
+        "dependent care credit;",
+        "If the household reports a change in dependent care payments "
+        "and the information is questionable;",
+        "If the taxpayer is resident and dependent care expenses;",
+        "If the taxpayer is resident and the taxpayer claims the dependent care credit;",
+        "If the taxpayer is resident and the taxpayer reports a change in dependent care payments;",
+        "If the taxpayer is resident and dependent care expense billed to the taxpayer;",
+        "If the taxpayer is resident and dependent care expense paid by the taxpayer;",
+        "If the parent requires dependent care expenses and the spouse is disabled, the credit applies.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer.",
+        "The credit applies if the taxpayer is resident and has no dependent care expenses.",
+        "The credit applies if the taxpayer is resident and the taxpayer reports that dependent care expense is billed to the taxpayer.",
+        "The credit applies if the taxpayer is resident and the taxpayer pays dependent care expenses.",
+        "The credit applies if the taxpayer is resident and the taxpayer incurred dependent care expenses.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed to or paid by the taxpayer.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed-or-paid by the taxpayer.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer, or paid by the taxpayer.",
+        "The credit applies if the taxpayer is resident and dependent care expense is billed or is paid by the taxpayer.",
+        "The credit applies if the taxpayer is resident and dependent care expense not billed to the taxpayer.",
+        "The credit applies if the taxpayer is resident and the taxpayer is unable to provide dependent care.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer's spouse.",
+        "The credit applies if the taxpayer is resident and dependent care expense billed to the spouse.",
+    }
+)
+# A reviewed source alone cannot license arbitrary replacement fact evidence.
+# These complete declaration witnesses retain the positive/negative meaning of
+# every terminal fact, including residence and the spouse's disability. Unknown
+# names, qualifications, clauses, or descriptions remain opaque.
+_SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL = (
+    "taxpayer_is_resident",
+    "The taxpayer is resident.",
+)
+_SOURCE_GATE_REVIEWED_CARE_SOURCE_TERMINALS = {
+    "If the taxpayer is resident and dependent care expenses;": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_fact", "dependent care expenses."),
+        }
+    ),
+    "If the taxpayer is resident and the taxpayer claims the dependent care credit;": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_fact", "the taxpayer claims the dependent care credit."),
+        }
+    ),
+    "If the taxpayer is resident and the taxpayer reports a change in dependent care payments;": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_fact",
+                "the taxpayer reports a change in dependent care payments.",
+            ),
+        }
+    ),
+    "If the taxpayer is resident and dependent care expense billed to the taxpayer;": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_fact", "dependent care expense billed to the taxpayer."),
+        }
+    ),
+    "If the taxpayer is resident and dependent care expense paid by the taxpayer;": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_fact", "dependent care expense paid by the taxpayer."),
+        }
+    ),
+    "If the parent requires dependent care expenses and the spouse is disabled, the credit applies.": frozenset(
+        {
+            ("parent_care_action", "The parent requires dependent care expenses."),
+            ("spouse_is_disabled", "The spouse is disabled."),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_expense", "Dependent care expense billed to the taxpayer."),
+            (
+                "dependent_care_expense_billed_to_taxpayer",
+                "The taxpayer has dependent care expenses.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and has no dependent care expenses.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_has_no_dependent_care_expenses",
+                "The taxpayer has no dependent care expenses.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and the taxpayer reports that dependent care expense is billed to the taxpayer.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_expense",
+                "The taxpayer reports that dependent care expense is billed to the taxpayer.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and the taxpayer pays dependent care expenses.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_expense", "The taxpayer has paid dependent care expenses."),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and the taxpayer incurred dependent care expenses.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_expense", "The taxpayer incurs dependent care expenses."),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense billed to or paid by the taxpayer.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_expense",
+                "The taxpayer care expense is billed to the taxpayer, or paid by the taxpayer.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer, or paid by the taxpayer.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_expense",
+                "The taxpayer care expense is billed to the taxpayer, or paid by the taxpayer.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense not billed to the taxpayer.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_expense",
+                "Dependent care expense not billed to the taxpayer.",
+            ),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and the taxpayer is unable to provide dependent care.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_expense", "The taxpayer cannot provide dependent care."),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense billed to the taxpayer's spouse.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            ("taxpayer_care_expense", "Dependent care expense billed to the spouse."),
+        }
+    ),
+    "The credit applies if the taxpayer is resident and dependent care expense billed to the spouse.": frozenset(
+        {
+            _SOURCE_GATE_REVIEWED_CARE_RESIDENT_TERMINAL,
+            (
+                "taxpayer_care_expense",
+                "Dependent care expense billed to the taxpayer’s spouse.",
+            ),
+        }
+    ),
+}
+
+
+def _source_gate_reviewed_care_noun_text(
+    text: str, *, care_source_text: str | None, replacement: str
+) -> str:
+    source = text if care_source_text is None else care_source_text
+    if source not in _SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES:
+        return text
+    return _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub(replacement, text)
+
+
 _SOURCE_GATE_CARE_ACTION_FORMS = {
     "billed": frozenset({"bill", "bills", "billed", "billing"}),
     "paid": frozenset({"pay", "pays", "paid", "paying"}),
@@ -13956,6 +14148,35 @@ def _source_gate_care_action_roles(
                 else "unknown_actor"
             }
         )
+    else:
+        # An unrecognized endpoint qualifier (``billed directly to``) cannot
+        # remove the obligation. Stop before another action so its endpoint is
+        # not accidentally attached to this action (``reports ... billed to``).
+        for word in tokens[index + 1 :]:
+            if word in _SOURCE_GATE_CARE_ACTION_BASE_BY_FORM:
+                break
+            if word in {"to", "by"}:
+                role = "recipient" if word == "to" else "actor"
+                roles[role] = frozenset({"unknown_actor"})
+                break
+    prior_actions = [
+        position
+        for position, word in enumerate(tokens[:index])
+        if word in _SOURCE_GATE_CARE_ACTION_BASE_BY_FORM
+    ]
+    actor_prefix = (
+        tokens[prior_actions[-1] + 1 : index] if prior_actions else tokens[:index]
+    )
+    if "actor" not in roles and (
+        any(
+            _source_gate_normalized_token(word) in _SOURCE_GATE_CARE_ACTORS
+            for word in actor_prefix
+        )
+        or {"has", "have", "had", "does", "do", "did"}.intersection(actor_prefix)
+    ):
+        # A stated subject whose grammar was not recognized is still a source
+        # constraint, including ``the taxpayer has actually paid ...``.
+        roles["actor"] = frozenset({"unknown_actor"})
     return roles
 
 
@@ -14015,7 +14236,27 @@ def _source_gate_care_action_tokens(text: str) -> frozenset[str]:
                     bound = True
                     break
                 if not bound:
-                    continue
+                    if previous_action_index is not None:
+                        # A shared care object survives coordination. Unknown
+                        # continuations stay opaque instead of disappearing.
+                        connector = " ".join(tokens[previous_action_index + 1 : index])
+                        endpoint = (
+                            rf"(?:to|by)(?: (?:the|a|an))? "
+                            rf"{_SOURCE_GATE_CARE_ACTOR_PATTERN}"
+                        )
+                        continuation = re.fullmatch(
+                            rf"(?:{endpoint} )?(?:and|nor)"
+                            r"(?: (?:is|are|was|were|has|have|had|been|being|be))*"
+                            r"(?: (?:not|never))?",
+                            connector,
+                        )
+                        if continuation is not None and re.fullmatch(
+                            endpoint, " ".join(tokens[index + 1 :])
+                        ):
+                            bound = True
+                    if not bound:
+                        groups.append({"unknown_" + action})
+                        continue
                 base_action = action
                 bound_action_indexes.append(index)
                 prefix_start = max(0, index - _SOURCE_GATE_PREDICATE_SCAN_LIMIT)
@@ -14081,9 +14322,10 @@ def _source_gate_care_action_tokens(text: str) -> frozenset[str]:
                     groups.append({"unknown_disjunction"})
                 else:
                     groups.append({action})
-                for role, actors in _source_gate_care_action_roles(
-                    tokens, index
-                ).items():
+                roles = _source_gate_care_action_roles(tokens, index)
+                if not roles:
+                    roles = {"actor": frozenset({"unknown_actor"})}
+                for role, actors in roles.items():
                     role_groups.setdefault(len(groups) - 1, []).append(
                         (base_action, role, actors)
                     )
@@ -14191,11 +14433,12 @@ def _source_gate_care_expense_tokens(text: str) -> frozenset[str]:
     return frozenset(evidence)
 
 
-def _source_gate_semantic_tokens(text: str) -> frozenset[str]:
-    # In a care credit/expense name, ``dependent`` modifies ``care``; it does
-    # not state whether anyone is another taxpayer's dependent. Keep separate
-    # dependency-status occurrences in the same text for polarity analysis.
-    subject_text = _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub("", text)
+def _source_gate_semantic_tokens(
+    text: str, *, care_source_text: str | None = None
+) -> frozenset[str]:
+    subject_text = _source_gate_reviewed_care_noun_text(
+        text, care_source_text=care_source_text, replacement=""
+    )
     tokens = {
         normalized
         for token in re.findall(r"[A-Za-z][A-Za-z'-]*", subject_text)
@@ -14206,7 +14449,9 @@ def _source_gate_semantic_tokens(text: str) -> frozenset[str]:
     if "care" in tokens:
         tokens.update(_source_gate_care_action_tokens(text))
         tokens.update(_source_gate_care_expense_tokens(text))
-    for base_predicate, negative in _source_gate_predicate_polarities(text).items():
+    for base_predicate, negative in _source_gate_predicate_polarities(
+        text, care_source_text=care_source_text
+    ).items():
         if negative is None:
             polarity_predicate = f"unknown_{base_predicate}"
         else:
@@ -14682,12 +14927,16 @@ def _source_gate_dependent_reading(
 
 def _source_gate_predicate_readings(
     text: str,
+    *,
+    care_source_text: str | None = None,
 ) -> tuple[_SourceGatePredicateReading, ...]:
     # Exclude only the contiguous noun adjunct before tokenization discards
     # punctuation. Preserve its token slot and character width so other
     # predicates keep their bounded negation windows. ``is dependent, care
     # ...`` remains a fact. The neutral noun adjunct has the same nine letters.
-    text = _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub("ancillary", text)
+    text = _source_gate_reviewed_care_noun_text(
+        text, care_source_text=care_source_text, replacement="ancillary"
+    )
     readings: list[_SourceGatePredicateReading] = []
     for clause in _source_gate_polarity_clauses(text):
         clause_tokens, wrapper_parity = _source_gate_unwrap_negation(
@@ -14739,9 +14988,13 @@ def _source_gate_predicate_readings(
     return tuple(readings)
 
 
-def _source_gate_predicate_polarities(text: str) -> dict[str, bool | None]:
+def _source_gate_predicate_polarities(
+    text: str, *, care_source_text: str | None = None
+) -> dict[str, bool | None]:
     grouped: dict[str, list[bool | None]] = {}
-    for reading in _source_gate_predicate_readings(text):
+    for reading in _source_gate_predicate_readings(
+        text, care_source_text=care_source_text
+    ):
         grouped.setdefault(reading.base_predicate, []).append(reading.negative)
     polarities: dict[str, bool | None] = {}
     for base_predicate, values in grouped.items():
@@ -14994,6 +15247,8 @@ def _without_worksheet_imperative_consequent(body: str) -> str:
 
 def _source_conjunctive_fact_gates(
     text: str,
+    *,
+    care_source_text: str | None = None,
 ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
     """Return distinct entity/predicate signatures from one condition."""
 
@@ -15063,7 +15318,10 @@ def _source_conjunctive_fact_gates(
             flags=re.IGNORECASE,
         ):
             continue
-        tokens = _source_gate_semantic_tokens(segment)
+        tokens = _source_gate_semantic_tokens(
+            segment,
+            care_source_text=text if care_source_text is None else care_source_text,
+        )
         if (
             connector == "and"
             and "unknown_dependent" in tokens
@@ -15097,6 +15355,7 @@ def _source_conjunctive_fact_gates(
             # removing its false dependency-status reading. Its other tokens
             # still demand distinct expense, claim, or care-action evidence.
             or _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.search(segment)
+            or any(token.startswith("care_action:") for token in predicates)
             or predicates
             & (
                 _SOURCE_GATE_NOMINAL_PREDICATES
@@ -15868,15 +16127,32 @@ def _formula_interval_intersection(
 
 def _terminal_gate_evidence(
     payload: Mapping[str, Any],
+    *,
+    care_source_text: str | None = None,
 ) -> dict[str, _TerminalGateEvidence]:
     evidence: dict[str, _TerminalGateEvidence] = {}
 
     def build(name: str, description: str = "") -> _TerminalGateEvidence:
+        if care_source_text in _SOURCE_GATE_REVIEWED_DEPENDENT_CARE_SOURCES and (
+            name,
+            description,
+        ) not in _SOURCE_GATE_REVIEWED_CARE_SOURCE_TERMINALS.get(
+            care_source_text, frozenset()
+        ):
+            return _TerminalGateEvidence(frozenset(), frozenset(), True)
         name_text = name.replace("_", " ")
-        name_tokens = _source_gate_semantic_tokens(name_text)
-        description_tokens = _source_gate_semantic_tokens(description)
-        name_polarities = _source_gate_predicate_polarities(name_text)
-        description_polarities = _source_gate_predicate_polarities(description)
+        name_tokens = _source_gate_semantic_tokens(
+            name_text, care_source_text=care_source_text
+        )
+        description_tokens = _source_gate_semantic_tokens(
+            description, care_source_text=care_source_text
+        )
+        name_polarities = _source_gate_predicate_polarities(
+            name_text, care_source_text=care_source_text
+        )
+        description_polarities = _source_gate_predicate_polarities(
+            description, care_source_text=care_source_text
+        )
         polarity_conflict = (
             None in name_polarities.values()
             or None in description_polarities.values()
@@ -15927,6 +16203,32 @@ def _terminal_gate_evidence(
             continue
         evidence[name] = build(name)
     return evidence
+
+
+def _reviewed_care_positive_formula_names(
+    formula: str, *, declared_boolean_inputs: frozenset[str]
+) -> frozenset[str] | None:
+    """Recognize only direct positive conjunctions granting a Boolean result."""
+
+    conditional = re.fullmatch(
+        r"\s*if\s+(?P<condition>.+?):\s*true\s+else:\s*false\s*",
+        formula,
+        flags=re.DOTALL,
+    )
+    if conditional is None:
+        return None
+    expression = _parse_formula_expression(conditional.group("condition"))
+
+    def names(node: ast.expr | None) -> frozenset[str] | None:
+        if isinstance(node, ast.Name) and node.id in declared_boolean_inputs:
+            return frozenset({node.id})
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            operands = [names(value) for value in node.values]
+            if all(operand is not None for operand in operands):
+                return frozenset().union(*(operand for operand in operands if operand))
+        return None
+
+    return names(expression)
 
 
 def _terminal_names_corroborate_source_gates(
@@ -16132,6 +16434,7 @@ def _opaque_same_source_condition_input_issues(
     corpus_citation_path: str,
     certified_transfers: Any = None,
     certified_paths: Any = None,
+    care_source_text: str | None = None,
 ) -> list[str]:
     """Reject terminal selectors that collapse explicit same-source fact gates."""
 
@@ -16153,7 +16456,35 @@ def _opaque_same_source_condition_input_issues(
         for rule in payload.get("rules", ()) or ()
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
-    terminal_evidence = _terminal_gate_evidence(payload)
+    # Public parsing trims outer whitespace for its existing offset contract.
+    # Exemptions use the original body, before that normalization.
+    care_source_text = source_text if care_source_text is None else care_source_text
+    reviewed_care_source = (
+        care_source_text in _SOURCE_GATE_REVIEWED_CARE_SOURCE_TERMINALS
+    )
+    if not reviewed_care_source:
+        # Parser-only reviewed excerpts cannot supply a public exemption.
+        care_source_text = ""
+    terminal_evidence = _terminal_gate_evidence(
+        payload, care_source_text=care_source_text
+    )
+    input_name_counts: dict[str, int] = {}
+    if reviewed_care_source:
+        for item in inputs or ():
+            if isinstance(item, dict):
+                name = str(item.get("name") or "").strip()
+                input_name_counts[name] = input_name_counts.get(name, 0) + 1
+    declared_boolean_inputs = frozenset(
+        name
+        for item in inputs or ()
+        if reviewed_care_source
+        and isinstance(item, dict)
+        and (name := str(item.get("name") or "").strip())
+        and str(item.get("dtype") or "").strip().casefold() in {"boolean", "bool"}
+        and input_name_counts.get(name) == 1
+        and name not in named_rules
+        and name not in imported_names
+    )
 
     authoritative_path = corpus_citation_path.strip("/").casefold()
     numeric_or_judgment_dtypes = {
@@ -16199,7 +16530,9 @@ def _opaque_same_source_condition_input_issues(
     ) -> tuple[tuple[frozenset[str], frozenset[str]], ...]:
         identity = (clause.branch_path, clause.start, clause.end)
         if identity not in source_gate_cache:
-            source_gate_cache[identity] = _source_conjunctive_fact_gates(clause.text)
+            source_gate_cache[identity] = _source_conjunctive_fact_gates(
+                clause.text, care_source_text=care_source_text
+            )
         return source_gate_cache[identity]
 
     def dependency_expansion_is_bounded(
@@ -16491,7 +16824,8 @@ def _opaque_same_source_condition_input_issues(
     findings: list[tuple[str, int, int, frozenset[str]]] = []
     for rule_name, rule in sorted(principal_rules.items()):
         if (
-            str(rule.get("dtype") or "").strip().lower()
+            not reviewed_care_source
+            and str(rule.get("dtype") or "").strip().lower()
             not in numeric_or_judgment_dtypes
         ):
             continue
@@ -16577,6 +16911,28 @@ def _opaque_same_source_condition_input_issues(
             gate_count = max((len(gates) for gates in gate_sets.values()), default=0)
             if gate_count < 2:
                 continue
+            reviewed_care_formula_failure = False
+            if reviewed_care_source:
+                # Every version needs the same closed positive fact contract,
+                # including versions absent from current companion periods.
+                for _index, candidate_formula, _start, _end in interval_cache.get(
+                    rule_name, ()
+                ):
+                    formula_names = _reviewed_care_positive_formula_names(
+                        candidate_formula,
+                        declared_boolean_inputs=declared_boolean_inputs,
+                    )
+                    if formula_names is None or any(
+                        len(formula_names) != len(gates)
+                        or not _terminal_names_corroborate_source_gates(
+                            formula_names,
+                            gates,
+                            terminal_evidence=terminal_evidence,
+                        )
+                        for gates in gate_sets.values()
+                    ):
+                        reviewed_care_formula_failure = True
+                        break
             include_result_leaves = str(rule.get("dtype") or "").strip().lower() in {
                 "judgment",
                 "boolean",
@@ -16608,7 +16964,11 @@ def _opaque_same_source_condition_input_issues(
             if not terminal_choices:
                 # A formula that is provably inactive on every path cannot grant
                 # the source benefit while bypassing its factual conditions.
-                continue
+                if not reviewed_care_formula_failure:
+                    continue
+                terminal_choices = (
+                    _TerminalGateAlternative(frozenset(), start, end, False),
+                )
             ordinary_gate_sets = tuple(
                 gates
                 for key, gates in gate_sets.items()
@@ -16667,6 +17027,7 @@ def _opaque_same_source_condition_input_issues(
                 not failing_choices
                 and not reversed_gate_failure
                 and not ambiguous_ownership
+                and not reviewed_care_formula_failure
             ):
                 continue
             least_supported = min(
@@ -18683,38 +19044,34 @@ def _statutory_credit_operand_role(text: str) -> str | None:
     text = " ".join(text.casefold().replace("_", " ").split())
     if _statutory_credit_operand_is_nonaffirmative(text):
         return None
-    # The declaration/excerpt must identify the amount itself. Eligibility
-    # mentioned about a taxpayer elsewhere does not bind an unrelated operand.
-    if not re.match(
-        r"(?:(?:computes|calculates|determines|returns)\s+)?"
-        r"(?:the\s+)?(?:(?:amount\s+of|eligible|deductible)\s+(?:the\s+)?)?"
-        r"(?:state\s+child\s+care\s+credit\b|"
-        r"federal\s+(?:child(?:\s+and\s+dependent)?\s+care\s+credit\b|"
-        r"credit\s+for\s+child(?:\s+and\s+dependent)?\s+care\b))",
+    # Full matches bind the qualification to this entire amount and this
+    # taxpayer. A prefix or a bag of qualification words can also describe a
+    # spouse's credit, extra wages, or a qualification of another amount.
+    amount = r"(?:the )?(?:amount of (?:the )?)?"
+    if re.fullmatch(
+        amount + r"state child care credit for which the taxpayer is eligible[.;]?",
         text,
     ):
-        return None
-    text = re.split(r"[.;]", text, maxsplit=1)[0]
-    tokens = {
-        _source_gate_normalized_token(word) for word in re.findall(r"[a-z]+", text)
-    }
-    if not {"child", "care", "credit"} <= tokens:
-        return None
-    # Both jurisdictions in one excerpt leave the operand identity ambiguous.
-    if ("state" in tokens) == ("federal" in tokens):
-        return None
-    if "state" in tokens and "eligible" in tokens:
         return "state"
-    if (
-        "federal" in tokens
-        and {"tax", "liability"} <= tokens
-        and re.search(
-            r"\b(?:deductible|deducted|(?:able|allowed|permitted) to deduct|can deduct)\b",
-            text,
-        )
+    if re.fullmatch(
+        amount + r"federal (?:child and dependent care credit|"
+        r"credit for child and dependent care expenses) "
+        r"(?:the taxpayer is able to deduct from federal tax liability|"
+        r"deductible from the taxpayer['’]s federal tax liability) "
+        r"for the same taxable year[.;]?",
+        text,
     ):
         return "federal"
     return None
+
+
+def _statutory_credit_operand_name_conflicts(name: str) -> bool:
+    name = name.replace("_", " ")
+    return _statutory_credit_operand_is_nonaffirmative(name) or bool(
+        re.search(
+            r"\b(?:spouse|partner|caregiver|employer)\b", name, flags=re.IGNORECASE
+        )
+    )
 
 
 def _statutory_credit_declaration_role(
@@ -18727,10 +19084,15 @@ def _statutory_credit_declaration_role(
     """Require an unambiguous operand role across its description and proofs."""
 
     description = str(declaration.get("description") or "")
-    if _statutory_credit_operand_is_nonaffirmative(description):
+    if _statutory_credit_operand_name_conflicts(str(declaration.get("name") or "")):
         return None
     roles = set()
-    if role := _statutory_credit_operand_role(description):
+    if description:
+        role = _statutory_credit_operand_role(description)
+        if role is None:
+            # A source excerpt must not override an unrecognized or conflicting
+            # description of what the declaration actually represents.
+            return None
         roles.add(role)
     selected = _selected_rule_formula_version_index(declaration, case)
     citation = corpus_citation_path.strip("/").casefold()
@@ -18747,6 +19109,68 @@ def _statutory_credit_declaration_role(
         ):
             roles.add(role)
     return next(iter(roles)) if len(roles) == 1 else None
+
+
+def _statutory_credit_operand_has_identity_formula(
+    declaration: dict[str, Any],
+    *,
+    case: dict[str, Any],
+    operand_declarations: Mapping[str, dict[str, Any]],
+    role: str,
+    corpus_citation_path: str,
+    source_text: str,
+) -> bool:
+    """Keep a qualified amount from hiding unrelated local arithmetic.
+
+    The closed source clause defines the difference, not computations of its
+    individual credits. A declared external amount or a chain of local identity
+    aliases can witness an operand; other local computations remain unproved.
+    Follow the whole chain so an extra alias cannot hide a sum or a cycle.
+    """
+
+    visited: set[str] = set()
+    while True:
+        name = str(declaration.get("name") or "")
+        if (
+            not name
+            or name in visited
+            or _statutory_credit_operand_name_conflicts(name)
+        ):
+            return False
+        visited.add(name)
+        description = " ".join(
+            str(declaration.get("description") or "").casefold().split()
+        )
+        # An operand-specific proof may bind a neutral upstream amount through
+        # identity aliases. It cannot relabel explicitly different amounts or
+        # qualifications. Keep the neutral vocabulary closed.
+        if description not in {"", "an upstream monetary amount."} and (
+            _statutory_credit_operand_role(description) != role
+        ):
+            return False
+        if tuple(_rule_source_excerpt_atoms(declaration)) and (
+            _statutory_credit_declaration_role(
+                declaration,
+                case=case,
+                corpus_citation_path=corpus_citation_path,
+                source_text=source_text,
+            )
+            != role
+        ):
+            return False
+        if "versions" not in declaration:
+            return True
+        selected = _selected_rule_formula_version_index(declaration, case)
+        if selected is None:
+            return False
+        version = declaration["versions"][selected]
+        expression = _parse_formula_expression(str(version.get("formula") or ""))
+        if not isinstance(expression, ast.Name):
+            return False
+        target = operand_declarations.get(expression.id)
+        if target is None:
+            return False
+        declaration = target
 
 
 def _statutory_credit_execution_binds_operands(
@@ -18789,6 +19213,15 @@ def _statutory_credit_execution_binds_operands(
                 source_text=source_text,
             )
             != role
+        ):
+            return False
+        if not _statutory_credit_operand_has_identity_formula(
+            declaration,
+            case=case,
+            operand_declarations=operand_declarations,
+            role=role,
+            corpus_citation_path=corpus_citation_path,
+            source_text=source_text,
         ):
             return False
     return True
@@ -26460,31 +26893,41 @@ def _source_exception_or_applicability_matches(
     )
 
 
+_REVIEWED_NM_SPOUSE_IF_ANY_SOURCE = (
+    b"B. Any resident may claim a credit if the resident:\n"
+    b"(3) compensates a caregiver for child day care for a qualifying dependent "
+    b"to enable such resident together with the resident's spouse, if any and "
+    b"if not disabled, to be gainfully employed;\n"
+)
+_REVIEWED_PARENTHETICAL_IF_ANY_CUES = {
+    # Reviewed us-nm/statute/7-2-18.1 spouse fragment. The complete following
+    # obligation retains both spouse-presence and disability wording.
+    _REVIEWED_NM_SPOUSE_IF_ANY_SOURCE: frozenset(
+        {
+            (
+                _REVIEWED_NM_SPOUSE_IF_ANY_SOURCE.index(b"if any"),
+                _REVIEWED_NM_SPOUSE_IF_ANY_SOURCE.index(b"if any") + len(b"if"),
+            )
+        }
+    )
+}
+
+
 def _is_coordinated_parenthetical_if_any_cue(
     source_text: str,
     match: re.Match[str],
 ) -> bool:
-    """Keep attached ``if any and if ...`` wording in the actual condition.
+    """Exclude a reviewed cue only at its span in an exact source byte string.
 
-    The parenthetical has no independent predicate to witness. Its complete
-    enclosing source clause remains owned by the following condition cue.
-    A standalone presence condition and quantified ``if any ...`` predicates
-    remain cues, including ``if any, but not all, dependents ...``.
+    Other coordinated ``if any`` clauses keep their independent existence
+    obligation, including variants of the reviewed text. Syntax alone cannot
+    establish that another condition witnesses existence.
     """
 
-    if match.group(0).strip().lower() != "if":
+    if len(source_text) != len(_REVIEWED_NM_SPOUSE_IF_ANY_SOURCE):
         return False
-    prefix_end = match.start()
-    while prefix_end and source_text[prefix_end - 1].isspace():
-        prefix_end -= 1
-    if not prefix_end or source_text[prefix_end - 1] not in ",([":
-        return False
-    return (
-        re.compile(
-            r"\s+any\b\s*[,\)\]]?\s*(?:and|or)\s+(?:if|when|unless)\b",
-            flags=re.IGNORECASE,
-        ).match(source_text, match.end())
-        is not None
+    return (match.start(), match.end()) in _REVIEWED_PARENTHETICAL_IF_ANY_CUES.get(
+        source_text.encode("utf-8"), frozenset()
     )
 
 

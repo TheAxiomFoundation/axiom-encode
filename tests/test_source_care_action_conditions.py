@@ -19,12 +19,20 @@ CARE_INPUT = "taxpayer_care_expense"
 
 
 def analyze_care_action(
-    source_fact, input_description, *, uppercase=False, space=" ", input_name=CARE_INPUT
+    source_fact,
+    input_description,
+    *,
+    uppercase=False,
+    space=" ",
+    input_name=CARE_INPUT,
+    source_prefix="",
+    source_suffix="",
 ):
     source = "The credit applies if the taxpayer is resident and " + source_fact + "."
     source = source.replace(" ", space)
     if uppercase:
         source = source.upper()
+    source = source_prefix + source + source_suffix
     payload = {
         "format": "rulespec/v1",
         "module": {"source_verification": {"corpus_citation_path": CITATION}},
@@ -113,6 +121,237 @@ def test_public_gate_rejects_care_expenses_without_required_billing_action():
     assert any("source-explicit-conditions" in issue for issue in result.issues)
 
 
+@pytest.mark.parametrize(
+    ("source_fact", "description"),
+    [
+        (
+            "the taxpayer is not a dependent care provider",
+            "The taxpayer is a dependent care provider.",
+        ),
+        (
+            "the taxpayer has actually paid dependent care expenses",
+            "The spouse has paid dependent care expenses for the taxpayer.",
+        ),
+        (
+            "dependent care expense billed directly to the taxpayer",
+            "Dependent care expense billed to the spouse for the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer and not billed to the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer, and not billed to the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer; not billed to the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer. It is not billed to the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer and the same expense is not billed to the taxpayer.",
+        ),
+    ],
+    ids=[
+        "negated-provider",
+        "unknown-payer",
+        "unknown-recipient",
+        "contradictory-billing",
+        "comma-contradiction",
+        "semicolon-contradiction",
+        "sentence-contradiction",
+        "same-expense-contradiction",
+    ],
+)
+def test_round3_care_soundness_probes_are_rejected(source_fact, description):
+    result = analyze_care_action(source_fact, description)
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+def test_public_gate_accepts_matching_negated_care_provider_evidence():
+    result = analyze_care_action(
+        "the taxpayer is not a dependent care provider",
+        "The taxpayer is not a dependent care provider.",
+    )
+    assert result.issues == ()
+
+
+@pytest.mark.parametrize(
+    ("text", "action", "role"),
+    [
+        ("The taxpayer has actually paid dependent care expenses.", "paid", "actor"),
+        (
+            "Dependent care expense billed directly to the taxpayer.",
+            "billed",
+            "recipient",
+        ),
+        ("The custodian has actually paid care expenses.", "paid", "actor"),
+        ("The custodian pays care expenses.", "paid", "actor"),
+        (
+            "The taxpayer has " + "actually " * 20 + "paid care expenses.",
+            "paid",
+            "actor",
+        ),
+        (
+            "Care expense billed " + "directly " * 20 + "to the taxpayer.",
+            "billed",
+            "recipient",
+        ),
+    ],
+)
+def test_unrecognized_stated_care_roles_keep_an_unknown_obligation(text, action, role):
+    bindings = sc._source_gate_care_actor_bindings(
+        sc._source_gate_care_action_tokens(text)
+    )
+    assert bindings[action][role] == {"unknown_actor"}
+
+
+def test_shared_care_object_retains_both_contradictory_actions():
+    tokens = sc._source_gate_care_action_tokens(
+        "Dependent care expense billed to the taxpayer and not billed to the taxpayer."
+    )
+    actions = frozenset().union(*sc._source_gate_care_action_requirements(tokens))
+    assert {"billed", "not_billed"} <= actions
+
+
+@pytest.mark.parametrize(
+    "source_fact",
+    [
+        "the custodian has actually paid care expenses",
+        "the taxpayer has " + "actually " * 20 + "paid care expenses",
+        "the taxpayer paid " + "qualifier " * 20 + "care expenses",
+    ],
+)
+def test_unrecognized_care_payer_stays_required_without_dependency_fallback(
+    source_fact,
+):
+    result = analyze_care_action(
+        source_fact, "The spouse has paid care expenses for the taxpayer."
+    )
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "source_fact",
+    [
+        "dependent care expense billed to the taxpayer and the taxpayer is not a dependent care provider",
+        "dependent care expense billed to the taxpayer while the taxpayer is not a dependent care provider",
+    ],
+)
+def test_care_noun_exemption_does_not_cover_changed_source_tails(source_fact):
+    result = analyze_care_action(
+        source_fact,
+        "Dependent care expense billed to the taxpayer. The taxpayer is a dependent care provider.",
+    )
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "prefix,suffix", [(" ", ""), ("", "\n"), ("\n", "\t"), ("", " Additional context.")]
+)
+def test_care_noun_exemption_uses_the_untrimmed_whole_source(prefix, suffix):
+    result = analyze_care_action(
+        "dependent care expense billed to the taxpayer",
+        "Dependent care expense billed to the taxpayer.",
+        source_prefix=prefix,
+        source_suffix=suffix,
+    )
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@given(
+    profession=st.sampled_from(["provider", "worker", "specialist"]),
+    negation=st.sampled_from(["is not", "isn't"]),
+    uppercase=st.booleans(),
+    space=st.sampled_from([" ", "\t", "  "]),
+)
+@settings(deadline=None, max_examples=12)
+def test_public_care_noun_predicates_preserve_negation(
+    profession, negation, uppercase, space
+):
+    result = analyze_care_action(
+        f"the taxpayer {negation} a dependent care {profession}",
+        f"The taxpayer is a dependent care {profession}.",
+        uppercase=uppercase,
+        space=space,
+    )
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@given(
+    wording=st.sampled_from(
+        [
+            (
+                "the taxpayer has {adverb} paid dependent care expenses",
+                "The spouse has paid dependent care expenses for the taxpayer.",
+            ),
+            (
+                "dependent care expense billed {adverb} to the taxpayer",
+                "Dependent care expense billed to the spouse for the taxpayer.",
+            ),
+        ]
+    ),
+    adverb=st.sampled_from(["actually", "directly", "personally", "already"]),
+    uppercase=st.booleans(),
+)
+@settings(deadline=None, max_examples=12)
+def test_public_care_qualified_actions_keep_the_stated_actor(
+    wording, adverb, uppercase
+):
+    source_template, description = wording
+    source_fact = source_template.format(adverb=adverb)
+    bindings = sc._source_gate_care_actor_bindings(
+        sc._source_gate_care_action_tokens(source_fact)
+    )
+    assert any(
+        "unknown_actor" in actors
+        for roles in bindings.values()
+        for actors in roles.values()
+    )
+    result = analyze_care_action(source_fact, description, uppercase=uppercase)
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@given(
+    action=st.sampled_from(["billed", "paid", "incurred"]),
+    negation=st.sampled_from(["not", "never"]),
+    continuation=st.sampled_from(
+        [" and ", ", and ", "; ", ". It is ", " and the same expense is "]
+    ),
+    uppercase=st.booleans(),
+    space=st.sampled_from([" ", "\t", "  "]),
+)
+@settings(deadline=None, max_examples=12)
+def test_public_care_shared_object_actions_reject_contradictions(
+    action, negation, continuation, uppercase, space
+):
+    endpoint = "to" if action == "billed" else "by"
+    description = (
+        f"Dependent care expense {action} {endpoint} the taxpayer"
+        f"{continuation}{negation} {action} {endpoint} the taxpayer."
+    )
+    atoms = frozenset().union(
+        *sc._source_gate_care_action_requirements(
+            sc._source_gate_care_action_tokens(description)
+        )
+    )
+    assert {action, "not_" + action} <= atoms or any(
+        atom.startswith("unknown_") for atom in atoms
+    )
+    result = analyze_care_action(
+        f"dependent care expense {action} {endpoint} the taxpayer",
+        description,
+        uppercase=uppercase,
+        space=space,
+    )
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
 def test_public_gate_rejects_expense_presence_when_source_requires_absence():
     result = analyze_care_action(
         "has no dependent care expenses", "The taxpayer has care expenses."
@@ -161,7 +400,11 @@ def test_public_gate_preserves_the_no_care_expense_fact(uppercase, space):
         uppercase=uppercase,
         space=space,
     )
-    assert proved.issues == ()
+    if not uppercase and space == " ":
+        assert proved.issues == ()
+    else:
+        # Only the reviewed literal source has a noun-adjunct exemption.
+        assert any("source-explicit-conditions" in issue for issue in proved.issues)
 
 
 def test_public_gate_requires_an_operative_care_report():
@@ -344,18 +587,6 @@ def test_public_gate_rejects_payment_on_unrelated_expenses(description):
     ("source_fact", "description"),
     [
         (
-            "dependent care expense billed to the taxpayer",
-            "Dependent care expense billed to the taxpayer.",
-        ),
-        (
-            "the taxpayer pays dependent care expenses",
-            "The taxpayer has paid dependent care expenses.",
-        ),
-        (
-            "the taxpayer incurred dependent care expenses",
-            "The taxpayer incurs dependent care expenses.",
-        ),
-        (
             "dependent care expense billed to or paid by the taxpayer",
             "Dependent care expense billed to the taxpayer.",
         ),
@@ -379,8 +610,37 @@ def test_public_gate_rejects_payment_on_unrelated_expenses(description):
             "dependent care expense is billed or is paid by the taxpayer",
             "The taxpayer has paid dependent care expenses.",
         ),
+    ],
+)
+def test_public_gate_rejects_one_action_for_a_complete_care_disjunction(
+    source_fact, description
+):
+    # A billed-only Boolean would deny the credit to a paid-only taxpayer.
+    result = analyze_care_action(source_fact, description)
+    assert any("source-explicit-conditions" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    ("source_fact", "description"),
+    [
+        (
+            "dependent care expense billed to the taxpayer",
+            "Dependent care expense billed to the taxpayer.",
+        ),
+        (
+            "the taxpayer pays dependent care expenses",
+            "The taxpayer has paid dependent care expenses.",
+        ),
+        (
+            "the taxpayer incurred dependent care expenses",
+            "The taxpayer incurs dependent care expenses.",
+        ),
         (
             "dependent care expense billed to or paid by the taxpayer",
+            "The taxpayer care expense is billed to the taxpayer, or paid by the taxpayer.",
+        ),
+        (
+            "dependent care expense billed to the taxpayer, or paid by the taxpayer",
             "The taxpayer care expense is billed to the taxpayer, or paid by the taxpayer.",
         ),
         (
@@ -426,7 +686,7 @@ def test_public_gate_accepts_action_bound_care_evidence(source_fact, description
             ),
             (
                 "dependent care expense billed to or paid by the taxpayer",
-                "The taxpayer has paid dependent care expenses.",
+                "The taxpayer care expense is billed to the taxpayer, or paid by the taxpayer.",
             ),
         ]
     ),
@@ -443,4 +703,7 @@ def test_public_care_actions_require_action_evidence(fact, uppercase, space):
     proved = analyze_care_action(
         source_fact, description, uppercase=uppercase, space=space
     )
-    assert proved.issues == ()
+    if not uppercase and space == " ":
+        assert proved.issues == ()
+    else:
+        assert any("source-explicit-conditions" in issue for issue in proved.issues)

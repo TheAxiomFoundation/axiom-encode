@@ -140,6 +140,26 @@ def test_nm_spouse_parenthetical_is_not_a_bare_exception_obligation():
     )
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        NM_SPOUSE_SOURCE + " ",
+        NM_SPOUSE_SOURCE.removesuffix("\n"),
+        NM_SPOUSE_SOURCE.upper(),
+        NM_SPOUSE_SOURCE.replace("if not disabled", "if not employed"),
+        NM_SPOUSE_SOURCE.replace("if any and", "if any or"),
+    ],
+)
+def test_nm_parenthetical_exemption_requires_the_exact_reviewed_source_bytes(source):
+    cues = sc._source_exception_or_applicability_matches(source)
+
+    assert any(source[cue.start() :].lower().startswith("if any") for cue in cues)
+    assert any(
+        ob.text.strip().lower() in {"if any and", "if any or"}
+        for ob in _exception_obligations(source)
+    )
+
+
 @pytest.mark.parametrize("prefix", ["The credit applies ", "The credit applies, "])
 @pytest.mark.parametrize(
     "condition",
@@ -168,6 +188,48 @@ def test_standalone_parenthetical_presence_condition_is_preserved():
     assert [ob.text for ob in _exception_obligations(source)] == [source]
 
 
+def test_documents_if_any_or_employed_requires_a_presence_witness():
+    source = "(1) Documents must be submitted, if any or if the applicant is employed;"
+
+    result = _public_condition_candidate(
+        source,
+        (("applicant_is_employed", "The applicant is employed.", True),),
+    )
+
+    assert result.issues, "Employment alone does not prove document existence."
+    assert len(_exception_obligations(source)) == 2
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    subject=st.sampled_from(["Documents", "Invoices", "Care expenses"]),
+    action=st.sampled_from(["submitted", "reported"]),
+    conjunction=st.sampled_from(["and", "or"]),
+    qualifier=st.sampled_from(["employed", "not employed", "disabled"]),
+    whitespace=st.sampled_from([" ", "\t", "\n", "  "]),
+)
+def test_coordinated_if_any_never_accepts_only_the_qualified_condition(
+    subject, action, conjunction, qualifier, whitespace
+):
+    source = (
+        f"(1) {subject} must be {action}, if{whitespace}any "
+        f"{conjunction} if the applicant is {qualifier};"
+    )
+    result = _public_condition_candidate(
+        source,
+        (
+            (
+                "applicant_is_" + qualifier.removeprefix("not "),
+                "The applicant is " + qualifier.removeprefix("not ") + ".",
+                not qualifier.startswith("not "),
+            ),
+        ),
+    )
+
+    assert result.issues, "A second qualified condition cannot replace existence."
+    assert len(_exception_obligations(source)) == 2
+
+
 @settings(max_examples=80, deadline=None)
 @given(
     subject=st.sampled_from(["spouse", "partner", "caregiver"]),
@@ -178,7 +240,7 @@ def test_standalone_parenthetical_presence_condition_is_preserved():
     whitespace=st.sampled_from([" ", "\t", "\n", "  "]),
     uppercase=st.booleans(),
 )
-def test_parenthetical_cue_removal_preserves_the_full_real_condition(
+def test_unreviewed_parenthetical_presence_preserves_all_real_condition_cues(
     subject, condition, conjunction, cue, attachment, whitespace, uppercase
 ):
     opening, closing = attachment
@@ -191,13 +253,16 @@ def test_parenthetical_cue_removal_preserves_the_full_real_condition(
         source = source.upper()
 
     cues = sc._source_exception_or_applicability_matches(source)
-    assert len(cues) == 1
-    assert cues[0].group(0).lower() == cue
+    assert len(cues) == 2
+    assert cues[0].group(0).lower() == "if"
+    assert cues[1].group(0).lower() == cue
     obligations = _exception_obligations(source)
-    assert len(obligations) == 1
-    assert obligations[0].text == source
-    assert obligations[0].text == source[obligations[0].start : obligations[0].end]
-    assert sc._source_exception_requires_paired_witness(obligations[0].text)
+    assert len(obligations) == 2
+    assert condition.upper() in obligations[1].text.upper()
+    assert all(ob.text == source[ob.start : ob.end] for ob in obligations)
+    assert all(
+        sc._source_exception_requires_paired_witness(ob.text) for ob in obligations
+    )
 
     selector = {
         "not disabled": "is_disabled",
@@ -207,16 +272,28 @@ def test_parenthetical_cue_removal_preserves_the_full_real_condition(
     active = condition != "not disabled"
     if cue == "unless":
         active = not active
-    _assert_public_condition_required(
-        source,
+    conditions = (
         (
-            (
-                selector,
-                f"The claimant's {subject} is {condition.removeprefix('not ')}.",
-                active,
-            ),
+            selector,
+            f"The claimant's {subject} is {condition.removeprefix('not ')}.",
+            active,
         ),
     )
+    proved = _public_condition_candidate(source, conditions)
+    assert any(
+        "[complete-source-unit:tests]" in issue
+        and "exceptions or applicability conditions" in issue
+        for issue in proved.issues
+    ), proved.issues
+    missing = _public_condition_candidate(
+        source,
+        (),
+    )
+    assert any(
+        "[complete-source-unit:tests]" in issue
+        and "exceptions or applicability conditions" in issue
+        for issue in missing.issues
+    ), missing.issues
 
 
 @settings(max_examples=80, deadline=None)
