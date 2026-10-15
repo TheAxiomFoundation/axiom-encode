@@ -69,7 +69,8 @@ retry, add an expiring entry for the exact citation to the repository variable
 ```
 
 Malformed JSON or a malformed selected entry keeps the rule with a warning.
-`ATTEMPT_BUDGET_OVERRIDE=true` also lifts it. Queue dispatches report only.
+`ATTEMPT_BUDGET_OVERRIDE=true` also lifts it. Queue dispatches and model-free
+retired-source metadata migrations report only.
 Over the US runs dispatched since 2026-09-01, the rule would have refused 33 of
 292 runs: 32 of them failed, and 1 opened a draft PR that has not merged.
 
