@@ -25127,6 +25127,51 @@ rules:
     assert principal_rule_paths["annual_tax"] == {("2",)}
 
 
+def test_interpretation_excerpt_cannot_cover_a_complete_source_obligation():
+    source = "(1) Die Hauptregel gilt."
+    payload = {
+        "format": "rulespec/v1",
+        "module": {
+            "source_verification": {"corpus_citation_path": CORPUS_CITATION_PATH},
+            "interpretations": [
+                {
+                    "id": "main-rule-reading",
+                    "question": "Which rule applies?",
+                    "texts": [
+                        {
+                            "corpus_citation_path": CORPUS_CITATION_PATH,
+                            "excerpt": source,
+                        }
+                    ],
+                    "reading": "The main rule applies.",
+                    "alternatives": [{"reading": "Another rule applies."}],
+                    "basis": "The source states the main rule.",
+                    "status": "open",
+                    "affects": ["unrelated_output"],
+                }
+            ],
+        },
+        "rules": [
+            {
+                "name": "unrelated_output",
+                "kind": "derived",
+                "dtype": "Money",
+                "source": "de/statute/other/99 Absatz 1",
+                "versions": [
+                    {"effective_from": "2026-01-01", "formula": "unrelated_value"}
+                ],
+            }
+        ],
+    }
+
+    interpreted = _analyze(yaml.safe_dump(payload), source, test_cases=[])
+    del payload["module"]["interpretations"]
+    baseline = _analyze(yaml.safe_dump(payload), source, test_cases=[])
+
+    assert _has_issue(interpreted, "(1)", "source branch")
+    assert interpreted.issues == baseline.issues
+
+
 def test_unstructured_formula_requires_principal_output_bound_to_source_unit():
     source = "Die Steuer ergibt sich aus dem Einkommen geteilt durch den Grundwert."
     content = """\

@@ -363,8 +363,17 @@ def certify_worksheet_transfers(
     ) != ("Integer", "Person", "Year", None):
         return _failure("wrong source payable count contract")
     new_rules = [rules[n] for n in (RELATION, UNIT, *OUTPUTS)]
+    proof_payload = {**payload, "rules": new_rules}
+    # Interpretations refer to the full module, not this temporary proof view.
+    # The shared validation gate checks them against the original declarations.
+    if isinstance(proof_payload.get("module"), Mapping):
+        proof_payload["module"] = {
+            key: value
+            for key, value in proof_payload["module"].items()
+            if key != "interpretations"
+        }
     issues = validate_rulespec_proofs(
-        yaml.safe_dump({**payload, "rules": new_rules}),
+        yaml.safe_dump(proof_payload),
         require_policy_proofs=True,
         source_texts=source_context,
     ).issues

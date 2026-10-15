@@ -21,7 +21,9 @@ import contextlib
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -149,7 +151,10 @@ def find_rulespec_proof_issues(
 
 
 def proof_source_citation_paths(content: str) -> tuple[str, ...]:
-    """Return direct corpus citations used by proof atoms in one RuleSpec."""
+    """Return corpus citations needing proof or interpretation excerpt checks.
+
+    Interpretation texts are evidence to validate, never executable proof atoms.
+    """
 
     try:
         payload = yaml.safe_load(content)
@@ -157,10 +162,10 @@ def proof_source_citation_paths(content: str) -> tuple[str, ...]:
         return ()
     if not isinstance(payload, dict):
         return ()
+    paths = list(interpretation_source_citation_paths(payload))
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return ()
-    paths: list[str] = []
+        return tuple(paths)
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -175,6 +180,25 @@ def proof_source_citation_paths(content: str) -> tuple[str, ...]:
             citation_path = str(source.get("corpus_citation_path") or "").strip()
             if citation_path and citation_path not in paths:
                 paths.append(citation_path)
+    return tuple(paths)
+
+
+def interpretation_source_citation_paths(payload: dict[str, Any]) -> tuple[str, ...]:
+    """Collect interpretation citations without treating their texts as proofs."""
+
+    module = payload.get("module")
+    entries = module.get("interpretations") if isinstance(module, dict) else None
+    if not isinstance(entries, list):
+        return ()
+    paths: list[str] = []
+    for entry in entries:
+        texts = entry.get("texts") if isinstance(entry, dict) else None
+        if not isinstance(texts, list):
+            continue
+        for text in texts:
+            path = text.get("corpus_citation_path") if isinstance(text, dict) else None
+            if isinstance(path, str) and path.strip() and path not in paths:
+                paths.append(path)
     return tuple(paths)
 
 
@@ -219,6 +243,7 @@ def validate_rulespec_proofs(
     issues = [
         *find_plural_corpus_citation_path_issues(payload),
         *find_noncanonical_corpus_citation_path_issues(payload),
+        *_validate_module_interpretations(payload, source_texts=source_texts),
     ]
     if isinstance(module, dict) and "source_claims" in module:
         issues.append(
@@ -267,6 +292,245 @@ def validate_rulespec_proofs(
         atoms_checked=atoms_checked,
         proof_required=proof_required,
     )
+
+
+def _interpretation_mapping(
+    value: Any, *, label: str, allowed: set[str], issues: list[str]
+) -> bool:
+    if not isinstance(value, dict):
+        issues.append(f"{label} must be a mapping.")
+        return False
+    for key in value:
+        if key not in allowed:
+            issues.append(f"{label} has unknown key `{key}`.")
+    return True
+
+
+def _interpretation_string(value: Any, *, label: str, issues: list[str]) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        issues.append(f"{label} must be a non-blank string.")
+        return False
+    return True
+
+
+def _interpretation_list(value: Any, *, label: str, issues: list[str]) -> bool:
+    if not isinstance(value, list) or not value:
+        issues.append(f"{label} must be a non-empty list.")
+        return False
+    return True
+
+
+def _validate_interpretation_record(
+    record: Any, *, label: str, confirmation: bool, issues: list[str]
+) -> None:
+    allowed = {"by", "date", "record"}
+    if confirmation:
+        allowed.add("excerpt")
+    if not _interpretation_mapping(record, label=label, allowed=allowed, issues=issues):
+        return
+    _interpretation_string(record.get("by"), label=f"{label}.by", issues=issues)
+    if confirmation:
+        _interpretation_string(
+            record.get("excerpt"), label=f"{label}.excerpt", issues=issues
+        )
+    recorded_date = record.get("date")
+    valid_date = type(recorded_date) is date  # Unquoted YAML dates use date objects.
+    if isinstance(recorded_date, str) and re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}", recorded_date
+    ):
+        with contextlib.suppress(ValueError):
+            date.fromisoformat(recorded_date)
+            valid_date = True
+    if not valid_date:
+        issues.append(f"{label}.date must be a real YYYY-MM-DD date.")
+    if not confirmation or "record" in record:
+        url = record.get("record")
+        valid_url = False
+        if isinstance(url, str) and not re.search(r"\s", url):
+            with contextlib.suppress(ValueError):
+                parsed = urlsplit(url)
+                _ = parsed.port
+                valid_url = parsed.scheme == "https" and bool(parsed.hostname)
+        if not valid_url:
+            issues.append(f"{label}.record must be an https URL.")
+
+
+def _validate_module_interpretations(
+    payload: dict[str, Any], *, source_texts: Mapping[str, str | None] | None
+) -> list[str]:
+    """Check inert interpretation metadata, even with a pre-field engine pin.
+
+    Canonical citation identities are checked by the recursive corpus-path gate
+    in ``validate_rulespec_proofs``; excerpt checks reuse the proof-atom matcher.
+    These texts never increment ``atoms_checked`` or satisfy proof obligations.
+    """
+
+    module = payload.get("module")
+    if not isinstance(module, dict) or "interpretations" not in module:
+        return []
+    entries = module["interpretations"]
+    if not isinstance(entries, list):
+        return ["module.interpretations must be a list."]
+    issues: list[str] = []
+    seen_ids: set[str] = set()
+    rules = payload.get("rules")
+    rule_names = (
+        {
+            rule["name"]
+            for rule in rules
+            if isinstance(rule, dict) and isinstance(rule.get("name"), str)
+        }
+        if isinstance(rules, list)
+        else set()
+    )
+    deferred = module.get("deferred_outputs")
+    deferred_names = (
+        {
+            record["output"].rsplit("#", 1)[-1].strip()
+            for record in deferred
+            if isinstance(record, dict) and isinstance(record.get("output"), str)
+        }
+        if isinstance(deferred, list)
+        else set()
+    )
+    for index, entry in enumerate(entries):
+        location = f"module.interpretations[{index}]"
+        entry_id = entry.get("id") if isinstance(entry, dict) else None
+        label = (
+            f"Interpretation `{entry_id}` ({location})"
+            if isinstance(entry_id, str) and entry_id.strip()
+            else location
+        )
+        if not _interpretation_mapping(
+            entry,
+            label=label,
+            allowed={
+                "id",
+                "question",
+                "texts",
+                "reading",
+                "alternatives",
+                "basis",
+                "status",
+                "ruling",
+                "confirmation",
+                "affects",
+            },
+            issues=issues,
+        ):
+            continue
+        if _interpretation_string(entry_id, label=f"{label}.id", issues=issues):
+            if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", entry_id):
+                issues.append(f"{label}.id must match [a-z0-9]+(-[a-z0-9]+)*.")
+            if entry_id in seen_ids:
+                issues.append(f"{label}.id duplicates interpretation `{entry_id}`.")
+            seen_ids.add(entry_id)
+        for field_name in ("question", "reading", "basis"):
+            _interpretation_string(
+                entry.get(field_name), label=f"{label}.{field_name}", issues=issues
+            )
+        texts = entry.get("texts")
+        if _interpretation_list(texts, label=f"{label}.texts", issues=issues):
+            for text_index, text in enumerate(texts):
+                text_label = f"{label}.texts[{text_index}]"
+                if not _interpretation_mapping(
+                    text,
+                    label=text_label,
+                    allowed={"corpus_citation_path", "excerpt"},
+                    issues=issues,
+                ):
+                    continue
+                valid_path = _interpretation_string(
+                    text.get("corpus_citation_path"),
+                    label=f"{text_label}.corpus_citation_path",
+                    issues=issues,
+                )
+                valid_excerpt = _interpretation_string(
+                    text.get("excerpt"),
+                    label=f"{text_label}.excerpt",
+                    issues=issues,
+                )
+                if valid_path and valid_excerpt:
+                    issues.extend(
+                        _validate_source_proof_atom(
+                            source=text,
+                            label=text_label,
+                            kind="definition",
+                            rule_source=None,
+                            source_texts=source_texts,
+                        )
+                    )
+        alternatives = entry.get("alternatives")
+        if _interpretation_list(
+            alternatives, label=f"{label}.alternatives", issues=issues
+        ):
+            for alternative_index, alternative in enumerate(alternatives):
+                alternative_label = f"{label}.alternatives[{alternative_index}]"
+                if not _interpretation_mapping(
+                    alternative,
+                    label=alternative_label,
+                    allowed={"reading", "effect"},
+                    issues=issues,
+                ):
+                    continue
+                for field_name in ("reading", "effect"):
+                    if field_name == "reading" or field_name in alternative:
+                        _interpretation_string(
+                            alternative.get(field_name),
+                            label=f"{alternative_label}.{field_name}",
+                            issues=issues,
+                        )
+        status = entry.get("status")
+        if not isinstance(status, str) or status not in {
+            "open",
+            "ruled",
+            "confirmed",
+            "contradicted",
+        }:
+            issues.append(
+                f"{label}.status must be open, ruled, confirmed or contradicted."
+            )
+        else:
+            for field, required in (
+                ("ruling", status != "open"),
+                ("confirmation", status in {"confirmed", "contradicted"}),
+            ):
+                if not required:
+                    if field in entry:
+                        issues.append(
+                            f"{label}.{field} must be absent when status is `{status}`."
+                        )
+                elif field not in entry:
+                    issues.append(
+                        f"{label}.{field} must be a mapping when status is `{status}`."
+                    )
+                else:
+                    _validate_interpretation_record(
+                        entry[field],
+                        label=f"{label}.{field}",
+                        confirmation=field == "confirmation",
+                        issues=issues,
+                    )
+            if status == "contradicted":
+                issues.append(
+                    f"{label}: publisher contradicted this reading; repair the module, "
+                    "move the old reading into alternatives, and set the new status"
+                )
+        affects = entry.get("affects")
+        if _interpretation_list(affects, label=f"{label}.affects", issues=issues):
+            for affect_index, name in enumerate(affects):
+                affect_label = f"{label}.affects[{affect_index}]"
+                if not _interpretation_string(name, label=affect_label, issues=issues):
+                    continue
+                if name in deferred_names:
+                    issues.append(
+                        f"{affect_label} must not name deferred output `{name}`."
+                    )
+                elif name not in rule_names:
+                    issues.append(
+                        f"{affect_label} must name a rule defined in this module."
+                    )
+    return issues
 
 
 def _module_requires_proofs(module: Any) -> bool:

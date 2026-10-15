@@ -153,6 +153,7 @@ from .proof_validator import (
     collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
+    interpretation_source_citation_paths,
     validate_rulespec_proofs,
 )
 from .source_completeness import (
@@ -35502,6 +35503,14 @@ class ValidatorPipeline:
             return resolved
         if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
             return resolved
+        # Interpretation quotes need the same release-bound evidence as proof
+        # atoms. They are excluded from the numeric-grounding source pool.
+        if proof_evidence:
+            for citation_path in interpretation_source_citation_paths(payload):
+                try:
+                    resolved[citation_path] = fetch_source(citation_path)
+                except InvalidCorpusCitationError:
+                    resolved[citation_path] = None
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved

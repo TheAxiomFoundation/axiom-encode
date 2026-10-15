@@ -69,7 +69,10 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
-from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
+from axiom_encode.prompts.encoder import (
+    INTERPRETATIONS_PROTOCOL,
+    SOURCE_SCOPE_PROTOCOL,
+)
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     VALIDATION_RETRY_CANDIDATE_MAX_TOTAL_BYTES,
@@ -10154,6 +10157,12 @@ Mandatory independent-review corrections:
 - If a finding conflicts with the source evidence, do not invent semantics to
   satisfy it. Keep the source-faithful behavior and record only the genuinely
   blocked output using RuleSpec's typed deferred-output mechanism.
+- For `module.interpretations`, copy only recorded human rulings or publisher
+  replies supplied below. A supplied ruling permits `status: ruled` with its
+  exact `ruling` block; a publisher reply permits `confirmed` or `contradicted`
+  with the recorded ruling and confirmation. Never invent either block. Repair
+  contradicted readings, moving the old reading into `alternatives` and setting
+  the new status; otherwise create `status: open` entries.
 
 {chr(10).join(rendered_files)}
 """
@@ -11124,6 +11133,7 @@ Primary legal authority:
 {source_metadata_section}{provision_metadata_section}{amendment_section}{context_section}{missing_cited_source_section}{mandatory_review_findings_section}{required_deferred_output_contract_section}{required_test_case_contract_section}{required_import_section}
 {backend_section}
 {canonical_concept_section}{complete_source_unit_section}
+{INTERPRETATIONS_PROTOCOL}
 RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.

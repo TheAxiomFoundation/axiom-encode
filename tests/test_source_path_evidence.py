@@ -10,6 +10,7 @@ import yaml
 from axiom_encode.harness import source_completeness as sc
 from axiom_encode.harness import source_path_evidence as evidence
 from axiom_encode.harness import validator_pipeline as v
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 
 FIXTURE = Path(__file__).parent / "fixtures/source_path_shadow"
 SOURCE = (FIXTURE / "source.txt").read_text()
@@ -64,6 +65,58 @@ def test_original47_certifies_only_four_note4_frames_not_missing_amt_pairs():
     assert all(o.certified for o in result.obligations if o.owner == evidence._TAX)
     assert not result.owns_exception(1493, 1807)  # cap/transfer untouched
     assert not result.owns_exception(1808, 2097)
+
+
+def test_interpretation_of_an_omitted_rule_does_not_change_path_evidence():
+    payload, cases = inputs()
+    baseline = certify(payload, cases)
+    payload["module"]["interpretations"] = [
+        {
+            "id": "separate-country-forms",
+            "question": "Should a separate form be used for each country?",
+            "texts": [
+                {
+                    "corpus_citation_path": CITATION,
+                    "excerpt": "Country or countries for which you are making this claim:",
+                }
+            ],
+            "reading": "The country count governs separate forms.",
+            "alternatives": [{"reading": "One form always covers every country."}],
+            "basis": "The source distinguishes country counts.",
+            "status": "open",
+            "affects": ["separate_country_form_required"],
+        }
+    ]
+
+    # Keep all declarations for affects resolution; unrelated fixture proofs
+    # are outside this assertion about interpretation metadata.
+    metadata_context = {
+        "format": payload["format"],
+        "module": {
+            key: copy.deepcopy(value)
+            for key, value in payload["module"].items()
+            if key in {"interpretations", "deferred_outputs"}
+        },
+        "rules": [{"name": rule["name"]} for rule in payload["rules"]],
+    }
+    metadata_validation = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={CITATION: SOURCE}
+    )
+    assert metadata_validation.passed, metadata_validation.issues
+    original_payload = copy.deepcopy(payload)
+    result = certify(payload, cases)
+    assert baseline.condition_spans
+    assert result.condition_spans == baseline.condition_spans
+    assert result.obligations == baseline.obligations
+    assert result.unresolved == baseline.unresolved
+    assert payload == original_payload
+
+    metadata_context["module"]["interpretations"][0]["affects"] = ["undefined_output"]
+    invalid = validate_rulespec_proofs(
+        yaml.safe_dump(metadata_context), source_texts={CITATION: SOURCE}
+    )
+    assert not invalid.passed
+    assert any("must name a rule defined in this module" in x for x in invalid.issues)
 
 
 def test_actual_analyzer_keeps_cap_transfer_year_and_amt_findings():

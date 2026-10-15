@@ -373,6 +373,63 @@ in-content `module.encoding_provenance` (`encoder`, `model`, `run_id`,
 `reviewed_by`) and `module.validation` (oracle, `matches`/`mismatches`/
 `pending` status, `last_run` date) blocks. These fields are inert at runtime.
 
+`module.interpretations` records each reading adopted when provisions conflict,
+the encoding departs from literal text, or a question has been put to the
+publisher. It is also inert at runtime. **Synthetic example:** an encoder can
+record an unresolved reading for the invented Example District Council Support
+Scheme as follows. The citation, excerpt, and readings below are fictional:
+
+```yaml
+module:
+  interpretations:
+    - id: household-change-notice
+      question: Must each adult notify the council separately of a household change?
+      texts:
+        - corpus_citation_path: xx-fictional/manual/example-district-support-scheme/notifications
+          excerpt: "Applicants must notify the council when household circumstances change."
+      reading: One household notification satisfies the notice requirement.
+      alternatives:
+        - reading: Each adult must notify the council separately.
+          effect: Applicants would need to send separate notices.
+      basis: The scheme addresses the household as one applicant.
+      status: open
+      affects:
+        - example_support_change_notice_required
+```
+
+Each entry requires a module-unique `id` matching
+`[a-z0-9]+(-[a-z0-9]+)*`, non-blank `question`, `reading`, and `basis`, and
+non-empty `texts`, `alternatives`, and `affects` lists. A text has only
+`corpus_citation_path` and `excerpt`; an alternative has `reading` and an
+optional `effect`. All string fields, including optional fields when present,
+must be non-blank. Unknown keys are rejected throughout the block.
+Each canonical corpus citation must resolve, and its excerpt must match the
+corpus using the same normalization and matcher as source proof atoms.
+`affects` names must be local `rules[].name` values, never deferred outputs.
+Interpretation excerpts count toward neither proof obligations nor the
+complete-source coverage gate.
+
+The status controls the additional evidence blocks:
+
+| `status` | `ruling` | `confirmation` |
+| --- | --- | --- |
+| `open` | Forbidden | Forbidden |
+| `ruled` | Required | Forbidden |
+| `confirmed` | Required | Required |
+| `contradicted` | Required | Required |
+
+`ruling` contains `by` (the ruling organisation), `date` (a real `YYYY-MM-DD`
+date), and `record` (an https URL to a public PR, issue, or comment).
+`confirmation` contains `by` (the publisher organisation), `date`, and the
+publisher's verbatim `excerpt`, plus an optional public https `record`.
+Quote dates in YAML. Use organisations, never people's names, and omit private
+decision identifiers, session identifiers, and local paths. The encoder creates
+`open` entries only; repair rounds may copy a recorded human ruling supplied
+through `--review-findings` and set `status: ruled`. A supplied publisher reply
+permits `confirmed` or `contradicted` only with both evidence blocks. A
+`contradicted` entry blocks validation: repair the module, move the old reading
+into `alternatives`, and set the new reading's status.
+
 Check every pinned module in a jurisdiction checkout against a local
 `axiom-corpus` checkout:
 
