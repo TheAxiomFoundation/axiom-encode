@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
+import fcntl
 import fnmatch
 import hashlib
 import importlib.metadata
@@ -26,6 +28,7 @@ import json
 import locale
 import os
 import re
+import secrets
 import shlex
 import shutil
 import stat
@@ -74,6 +77,10 @@ DEPENDENCY_INPUTS = {
     "corpus": "axiom-corpus-ref",
     "rulespec_us": "rulespec-us-ref",
 }
+# Dependency inputs a pin declares as optional: an empty value skips every
+# step that would check the dependency out (92ccb0f2 L15-19, L1569-1634).
+OPTIONAL_DEPENDENCY_INPUTS = {"compose": "axiom-compose-ref"}
+COMPOSE_REPOSITORY = "TheAxiomFoundation/axiom-compose"
 DEFAULT_RELEASE_BASE_URL = "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"
 # The organization's public corpus.release_objects registry. Callers pass it
 # from the NEXT_PUBLIC_SUPABASE_URL repository variable, which a local run
@@ -107,6 +114,11 @@ VARS_RE = re.compile(r"vars\.(?P<name>[A-Za-z_][A-Za-z0-9_]*)")
 RECOGNIZED_WORKFLOW_TOOLCHAIN_RESOLVERS: dict[str, str] = {
     "677a17ea1e348bd0d564095ae29c3ea9f4cd00f0ba9ee37302a5407bcc315da3": (
         "TheAxiomFoundation/rulespec-us repository-checks.yml@cf03a179"
+    ),
+    # The same resolver reading axiom_compose_ref as well; unchanged from
+    # 60dd397f through 4c9aeadd (the 92ccb0f2 repin).
+    "3017281352f85f9350ed4d988d46cdaff1acbe021b501964fcda6dacc7dfa392": (
+        "TheAxiomFoundation/rulespec-us repository-checks.yml@4c9aeadd"
     ),
 }
 # Environment names the protected verification supervisor forwards into its
@@ -179,6 +191,16 @@ WORKFLOW_INPUTS_0EFFA6A5: dict[str, WorkflowInput] = {
     "guard-programs-root": WorkflowInput("boolean", default=False),
     "run-money-atom-check": WorkflowInput("boolean", default=True),
 }
+WORKFLOW_INPUTS_92CCB0F2: dict[str, WorkflowInput] = {
+    "python-version": WorkflowInput("string", default="3.14"),
+    "axiom-encode-ref": WorkflowInput("string", required=True),
+    "axiom-compose-ref": WorkflowInput("string", default=""),
+    **{
+        name: declaration
+        for name, declaration in WORKFLOW_INPUTS_0EFFA6A5.items()
+        if name not in {"python-version", "axiom-encode-ref"}
+    },
+}
 _INPUT_TYPE_DEFAULTS: dict[str, str | bool | int] = {
     "string": "",
     "boolean": False,
@@ -198,6 +220,16 @@ class WorkflowGateParameters:
     exact_guard_base_ref: bool = False
     # The supervisor is provisioned with the retired corpus release root too.
     retired_corpus_release_key: bool = False
+    # Dependency checkouts live outside the rules checkout, under
+    # $RUNNER_TEMP, with an empty staging directory left in the workspace
+    # (92ccb0f2 L1442-1462); earlier pins check them out under _axiom.
+    isolated_dependencies: bool = False
+    # A non-empty axiom-compose-ref provisions the pinned composer runtime and
+    # passes it to the audit, validation and companion tests (92ccb0f2).
+    composer_runtime: bool = False
+    # The unmanifested pre-check reads guard-programs-root and shape-checks
+    # changed ProgramSpecs with the pinned PyYAML parser (92ccb0f2 L211-224).
+    program_spec_precheck: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +279,7 @@ WORKFLOW_GATE_ORDER_6F11BE26: tuple[str, ...] = (
     "unmanifested_rulespec",
     *WORKFLOW_GATE_ORDER_0EFFA6A5[1:],
 )
+WORKFLOW_GATE_ORDER_92CCB0F2 = WORKFLOW_GATE_ORDER_6F11BE26
 
 SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
     "615c1df9b9ace7deea84da65efd137f46f8bad2b": SupportedWorkflowPin(
@@ -290,6 +323,22 @@ SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
         workflow_blob="cd5c32cc269818a74e53909e044c4bd12f21b46d",
         inputs=WORKFLOW_INPUTS_0EFFA6A5,
         gates=WORKFLOW_GATE_ORDER_6F11BE26,
+    ),
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": SupportedWorkflowPin(
+        fixture="validate-rulespec-92ccb0f2.yml",
+        gate_parameters=WorkflowGateParameters(
+            exclude_programs_from_money_atom_check=True,
+            embedded_scripts=True,
+            unmanifested_precheck=True,
+            exact_guard_base_ref=True,
+            retired_corpus_release_key=True,
+            isolated_dependencies=True,
+            composer_runtime=True,
+            program_spec_precheck=True,
+        ),
+        workflow_blob="5ab6f02dcd5e9561c0acffeea59e93a55b125b54",
+        inputs=WORKFLOW_INPUTS_92CCB0F2,
+        gates=WORKFLOW_GATE_ORDER_92CCB0F2,
     ),
 }
 
@@ -581,12 +630,48 @@ _WORKFLOW_GATE_DEFINITIONS: dict[str, tuple[str, str, tuple[str, ...]]] = {
 }
 
 
+# 92ccb0f2 passes the composer runtime and, for callers other than
+# rulespec-us, the canonical rulespec-us checkout to the audit, validation and
+# companion tests (bash arrays, L2511-2536, L2830-2853, L2943-2958), and the
+# audit reports JSON (#118).
+_COMPOSER_ARGUMENTS = ("{composer-args}", "{dependency-args}")
+_WORKFLOW_GATE_FLAGS_92CCB0F2: dict[str, tuple[str, ...]] = {
+    "validation_waivers": (
+        *_COMPOSER_ARGUMENTS,
+        "--json",
+        *_WORKFLOW_GATE_DEFINITIONS["validation_waivers"][2],
+    ),
+    "validate": (
+        "{files}",
+        "--skip-reviewers",
+        *_COMPOSER_ARGUMENTS,
+        *_WORKFLOW_GATE_DEFINITIONS["validate"][2][2:],
+    ),
+    "companion_tests": (
+        *_COMPOSER_ARGUMENTS,
+        *_WORKFLOW_GATE_DEFINITIONS["companion_tests"][2],
+    ),
+}
+
+
 def _workflow_gate_registry(
-    order: Sequence[str], lines: Mapping[str, str]
+    order: Sequence[str],
+    lines: Mapping[str, str],
+    flags: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[GateSpec, ...]:
-    return tuple(
-        GateSpec(key, *_WORKFLOW_GATE_DEFINITIONS[key], lines[key]) for key in order
-    )
+    registry = []
+    for key in order:
+        name, subcommand, default_flags = _WORKFLOW_GATE_DEFINITIONS[key]
+        registry.append(
+            GateSpec(
+                key,
+                name,
+                subcommand,
+                (flags or {}).get(key, default_flags),
+                lines[key],
+            )
+        )
+    return tuple(registry)
 
 
 WORKFLOW_GATE_REGISTRY_0EFFA6A5 = _workflow_gate_registry(
@@ -630,15 +715,40 @@ WORKFLOW_GATE_REGISTRY_6F11BE26 = _workflow_gate_registry(
         "repository_tests": "2621-2628",
     },
 )
+WORKFLOW_GATE_REGISTRY_92CCB0F2 = _workflow_gate_registry(
+    WORKFLOW_GATE_ORDER_92CCB0F2,
+    {
+        "unsupported_paths": "164-209",
+        "unmanifested_rulespec": "219-927",
+        "migration_authorization": "1116-1266",
+        "retired_schema_freeze": "1655-1868",
+        "obsolete_files": "2056-2066",
+        "repository_layout": "2068-2236",
+        "validation_waivers": "2238-2536",
+        "guard_generated": "2538-2572",
+        "select_targets": "2574-2763",
+        "validate": "2765-2894",
+        "companion_tests": "2896-2960",
+        "proof_validate": "2962-3027",
+        "money_atoms": "3029-3096",
+        "oracle_coverage": "3098-3107",
+        "changed_oracle_coverage": "3109-3230",
+        "repository_tests": "3231-3238",
+    },
+    _WORKFLOW_GATE_FLAGS_92CCB0F2,
+)
+_EMBEDDED_GATE_REGISTRIES: dict[str, tuple[GateSpec, ...]] = {
+    "0effa6a5b05e7fac53902df7d523e909bd7fc48a": WORKFLOW_GATE_REGISTRY_0EFFA6A5,
+    "6f11be2655f79dd0a3b582db46525f58332ca120": WORKFLOW_GATE_REGISTRY_6F11BE26,
+    "92ccb0f2266bf06aba6111d2bfd0e5f03af55fc3": WORKFLOW_GATE_REGISTRY_92CCB0F2,
+}
 
 
 def gate_registry_for_pin(workflow_sha: str) -> tuple[GateSpec, ...]:
     """Return the ordered gate registry the pinned workflow runs."""
 
-    if workflow_sha == "0effa6a5b05e7fac53902df7d523e909bd7fc48a":
-        return WORKFLOW_GATE_REGISTRY_0EFFA6A5
-    if workflow_sha == "6f11be2655f79dd0a3b582db46525f58332ca120":
-        return WORKFLOW_GATE_REGISTRY_6F11BE26
+    if workflow_sha in _EMBEDDED_GATE_REGISTRIES:
+        return _EMBEDDED_GATE_REGISTRIES[workflow_sha]
     if workflow_sha in SUPPORTED_WORKFLOW_PINS:
         return CI_GATE_REGISTRY
     raise KeyError(workflow_sha)
@@ -684,6 +794,10 @@ WORKFLOW_RESOLUTION_STEPS: dict[str, str] = {
     ),
     "Build axiom-rules-engine": "_build_workflow_engine",
     "Check validation matrix result": "ci_verdict",
+    "Reserve isolated dependency directories": "DependencyLayout.isolated",
+    "Validate composer pin": "validate_composer_pin",
+    "Authenticate composer commit": "verify_dependency_checkout (compose)",
+    "Build protected axiom-compose runtime": "_build_workflow_composer",
 }
 WORKFLOW_ENVIRONMENT_STEPS: dict[str, str] = {
     "Checkout rules repository": "the --repo checkout",
@@ -698,6 +812,18 @@ WORKFLOW_ENVIRONMENT_STEPS: dict[str, str] = {
     "Install Python dependencies": "_repository_test_python",
     "Expose axiom-rules-engine on PATH": "the encoder resolves the engine path",
     "Link axiom-rules-engine as sibling checkout": "explicit checkout paths",
+    "Set up Python for the RuleSpec pre-check": "the ambient interpreter",
+    "Install the ProgramSpec shape-check parser": (
+        "the ambient interpreter's PyYAML, checked against the pinned version"
+    ),
+    "Relocate dependency axiom-encode": "DependencyLayout entries",
+    "Relocate dependency axiom-rules-engine": "DependencyLayout entries",
+    "Relocate dependency axiom-corpus": "DependencyLayout entries",
+    "Relocate dependency rulespec-us": "DependencyLayout entries",
+    "Relocate dependency axiom-compose": "DependencyLayout entries",
+    "Relocate dependency axiom-encode-oracle-coverage": "DependencyLayout entries",
+    "Checkout axiom-compose": "the --compose-path checkout",
+    "Install uv for composer runtime": "the local uv (version recorded)",
 }
 
 
@@ -738,6 +864,14 @@ def register_ci_parser(subparsers: Any) -> None:
     parser.add_argument("--engine-path", type=Path)
     parser.add_argument("--rulespec-us-path", type=Path)
     parser.add_argument("--encode-path", type=Path)
+    parser.add_argument(
+        "--compose-path",
+        type=Path,
+        help=(
+            "axiom-compose checkout for a caller that sets axiom-compose-ref "
+            "(default: the axiom-compose sibling of --repo)"
+        ),
+    )
     parser.add_argument("--base-ref", default="origin/main")
     parser.add_argument(
         "--base-branch",
@@ -989,6 +1123,13 @@ def parse_caller_job(
                 f"Caller {path}: {input_name} must be a full lowercase SHA"
             )
         refs[dependency] = value
+    # An optional dependency is checked out only when its input is non-empty.
+    # Its value is validated where CI validates it ("Validate composer pin"),
+    # so a malformed one fails the validate job rather than the caller parse.
+    for dependency, input_name in OPTIONAL_DEPENDENCY_INPUTS.items():
+        value = inputs.get(input_name)
+        if isinstance(value, str) and value:
+            refs[dependency] = value
     return CallerConfig(
         path=path,
         workflow_sha=workflow_sha,
@@ -2339,6 +2480,10 @@ def _repository_test_environment(
     # the pytest step from its inputs instead of a developer's shell.
     if run is not None:
         engine_bin = run.paths["engine"] / "target" / "debug"
+        layout = _run_layout(run)
+        if layout.isolated:
+            # 92ccb0f2 L2043-2044 puts the engine's dependency-root path on PATH.
+            engine_bin = layout.entry("axiom-rules-engine") / "target" / "debug"
         python_bin = str(Path(interpreter or sys.executable).parent)
         environment = {
             "PATH": os.pathsep.join((str(engine_bin), python_bin, os.defpath)),
@@ -2351,10 +2496,7 @@ def _repository_test_environment(
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
             "TZ": "UTC",
-            "CI": "true",
-            "GITHUB_ACTIONS": "true",
-            "RUNNER_TEMP": str(run.temp),
-            **run.simulation.github_environment(run.repo),
+            **_runner_environment(run.repo, run.temp, run.simulation),
         }
         # 6f11be26 L2184-2188 (0effa6a5 L1728-1732) are the only
         # GITHUB_ENV writes; step-local env and GITHUB_OUTPUT do not persist.
@@ -2363,6 +2505,8 @@ def _repository_test_environment(
             RULESPEC_TEST_FILE_LIST=str(run.temp / "rulespec-test-files.txt"),
             RULESPEC_VALIDATION_MODE=run.mode,
         )
+        # 92ccb0f2 L1460-1461 adds the dependency directories to GITHUB_ENV.
+        environment.update(layout.environment())
         # The one ambient input: the caller's opt-out of corpus placement.
         # CI never sets it; it only stops a repository test that binds the
         # release from writing into the linked corpus checkout.
@@ -3052,6 +3196,56 @@ class PullRequestSimulation:
         }
 
 
+def _runner_environment(
+    repo: Path,
+    runner_temp: Path | None,
+    simulation: PullRequestSimulation | None,
+    job: str = "validate",
+) -> dict[str, str]:
+    """GitHub's default variables on a hosted ubuntu-latest runner, as ci derives them.
+
+    Every pin's validate job runs on ubuntu-latest (92ccb0f2 L1081). See
+    https://docs.github.com/en/actions/reference/workflows-and-actions/variables
+    #default-environment-variables. Values tied to one run are not reproduced:
+    GITHUB_RUN_ID, _RUN_NUMBER and _RUN_ATTEMPT, GITHUB_ACTOR and the other
+    actor and id values, GITHUB_WORKFLOW and its ref and sha, the runner's
+    files (GITHUB_ENV, GITHUB_PATH, GITHUB_OUTPUT, GITHUB_STEP_SUMMARY,
+    GITHUB_EVENT_PATH), GITHUB_HEAD_REF (the head branch's name, which a
+    commit does not carry), RUNNER_NAME, RUNNER_DEBUG and RUNNER_TOOL_CACHE.
+    Without --pull-request, GITHUB_REF is empty and GITHUB_REF_NAME unset.
+    """
+
+    environment = {
+        "CI": "true",
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_SERVER_URL": "https://github.com",
+        "GITHUB_API_URL": "https://api.github.com",
+        "GITHUB_GRAPHQL_URL": "https://api.github.com/graphql",
+        "GITHUB_JOB": job,
+        "RUNNER_OS": "Linux",
+        "RUNNER_ARCH": "X64",
+        "RUNNER_ENVIRONMENT": "github-hosted",
+    }
+    if simulation is None:
+        environment["GITHUB_WORKSPACE"] = str(repo)
+    else:
+        environment.update(simulation.github_environment(repo))
+        if simulation.repository:
+            environment["GITHUB_REPOSITORY_OWNER"] = simulation.repository.split(
+                "/", 1
+            )[0]
+        # A pull_request run's ref is a branch, refs/pull/<n>/merge; its name
+        # needs the pull request's number (--pull-request).
+        environment["GITHUB_REF_TYPE"] = "branch"
+        if simulation.base_branch:
+            environment["GITHUB_BASE_REF"] = simulation.base_branch
+        if simulation.number is not None:
+            environment["GITHUB_REF_NAME"] = f"{simulation.number}/merge"
+    if runner_temp is not None:
+        environment["RUNNER_TEMP"] = str(runner_temp)
+    return environment
+
+
 def _github_repository(repo: Path) -> str:
     """Return owner/name of the checkout's origin, or "" when not on GitHub."""
 
@@ -3226,6 +3420,34 @@ def resolve_workflow_toolchain(
         raise ValueError((stderr or stdout).strip() or "RuleSpec toolchain error")
 
 
+def validate_composer_pin(
+    workflow: PinnedWorkflow, repo: Path, compose_ref: str
+) -> None:
+    """Run the workflow's "Validate composer pin" script unchanged (92ccb0f2 L1569-1592).
+
+    It requires a full lowercase SHA that equals the committed
+    ``.axiom/workflow-toolchain.toml`` composer pin.
+    """
+
+    code, stdout, stderr = _run_embedded_python(
+        workflow.python("validate", "Validate composer pin"),
+        cwd=repo,
+        environment={"AXIOM_COMPOSE_REF": compose_ref},
+    )
+    if code:
+        raise ValueError(
+            "Validate composer pin failed: "
+            + ((stderr or stdout).strip() or f"exit status {code}")
+        )
+
+
+def resolve_compose_path(args: argparse.Namespace, repo: Path) -> Path:
+    """The local axiom-compose checkout, like the other dependency defaults."""
+
+    configured = getattr(args, "compose_path", None)
+    return (configured or repo.parent / "axiom-compose").expanduser().resolve()
+
+
 @dataclass(frozen=True, slots=True)
 class ShardPlan:
     """The shards job's outputs for the simulated pull request."""
@@ -3354,6 +3576,23 @@ def _fetch_https(url: str, headers: Mapping[str, str]) -> bytes:
     return data
 
 
+def _release_cache_path(corpus_path: Path, release: str, content_sha256: str) -> Path:
+    """Where ci caches the release object, kept inside the corpus checkout.
+
+    CI writes the object into a fresh, disposable corpus checkout
+    (92ccb0f2 L1870-1896; 6f11be26 L1352-1377); ci writes into the local
+    checkout it was given. A ``releases`` path that is a symlink, tracked by
+    the corpus pin or not, would move that write (and its staging directory)
+    somewhere else on this machine, so it is refused before anything is
+    created, read or written.
+    """
+
+    for name, value in (("release", release), ("content digest", content_sha256)):
+        if not value or value in {".", ".."} or "/" in value or os.sep in value:
+            raise ValueError(f"Corpus {name} {value!r} is not a single path component")
+    return _release_cache_destination(corpus_path, release, content_sha256)
+
+
 def acquire_workflow_release_object(
     workflow: PinnedWorkflow,
     toolchain: RuleSpecToolchain,
@@ -3373,7 +3612,7 @@ def acquire_workflow_release_object(
 
     release = toolchain.corpus_release
     content_sha256 = toolchain.corpus_release_content_sha256
-    destination = _release_cache_destination(corpus_path, release, content_sha256)
+    destination = _release_cache_path(corpus_path, release, content_sha256)
     registry_url = str(caller.inputs.get("corpus-release-registry-url", ""))
     base_url = str(
         caller.inputs.get("corpus-release-base-url", caller.release_base_url)
@@ -3710,6 +3949,13 @@ class WorkflowRun:
     offline: bool = False
     dependency_mismatches: list[DependencyMismatch] = field(default_factory=list)
     shards_done: bool = False
+    # Where the dependency checkouts live (None: the legacy _axiom layout).
+    layout: DependencyLayout | None = None
+    # The provisioned axiom-compose launcher, when the caller pins a composer.
+    composer: Path | None = None
+    # The run's RUNNER_TEMP when resolution already made it (92ccb0f2: the
+    # dependency root lives in it); otherwise the executor makes one.
+    runner_temp: Path | None = None
 
 
 @dataclass(slots=True)
@@ -3801,8 +4047,10 @@ def execute_workflow_gates(run: WorkflowRun) -> list[GateResult]:
     }
     results: list[GateResult] = []
     earlier_failure = False
-    with tempfile.TemporaryDirectory(prefix="axiom-ci-") as temp_name:
-        run.temp = Path(temp_name)
+    with contextlib.ExitStack() as temporary:
+        run.temp = getattr(run, "runner_temp", None) or Path(
+            temporary.enter_context(tempfile.TemporaryDirectory(prefix="axiom-ci-"))
+        )
         for key in run.workflow.pin.gates:
             if run.shards_done and key in {
                 "unsupported_paths",
@@ -3870,6 +4118,28 @@ def _aggregate(
     )
 
 
+def _composer_arguments(run: WorkflowRun) -> tuple[str, ...]:
+    """CI's ``"${composer_args[@]}" "${dependency_args[@]}"`` for this run.
+
+    92ccb0f2 L2511-2522 (and L2830-2841, L2943-2954): with a composer ref,
+    the protected composer launcher; for a caller whose workspace is not
+    named rulespec-us, also the authenticated canonical rulespec-us checkout,
+    because protected runtimes discard ambient root variables.
+    """
+
+    composer = getattr(run, "composer", None)
+    if composer is None:
+        return ()
+    arguments: tuple[str, ...] = ("--axiom-compose-path", str(composer))
+    if run.repo.name != "rulespec-us":
+        # CI passes $AXIOM_DEPENDENCY_ROOT/rulespec-us, the moved fresh
+        # checkout. Under the isolated layout run.paths["rulespec_us"] is that
+        # entry (a fresh clone, see _fresh_dependency_entry), a real directory
+        # the encoder's symlink-refusing dependency-root walk accepts.
+        arguments += ("--rulespec-dependency-root", str(run.paths["rulespec_us"]))
+    return arguments
+
+
 def _render_boolean(value: Any) -> str:
     """Render a boolean input the way ${{ inputs.<name> }} does."""
 
@@ -3923,21 +4193,61 @@ def _gate_unsupported_paths(
     return _step_result(spec, code, stdout, stderr, command)
 
 
+_PROGRAM_SPEC_PARSER_STEP = "Install the ProgramSpec shape-check parser"
+_PINNED_PYYAML_RE = re.compile(r"(?<![A-Za-z0-9_.-])pyyaml==(?P<version>[0-9][^\s]*)")
+
+
+def program_spec_parser_mismatch(workflow: PinnedWorkflow) -> DependencyMismatch | None:
+    """Compare ci's PyYAML with the parser the pre-check installs (92ccb0f2 L216-217).
+
+    The pre-check's ProgramSpec shape check imports yaml in the interpreter
+    that runs it; ci runs it in its own interpreter.
+    """
+
+    steps = [
+        step
+        for step in workflow.payload["jobs"]["shards"]["steps"]
+        if isinstance(step, dict) and step.get("name") == _PROGRAM_SPEC_PARSER_STEP
+    ]
+    if not steps:
+        return None
+    match = _PINNED_PYYAML_RE.search(str(steps[0].get("run", "")))
+    if match is None:
+        raise ValueError(
+            f"validate-rulespec@{workflow.sha[:8]} {_PROGRAM_SPEC_PARSER_STEP!r} "
+            "installs no exact pyyaml version"
+        )
+    running = getattr(yaml, "__version__", "unknown")
+    if running == match.group("version"):
+        return None
+    return DependencyMismatch(
+        "program-spec-parser", f"pyyaml {running}", f"pyyaml {match.group('version')}"
+    )
+
+
 def _gate_unmanifested_rulespec(
     run: WorkflowRun | _ShardsRun, spec: GateSpec
 ) -> GateResult:
+    environment = {
+        **run.simulation.github_environment(run.repo),
+        "BASE_SHA": run.simulation.base_sha,
+        "EVENT_NAME": PULL_REQUEST_EVENT,
+        "RUN_GENERATED_GUARD": _render_boolean(
+            run.caller.inputs["run-generated-guard"]
+        ),
+        "SCAN_MODE": "diff",
+    }
+    # 92ccb0f2 L224 passes guard-programs-root; earlier pins do not.
+    if "GUARD_PROGRAMS_ROOT" in (
+        run.workflow.step("shards", spec.name).get("env") or {}
+    ):
+        environment["GUARD_PROGRAMS_ROOT"] = _render_boolean(
+            run.caller.inputs["guard-programs-root"]
+        )
     code, stdout, stderr = _run_embedded_python(
         run.workflow.python("shards", spec.name),
         cwd=run.repo,
-        environment={
-            **run.simulation.github_environment(run.repo),
-            "BASE_SHA": run.simulation.base_sha,
-            "EVENT_NAME": PULL_REQUEST_EVENT,
-            "RUN_GENERATED_GUARD": _render_boolean(
-                run.caller.inputs["run-generated-guard"]
-            ),
-            "SCAN_MODE": "diff",
-        },
+        environment=environment,
     )
     return _step_result(
         spec,
@@ -4269,6 +4579,8 @@ def _gate_validation_waivers(run: WorkflowRun, spec: GateSpec) -> GateResult:
             (
                 "validation-waivers",
                 "audit",
+                *_composer_arguments(run),
+                *(("--json",) if "--json" in spec.flags else ()),
                 "--root",
                 str(repo),
                 "--corpus-path",
@@ -4556,6 +4868,7 @@ def _gate_validate(run: WorkflowRun, spec: GateSpec) -> GateResult:
                             "validate",
                             *selected[worker::count],
                             "--skip-reviewers",
+                            *_composer_arguments(run),
                             "--corpus-path",
                             str(run.paths["corpus"]),
                             "--axiom-rules-engine-path",
@@ -4630,6 +4943,7 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
                     CliInvocation(
                         (
                             "test",
+                            *_composer_arguments(run),
                             "--root",
                             str(run.repo / jurisdiction),
                             "--axiom-rules-engine-path",
@@ -4638,6 +4952,8 @@ def _gate_companion_tests(run: WorkflowRun, spec: GateSpec) -> GateResult:
                         ),
                         cwd=run.repo,
                         environment={
+                            # 92ccb0f2 L2903 names $AXIOM_DEPENDENCY_ROOT's
+                            # rulespec-us, the same checkout.
                             "AXIOM_RULESPEC_REPO_ROOTS": (
                                 f"{run.repo}:{run.paths['rulespec_us']}"
                             )
@@ -5323,6 +5639,444 @@ def _build_workflow_engine(
     return view
 
 
+# "Build protected axiom-compose runtime" pins its own Python, not the
+# caller's python-version (92ccb0f2 L2016-2017).
+COMPOSER_PYTHON = "3.14"
+_PROVISION_COMPOSER_SCRIPT = "scripts/provision_axiom_compose_runtime.py"
+
+
+def _build_workflow_composer(
+    compose_checkout: Path,
+    compose_ref: str,
+    encode_path: Path,
+    encode_pin: str,
+    temp: Path,
+    *,
+    workspace: Path,
+    offline: bool,
+    notes: list[str] | None = None,
+    step_environment: Mapping[str, str] | None = None,
+) -> Path:
+    """Mirror "Build protected axiom-compose runtime" (92ccb0f2 L2009-2037).
+
+    ``compose_checkout`` is a fresh clone at ``compose_ref`` with CI's origin,
+    as "Checkout axiom-compose" leaves it. The runtime is staged with uv
+    exactly as the step does, then provisioned by the encoder pin's own
+    provision_axiom_compose_runtime.py, read from the pinned commit rather
+    than the checkout's worktree. CI runs that script under sudo into /opt
+    and makes the result root-owned; locally it runs as the user into a
+    private directory that is then made group- and other-unwritable. A
+    failure is a resolution failure: CI's step fails every leg before a gate.
+    """
+
+    temp.mkdir(parents=True, exist_ok=True)
+    build = temp / "axiom-compose-build"
+    requirements = temp / "axiom-compose-requirements.txt"
+    site_packages = temp / "axiom-compose-site-packages"
+    destination = temp / "axiom-compose-verification"
+    scripts = temp / "axiom-compose-provision"
+    interpreter = build / "bin" / "python"
+    # CI's uv runs in the workspace and reads the committed project
+    # configuration there and in the composer project, but a fresh runner
+    # has no user or system uv configuration. Point both at an empty
+    # directory instead of passing --no-config, which would also drop the
+    # committed project configuration CI reads.
+    empty_config = temp / "axiom-compose-empty-config"
+    empty_config.mkdir()
+    options = ["--offline"] if offline else []
+    environment = {
+        name: value
+        for name, value in _git_environment().items()
+        if not name.startswith(
+            (
+                "PYTHON",
+                "UV_",
+                "PIP_",
+                "VIRTUAL_ENV",
+                "CONDA",
+                "XDG_CONFIG_",
+                "AXIOM_",
+                "GITHUB_",
+                "RUNNER_",
+            )
+        )
+        and name != "CI"
+    }
+    # What the step sees on a runner: GitHub's variables (GITHUB_WORKSPACE,
+    # RUNNER_TEMP, ...), AXIOM_DEPENDENCY_ROOT and _STAGE from GITHUB_ENV and
+    # its own AXIOM_COMPOSE_REF, never the developer's values. Committed uv
+    # configuration can name any of them, as in ${AXIOM_DEPENDENCY_ROOT}.
+    environment.update(step_environment or {})
+    # Git, which uv runs for git dependencies, reads no global or system
+    # configuration, as on a fresh runner: no developer hooks, credential
+    # helpers or URL rewrites.
+    environment.update(_isolated_git_settings())
+    environment["XDG_CONFIG_HOME"] = str(empty_config)
+    environment["XDG_CONFIG_DIRS"] = str(empty_config)
+    # The one uv setting a committed file can use to move writes is
+    # cache-dir. "Install uv for composer runtime" (setup-uv v8.1.0, 92ccb0f2
+    # L1630-1634) exports UV_CACHE_DIR=$RUNNER_TEMP/setup-uv-cache to the
+    # step, which outranks a cache-dir in any configuration file, the
+    # composer project's included. The exception is a cache-dir setup-uv
+    # itself finds in the rules checkout's own uv.toml or pyproject.toml:
+    # it then leaves the variable unset and uv writes wherever the pull
+    # request says, on a disposable runner. Locally that write would leave
+    # ci's temporary directories, so it fails resolution. Any other committed
+    # cache setting, no-cache included, applies as it does in CI.
+    committed_cache = _setup_uv_cache_dir(workspace)
+    if committed_cache is not None:
+        raise ValueError(
+            "Cannot reproduce CI with a committed uv cache directory: the rules "
+            f"checkout's uv configuration moves uv's cache to {committed_cache}. "
+            "CI writes it on a disposable runner; locally that write would "
+            "leave ci's temporary directories"
+        )
+    # uv's temporary files, and the temporary cache a committed no-cache
+    # selects, stay in the run's RUNNER_TEMP rather than the host's.
+    uv_temp = temp / "uv-tmp"
+    uv_temp.mkdir()
+    environment["TMPDIR"] = str(uv_temp)
+    if offline:
+        # Nothing can be downloaded, so uv's own default cache has to supply
+        # the composer's requirements. Naming it keeps the composer
+        # project's configuration from moving it, as CI's variable does.
+        default_cache = _uv_cache_directory(empty_config, environment, ("--no-config",))
+        if default_cache is None:
+            raise ValueError(
+                "Build protected axiom-compose runtime failed: uv could not "
+                "report its cache directory"
+            )
+        environment["UV_CACHE_DIR"] = default_cache
+    else:
+        cache = temp / "setup-uv-cache"
+        cache.mkdir()
+        environment["UV_CACHE_DIR"] = str(cache)
+    commands = [
+        ["uv", "python", "install", COMPOSER_PYTHON, *options],
+        [
+            "uv",
+            "venv",
+            "--python",
+            # On a fresh runner the only managed 3.14 is the GIL build the
+            # previous command installed; locally uv may prefer a newer
+            # free-threaded 3.14t, so ask for the GIL build, as the
+            # repository-test venv does.
+            f"{COMPOSER_PYTHON}+gil",
+            *options,
+            str(build),
+        ],
+        [
+            "uv",
+            "export",
+            "--project",
+            str(compose_checkout),
+            "--locked",
+            "--no-dev",
+            "--no-emit-project",
+            "--format",
+            "requirements.txt",
+            "--output-file",
+            str(requirements),
+            *options,
+        ],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(interpreter),
+            "--target",
+            str(site_packages),
+            "--requirement",
+            str(requirements),
+            *options,
+        ],
+    ]
+    for command in commands:
+        result = _run_build_command(command, cwd=workspace, environment=environment)
+        if result.returncode:
+            raise ValueError(
+                "Build protected axiom-compose runtime failed: "
+                f"{' '.join(command)}: {result.stdout[-2000:]}"
+            )
+    # The provisioning script and its helper come from the encoder pin's
+    # committed tree, as CI's checkout of that pin supplies them. Blobs are
+    # read directly, so no local attribute (export-ignore, filters) applies.
+    _write_pinned_tree(encode_path, encode_pin, "scripts", scripts)
+    provision = scripts / _PROVISION_COMPOSER_SCRIPT
+    if not provision.is_file():
+        raise ValueError(
+            f"Encoder pin {encode_pin} has no {_PROVISION_COMPOSER_SCRIPT}; the "
+            "composer runtime needs a composer-aware encoder"
+        )
+    home = temp / "axiom-compose-provision-home"
+    home.mkdir()
+    # sudo resets the environment to a minimal one (env_reset).
+    provision_environment = {
+        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        "HOME": str(home),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        **_isolated_git_settings(),
+    }
+    result = _run_build_command(
+        [
+            str(interpreter),
+            str(provision),
+            "--destination",
+            str(destination),
+            "--site-packages",
+            str(site_packages),
+            "--compose-checkout",
+            str(compose_checkout),
+            "--compose-ref",
+            compose_ref,
+        ],
+        cwd=temp,
+        environment=provision_environment,
+    )
+    if result.returncode:
+        raise ValueError(
+            "Build protected axiom-compose runtime failed: "
+            f"{_PROVISION_COMPOSER_SCRIPT}: {result.stdout[-2000:]}"
+        )
+    for path in (destination, *destination.rglob("*")):
+        if not path.is_symlink():
+            path.chmod(path.stat().st_mode & ~(stat.S_IWGRP | stat.S_IWOTH))
+    launcher = destination / "axiom-compose"
+    smoke = _run_build_command(
+        [str(launcher), "--help"], cwd=temp, environment=provision_environment
+    )
+    if smoke.returncode:
+        raise ValueError(
+            f"Provisioned axiom-compose runtime does not run: {smoke.stdout[-2000:]}"
+        )
+    if notes is not None:
+        uv_version = _run_build_command(
+            ["uv", "--version"], cwd=temp, environment=environment
+        ).stdout.strip()
+        attestation = destination / "runtime-attestation.json"
+        try:
+            runtime = json.loads(attestation.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            runtime = {}
+        python = _run_build_command(
+            [str(interpreter), "-c", "import sys; print(sys.version.split()[0])"],
+            cwd=temp,
+            environment=environment,
+        ).stdout.strip()
+        notes.append(
+            f"composer runtime: axiom-compose {compose_ref} provisioned by "
+            f"{_PROVISION_COMPOSER_SCRIPT}@{encode_pin[:12]} at {launcher} "
+            f"(Python {python}; {uv_version}; package tree sha256 "
+            f"{runtime.get('package_tree_sha256', 'unknown')})"
+        )
+    return launcher
+
+
+def _uv_cache_directory(
+    cwd: Path, environment: Mapping[str, str], arguments: Sequence[str] = ()
+) -> str | None:
+    """The cache directory uv would use from ``cwd``, or None if uv cannot say.
+
+    ``uv cache dir`` only reports the path. Without configuration (the only
+    way ci calls it) it creates nothing; under a no-cache setting it would
+    create a temporary cache.
+    """
+
+    result = _run_build_command(
+        ["uv", *arguments, "cache", "dir"], cwd=cwd, environment=environment
+    )
+    if result.returncode:
+        return None
+    lines = result.stdout.strip().splitlines()
+    return lines[-1] if lines else None
+
+
+def _setup_uv_cache_dir(workspace: Path) -> str | None:
+    """The cache-dir setup-uv finds in the workspace, if any.
+
+    setup-uv v8.1.0's getCacheDirFromConfig reads ``cache-dir`` from the
+    working directory's uv.toml, then ``tool.uv.cache-dir`` from its
+    pyproject.toml, and treats a file it cannot parse as the end of the
+    search. When it finds one it does not export UV_CACHE_DIR.
+    """
+
+    for name in ("uv.toml", "pyproject.toml"):
+        path = workspace / name
+        if not path.exists():
+            continue
+        try:
+            table: Any = tomllib.loads(path.read_text())
+        except (OSError, ValueError):
+            return None
+        if name == "pyproject.toml":
+            for key in ("tool", "uv"):
+                table = table.get(key) if isinstance(table, dict) else None
+        value = table.get("cache-dir") if isinstance(table, dict) else None
+        if value is not None:
+            return str(value)
+    return None
+
+
+def _write_pinned_tree(
+    checkout: Path, commit: str, prefix: str, destination: Path
+) -> None:
+    """Write the regular files under ``prefix`` at ``commit`` into ``destination``."""
+
+    environment = {
+        **_git_environment(),
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        # A local refs/replace entry must not swap the pinned tree or a blob.
+        "GIT_NO_REPLACE_OBJECTS": "1",
+    }
+    listing = subprocess.run(
+        ["git", "-C", str(checkout), "ls-tree", "-r", "-z", commit, "--", prefix],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=environment,
+    )
+    if listing.returncode:
+        raise ValueError(
+            f"Encoder pin {commit} has no {prefix}/ to provision the composer: "
+            + listing.stderr.decode("utf-8", "replace").strip()
+        )
+    destination.mkdir()
+    for record in filter(None, listing.stdout.split(b"\0")):
+        meta, _, raw_path = record.partition(b"\t")
+        mode, kind, blob = meta.decode("ascii").split()
+        path = PurePosixPath(os.fsdecode(raw_path))
+        if kind != "blob" or mode not in {"100644", "100755"}:
+            # CI's checkout would materialize a symlink or submodule here;
+            # ci copies only regular blobs, so it refuses rather than omit one.
+            raise ValueError(
+                f"Encoder pin {commit} has a non-regular {prefix}/ entry ci cannot "
+                f"reproduce: {path} (mode {mode})"
+            )
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"Unsafe path in encoder pin {commit}: {path}")
+        content = subprocess.run(
+            ["git", "-C", str(checkout), "cat-file", "blob", blob],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            env=environment,
+        ).stdout
+        target = destination.joinpath(*path.parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        target.chmod(0o755 if mode == "100755" else 0o644)
+
+
+_COMPOSER_UV_STEP = "Install uv for composer runtime"
+# uv reads system configuration from $XDG_CONFIG_DIRS/uv/uv.toml and, when
+# none is found there, from this file, even with XDG_CONFIG_DIRS set
+# (uv-dirs system_config_file). A fresh runner has neither.
+SYSTEM_UV_CONFIG = Path("/etc/uv/uv.toml")
+
+
+def composer_uv_config_mismatch(
+    directories: Sequence[Path] = (),
+) -> DependencyMismatch | None:
+    """A host uv configuration CI's runner does not have, if any.
+
+    ``directories`` are the places the composer build's uv commands read
+    project configuration from: the rules checkout and the dependency root.
+    """
+
+    # uv's fallback uses try_exists, which follows links: a dangling link is
+    # no configuration, while a directory still counts (uv fails reading it).
+    if SYSTEM_UV_CONFIG.exists():
+        return DependencyMismatch(
+            "composer-uv-config",
+            f"system uv configuration {SYSTEM_UV_CONFIG}",
+            "none",
+        )
+    # From a directory with no uv configuration of its own, uv reads one
+    # above it. ci takes the runner to have none above its
+    # workspace or RUNNER_TEMP, as for user and system configuration; locally
+    # a temporary directory inside a uv project would lend the build that
+    # project's indexes and settings.
+    for directory in directories:
+        for ancestor in directory.resolve().parents:
+            found = _uv_configuration_file(ancestor)
+            if found is not None:
+                return DependencyMismatch(
+                    "composer-uv-config",
+                    f"uv configuration {found} above ci's temporary directory",
+                    "none",
+                )
+    return None
+
+
+def _uv_configuration_file(directory: Path) -> Path | None:
+    """The uv.toml, or pyproject.toml with a [tool.uv] table, in ``directory``."""
+
+    config = directory / "uv.toml"
+    if config.exists():
+        return config
+    project = directory / "pyproject.toml"
+    try:
+        tool = tomllib.loads(project.read_text()).get("tool")
+    except (OSError, ValueError):
+        return None
+    return project if isinstance(tool, dict) and "uv" in tool else None
+
+
+def composer_uv_mismatch(workflow: PinnedWorkflow) -> DependencyMismatch | None:
+    """Compare the local uv with the version setup-uv installs (92ccb0f2 L1630-1634)."""
+
+    steps = [
+        step
+        for step in workflow.payload["jobs"]["validate"]["steps"]
+        if isinstance(step, dict) and step.get("name") == _COMPOSER_UV_STEP
+    ]
+    if not steps:
+        return None
+    pinned = str((steps[0].get("with") or {}).get("version", ""))
+    try:
+        result = subprocess.run(
+            ["uv", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+            env={
+                name: value
+                for name, value in _git_environment().items()
+                if not name.startswith("UV_")
+            },
+        )
+        output = result.stdout.strip() if result.returncode == 0 else ""
+    except OSError:
+        output = ""
+    match = re.match(r"uv (\S+)", output)
+    running = match.group(1) if match else "unavailable"
+    if running == pinned:
+        return None
+    return DependencyMismatch("composer-uv", f"uv {running}", f"uv {pinned}")
+
+
+def _run_build_command(
+    command: Sequence[str], *, cwd: Path, environment: Mapping[str, str]
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            list(command),
+            cwd=cwd,
+            env=dict(environment),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    except OSError as exc:
+        raise ValueError(f"{command[0]} could not run: {exc}") from exc
+
+
 def _workflow_internal_directory(repo: Path) -> Path:
     """Reject PR-controlled checkout destinations before writing any links."""
 
@@ -5375,34 +6129,138 @@ def _reject_tracked_dependency_symlinks(paths: Mapping[str, Path]) -> None:
                 )
 
 
-def _link_workflow_checkouts(repo: Path, paths: Mapping[str, Path]) -> None:
-    """Give implicit discovery CI's sibling-checkout layout.
+_CHECKOUT_NAMES = {
+    "encode": "axiom-encode",
+    "engine": "axiom-rules-engine",
+    "corpus": "axiom-corpus",
+    "rulespec_us": "rulespec-us",
+    "compose": "axiom-compose",
+}
+_STAGE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
-    CI also checks the dependencies out under ``_axiom/`` inside the rules
-    checkout (6f11be26 L1064/L1072/L1080/L1088; 0effa6a5 L711/L719/L727/L735)
-    as real directories. The gates' ``find`` steps prune ``_axiom`` and no
-    repository test reads it. The pinned encoder's symlink audit does walk it,
-    and rejects any symlink in an active RuleSpec checkout, so ``_axiom/`` is
-    left absent here rather than linked; a symlink the dependencies themselves
-    track is refused separately (``_reject_tracked_dependency_symlinks``).
-    A PR that commits ``_axiom`` content still fails closed, since CI's
-    checkouts would land on it.
+
+@dataclass(frozen=True, slots=True)
+class DependencyLayout:
+    """Where CI's validate job keeps its dependency checkouts.
+
+    Pins before 92ccb0f2 check them out under ``_axiom`` inside the rules
+    checkout. From 92ccb0f2 on they live in a directory under RUNNER_TEMP,
+    outside the checkout, exported to every later step as
+    AXIOM_DEPENDENCY_ROOT, and the workspace keeps only an empty staging
+    directory named by AXIOM_DEPENDENCY_STAGE (L1442-1462).
     """
 
-    names = {
-        "encode": "axiom-encode",
-        "engine": "axiom-rules-engine",
-        "corpus": "axiom-corpus",
-        "rulespec_us": "rulespec-us",
-    }
-    _workflow_internal_directory(repo)
-    # 6f11be26 L1497-1504 (0effa6a5 L1144-1151) links the dependencies as
-    # siblings of the workspace, outside the rules checkout.
-    links = [
-        (repo.parent / names[name], paths[name])
-        for name in ("engine", "corpus", "rulespec_us")
-        if names[name] != repo.name
-    ]
+    root: Path
+    # The workspace-relative staging directory, for the isolated layout.
+    stage: str | None = None
+
+    @property
+    def isolated(self) -> bool:
+        return self.stage is not None
+
+    def entry(self, name: str) -> Path:
+        return self.root / name
+
+    def environment(self) -> dict[str, str]:
+        """The GITHUB_ENV exports later steps (repository pytest) see."""
+
+        if self.stage is None:
+            return {}
+        return {
+            "AXIOM_DEPENDENCY_STAGE": self.stage,
+            "AXIOM_DEPENDENCY_ROOT": str(self.root),
+        }
+
+
+def _run_layout(run: Any) -> DependencyLayout:
+    """The run's isolated layout, or a non-isolated stand-in for _axiom pins."""
+
+    layout = getattr(run, "layout", None)
+    return layout if layout is not None else DependencyLayout(Path())
+
+
+def isolated_dependency_layout(
+    workflow: PinnedWorkflow, repo: Path, runner_temp: Path
+) -> DependencyLayout:
+    """Mirror "Reserve isolated dependency directories" (92ccb0f2 L1442-1462).
+
+    The step makes an exclusive staging directory in the workspace, which
+    stays there, empty, once every checkout has been moved out of it, and an
+    exclusive dependency root under RUNNER_TEMP, mode 0755. Its embedded
+    check that the root is outside the workspace runs unchanged.
+    """
+
+    step = workflow.step("validate", "Reserve isolated dependency directories")
+    stage = _exclusive_directory(repo, ".axiom-dependency-stage.")
+    tools = _exclusive_directory(runner_temp, "axiom-dependencies.")
+    code, stdout, stderr = _run_embedded_python(
+        _heredoc_bodies(step["run"])[0],
+        cwd=repo,
+        environment={"GITHUB_WORKSPACE": str(repo), "tools": str(tools)},
+    )
+    if code:
+        raise ValueError(
+            "Reserve isolated dependency directories failed: "
+            + ((stderr or stdout).strip() or f"exit status {code}")
+        )
+    tools.chmod(0o755)
+    return DependencyLayout(tools.resolve(strict=True), stage.name)
+
+
+def _exclusive_directory(parent: Path, prefix: str) -> Path:
+    """``mktemp -d <parent>/<prefix>XXXXXXXX``: a new directory, never reused."""
+
+    for _ in range(100):
+        suffix = "".join(secrets.choice(_STAGE_ALPHABET) for _ in range(8))
+        candidate = parent / f"{prefix}{suffix}"
+        try:
+            candidate.mkdir(mode=0o700)
+        except FileExistsError:
+            continue
+        return candidate
+    raise ValueError(f"Cannot create a unique {prefix}XXXXXXXX directory in {parent}")
+
+
+def _link_workflow_checkouts(
+    repo: Path,
+    paths: Mapping[str, Path],
+    layout: DependencyLayout | None = None,
+) -> None:
+    """Give implicit discovery CI's checkout layout, never inside the checkout.
+
+    Before 92ccb0f2, CI also checks the dependencies out under ``_axiom/``
+    inside the rules checkout (6f11be26 L1064/L1072/L1080/L1088; 0effa6a5
+    L711/L719/L727/L735) as real directories. The gates' ``find`` steps prune
+    ``_axiom`` and no repository test reads it. The pinned encoder's symlink
+    audit does walk it, and rejects any symlink in an active RuleSpec
+    checkout, so ``_axiom/`` is left absent here rather than linked; a
+    symlink the dependencies themselves track is refused separately
+    (``_reject_tracked_dependency_symlinks``). A PR that commits ``_axiom``
+    content still fails closed, since CI's checkouts would land on it. From
+    92ccb0f2 on, CI moves
+    every checkout to $AXIOM_DEPENDENCY_ROOT, outside the rules checkout
+    (L1471-1541, L1604-1615), and links the siblings to those entries
+    (L2046-2054); ci gives the root the same entries.
+    """
+
+    if layout is None or not layout.isolated:
+        _workflow_internal_directory(repo)
+        # 6f11be26 L1497-1504 (0effa6a5 L1144-1151) links the dependencies as
+        # siblings of the workspace, outside the rules checkout.
+        links = [
+            (repo.parent / _CHECKOUT_NAMES[name], paths[name])
+            for name in ("engine", "corpus", "rulespec_us")
+            if _CHECKOUT_NAMES[name] != repo.name
+        ]
+    else:
+        links = [
+            (layout.entry(_CHECKOUT_NAMES[name]), path) for name, path in paths.items()
+        ]
+        links.extend(
+            (repo.parent / _CHECKOUT_NAMES[name], layout.entry(_CHECKOUT_NAMES[name]))
+            for name in ("engine", "corpus", "rulespec_us")
+            if _CHECKOUT_NAMES[name] != repo.name
+        )
     for link, path in links:
         if link.exists() or link.is_symlink():
             if link.resolve() != path.resolve():
@@ -5411,6 +6269,480 @@ def _link_workflow_checkouts(repo: Path, paths: Mapping[str, Path]) -> None:
                 )
         else:
             link.symlink_to(path, target_is_directory=True)
+
+
+def _link_dependency_entries(
+    layout: DependencyLayout, checkouts: Mapping[str, Path]
+) -> None:
+    """Link verified checkouts into the dependency root, outside the checkout."""
+
+    for name, path in checkouts.items():
+        entry = layout.entry(_CHECKOUT_NAMES[name])
+        if entry.exists() or entry.is_symlink():
+            if entry.resolve() != path.resolve():
+                raise ValueError(f"CI dependency entry already exists: {entry}")
+            continue
+        entry.symlink_to(path, target_is_directory=True)
+
+
+_COMPOSER_SIBLINGS = ("encode", "engine", "corpus")
+_CLONE_NOFOLLOW = 0x0001
+_FICLONE = 0x40049409
+
+
+def _copy_on_write(source: Path, target: Path) -> None:
+    """Copy one file, sharing its blocks with ``source`` where the filesystem can.
+
+    APFS clonefile and Linux FICLONE make the copy without writing its data;
+    writes to the copy never reach ``source``. Elsewhere it is a plain copy.
+    """
+
+    if sys.platform == "darwin":
+        try:
+            clonefile = ctypes.CDLL(None, use_errno=True).clonefile
+            if (
+                clonefile(
+                    os.fsencode(source),
+                    os.fsencode(target),
+                    ctypes.c_uint32(_CLONE_NOFOLLOW),
+                )
+                == 0
+            ):
+                return
+        except (AttributeError, OSError):
+            pass
+    elif sys.platform.startswith("linux"):
+        try:
+            with open(source, "rb") as reader, open(target, "xb") as writer:
+                fcntl.ioctl(writer.fileno(), _FICLONE, reader.fileno())
+            return
+        except OSError:
+            target.unlink(missing_ok=True)
+    shutil.copy2(source, target, follow_symlinks=False)
+
+
+def _isolated_git_settings() -> dict[str, str]:
+    """The variables that keep Git from a developer's global and system setup."""
+
+    return {
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_ATTR_NOSYSTEM": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
+def _refuse_shallow_source(source: Path, name: str) -> None:
+    """Fail resolution for a shallow checkout CI would see with full history.
+
+    "Authenticate dependency commits" fetches every dependency with
+    --unshallow (92ccb0f2 L1559) and the composer checkout uses
+    fetch-depth 0 (L1602), so their history, and anything derived from it
+    (setuptools-scm or hatch-vcs versions, `git describe`), is complete. A
+    copy of a shallow local checkout would not be.
+    """
+
+    shallow = _isolated_git(source, "rev-parse", "--is-shallow-repository", check=False)
+    if shallow.returncode == 0 and shallow.stdout.strip() == "true":
+        raise ValueError(
+            f"Cannot reproduce CI's {name} checkout from the shallow checkout "
+            f"{source}: CI fetches its full history. Run "
+            f"`git -C {source} fetch --unshallow` and rerun"
+        )
+
+
+def _isolated_git_environment() -> dict[str, str]:
+    """Git with no global or system configuration, attributes or prompts.
+
+    What committed_checkout and _disposable_checkout give Git, so neither a
+    developer's hooks (core.hooksPath) nor their aliases, filters or
+    templates touch a checkout ci made.
+    """
+
+    return {**_git_environment(), **_isolated_git_settings()}
+
+
+def _isolated_git(
+    repo: Path, *arguments: str, stdin: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            f"core.hooksPath={os.devnull}",
+            "-c",
+            f"core.attributesFile={os.devnull}",
+            "-C",
+            str(repo),
+            *arguments,
+        ],
+        input=stdin,
+        text=True,
+        check=check,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=_isolated_git_environment(),
+    )
+
+
+def _ci_dependency_refs(checkout: Path, source: Path) -> None:
+    """Leave ``checkout`` with the refs CI's dependency checkouts hold.
+
+    actions/checkout of a pinned commit fetches it at depth 1 without tags,
+    and "Authenticate dependency commits" then fetches only the default
+    branch, with --no-tags (92ccb0f2 L1543-1567). So there are no tags, no
+    local branches and one remote-tracking ref, and `git describe --tags`
+    and the version schemes built on it (setuptools-scm, hatch-vcs) see what
+    they see in CI. HEAD stays detached at the commit. Every Git command runs
+    without the developer's global or system configuration or hooks.
+    """
+
+    default = (
+        _isolated_git(
+            source, "symbolic-ref", "-q", "refs/remotes/origin/HEAD", check=False
+        ).stdout.strip()
+        or "refs/remotes/origin/main"
+    )
+    tip = _isolated_git(
+        source, "rev-parse", "--verify", "-q", default, check=False
+    ).stdout.strip()
+    refs = _isolated_git(checkout, "for-each-ref", "--format=%(refname)").stdout.split()
+    if refs:
+        _isolated_git(
+            checkout,
+            "update-ref",
+            "--stdin",
+            # no-deref: refs/remotes/origin/HEAD goes, not what it names.
+            stdin="".join(f"option no-deref\ndelete {ref}\n" for ref in refs),
+        )
+    if tip:
+        # A transport clone holds only what it fetched; the default branch's
+        # tip may be newer than every local ref of the source.
+        if _isolated_git(
+            checkout, "cat-file", "-e", f"{tip}^{{commit}}", check=False
+        ).returncode:
+            _isolated_git(
+                checkout, "fetch", "--quiet", "--no-tags", str(source), tip, check=False
+            )
+        _isolated_git(checkout, "update-ref", default, tip, check=False)
+
+
+def _git_blob_digest(path: Path, algorithm: str) -> str:
+    """The Git object id of a regular file's raw bytes (no filters, no links)."""
+
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as handle:
+        digest = hashlib.new(algorithm)
+        digest.update(b"blob %d\0" % os.fstat(handle.fileno()).st_size)
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+# Attributes under which a checkout writes other bytes than the blob's.
+_CHECKOUT_CONVERSIONS = ("text", "eol", "filter", "ident", "working-tree-encoding")
+
+
+def _disposable_checkout(
+    source: Path,
+    commit: str,
+    destination: Path,
+    repository: str,
+    carried: Sequence[str] = (),
+) -> None:
+    """Make ``destination`` byte for byte what a fresh checkout of ``commit`` is.
+
+    CI's dependency checkouts are disposable, so a build may write into them.
+    ci's are the developer's own, so a build gets this copy instead:
+    - Git objects are shared read-only through alternates, and origin is
+      https://github.com/<repository>, HEAD detached at ``commit``.
+    - Only paths tracked at ``commit`` are placed, so nothing untracked or
+      ignored comes along, and paths this filesystem would merge (case,
+      Unicode normalization) fail closed, as committed_checkout's do. Links
+      come from their blobs. A regular file is cloned copy-on-write from the
+      verified checkout only when that path is a regular file there; a link,
+      directory or missing path (under a recorded ref mismatch) is written
+      from the commit instead, so nothing in the copy leads back into the
+      developer's files.
+    - A file whose committed attributes make a checkout convert it (line
+      endings, filters, ident, encodings) is written by ``git
+      checkout-index``, as a fresh checkout writes it: the developer's copy
+      can differ in bytes while Git calls it clean.
+    - Every other file's raw bytes are hashed and compared with its blob; one
+      that differs is written by ``git checkout-index`` too, and still
+      differing fails closed. Hashes are computed here, so no path is
+      parsed by Git line by line. Modes are a fresh checkout's (0644, 0755).
+    - Tags and branches are reduced to what CI's checkout holds
+      (_ci_dependency_refs).
+    ``carried`` names untracked files CI has already placed in its checkout
+    before the step (the corpus release object), copied from ``source``.
+    """
+
+    _refuse_shallow_source(source, destination.name)
+    environment = _isolated_git_environment()
+
+    def git(*arguments: str, stdin: bytes | None = None) -> bytes:
+        result = subprocess.run(
+            [
+                "git",
+                "-c",
+                f"core.hooksPath={os.devnull}",
+                "-c",
+                f"core.attributesFile={os.devnull}",
+                "-C",
+                str(destination),
+                *arguments,
+            ],
+            input=stdin,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            check=False,
+        )
+        if result.returncode:
+            raise ValueError(
+                f"Cannot make a disposable {destination.name} checkout at "
+                f"{commit}: git {arguments[0]}: "
+                + result.stderr.decode("utf-8", "replace").strip()
+            )
+        return result.stdout
+
+    destination.mkdir()
+    git(
+        "clone",
+        "--quiet",
+        "--shared",
+        "--no-checkout",
+        "--template=",
+        str(source.resolve()),
+        ".",
+    )
+    git("remote", "set-url", "origin", f"https://github.com/{repository}")
+    tree = []
+    for record in git("ls-tree", "-r", "-z", "--full-tree", commit).split(b"\0"):
+        if record:
+            meta, _, raw = record.partition(b"\t")
+            mode, _kind, blob = meta.split()
+            tree.append((mode, blob.decode(), os.fsdecode(raw)))
+    for relative in carried:
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError(f"Cannot carry {relative!r} into a disposable checkout")
+    # CI places the carried files beside the committed ones (the release
+    # object at L1880-1896), so both sets have to fit on this filesystem.
+    if collisions := _colliding_paths(
+        [*(path for *_, path in tree), *carried], destination
+    ):
+        raise ValueError(
+            f"Cannot make a disposable {destination.name} checkout at {commit}: "
+            "committed paths collide on this filesystem (case or Unicode "
+            "normalization), so it cannot hold what CI's Linux checkout holds: "
+            + "; ".join(collisions[:10])
+        )
+    regular: dict[str, tuple[str, bool]] = {}
+    for mode, blob, relative in tree:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if mode == b"120000":
+            os.symlink(os.fsdecode(git("cat-file", "blob", blob)), target)
+        elif mode == b"160000":
+            target.mkdir(exist_ok=True)
+        else:
+            regular[relative] = (blob, mode == b"100755")
+            try:
+                is_file = stat.S_ISREG(os.lstat(source / relative).st_mode)
+            except OSError:
+                is_file = False
+            if is_file:
+                _copy_on_write(source / relative, target)
+    git("read-tree", commit)
+    git("update-ref", "--no-deref", "HEAD", commit)
+    _ci_dependency_refs(destination, source)
+    algorithm = git("rev-parse", "--show-object-format").decode().strip()
+
+    paths = list(regular)
+    converted: set[str] = set()
+    if paths:
+        fields = git(
+            "check-attr",
+            "-z",
+            f"--source={commit}",
+            "--stdin",
+            *_CHECKOUT_CONVERSIONS,
+            stdin=b"".join(os.fsencode(path) + b"\0" for path in paths),
+        ).split(b"\0")
+        for index in range(0, len(fields) - 2, 3):
+            if fields[index + 2] not in (b"unspecified", b"unset"):
+                converted.add(os.fsdecode(fields[index]))
+
+    def differs(path: str) -> bool:
+        target = destination / path
+        try:
+            kind = os.lstat(target).st_mode
+        except FileNotFoundError:
+            return True
+        if stat.S_ISDIR(kind):
+            shutil.rmtree(target)
+            return True
+        if not stat.S_ISREG(kind):
+            target.unlink()
+            return True
+        return _git_blob_digest(target, algorithm) != regular[path][0]
+
+    def mismatches(candidates: Sequence[str]) -> list[str]:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return [
+                path
+                for path, differ in zip(candidates, pool.map(differs, candidates))
+                if differ
+            ]
+
+    plain = [path for path in paths if path not in converted]
+    rewrite = sorted({*converted, *mismatches(plain)})
+    if rewrite:
+        git(
+            "checkout-index",
+            "-f",
+            "-z",
+            "--stdin",
+            stdin=b"".join(os.fsencode(path) + b"\0" for path in rewrite),
+        )
+        if remaining := mismatches([path for path in rewrite if path not in converted]):
+            raise ValueError(
+                f"Disposable {destination.name} checkout still differs from "
+                f"{commit}: {', '.join(repr(path) for path in remaining[:10])}"
+            )
+    for path, (_blob, executable) in regular.items():
+        target = destination / path
+        if not stat.S_ISREG(os.lstat(target).st_mode):
+            raise ValueError(
+                f"Disposable {destination.name} checkout holds a non-file at "
+                f"{path!r}, where {commit} has a file"
+            )
+        os.chmod(target, 0o755 if executable else 0o644)
+    for relative in carried:
+        if not stat.S_ISREG(os.lstat(source / relative).st_mode):
+            raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
+        # The copy is the commit, which may track a link where the developer's
+        # checkout has a directory; never write through one.
+        current = destination
+        for part in Path(relative).parts[:-1]:
+            current = current / part
+            if current.is_symlink() or (current.exists() and not current.is_dir()):
+                raise ValueError(
+                    f"Cannot carry {relative!r} into the disposable checkout: "
+                    f"{current.relative_to(destination)} is not a directory there"
+                )
+            current.mkdir(exist_ok=True)
+        target = destination / relative
+        if target.is_symlink() or (target.exists() and not target.is_file()):
+            raise ValueError(
+                f"Cannot carry {relative!r} into the disposable checkout: the "
+                "commit holds something other than a file there"
+            )
+        target.unlink(missing_ok=True)
+        _copy_on_write(source / relative, target)
+        if not stat.S_ISREG(os.lstat(target).st_mode):
+            raise ValueError(f"Cannot carry {relative!r}: it is not a regular file")
+
+
+def _carried_release_object(release_path: Path, corpus: Path) -> list[str]:
+    """The release object's path inside the corpus checkout, if it is there."""
+
+    try:
+        return [str(release_path.resolve().relative_to(corpus.resolve()))]
+    except ValueError:
+        return []
+
+
+@contextlib.contextmanager
+def _fresh_composer_siblings(
+    layout: DependencyLayout,
+    checkouts: Mapping[str, tuple[Path, str]],
+    carried: Mapping[str, Sequence[str]] | None = None,
+) -> Iterator[None]:
+    """Give the composer build disposable copies of the sibling dependencies.
+
+    ``checkouts`` maps each sibling to its verified checkout and the commit CI
+    checks out. In CI every entry of the dependency root is a disposable
+    checkout, and uv may build a dependency it reaches by path in that
+    dependency's source tree (setuptools writes .egg-info there), whether the
+    path comes from the composer's lock, the rules checkout's uv configuration
+    or a link inside another dependency. So while the composer builds, each
+    sibling entry is such a copy rather than a link to the developer's
+    checkout. ``carried`` lists, per sibling, untracked files CI's checkout
+    already holds at that point (the corpus release object, 92ccb0f2
+    L1870-1938), which the copy receives too. Afterwards each copy is
+    removed and the link restored, also on failure, so later steps see the
+    layout they saw before.
+    """
+
+    swapped: list[str] = []
+    try:
+        for name in sorted(checkouts):
+            entry = layout.entry(_CHECKOUT_NAMES[name])
+            source, commit = checkouts[name]
+            swapped.append(name)
+            if entry.is_symlink():
+                entry.unlink()
+            elif entry.exists():
+                raise ValueError(f"CI dependency entry already exists: {entry}")
+            _disposable_checkout(
+                source,
+                commit,
+                entry,
+                f"TheAxiomFoundation/{_CHECKOUT_NAMES[name]}",
+                (carried or {}).get(name, ()),
+            )
+        yield
+    finally:
+        for name in swapped:
+            entry = layout.entry(_CHECKOUT_NAMES[name])
+            if entry.is_symlink():
+                entry.unlink()
+            elif entry.exists():
+                shutil.rmtree(entry, ignore_errors=True)
+            if not entry.exists():
+                entry.symlink_to(checkouts[name][0], target_is_directory=True)
+
+
+def _dependency_commit(
+    checkout: Path, pin: str, name: str, mismatches: Sequence[DependencyMismatch]
+) -> str:
+    """The pin, or the checkout's own HEAD when a ref mismatch was recorded."""
+
+    if any(item.name == name for item in mismatches):
+        return resolve_commit(checkout, "HEAD")
+    return pin
+
+
+def _fresh_dependency_entry(
+    resources: contextlib.ExitStack,
+    layout: DependencyLayout,
+    name: str,
+    source: Path,
+    commit: str,
+    repository: str,
+) -> Path:
+    """Place a fresh clone of ``source`` at ``commit`` as a dependency-root entry.
+
+    CI's entries are actions/checkout clones moved into the root (92ccb0f2
+    L1471-1541, L1604-1615): real directories holding only the committed
+    tree, with origin https://github.com/<repository>.
+    """
+
+    _refuse_shallow_source(source, _CHECKOUT_NAMES[name])
+    clone = resources.enter_context(
+        committed_checkout(source, commit, repository=repository)
+    )
+    if name != "compose":
+        # "Checkout axiom-compose" alone asks for fetch-depth 0, with tags
+        # (L1602); the other dependency checkouts are fetched without them.
+        _ci_dependency_refs(clone, source)
+    entry = layout.entry(_CHECKOUT_NAMES[name])
+    if entry.exists() or entry.is_symlink():
+        raise ValueError(f"CI dependency entry already exists: {entry}")
+    shutil.move(clone, entry)
+    return entry
 
 
 def _repository_test_python(run: WorkflowRun) -> str:
@@ -5465,6 +6797,20 @@ def _repository_test_python(run: WorkflowRun) -> str:
     # here from the verified encode checkout itself: the same source, without
     # a link inside the rules checkout (see _link_workflow_checkouts).
     classifier = run.paths["encode"]
+    if run.mode != "full-toolchain-bump" and _run_layout(run).isolated:
+        # 92ccb0f2 L3109-3129 moves the classifier checkout to
+        # $AXIOM_DEPENDENCY_ROOT, outside the rules checkout; ci gives the
+        # root that entry too, pointing at the same verified checkout.
+        classifier = _run_layout(run).entry("axiom-encode-oracle-coverage")
+        try:
+            classifier.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise ValueError(
+                f"CI checkout link would replace an existing path: {classifier}"
+            )
+        classifier.symlink_to(run.paths["encode"], target_is_directory=True)
     try:
         if run.mode != "full-toolchain-bump":
             commands.append(
@@ -5654,6 +7000,17 @@ def _run_ci_in_checkout(
             repository=repository,
             base_branch=base_branch,
         )
+        if pin.gate_parameters.program_spec_precheck:
+            parser_mismatch = program_spec_parser_mismatch(workflow)
+            if parser_mismatch is not None:
+                if not getattr(args, "allow_encoder_mismatch", False):
+                    raise ValueError(
+                        f"PARSER MISMATCH: {parser_mismatch.banner_line()}; the "
+                        "ProgramSpec shape check would parse with a different "
+                        "PyYAML than CI's; pass --allow-encoder-mismatch for a "
+                        "qualified development verdict"
+                    )
+                mismatches.append(parser_mismatch)
         shards = _ShardsRun(caller, workflow, repo, simulation, results)
         plan = _execute_shards_job(shards, validate_roots_input)
         if plan is None:
@@ -5690,8 +7047,31 @@ def _run_ci_in_checkout(
         )
         if mismatch:
             mismatches.append(mismatch)
-    if workflow is not None:
+    if workflow is not None and not pin.gate_parameters.isolated_dependencies:
+        # Before 92ccb0f2 the dependencies sit under _axiom/ inside the active
+        # checkout, where the encoder's symlink audit walks them. From
+        # 92ccb0f2 on they are outside it (L1471-1541), so only a
+        # --rulespec-dependency-root is walked, by the encoder itself.
         _reject_tracked_dependency_symlinks(paths)
+    compose_path: Path | None = None
+    if (
+        workflow is not None
+        and pin.gate_parameters.composer_runtime
+        and "compose" in caller.refs
+    ):
+        # 92ccb0f2 L1569-1628: the composer pin is checked against the
+        # committed workflow toolchain before its checkout is authenticated.
+        validate_composer_pin(workflow, repo, caller.refs["compose"])
+        compose_path = resolve_compose_path(args, source)
+        mismatch = verify_dependency_checkout(
+            "compose",
+            compose_path,
+            caller.refs["compose"],
+            caller.path,
+            allow_ref_mismatch=args.allow_ref_mismatch,
+        )
+        if mismatch:
+            mismatches.append(mismatch)
     pinned_version = encoder_version_at_pin(paths["encode"], caller.refs["encode"])
     encoder_mismatch = verify_ambient_encoder(
         caller.refs["encode"],
@@ -5769,7 +7149,139 @@ def _run_ci_in_checkout(
         ),
         remote_fetch_disabled() if args.offline else contextlib.nullcontext(),
     ):
+        layout: DependencyLayout | None = None
+        composer: Path | None = None
         if workflow is not None:
+            runner_temp: Path | None = None
+            if pin.gate_parameters.isolated_dependencies:
+                # One RUNNER_TEMP for the run: the dependency root, the
+                # composer build and every later step's files share it.
+                runner_temp = Path(
+                    run_resources.enter_context(
+                        tempfile.TemporaryDirectory(prefix="axiom-ci-runner-temp-")
+                    )
+                ).resolve()
+                layout = isolated_dependency_layout(workflow, repo, runner_temp)
+                # "Checkout rulespec-us canonical targets" leaves a fresh
+                # checkout at $AXIOM_DEPENDENCY_ROOT/rulespec-us (L1523-1541),
+                # which the encoder walks, symlinks refused, when it is a
+                # --rulespec-dependency-root. The entry is such a clone, so
+                # untracked files of the local checkout never reach it.
+                paths = {
+                    **paths,
+                    "rulespec_us": _fresh_dependency_entry(
+                        run_resources,
+                        layout,
+                        "rulespec_us",
+                        paths["rulespec_us"],
+                        _dependency_commit(
+                            paths["rulespec_us"],
+                            caller.refs["rulespec_us"],
+                            "rulespec_us",
+                            mismatches,
+                        ),
+                        "TheAxiomFoundation/rulespec-us",
+                    ),
+                }
+                # CI relocates every dependency checkout into the root before
+                # it builds the composer (L1463-1567 before L2009-2037), so a
+                # composer whose lock names a sibling by path finds it. The
+                # engine entry is the checkout until the built view replaces
+                # it; the encoder and corpus entries stay links to the
+                # verified checkouts ci uses in place.
+                _link_dependency_entries(
+                    layout,
+                    {name: paths[name] for name in ("encode", "engine", "corpus")},
+                )
+            if compose_path is not None:
+                for uv_mismatch in filter(
+                    None,
+                    (
+                        composer_uv_mismatch(workflow),
+                        composer_uv_config_mismatch(
+                            [repo, *([layout.root] if layout is not None else [])]
+                        ),
+                    ),
+                ):
+                    if not getattr(args, "allow_encoder_mismatch", False):
+                        raise ValueError(
+                            f"UV MISMATCH: {uv_mismatch.banner_line()}; the "
+                            "composer runtime would be built with another uv "
+                            "or uv configuration than CI's; pass "
+                            "--allow-encoder-mismatch for a qualified "
+                            "development verdict"
+                        )
+                    mismatches.append(uv_mismatch)
+                # "Checkout axiom-compose" is a fresh full clone at the pin
+                # whose origin is the GitHub repository (92ccb0f2 L1594-1628).
+                # With a recorded ref mismatch the checkout's own HEAD is
+                # built instead, as the engine build does.
+                compose_commit = _dependency_commit(
+                    compose_path, caller.refs["compose"], "compose", mismatches
+                )
+                if layout is not None:
+                    compose_checkout = _fresh_dependency_entry(
+                        run_resources,
+                        layout,
+                        "compose",
+                        compose_path,
+                        compose_commit,
+                        COMPOSE_REPOSITORY,
+                    )
+                else:
+                    compose_checkout = run_resources.enter_context(
+                        committed_checkout(
+                            compose_path,
+                            compose_commit,
+                            repository=COMPOSE_REPOSITORY,
+                        )
+                    )
+                with (
+                    _fresh_composer_siblings(
+                        layout,
+                        {
+                            name: (
+                                paths[name],
+                                _dependency_commit(
+                                    paths[name], caller.refs[name], name, mismatches
+                                ),
+                            )
+                            for name in _COMPOSER_SIBLINGS
+                        },
+                        {
+                            "corpus": _carried_release_object(
+                                release_path, paths["corpus"]
+                            )
+                        },
+                    )
+                    if layout is not None
+                    else contextlib.nullcontext()
+                ):
+                    composer = _build_workflow_composer(
+                        compose_checkout,
+                        compose_commit,
+                        paths["encode"],
+                        caller.refs["encode"],
+                        runner_temp
+                        or Path(
+                            run_resources.enter_context(
+                                tempfile.TemporaryDirectory(prefix="axiom-ci-composer-")
+                            )
+                        ).resolve(),
+                        workspace=repo,
+                        offline=args.offline,
+                        notes=notes,
+                        # A runner's environment for the step: GitHub's default
+                        # variables (as repository pytest gets them), the
+                        # GITHUB_ENV exports before it and its own env
+                        # (92ccb0f2 L1460-1461, L2011-2012).
+                        step_environment={
+                            **_runner_environment(repo, runner_temp, simulation),
+                            **(layout.environment() if layout is not None else {}),
+                            "AXIOM_COMPOSE_REF": caller.refs["compose"],
+                        },
+                    )
+                paths = {**paths, "compose": compose_checkout}
             engine_temp = Path(
                 run_resources.enter_context(
                     tempfile.TemporaryDirectory(prefix="axiom-ci-engine-")
@@ -5788,10 +7300,23 @@ def _run_ci_in_checkout(
                     ),
                     offline=args.offline,
                     notes=notes,
-                    rules_checkout=repo,
+                    # From 92ccb0f2 the engine builds under RUNNER_TEMP, so
+                    # the rules checkout's Cargo inputs no longer reach it.
+                    rules_checkout=None if layout is not None else repo,
                 ),
             }
-            _link_workflow_checkouts(repo, paths)
+            if layout is not None:
+                # CI's $AXIOM_DEPENDENCY_ROOT/axiom-rules-engine is the built
+                # checkout itself (92ccb0f2 L1491-1501, L2039-2044), which
+                # repository tests read; the bound view moves there, receipt
+                # and all, rather than being linked.
+                engine_entry = layout.entry(_CHECKOUT_NAMES["engine"])
+                if engine_entry.is_symlink():
+                    # The pre-build link to the engine checkout (see above).
+                    engine_entry.unlink()
+                shutil.move(paths["engine"], engine_entry)
+                paths = {**paths, "engine": engine_entry}
+            _link_workflow_checkouts(repo, paths, layout)
             # 6f11be26 L1495 (0effa6a5 L1142) exposes the fresh debug
             # binary before every engine-consuming gate and repository pytest.
             os.environ["PATH"] = os.pathsep.join(
@@ -5820,6 +7345,9 @@ def _run_ci_in_checkout(
                 offline=args.offline,
                 dependency_mismatches=mismatches,
                 shards_done=True,
+                layout=layout,
+                composer=composer,
+                runner_temp=runner_temp,
             )
             results.extend(execute_workflow_gates(run))
             notes.extend(run.notes)
