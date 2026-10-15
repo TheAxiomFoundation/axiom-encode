@@ -1,5 +1,7 @@
 # Seed entry review
 
+Historical seed counts and earlier review chronology below are reported results: the four seed artifacts are named by hash but not included in this repository. The current list does not depend on them, because every candidate was re-joined to authenticated corpus bytes.
+
 The seed is the 366 `removed_physical_from_baseline` occurrences in the round-6
 coverage differential. They occupy **180 physical rows**. The historical
 “194 labels / 160 rows” count describes unique removed labels and rows with a

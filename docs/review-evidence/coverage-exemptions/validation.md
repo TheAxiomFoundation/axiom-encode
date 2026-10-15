@@ -124,6 +124,8 @@ folding and duplicated-ancestor failures before their fixes.
 
 ## Independent review cycle
 
+Two independent reviews of the final list ran on 2026-10-15. Both joined every entry and rejected candidate to signed corpus bytes and hand-audited a sample: 55 accepted entries plus all 21 rejections in the first. The earlier review and fix chronology below is reported, not reproducible from this repository.
+
 An agent independent of the seed author opened every accepted physical window
 and owner span, including outer ancestry where needed; it also checked every
 rejection. Other agents independently reviewed the runtime gate, waiver, corpus
