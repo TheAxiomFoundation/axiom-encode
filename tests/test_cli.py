@@ -58,6 +58,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_signature_issue,
     _applied_encoding_manifest_verifier,
     _applied_manifest_paths_for_files,
+    _applied_manifest_snapshot_exists,
     _applied_manifest_source_attestation_issues,
     _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
@@ -108,6 +109,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _install_apply_transaction,
     _install_eval_suite_revalidation_transaction,
+    _is_unambiguously_absent_repo_path,
     _latest_axiom_encode_version_commit,
     _legacy_replacement_pending_paths,
     _load_verified_applied_encoding_manifest_payload,
@@ -2747,6 +2749,27 @@ def _init_test_git_repo(repo: Path) -> None:
     _git(repo, "init")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test User")
+
+
+@pytest.mark.parametrize("ancestor_kind", ["symlink", "regularfile"])
+def test_manifest_base_snapshot_refuses_ambiguous_deleted_ancestor(
+    tmp_path, ancestor_kind
+):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    ancestor = repo / "us/statutes/deleted"
+    ancestor.parent.mkdir(parents=True)
+    if ancestor_kind == "symlink":
+        ancestor.symlink_to("missing-directory", target_is_directory=True)
+    else:
+        ancestor.write_text("this is not a directory\n")
+    deleted = ancestor / "example.yaml"
+    assert not _is_unambiguously_absent_repo_path(repo, deleted.relative_to(repo))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "ambiguous deleted ancestor")
+    base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    assert _applied_manifest_snapshot_exists(repo, deleted, base_commit=base)
 
 
 def _init_encoder_identity_checkout(
@@ -43089,6 +43112,95 @@ class TestGuardGenerated:
         )
         assert "us/statutes/26/1.yaml" not in forged_coverage
         assert "us/policies/example.yaml" not in forged_coverage
+
+    @pytest.mark.parametrize(
+        "live_change",
+        ["delete_receipt", "edit_receipt", "delete_postimage", "restore_source"],
+    )
+    def test_path_migration_owner_verifies_at_base_despite_live_evidence_changes(
+        self, tmp_path, monkeypatch, live_change
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit signed path migration")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if live_change == "delete_receipt":
+            receipt.unlink()
+        elif live_change == "edit_receipt":
+            receipt.write_text("{}\n")
+        elif live_change == "delete_postimage":
+            (repo / "us/statutes/26/1.yaml").unlink()
+        else:
+            (repo / "us/statutes/26:1.yaml").write_text("unowned live file\n")
+        proof_cache = {}
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+                base_commit=base,
+            )
+        )
+        assert issues == []
+        assert verified == manifest
+        _payload, _root, _digest, live_issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                path_migration_receipt_proof_cache=proof_cache,
+            )
+        )
+        assert live_issues
+
+    def test_path_migration_owner_refuses_receipt_supplied_only_by_live_checkout(
+        self, tmp_path, monkeypatch
+    ):
+        repo, plan, _head = self._path_migration_repo(tmp_path)
+        self._enable_path_migration(monkeypatch)
+        cmd_migrate_rulespec_paths(
+            SimpleNamespace(
+                policy_repo_path=repo, corpus_path=self.corpus_path, plan=plan
+            )
+        )
+        manifest_path = ".axiom/encoding-manifests/us/statutes/26/1.json"
+        manifest = json.loads((repo / manifest_path).read_text())
+        receipt = repo / manifest["migration"]["receipt_path"]
+        receipt_raw = receipt.read_bytes()
+        receipt.unlink()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "commit owner without its receipt")
+        base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        receipt.write_bytes(receipt_raw)
+        verified, _root, _digest, issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                repo,
+                manifest_path,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                local_corpus_release=self.corpus_release,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                base_commit=base,
+            )
+        )
+        assert verified is None
+        assert any("cannot be read safely" in issue for issue in issues)
 
     def test_path_migration_recomputes_signed_dependent_rewrite_from_base(
         self,
