@@ -89,6 +89,87 @@ def _nested_alternatives(good, last):
     )
 
 
+def _literal_credit_parameter(payload, cases, target):
+    """Keep upstream fixture amounts faithful to a literal local parameter."""
+    target["kind"] = "parameter"
+    for version in target["versions"]:
+        version["formula"] = "2"
+    state, federal = (2, 1) if target["name"] == "state_credit" else (1, 2)
+    for case in cases:
+        case["input"].update(amount_1=state, amount_2=federal)
+        case["output"].update(
+            state_credit=state,
+            federal_credit=federal,
+            child_care_credit=(
+                state - federal
+                if case["input"]["resident_has_federal_tax_liability"]
+                else state
+            ),
+        )
+
+
+def _colliding_credit_input(payload, target):
+    role = "federal" if target["name"].startswith("federal") else "state"
+    description = (
+        "The amount of the state child care credit for which the taxpayer is eligible."
+        if role == "state"
+        else "The federal credit for child and dependent care expenses the taxpayer "
+        "is able to deduct from federal tax liability."
+    )
+    payload["inputs"].append(
+        {"name": target["name"], "dtype": "Money", "description": description}
+    )
+
+
+@pytest.mark.parametrize("assert_wrong_future_case", [False, True])
+def test_parameter_input_collision_cannot_hide_wrong_future_credit(
+    assert_wrong_future_case,
+):
+    payload, cases = _derived_credit_candidate("proof")
+    parameter = payload["rules"][1]
+    _literal_credit_parameter(payload, cases, parameter)
+    _append_proved_version(parameter, "3", 2027)
+    _colliding_credit_input(payload, parameter)
+    assert all("state_credit" not in case["input"] for case in cases)
+
+    future = deepcopy(cases[0])
+    future["period"] = "2027-01-01"
+    evaluated = sc._case_dependency_environment(
+        {rule["name"]: rule for rule in payload["rules"] if rule["kind"] == "derived"},
+        future,
+        formula_environment=sc._constant_rule_environment(payload),
+        require_asserted_value=False,
+    )
+    assert evaluated["child_care_credit"] == 2
+    assert future["input"]["amount_1"] - future["input"]["amount_2"] == 1
+    if assert_wrong_future_case:
+        future["output"].update(state_credit=3, child_care_credit=2)
+        cases.append(future)
+
+    issues = _public_gate(payload, "E. " + CLAUSE, cases)
+    assert any(
+        "[complete-source-unit:declaration-collision]" in issue
+        and "state_credit" in issue
+        for issue in issues
+    ), issues
+
+
+@pytest.mark.parametrize("site", ["state", "state_parameter", "state_alias"])
+def test_local_operand_input_collision_is_explicit_even_without_poison(site):
+    payload, cases, target, _good, _wrong = _versioned_candidate(site, 2)
+    assert _public_gate(payload, "E. " + CLAUSE, cases) == ()
+    if site.endswith("parameter"):
+        _literal_credit_parameter(payload, cases, target)
+    _colliding_credit_input(payload, target)
+
+    issues = _public_gate(payload, "E. " + CLAUSE, cases)
+    assert any(
+        "[complete-source-unit:declaration-collision]" in issue
+        and target["name"] in issue
+        for issue in issues
+    ), issues
+
+
 def _versioned_candidate(site, version_count):
     payload, cases = _derived_credit_candidate("proof")
     _with_wages(payload, cases)
@@ -140,32 +221,88 @@ def _versioned_candidate(site, version_count):
 
 @given(
     site=st.sampled_from(
-        ["root", "state", "federal", "state_alias", "federal_alias", "result_alias"]
+        [
+            "root",
+            "state",
+            "federal",
+            "state_alias",
+            "federal_alias",
+            "result_alias",
+            "state_parameter",
+            "federal_parameter",
+        ]
     ),
     layout=st.sampled_from(["version", "alternative"]),
     version_count=st.integers(min_value=2, max_value=4),
     poison=st.integers(min_value=0, max_value=3),
+    collision=st.booleans(),
 )
-@example(site="root", layout="version", version_count=2, poison=0)
-@example(site="state", layout="version", version_count=2, poison=0)
-@example(site="federal", layout="version", version_count=3, poison=1)
-@example(site="state_alias", layout="version", version_count=3, poison=1)
-@example(site="federal_alias", layout="version", version_count=2, poison=0)
-@example(site="result_alias", layout="version", version_count=4, poison=2)
-@example(site="root", layout="alternative", version_count=2, poison=0)
-@example(site="state", layout="alternative", version_count=2, poison=0)
-@example(site="federal", layout="alternative", version_count=3, poison=1)
-@example(site="state_alias", layout="alternative", version_count=3, poison=0)
-@example(site="federal_alias", layout="alternative", version_count=2, poison=1)
-@example(site="result_alias", layout="alternative", version_count=4, poison=0)
+@example(site="root", layout="version", version_count=2, poison=0, collision=False)
+@example(site="state", layout="version", version_count=2, poison=0, collision=False)
+@example(site="federal", layout="version", version_count=3, poison=1, collision=False)
+@example(
+    site="state_alias", layout="version", version_count=3, poison=1, collision=False
+)
+@example(
+    site="federal_alias", layout="version", version_count=2, poison=0, collision=False
+)
+@example(
+    site="result_alias", layout="version", version_count=4, poison=2, collision=False
+)
+@example(site="root", layout="alternative", version_count=2, poison=0, collision=False)
+@example(site="state", layout="alternative", version_count=2, poison=0, collision=False)
+@example(
+    site="federal", layout="alternative", version_count=3, poison=1, collision=False
+)
+@example(
+    site="state_alias", layout="alternative", version_count=3, poison=0, collision=False
+)
+@example(
+    site="federal_alias",
+    layout="alternative",
+    version_count=2,
+    poison=1,
+    collision=False,
+)
+@example(
+    site="result_alias",
+    layout="alternative",
+    version_count=4,
+    poison=0,
+    collision=False,
+)
+@example(site="state", layout="version", version_count=2, poison=0, collision=True)
+@example(
+    site="state_alias", layout="version", version_count=3, poison=1, collision=True
+)
+@example(
+    site="state_parameter", layout="version", version_count=2, poison=0, collision=True
+)
+@example(
+    site="federal_parameter",
+    layout="version",
+    version_count=3,
+    poison=1,
+    collision=True,
+)
+@example(
+    site="state_parameter",
+    layout="alternative",
+    version_count=2,
+    poison=0,
+    collision=True,
+)
 @settings(deadline=None, max_examples=20)
 def test_round5_any_poisoned_credit_version_or_alternative_rejects(
-    site, layout, version_count, poison
+    site, layout, version_count, poison, collision
 ):
     payload, cases, target, good, wrong = _versioned_candidate(site, version_count)
     # The candidate has a valid earlier witness before one version or one
     # otherwise-unexecuted nested alternative is poisoned.
     assert _public_gate(payload, "E. " + CLAUSE, cases) == ()
+    if site.endswith("parameter"):
+        _literal_credit_parameter(payload, cases, target)
+        good, wrong = "2", "3"
     if layout == "version":
         index = 1 + poison % (version_count - 1)
         formula = wrong
@@ -173,11 +310,13 @@ def test_round5_any_poisoned_credit_version_or_alternative_rejects(
         index = poison % version_count
         formula = _nested_alternatives(good, wrong)
     target["versions"][index]["formula"] = formula
+    if collision:
+        _colliding_credit_input(payload, target)
 
     # The existing 2026 assertions remain faithful even when the poisoned
     # version is 2026: its nested bad alternative has never been selected.
     evaluated = _evaluated_outputs(payload, cases[0])
-    assert evaluated["child_care_credit"] == 800
+    assert evaluated["child_care_credit"] == cases[0]["output"]["child_care_credit"]
     assert _public_gate(payload, "E. " + CLAUSE, cases)
 
 

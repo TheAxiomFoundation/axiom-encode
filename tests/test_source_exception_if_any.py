@@ -140,6 +140,69 @@ def test_nm_spouse_parenthetical_is_not_a_bare_exception_obligation():
     )
 
 
+def _public_exception_obligations(
+    source: str, monkeypatch: pytest.MonkeyPatch
+) -> tuple[sc.SourceStructureBranch, ...]:
+    observed: list[tuple[str, tuple[sc.SourceStructureBranch, ...]]] = []
+    original = sc._source_exception_branches
+
+    def record(source_text, **kwargs):
+        obligations = original(source_text, **kwargs)
+        observed.append((source_text, obligations))
+        return obligations
+
+    monkeypatch.setattr(sc, "_source_exception_branches", record)
+    _public_condition_candidate(source, ())
+
+    assert observed, "Public analysis must exercise source exception detection."
+    normalized_source = source.strip()
+    assert all(text == normalized_source for text, _ in observed)
+    obligations = tuple(
+        dict.fromkeys(branch for _, branches in observed for branch in branches)
+    )
+    assert all(
+        branch.text == normalized_source[branch.start : branch.end]
+        for branch in obligations
+    ), obligations
+    return obligations
+
+
+def test_public_nm_parenthetical_retains_reviewed_raw_source_identity(monkeypatch):
+    obligations = _public_exception_obligations(NM_SPOUSE_SOURCE, monkeypatch)
+
+    assert not any(ob.text.strip() == "if any and" for ob in obligations)
+    spouse_clauses = [ob for ob in obligations if "if not disabled" in ob.text]
+    assert len(spouse_clauses) == 1
+    spouse_clause = spouse_clauses[0]
+    assert "the resident's spouse, if any and if not disabled" in spouse_clause.text
+    assert spouse_clause.end <= len(NM_SPOUSE_SOURCE.strip())
+    assert sc._source_exception_selector_is_relevant(
+        spouse_clause.text, "resident_has_spouse"
+    )
+    assert sc._source_exception_selector_is_relevant(
+        spouse_clause.text, "spouse_is_disabled"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        NM_SPOUSE_SOURCE + " ",
+        NM_SPOUSE_SOURCE.removesuffix("\n"),
+        "\n " + NM_SPOUSE_SOURCE,
+        NM_SPOUSE_SOURCE.upper(),
+        NM_SPOUSE_SOURCE.replace("if not disabled", "if not employed"),
+        NM_SPOUSE_SOURCE.replace("if any and", "if any or"),
+    ],
+)
+def test_public_nm_parenthetical_variants_keep_presence_obligation(source, monkeypatch):
+    obligations = _public_exception_obligations(source, monkeypatch)
+
+    assert any(
+        ob.text.strip().lower() in {"if any and", "if any or"} for ob in obligations
+    ), obligations
+
+
 @pytest.mark.parametrize(
     "source",
     [
