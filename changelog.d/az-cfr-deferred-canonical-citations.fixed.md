@@ -1,0 +1,1 @@
+Repair human-readable CFR citations in generated deferral reasons to the exact canonical citation required by complete-source-unit validation, while leaving substantive deferral gaps for source-bound review.
