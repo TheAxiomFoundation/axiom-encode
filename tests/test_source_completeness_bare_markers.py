@@ -69,6 +69,7 @@ def test_bare_chapeau_retains_numeric_boundary_and_condition_obligations():
     assert "65 years old" in chapeau.text
     boundaries = sc._source_boundary_obligations(
         branches,
+        source_text=source,
         narrative_formula_branches=(),
         extract_numeric_occurrences=functools.partial(
             extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
@@ -79,6 +80,106 @@ def test_bare_chapeau_retains_numeric_boundary_and_condition_obligations():
         source, branches=branches, active_branches=branches, deferred_paths=set()
     )
     assert any("at least 65" in branch.text for branch in conditions)
+
+
+@pytest.mark.parametrize(
+    ("section", "value", "start", "end", "boundary_count", "control_count"),
+    [
+        ("dg18", 0.02, 2858, 2859, 2, 5),
+        ("eb19", 1_000_000, 477, 486, 3, 4),
+    ],
+)
+def test_verbatim_ambiguous_outline_preserves_legacy_boundary_owners(
+    section, value, start, end, boundary_count, control_count
+):
+    source = (FIXTURES / f"income_tax_s{section}.txt").read_text()
+    assert sc.bare_outline(source) is None
+    branches = sc.recognize_source_structure(source)
+    assert not branches
+    formulas = sc._source_formula_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    root_branches = sc._active_or_root_source_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    extract = functools.partial(
+        extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+    )
+    legacy = sc._source_boundary_obligations(
+        root_branches,
+        narrative_formula_branches=formulas,
+        extract_numeric_occurrences=extract,
+    )
+    boundaries = sc._source_boundary_obligations(
+        root_branches,
+        narrative_formula_branches=formulas,
+        extract_numeric_occurrences=extract,
+        source_text=source,
+    )
+    assert boundaries == legacy
+    assert len(boundaries) == boundary_count
+    matching = [
+        branch
+        for branch, occurrence in boundaries
+        if occurrence.value == value
+        and branch.start + occurrence.start == start
+        and branch.start + occurrence.end == end
+    ]
+    assert {branch.kind for branch in matching} == {"source-unit", "formula-clause"}
+    assert len(matching) == 2
+    controls = sc._source_control_branches(
+        source,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
+        formula_branches=formulas,
+        extract_numeric_occurrences=extract,
+    )
+    assert len(controls) == control_count
+    assert any(branch.kind == "source-unit" for branch in controls)
+    if section == "eb19":
+        assert any(
+            branch.kind == "source-unit"
+            and branch.start + occurrence.start == 559
+            and branch.start + occurrence.end == 568
+            and occurrence.value == 1_000_000
+            for branch, occurrence in boundaries
+        )
+
+
+def test_authenticated_bare_outline_deduplicates_same_physical_boundary():
+    source = (
+        "a\nA person receives at most 50 dollars, calculated as income divided by 2;\n"
+        "b\nA person receives a pension.\n"
+    )
+    assert sc.bare_outline(source)
+    branches = sc.recognize_source_structure(source)
+    formulas = sc._source_formula_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    extract = functools.partial(
+        extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+    )
+    legacy = sc._source_boundary_obligations(
+        branches,
+        narrative_formula_branches=formulas,
+        extract_numeric_occurrences=extract,
+    )
+    boundaries = sc._source_boundary_obligations(
+        branches,
+        narrative_formula_branches=formulas,
+        extract_numeric_occurrences=extract,
+        source_text=source,
+    )
+    assert len(legacy) == 2
+    assert len(boundaries) == 1
+    branch, occurrence = boundaries[0]
+    assert branch.kind == "formula-clause"
+    assert branch.path == ("a",)
+    assert occurrence.value == 50
+    assert (
+        source[branch.start + occurrence.start : branch.start + occurrence.end] == "50"
+    )
 
 
 def test_bare_numeric_branch_never_remasks_operative_formula_amount():
@@ -123,6 +224,184 @@ def test_verbatim_s16_computation_chapeau_retains_first_child_operand():
         == sc.mask_bare_labels(source)[computation.start : computation.end]
     )
     assert {("2", "d", "i"), ("2", "d", "ii")} <= {branch.path for branch in branches}
+
+
+@pytest.mark.parametrize(
+    ("section", "start", "end", "retained_text"),
+    [
+        ("1g", 157, 244, "It deals with matters like—"),
+        ("20b", 987, 1171, "the protected interest is to the extent of the lesser of—"),
+        ("21d", 2, 837, "provide for the calculation of those shares:"),
+    ],
+)
+def test_verbatim_computations_keep_their_complete_punctuation_context(
+    section, start, end, retained_text
+):
+    source = (FIXTURES / f"property_relationships_s{section}.txt").read_text()
+    branches = sc.recognize_source_structure(source)
+    formulas = sc._source_formula_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    retained = next(
+        branch for branch in formulas if branch.start <= start and end <= branch.end
+    )
+    assert retained_text in retained.text
+    assert retained.text == sc.mask_bare_labels(source)[retained.start : retained.end]
+    assert sum(branch.start < end and start < branch.end for branch in formulas) == 1
+    # Formula context does not merge the independently recognized legal units.
+    assert any(branch.path for branch in branches)
+    if section == "20b":
+        assert "the specified sum;" in retained.text
+        assert any(branch.path == ("3", "c", "i") for branch in branches)
+
+
+@pytest.mark.parametrize("error", [None, "operator", "operand"])
+def test_retained_punctuation_context_requires_the_actual_computation(error):
+    source = (
+        "1\nThe following payment rules apply:—\n"
+        "a\nThe person's income must be divided by 2.\n"
+        "b\nAnother payment rule applies.\n"
+    )
+    computation = source[: source.index("\nb\n")]
+    formula = {
+        None: "income / 2",
+        "operator": "income * 2",
+        "operand": "income / 3",
+    }[error]
+    rule = _source_rule(
+        "payment", formula, computation, f"{CITATION}(1)", dtype="Money"
+    )
+    factor = _source_rule(
+        "payment_divisor", "2", "divided by 2", f"{CITATION}(1)(a)", dtype="Int32"
+    )
+    factor["kind"] = "parameter"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": CITATION}},
+        "inputs": [{"name": "income", "dtype": "Money"}],
+        "rules": [rule, factor],
+    }
+    cases = [
+        {
+            "period": "2026-07-01",
+            "input": {"income": income},
+            "output": {
+                "payment": income * 2
+                if error == "operator"
+                else income / (3 if error == "operand" else 2)
+            },
+        }
+        for income in (6, 12)
+    ]
+    result = _analyze(source, payload, cases)
+    assert any("formula branch" in issue for issue in result.issues) == bool(error)
+
+
+def test_retained_punctuation_context_cannot_include_a_deferred_sibling():
+    intro = "The following payment rules apply:—"
+    source = (
+        f"1\n{intro}\n"
+        "a\nThe person's income must be divided by 2:\n"
+        "b\nThe secretary may require a copy of the federal return to be filed:\n"
+        "c\nThe person's savings must be divided by 3.\n"
+    )
+    branches = sc.recognize_source_structure(source)
+    deferred = next(branch for branch in branches if branch.path == ("1", "b"))
+    covered, issues = sc._deferred_coverage(
+        {
+            "module": {
+                "deferred_outputs": [
+                    {
+                        "output": "nz:statutes/act/public/2018/0032/section/71/1/b#return_copy",
+                        "reason": (
+                            f"{CITATION}(1)(b) cannot be encoded until the runtime "
+                            "has a document-filing capability for the required "
+                            "federal return copy."
+                        ),
+                    }
+                ]
+            }
+        },
+        corpus_citation_path=CITATION,
+        source_text=source,
+        branches=branches,
+    )
+    assert covered == {("1", "b")}
+    assert not issues
+    formulas = sc._source_formula_branches(
+        source,
+        branches=branches,
+        active_branches=[branch for branch in branches if branch != deferred],
+        deferred_paths=covered,
+    )
+    assert len(formulas) == 2
+    assert intro in formulas[0].text
+    assert formulas[0].end <= deferred.start
+    assert deferred.end <= formulas[1].start
+    for formula in formulas:
+        assert "federal return" not in formula.computation_text
+        assert formula.text == sc.mask_bare_labels(source)[formula.start : formula.end]
+
+
+def test_retained_punctuation_context_does_not_duplicate_a_rounding_modifier():
+    source = (
+        "1\nThe following payment rules apply:—\n"
+        "a\nThe person's income must be divided by 2. "
+        "The result must be rounded down.\n"
+        "b\nAnother payment rule applies.\n"
+    )
+    branches = sc.recognize_source_structure(source)
+    formulas = sc._source_formula_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    assert len(formulas) == 1
+    assert "The following payment rules apply" in formulas[0].text
+    assert "divided by 2" in formulas[0].text
+
+
+def test_deferred_computation_does_not_turn_active_eligibility_into_a_formula():
+    source = (
+        "1\nThe following payment rules apply:—\n"
+        "a\nThe person must receive a main benefit:\n"
+        "b\nThe payment must be calculated as the person's income divided by 2.\n"
+    )
+    branches = sc.recognize_source_structure(source)
+    formulas = sc._source_formula_branches(
+        source,
+        branches=branches,
+        active_branches=[branch for branch in branches if branch.path != ("1", "b")],
+        deferred_paths={("1", "b")},
+    )
+    assert not formulas
+
+
+@pytest.mark.parametrize("operator", ["/", "*", "-", "%", "$"])
+def test_retained_punctuation_context_preserves_uncovered_operative_symbols(operator):
+    source = f"The payment must be calculated as income {operator} savings."
+    position = source.index(f" {operator} ") + 1
+    existing = (
+        sc.SourceStructureBranch(
+            ("a",), "formula-clause", "first operand", source[:position], 0, position
+        ),
+        sc.SourceStructureBranch(
+            ("b",),
+            "formula-clause",
+            "second operand",
+            source[position + 1 :],
+            position + 1,
+            len(source),
+        ),
+    )
+    retained = sc._retain_bare_punctuation_computations(
+        source,
+        branches=(),
+        obligations=existing,
+        deferred_intervals=(),
+        worksheet_labels=(),
+    )
+    assert len(retained) == len(existing)
+    assert any(branch.text == source for branch in retained)
+    assert all(branch.text == source[branch.start : branch.end] for branch in retained)
 
 
 def test_root_bare_computation_chapeau_retains_first_child_operand():
@@ -852,6 +1131,183 @@ def test_verbatim_s71_dropped_context_exception_keeps_tests_obligation():
     assert any("context otherwise requires" in issue for issue in result.issues)
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        "qualifying_benefit",
+        "relevant_payment_date",
+        "winter_period_start_date",
+        "winter_period_weeks",
+    ],
+)
+def test_s71_other_outputs_cannot_cover_one_dropped_context_exception(output):
+    source = (FIXTURES / "s71.txt").read_text()
+    payload, cases = _s71_candidate(source)
+    rule = next(rule for rule in payload["rules"] if rule["name"] == output)
+    rule["versions"][0]["formula"] = rule["versions"][0]["formula"].split(" else: ", 1)[
+        1
+    ]
+    for case in cases:
+        case["output"][output] = (
+            any(
+                case["input"][name]
+                for name in (
+                    "main_benefit_under_this_act",
+                    "receives_new_zealand_superannuation",
+                    "receives_veterans_pension",
+                )
+            )
+            if output == "qualifying_benefit"
+            else {
+                "relevant_payment_date": "2026-07-03",
+                "winter_period_start_date": "2026-05-01",
+                "winter_period_weeks": 22,
+            }[output]
+        )
+    result = _analyze(source, payload, cases)
+    assert any(
+        "[complete-source-unit:tests]" in issue
+        and "context otherwise requires" in issue
+        and f"output {output}" in issue
+        for issue in result.issues
+    )
+
+
+@pytest.mark.parametrize("broad_proof", [False, True])
+def test_bare_definition_condition_preserves_scope_and_physical_excerpt(broad_proof):
+    benefit = (
+        "benefit means—\na\na benefit paid under this Act; or\n"
+        "b\na pension paid under this Act.\n"
+    )
+    period = "period means a calendar month unless the context otherwise requires.\n"
+    source = benefit + period
+    branches = sc.recognize_source_structure(source)
+    condition = next(
+        branch
+        for branch in sc._source_exception_branches(
+            source, branches=branches, active_branches=branches, deferred_paths=set()
+        )
+        if "unless" in branch.text
+    )
+    rules = {
+        "benefit_output": _source_rule(
+            "benefit_output", "receives_benefit", source if broad_proof else benefit
+        ),
+        "period_output": _source_rule("period_output", "calendar_month", period),
+        "paragraph_output": _source_rule(
+            "paragraph_output", "receives_benefit", "a benefit paid under this Act;"
+        ),
+    }
+    affected = sc._bare_definition_condition_outputs(
+        condition,
+        branches=branches,
+        principal_rules=rules,
+        principal_rule_paths={
+            "benefit_output": {()},
+            "period_output": {()},
+            "paragraph_output": {("a",)},
+        },
+        corpus_citation_path=CITATION,
+    )
+    assert set(affected) == (
+        {"benefit_output", "period_output"} if broad_proof else {"period_output"}
+    )
+    assert (
+        condition.text == sc.mask_bare_labels(source)[condition.start : condition.end]
+    )
+
+
+def test_shared_definition_excerpt_cannot_waive_an_applicability_condition():
+    benefit = (
+        "benefit means—\na\na benefit paid under this Act; or\n"
+        "b\na pension paid under this Act.\n"
+    )
+    period = "period means a calendar month unless the context otherwise requires.\n"
+    month = "month means a calendar month.\n"
+    source = benefit + period + month
+    branches = sc.recognize_source_structure(source)
+    condition = next(
+        branch
+        for branch in sc._source_exception_branches(
+            source, branches=branches, active_branches=branches, deferred_paths=set()
+        )
+        if "unless" in branch.text
+    )
+    rules = {
+        "period_output": _source_rule(
+            "period_output", "calendar_month", "a calendar month"
+        ),
+        "honest_period": _source_rule(
+            "honest_period",
+            "if context_otherwise_requires: context_period else: calendar_month",
+            period,
+        ),
+        "month_output": _source_rule("month_output", "calendar_month", month),
+    }
+    affected = sc._bare_definition_condition_outputs(
+        condition,
+        branches=branches,
+        principal_rules=rules,
+        principal_rule_paths=dict.fromkeys(rules, {()}),
+        corpus_citation_path=CITATION,
+    )
+    assert set(affected) == {"period_output", "honest_period"}
+    rules.update(
+        {
+            "benefit_branch": _source_rule(
+                "benefit_branch",
+                "benefit_received",
+                "a benefit paid under this Act;",
+                f"{CITATION}(a)",
+            ),
+            "pension_branch": _source_rule(
+                "pension_branch",
+                "pension_received",
+                "a pension paid under this Act.",
+                f"{CITATION}(b)",
+            ),
+        }
+    )
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": CITATION}},
+        "inputs": [
+            {"name": name, "dtype": "Bool"}
+            for name in (
+                "calendar_month",
+                "context_period",
+                "context_otherwise_requires",
+                "benefit_received",
+                "pension_received",
+            )
+        ],
+        "rules": list(rules.values()),
+    }
+    cases = [
+        {
+            "period": "2026-07-01",
+            "input": {
+                "calendar_month": True,
+                "context_period": False,
+                "context_otherwise_requires": context,
+                "benefit_received": False,
+                "pension_received": False,
+            },
+            "output": {
+                "period_output": True,
+                "honest_period": not context,
+                "month_output": True,
+                "benefit_branch": False,
+                "pension_branch": False,
+            },
+        }
+        for context in (False, True)
+    ]
+    result = _analyze(source, payload, cases)
+    assert any("[output period_output]" in issue for issue in result.issues)
+    assert not any("[output honest_period]" in issue for issue in result.issues)
+
+
 def test_exact_bare_branch_accepts_existing_runtime_gap_wording():
     source = (
         "The secretary shall perform the following actions:—\n"
@@ -980,6 +1436,7 @@ def test_detached_bare_definition_retains_numeric_boundaries():
     branches = sc.recognize_source_structure(source)
     boundaries = sc._source_boundary_obligations(
         branches,
+        source_text=source,
         extract_numeric_occurrences=functools.partial(
             extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
         ),
@@ -1008,6 +1465,7 @@ def test_nested_bare_definition_stays_inside_its_subsection():
     assert "Another subsection" not in definition.text
     boundaries = sc._source_boundary_obligations(
         branches,
+        source_text=source,
         extract_numeric_occurrences=functools.partial(
             extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
         ),
@@ -1031,6 +1489,7 @@ def test_numeric_outline_definition_after_children_belongs_to_subsection():
     assert definition.start == paragraph.end
     boundaries = sc._source_boundary_obligations(
         branches,
+        source_text=source,
         extract_numeric_occurrences=functools.partial(
             extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
         ),
@@ -1051,6 +1510,7 @@ def test_equal_thresholds_in_distinct_bare_definitions_keep_both_obligations():
     branches = sc.recognize_source_structure(source)
     boundaries = sc._source_boundary_obligations(
         branches,
+        source_text=source,
         extract_numeric_occurrences=functools.partial(
             extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
         ),

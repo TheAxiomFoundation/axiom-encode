@@ -25,6 +25,58 @@ from axiom_encode.harness.validator_pipeline import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "nz_bare_labels"
+TEMPORAL_UNIT_FORMS = (
+    "second",
+    "seconds",
+    "minute",
+    "minutes",
+    "hour",
+    "hours",
+    "day",
+    "days",
+    "week",
+    "weeks",
+    "fortnight",
+    "fortnights",
+    "month",
+    "months",
+    "quarter",
+    "quarters",
+    "year",
+    "years",
+    "decade",
+    "decades",
+    "century",
+    "centuries",
+    "millennium",
+    "millennia",
+)
+QUANTITY_SUBJECTS = (
+    ("count", False),
+    ("counts", True),
+    ("amount", False),
+    ("amounts", True),
+    ("number", False),
+    ("numbers", True),
+    ("rate", False),
+    ("rates", True),
+    ("quantity", False),
+    ("quantities", True),
+    ("limit", False),
+    ("limits", True),
+    ("ceiling", False),
+    ("ceilings", True),
+    ("cap", False),
+    ("caps", True),
+    ("threshold", False),
+    ("thresholds", True),
+    ("maximum", False),
+    ("maximums", True),
+    ("maxima", True),
+    ("minimum", False),
+    ("minimums", True),
+    ("minima", True),
+)
 
 
 def demanded_numbers(source):
@@ -38,6 +90,39 @@ def demanded_numbers(source):
             profile="en-US",
         )
     ]
+
+
+def _assert_ambiguous_operative_two_is_preserved(source):
+    assert bare_outline(source) is None
+    assert slice_bare_path(source, ("2",)) is None
+    assert mask_bare_labels(source) == source
+    recall = authoritative_numeric_recall_text(
+        source, corpus_citation_path="nz/statute/act/public/2018/0032/section/72"
+    )
+    assert recall == source
+    original_inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        source, profile="en-US"
+    )
+    recalled_inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        recall, profile="en-US"
+    )
+    assert recalled_inventory == original_inventory
+    operative_start = source.index("\n2\n") + 1
+    operative = [
+        occurrence
+        for occurrence in recalled_inventory
+        if occurrence.start <= operative_start < occurrence.end
+    ]
+    assert operative
+    assert any(
+        occurrence.source_value == 2
+        or occurrence.value == 2
+        or (
+            occurrence.value == 0.02
+            and (occurrence.has_rate_context or occurrence.requires_rate_context)
+        )
+        for occurrence in operative
+    )
 
 
 @pytest.mark.parametrize(
@@ -65,6 +150,55 @@ def test_verbatim_s71_unpunctuated_paragraph_stops_at_next_definition():
     assert outline is not None
     assert [label.path for label in outline] == [("a",), ("b",), ("c",)]
     assert slice_bare_path(text, ("c",)) == "veteran’s pension"
+
+
+@pytest.mark.parametrize("profile", ("legacy", "en-US", "en-GB"))
+def test_verbatim_s45_retained_bare_number_cannot_hide_grouped_fine(profile):
+    source = (FIXTURES / "property_relationships_s45.txt").read_text()
+    assert bare_outline(source) is None
+    recall = authoritative_numeric_recall_text(
+        source,
+        corpus_citation_path="nz/statute/act/public/1976/0166/section/45",
+    )
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        recall, profile=profile
+    )
+    assert [item.value for item in inventory] == [1, 2, 3, 2000]
+    fine = inventory[-1]
+    assert fine.raw == "2,000"
+    assert fine.start == source.index("2,000")
+    assert fine.end == fine.start + len(fine.raw)
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    count=st.integers(min_value=1, max_value=99),
+    repeats=st.integers(min_value=1, max_value=3),
+    heading=st.sampled_from(
+        ("", "Table of prescribed limits\n", "The prescribed child count is\n")
+    ),
+)
+def test_generated_retained_bare_counts_cannot_hide_distinct_grouped_amounts(
+    count, repeats, heading
+):
+    amount = count * 1000
+    grouped = f"{amount:,}"
+    source = (
+        heading
+        + f"{count}\nThe prescribed child count applies.\n"
+        + "".join(f"The fine is ${grouped}.\n" for _ in range(repeats))
+    )
+    assert bare_outline(source) is None
+    recall = authoritative_numeric_recall_text(source)
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        recall, profile="legacy"
+    )
+    assert [item.value for item in inventory] == [count, *([amount] * repeats)]
+    amounts = inventory[1:]
+    assert [item.raw for item in amounts] == [grouped] * repeats
+    assert [item.start for item in amounts] == [
+        match.start() for match in re.finditer(re.escape(grouped), source)
+    ]
 
 
 @settings(max_examples=100, deadline=None)
@@ -208,6 +342,365 @@ def test_generated_ordered_count_rows_after_an_outline_stay_demanded(captions):
     assert bare_outline(source) is None
     assert mask_bare_labels(source) == source
     assert demanded_numbers(source) == [1, *range(2, len(captions) + 2)]
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    subject=st.sampled_from(("number", "count", "amount", "rate", "percentage")),
+    introduction=st.sampled_from(
+        (
+            "equals a value from the following list.",
+            "is drawn from the listed counts.",
+            "is one of the values shown below.",
+            "corresponds to the following entries.",
+            "has the prescribed value, which is given next.",
+        )
+    ),
+    ending=st.sampled_from(("", " That value applies for the payment period.")),
+)
+def test_generated_prose_value_introductions_keep_expected_sibling_count(
+    subject, introduction, ending
+):
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe person receives a qualifying benefit; and\n"
+        f"b\nthe {subject} of payable dependants {introduction}{ending}\n"
+        "2\nThe annual entitlement is payable.\n"
+    )
+    # The operative count happens to equal the next subsection ordinal.
+    # Full predicate prose after it does not resolve that ambiguity.
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "introduction",
+    (
+        "the person has the following eligible dependants.",
+        "the person supports this many dependants.",
+        "the person supports as many dependants as shown below.",
+        "the person's dependants are listed in order of age.",
+    ),
+)
+def test_count_introduction_without_numeric_noun_keeps_sibling_count(introduction):
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe person receives a qualifying benefit; and\n"
+        f"b\n{introduction}\n"
+        "2\nThe annual entitlement is payable.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == [1, 2]
+
+
+@settings(max_examples=60, deadline=None)
+@given(
+    subject=st.sampled_from(QUANTITY_SUBJECTS),
+    period=st.sampled_from(("", " for the 2026 period")),
+    reference=st.sampled_from(
+        ("{be} specified in section 9.", "{be} stated here.", "{have} been prescribed.")
+    ),
+)
+def test_generated_unrelated_digits_do_not_resolve_an_operative_count(
+    subject, period, reference
+):
+    noun, plural = subject
+    reference = reference.format(
+        be="are" if plural else "is", have="have" if plural else "has"
+    )
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe person receives a qualifying benefit; and\n"
+        f"b\nthe prescribed {noun}{period} {reference}\n"
+        "2\nThe annual entitlement is payable.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == ([1, 2026, 2] if period else [1, 2])
+
+
+@settings(max_examples=80, deadline=None)
+@given(
+    subject=st.sampled_from(QUANTITY_SUBJECTS),
+    amount=st.integers(min_value=3, max_value=99),
+    currency=st.sampled_from(("", "$")),
+)
+def test_generated_completed_quantities_keep_their_value_and_later_outline(
+    subject, amount, currency
+):
+    noun, plural = subject
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe person receives a qualifying benefit; and\n"
+        f"b\nthe prescribed {noun} of payable dependants "
+        f"{'are' if plural else 'is'} {currency}{amount}.\n"
+        "2\nThe annual entitlement is payable.\n"
+    )
+    assert bare_outline(source) is not None
+    assert slice_bare_path(source, ("2",)) == "The annual entitlement is payable."
+    assert demanded_numbers(source) == [amount]
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    continuation=st.sampled_from(
+        (
+            "day period is required before entitlement.",
+            "days are required before entitlement.",
+            "week period is required before entitlement.",
+            "weeks are required before entitlement.",
+            "month period is required before entitlement.",
+            "months are required before entitlement.",
+            "year period is required before entitlement.",
+            "years are required before entitlement.",
+            "child household is required before entitlement.",
+            "children are required before entitlement.",
+            "person household is required before entitlement.",
+            "persons are required before entitlement.",
+            "people are required before entitlement.",
+            "member household is required before entitlement.",
+            "members are required before entitlement.",
+            "dependant household is required before entitlement.",
+            "dependants are required before entitlement.",
+            "dependent household is required before entitlement.",
+            "dependents are required before entitlement.",
+            "percent of earnings is payable.",
+            "per cent of earnings is payable.",
+            "% of earnings is payable.",
+            "dollar coins are required before entitlement.",
+            "dollars are payable before entitlement.",
+            "cent coins are required before entitlement.",
+            "cents are payable before entitlement.",
+            "or more persons are required before entitlement.",
+        )
+    ),
+    capitalized=st.booleans(),
+    payment=st.integers(min_value=4, max_value=999),
+)
+def test_generated_number_unit_continuations_are_never_numeric_sibling_labels(
+    continuation, capitalized, payment
+):
+    if capitalized:
+        continuation = continuation[0].upper() + continuation[1:]
+    source = (
+        "1\nA person is entitled if—\n"
+        f"a\nthe person receives a qualifying benefit of ${payment}; and\n"
+        "b\nthe person satisfies the residence requirement.\n"
+        f"2\n{continuation}\n"
+    )
+    _assert_ambiguous_operative_two_is_preserved(source)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    noun=st.one_of(
+        st.sampled_from(
+            (
+                "vehicles",
+                "items",
+                "thevehicles",
+                "ifvehicles",
+                "howevervehicles",
+                "inthis",
+                "subjectto",
+            )
+        ),
+        st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=2, max_size=20).map(
+            lambda stem: f"z{stem}s"
+        ),
+    ),
+    capitalized=st.booleans(),
+    children=st.booleans(),
+    payment=st.integers(min_value=4, max_value=999),
+)
+def test_generated_unseen_count_nouns_cannot_authenticate_numeric_roots(
+    noun, capitalized, children, payment
+):
+    if capitalized:
+        noun = noun.capitalize()
+    source = (
+        "1\nA person is entitled if—\n"
+        f"a\nthe person receives a qualifying benefit of ${payment}; and\n"
+        "b\nthe person satisfies the residence requirement.\n"
+        f"2\n{noun} are required before entitlement{':—' if children else '.'}\n"
+    )
+    if children:
+        source += (
+            "a\nthe first requirement applies; and\n"
+            "b\nthe second requirement applies.\n"
+        )
+    _assert_ambiguous_operative_two_is_preserved(source)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    continuation=st.one_of(
+        st.sampled_from(
+            (
+                "in a household are required before entitlement",
+                "for each household are required before entitlement",
+                "under the prescribed limit are required before entitlement",
+                "subject to the eligibility test are required",
+                "that are eligible must be included",
+                "if the benefit, the amount of which is prescribed, "
+                "is payable, are required before entitlement",
+                "despite the restriction are required before entitlement",
+                "notwithstanding the restriction are required before entitlement",
+                "all year are required before entitlement",
+                "each day are required before entitlement",
+                "each person who has a benefit must be included",
+                "each person, who is eligible, has a benefit",
+                "a day are required before entitlement",
+                "the whole year are required before entitlement",
+                "this year are required before entitlement",
+                "these days are required before entitlement",
+                "a fortnight is required before entitlement",
+            )
+        ),
+        st.tuples(
+            st.sampled_from(("a", "an")),
+            st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=2, max_size=20),
+            st.sampled_from(("are required", "were required", "have become required")),
+        ).map(lambda parts: f"{parts[0]} z{parts[1]}s {parts[2]} before entitlement"),
+        st.tuples(
+            st.sampled_from(("", "if the person is eligible, ", "otherwise, ")),
+            st.sampled_from(("a", "an", "the", "another", "this", "these", "those")),
+            st.sampled_from(("", "whole ", "entire ")),
+            st.sampled_from(TEMPORAL_UNIT_FORMS),
+            st.sampled_from(("is required", "are required", "must be included")),
+        ).map(
+            lambda parts: (
+                f"{parts[0]}{parts[1]} {parts[2]}{parts[3]} "
+                f"{parts[4]} before entitlement"
+            )
+        ),
+        st.tuples(
+            st.sampled_from(("each", "every", "all")),
+            st.text(alphabet="abcdefghijklmnopqrstuvwxyz", min_size=2, max_size=20),
+            st.sampled_from(
+                (
+                    "is required",
+                    "are required",
+                    "must be included",
+                    "has been prescribed",
+                )
+            ),
+        ).map(lambda parts: f"{parts[0]} z{parts[1]}s {parts[2]} before entitlement"),
+        st.tuples(
+            st.sampled_from(("if", "unless", "when")),
+            st.sampled_from(("benefit", "payment", "entitlement")),
+            st.sampled_from(("amount", "rate", "value")),
+        ).map(
+            lambda parts: (
+                f"{parts[0]} the {parts[1]}, the {parts[2]} of which "
+                "is prescribed, is payable, are required before entitlement"
+            )
+        ),
+        st.tuples(
+            st.sampled_from(("if", "unless", "where", "when", "while")),
+            st.sampled_from(("eligible", "available", "needed")),
+            st.sampled_from(("", ",")),
+        ).map(
+            lambda parts: (
+                f"{parts[0]} {parts[1]}{parts[2]} are required before entitlement"
+            )
+        ),
+        st.tuples(
+            st.sampled_from(("however", "otherwise", "accordingly", "therefore")),
+            st.sampled_from(("", ",")),
+        ).map(lambda parts: f"{parts[0]}{parts[1]} are required before entitlement"),
+    ),
+    capitalized=st.booleans(),
+    children=st.booleans(),
+    payment=st.integers(min_value=4, max_value=999),
+)
+def test_generated_quantity_modifiers_need_an_independent_main_clause(
+    continuation, capitalized, children, payment
+):
+    if capitalized:
+        continuation = continuation[0].upper() + continuation[1:]
+    source = (
+        "1\nA person is entitled if—\n"
+        f"a\nthe person receives a qualifying benefit of ${payment}; and\n"
+        "b\nthe person satisfies the residence requirement.\n"
+        f"2\n{continuation}{':—' if children else '.'}\n"
+    )
+    if children:
+        source += (
+            "a\nthe first requirement applies; and\n"
+            "b\nthe second requirement applies.\n"
+        )
+    _assert_ambiguous_operative_two_is_preserved(source)
+
+
+@pytest.mark.parametrize(
+    "noun",
+    (
+        "vehicles",
+        "Vehicles",
+        "items",
+        "Items",
+        "a day",
+        "the whole year",
+        "all year",
+        "each day",
+        "this year",
+        "these days",
+        "a fortnight",
+    ),
+)
+def test_first_numeric_root_also_requires_independent_prose(noun):
+    source = (
+        f"1\n{noun} are required before entitlement if—\n"
+        "a\nthe first requirement applies; and\n"
+        "b\nthe second requirement applies.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert demanded_numbers(source) == [1]
+
+
+@pytest.mark.parametrize(
+    "follower",
+    (
+        "If the first condition applies, the benefit must be paid.",
+        "If the first condition applies, MSD must pay the benefit.",
+        "Otherwise, the benefit is payable.",
+        "In this section, specified sum means the prescribed benefit.",
+        "Each spouse or partner has a protected interest in the family home.",
+        "This section overrides another provision.",
+    ),
+)
+def test_numeric_introductions_keep_independently_headed_clauses(
+    follower,
+):
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe first requirement applies; and\n"
+        "b\nthe second requirement applies.\n"
+        f"2\n{follower}\n"
+    )
+    assert bare_outline(source) is not None
+    assert slice_bare_path(source, ("2",)) == follower
+
+
+@pytest.mark.parametrize(
+    ("section", "label", "expected"),
+    (
+        ("72", "3", "If the qualifying benefit is payable"),
+        ("74", "4", "An instalment must be paid on the relevant payment date."),
+        ("74", "5", "This section overrides sections 297"),
+    ),
+)
+def test_verbatim_numeric_leaf_siblings_keep_independent_introductions(
+    section, label, expected
+):
+    source = (FIXTURES / f"s{section}.txt").read_text()
+    sliced = slice_bare_path(source, (label,))
+    assert sliced is not None
+    assert sliced.startswith(expected)
 
 
 def test_nested_roman_numeric_suffix_and_inserted_letter_paths():
@@ -398,6 +891,69 @@ def test_over_cap_or_unknown_lowercase_lines_are_never_silently_skipped():
         assert mask_bare_labels(source) == source
 
 
+@settings(max_examples=80, deadline=None)
+@given(
+    token=st.one_of(
+        st.integers(min_value=0, max_value=999).map(lambda number: f"0{number}"),
+        st.tuples(
+            st.integers(min_value=1, max_value=999),
+            st.sampled_from(("AA", "AB", "a", "b", "A1", "A1A")),
+        ).map(lambda parts: f"{parts[0]}{parts[1]}"),
+        st.just("0"),
+    )
+)
+def test_generated_unknown_numeric_tokens_between_siblings_fail_closed(token):
+    source = (
+        "1\nA person is entitled if—\n"
+        "a\nthe first condition is fulfilled.\n"
+        f"{token}\nAn additional restriction applies.\n"
+        "b\nthe last condition is fulfilled.\n"
+        "2\nThe entitlement ends on death.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert slice_bare_path(source, ("1", "a")) is None
+
+
+@settings(max_examples=80, deadline=None)
+@given(
+    reference_kind=st.sampled_from(
+        (
+            "section",
+            "subsection",
+            "paragraph",
+            "subparagraph",
+            "clause",
+            "subclause",
+            "part",
+            "schedule",
+            "chapter",
+            "regulation",
+            "article",
+            "see",
+        )
+    ),
+    index=st.sampled_from((*range(2, 9), 26)),
+)
+def test_generated_wrapped_references_cannot_authenticate_sibling_labels(
+    reference_kind, index
+):
+    labels = tuple(chr(ord("a") + number) for number in range(26)) + ("aa",)
+    previous = "".join(
+        f"{label}\nthe preceding condition applies; and\n"
+        for label in labels[: index - 1]
+    )
+    source = (
+        "Conditions apply:—\n"
+        + previous
+        + f"{labels[index - 1]}\nthe person receives a payment under {reference_kind}\n"
+        + f"{labels[index]}\nof section 99.\n"
+    )
+    assert bare_outline(source) is None
+    assert mask_bare_labels(source) == source
+    assert slice_bare_path(source, (labels[index],)) is None
+
+
 def test_long_parenthetical_label_blocks_mixed_bare_layout():
     source = (
         "1\nA person is entitled if—\n"
@@ -539,11 +1095,25 @@ def test_unknown_detached_definition_header_abstains_without_losing_numbers(
     assert 22 in demanded_numbers(source)
 
 
-@settings(max_examples=12, deadline=None)
-@given(amount=st.integers(min_value=1, max_value=999))
-def test_generated_formula_variable_declarations_cannot_be_sliced_or_masked(amount):
+@settings(max_examples=60, deadline=None)
+@given(
+    amount=st.integers(min_value=1, max_value=999),
+    introduction=st.sampled_from(
+        (
+            "The amount is calculated as a + b.\nwhere—",
+            "The amount is calculated as a + b, where—",
+            "The amount is calculated as a + b.\nwhere, for this formula,—",
+            "The amount is calculated as a + b, where the symbols mean—",
+            "The amount is calculated as a + b, in which—",
+            "The amount is calculated as a + b.\nFor the purpose of this formula—",
+        )
+    ),
+)
+def test_generated_formula_variable_declarations_cannot_be_sliced_or_masked(
+    amount, introduction
+):
     source = (
-        "1\nThe amount is calculated as a + b.\nwhere—\n"
+        f"1\n{introduction}\n"
         f"a\nis the annual income of ${amount}; and\n"
         "b\nis the total annual allowance of $25.\n"
     )

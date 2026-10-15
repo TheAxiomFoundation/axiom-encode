@@ -9,10 +9,12 @@ before/after gate obligation. All public artifacts use corpus-relative names.
 from __future__ import annotations
 
 import argparse
+import ast
 import difflib
 import functools
 import hashlib
 import importlib.util
+import inspect
 import json
 import re
 import signal
@@ -23,6 +25,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from types import CodeType, SimpleNamespace
 from typing import Any
 
 from axiom_encode import corpus_resolver as current_resolver
@@ -48,6 +51,18 @@ BARE_TOKEN = re.compile(r"(?m)^[ \t]*(?P<token>[1-9]\d*[A-Z]?|[a-z]+)[ \t]*$")
 ROMAN_TOKEN = re.compile(
     r"(?=[ivxlcdm]+\Z)m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\Z"
 )
+_CITATION_FRAGMENT = (
+    r"(?:(?:(?-i:[A-Z]{1,3})[ \t]+)?\d+[A-Za-z]*(?:\([0-9A-Za-z]+\))*"
+    r"|\([0-9A-Za-z]+\))(?![\w(]|\.\d)"
+)
+CITATION_REFERENCE = re.compile(
+    r"\b(?:sections?|subsections?|paragraphs?|clauses?)(?P<reference_gap>\s+)"
+    rf"(?P<references>{_CITATION_FRAGMENT}"
+    rf"(?:(?:\s*,\s*(?:(?:and|or)\s+)?|\s+(?:and|or|to)\s+){_CITATION_FRAGMENT})*)",
+    re.IGNORECASE,
+)
+DURATION_CONVERTERS = (("_YEAR_DURATION_PATTERN", 12), ("_WEEK_DURATION_PATTERN", 7))
+RESTORATION_OPERAND = re.compile(r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+\.[0-9]+)")
 
 
 class BatchDeadlineReached(Exception):
@@ -85,7 +100,9 @@ def load_baseline(ref: str, relative: str, module_name: str) -> Any:
     module = importlib.util.module_from_spec(spec)
     module.__file__ = relative
     sys.modules[module_name] = module
-    exec(compile(source, relative, "exec"), module.__dict__)
+    exec(compile(source, relative, "exec", dont_inherit=True), module.__dict__)
+    module._audit_baseline_source = source
+    module._audit_baseline_ref = ref
     return module
 
 
@@ -137,34 +154,85 @@ def occurrence_record(item: Any) -> dict[str, Any]:
     return record
 
 
-def anchored_occurrences(
-    text: str, recall: str, occurrences: Any
-) -> dict[tuple[Any, ...], dict[str, Any]]:
-    """Restore corpus offsets after the legacy recall cleanup deletes citations."""
-    if text == recall:
-        result = {}
-        for item in occurrences:
-            verified = text[item.start : item.end] == item.raw
-            start, end = (item.start, item.end) if verified else (None, None)
-            result[
-                (
-                    start,
-                    end,
-                    item.raw,
-                    item.value,
-                    None if verified else item.start,
-                    None if verified else item.end,
-                )
-            ] = {
-                **occurrence_record(item),
-                "source_start": start,
-                "source_end": end,
-            }
-        return result
-    # Align non-whitespace tokens rather than individual letters. Character
-    # matching on long statutes full of repeated prose is quadratic; token
-    # blocks retain context, and every restored span is verified character for
-    # character below. Unverifiable mappings are reported as audit failures.
+def numeric_semantic_identity(item: dict[str, Any]) -> tuple[Any, ...]:
+    """Retain every field that changes the extractor's numeric demands."""
+    return tuple(
+        (name, tuple(item[name]) if name == "alternative_values" else item[name])
+        for name in (
+            "raw",
+            "value",
+            "source_value",
+            "alternative_values",
+            "is_word_number",
+            "has_rate_context",
+            "has_temporal_context",
+            "has_structural_context",
+            "requires_rate_context",
+        )
+        if name in item
+    )
+
+
+def numeric_requirement_identity(item: dict[str, Any]) -> tuple[Any, ...] | None:
+    """Bind a complete numeric demand to its verified physical occurrence."""
+    if item["source_start"] is None or item["source_end"] is None:
+        return None
+    return (
+        item["source_start"],
+        item["source_end"],
+        numeric_semantic_identity(item),
+    )
+
+
+def partial_token_source_starts(
+    source_tokens: Any, recall_tokens: Any, blocks: Any
+) -> dict[int, int]:
+    """Anchor unique retained suffixes inside small unmatched token gaps.
+
+    Citation cleanup can turn ``10D(1)`` into ``(1)``. Equal-token alignment
+    cannot map that surviving token. Require every recalled token in the gap
+    to occur exactly once in its source gap and preserve their physical order;
+    repeated suffixes and overlapping mappings remain unauthenticated. Bounds
+    keep this fallback independent of the size of long statute definitions.
+    """
+    result = {}
+    source_index = recall_index = 0
+    for block in blocks:
+        if (
+            0 < block.b - recall_index <= 64
+            and 0 < block.a - source_index <= 64
+            and sum(
+                len(token.group()) for token in source_tokens[source_index : block.a]
+            )
+            <= 4096
+        ):
+            pending = {}
+            previous_end = -1
+            for index in range(recall_index, block.b):
+                needle = recall_tokens[index].group()
+                candidates = []
+                for token in source_tokens[source_index : block.a]:
+                    offset = token.group().find(needle)
+                    while offset != -1:
+                        candidates.append(token.start() + offset)
+                        if len(candidates) > 1:
+                            break
+                        offset = token.group().find(needle, offset + 1)
+                    if len(candidates) > 1:
+                        break
+                if len(candidates) != 1 or candidates[0] < previous_end:
+                    break
+                pending[index] = candidates[0]
+                previous_end = candidates[0] + len(needle)
+            else:
+                result.update(pending)
+        source_index = block.a + block.size
+        recall_index = block.b + block.size
+    return result
+
+
+def uncached_source_token_alignment(text: str, recall: str) -> tuple[Any, ...]:
+    """Return the existing deterministic alignment as immutable index tuples."""
     source_tokens = list(re.finditer(r"\S+", text))
     recall_tokens = list(re.finditer(r"\S+", recall))
     blocks = difflib.SequenceMatcher(
@@ -177,13 +245,68 @@ def anchored_occurrences(
         for block in blocks
         for index in range(block.size)
     }
-    recall_starts = [token.start() for token in recall_tokens]
+    partial_starts = partial_token_source_starts(source_tokens, recall_tokens, blocks)
+    return (
+        tuple(token.start() for token in source_tokens),
+        tuple(token.start() for token in recall_tokens),
+        tuple(token_map.get(index) for index in range(len(recall_tokens))),
+        tuple(partial_starts.get(index) for index in range(len(recall_tokens))),
+    )
+
+
+@functools.lru_cache(maxsize=4)
+def cached_source_token_alignment(text: str, recall: str) -> tuple[Any, ...]:
+    """Reuse only a pure alignment for the exact original input strings."""
+    return uncached_source_token_alignment(text, recall)
+
+
+def source_token_alignment(text: str, recall: str) -> tuple[Any, ...]:
+    # Small formula fragments must not evict a large body's repeated mapping.
+    function = (
+        cached_source_token_alignment
+        if max(len(text), len(recall)) >= 16_384
+        else uncached_source_token_alignment
+    )
+    return function(text, recall)
+
+
+def anchored_occurrences(
+    text: str, recall: str, occurrences: Any
+) -> dict[tuple[Any, ...], dict[str, Any]]:
+    """Restore corpus offsets after the legacy recall cleanup deletes citations."""
+    if text == recall:
+        result = {}
+        for item in occurrences:
+            verified = text[item.start : item.end] == item.raw
+            start, end = (item.start, item.end) if verified else (None, None)
+            record = occurrence_record(item)
+            result[
+                (
+                    start,
+                    end,
+                    numeric_semantic_identity(record),
+                    None if verified else item.start,
+                    None if verified else item.end,
+                )
+            ] = {
+                **record,
+                "source_start": start,
+                "source_end": end,
+            }
+        return result
+    # Align non-whitespace tokens rather than individual letters. Character
+    # matching on long statutes full of repeated prose is quadratic; token
+    # blocks retain context, and every restored span is verified character for
+    # character below. Unverifiable mappings are reported as audit failures.
+    source_starts, recall_starts, token_map, partial_starts = source_token_alignment(
+        text, recall
+    )
     result = {}
     for item in occurrences:
         first = bisect_right(recall_starts, item.start) - 1
         last = bisect_left(recall_starts, item.end) - 1
-        source_first = token_map.get(first)
-        source_last = token_map.get(last)
+        source_first = token_map[first] if 0 <= first < len(token_map) else None
+        source_last = token_map[last] if 0 <= last < len(token_map) else None
         start = end = None
         if (
             first >= 0
@@ -193,29 +316,34 @@ def anchored_occurrences(
             and source_last is not None
             and source_last - source_first == last - first
             and all(
-                token_map.get(index) == source_first + index - first
+                token_map[index] == source_first + index - first
                 for index in range(first, last + 1)
             )
         ):
             candidate_start = (
-                source_tokens[source_first].start()
-                + item.start
-                - recall_tokens[first].start()
+                source_starts[source_first] + item.start - recall_starts[first]
             )
-            candidate_end = (
-                source_tokens[source_last].start()
-                + item.end
-                - recall_tokens[last].start()
-            )
+            candidate_end = source_starts[source_last] + item.end - recall_starts[last]
             if text[candidate_start:candidate_end] == recall[item.start : item.end]:
+                start, end = candidate_start, candidate_end
+        elif (
+            first == last
+            and 0 <= first < len(partial_starts)
+            and partial_starts[first] is not None
+        ):
+            candidate_start = partial_starts[first] + item.start - recall_starts[first]
+            candidate_end = candidate_start + item.end - item.start
+            if (
+                recall[item.start : item.end] == item.raw
+                and text[candidate_start:candidate_end] == item.raw
+            ):
                 start, end = candidate_start, candidate_end
         record = {**occurrence_record(item), "source_start": start, "source_end": end}
         result[
             (
                 start,
                 end,
-                item.raw,
-                item.value,
+                numeric_semantic_identity(record),
                 item.start if start is None else None,
                 item.end if end is None else None,
             )
@@ -245,7 +373,7 @@ def gates(module: Any, text: str, citation: str, extractor: Any) -> dict[str, An
     @functools.lru_cache(maxsize=128)
     def boundary_source_map(source: str, recall: str) -> dict[tuple[Any, ...], Any]:
         return {
-            (item["start"], item["end"], item["raw"], item["value"]): item
+            (item["start"], item["end"], numeric_semantic_identity(item)): item
             for item in anchored_occurrences(source, recall, extractor(recall)).values()
         }
 
@@ -254,6 +382,7 @@ def gates(module: Any, text: str, citation: str, extractor: Any) -> dict[str, An
         boundary_branches,
         narrative_formula_branches=formula,
         extract_numeric_occurrences=extractor,
+        **({"source_text": text} if module is current else {}),
     ):
         if module._source_boundary_is_temporal(branch, boundary):
             continue
@@ -268,7 +397,11 @@ def gates(module: Any, text: str, citation: str, extractor: Any) -> dict[str, An
         anchored = boundary_source_map(
             text[branch.start : branch.start + len(direct)], recall
         ).get(
-            (boundary.start, boundary.end, boundary.raw, boundary.value),
+            (
+                boundary.start,
+                boundary.end,
+                numeric_semantic_identity(occurrence_record(boundary)),
+            ),
             {"source_start": None, "source_end": None},
         )
         source_start, source_end = anchored["source_start"], anchored["source_end"]
@@ -309,6 +442,227 @@ def gates(module: Any, text: str, citation: str, extractor: Any) -> dict[str, An
             {"start": match.start(), "end": match.end(), "text": match.group()}
             for match in module._source_exception_or_applicability_matches(text)
         ),
+        # A removal proof may replay the original grouping on a newly isolated
+        # physical clause. The observed module is the unmodified pinned source;
+        # current gate extraction must never grade its own changed obligations.
+        "_baseline_condition_module": module
+        if module is not current and getattr(module, "_audit_baseline_source", None)
+        else None,
+    }
+
+
+def citation_boundary_reownership(
+    removed: Any, replacements: Any, text: str, outline: Any, new_gates: Any
+) -> dict[str, Any] | None:
+    """Prove that a false citation-interior boundary gained its actual owner."""
+    if not outline or new_gates is None:
+        return None
+    boundaries = [
+        {
+            "offset": boundary,
+            "citation_start": match.start(),
+            "citation_end": match.end(),
+            "citation": match.group(),
+            "boundary_kind": (
+                "citation-interior"
+                if match.start("references") <= boundary
+                else "trimmed-citation-whitespace"
+            ),
+            "trimmed_whitespace": (
+                None
+                if match.start("references") <= boundary
+                else {
+                    "start": boundary,
+                    "end": match.start("references"),
+                    "text": text[boundary : match.start("references")],
+                }
+            ),
+        }
+        for match in CITATION_REFERENCE.finditer(text)
+        for boundary in (removed.start, removed.end)
+        if match.start("references") <= boundary < match.end("references")
+        or (
+            boundary == removed.end == match.start("reference_gap")
+            and text[match.start("references")].isdigit()
+            and text[boundary : match.start("references")].isspace()
+        )
+    ]
+    if not boundaries or collapse(removed.text) != collapse(
+        text[removed.start : removed.end]
+    ):
+        return None
+    masked = mask_bare_labels(text, outline)
+    first_label = min(label.start for label in outline)
+    owners = [
+        branch
+        for branch in new_gates["branches"]
+        if branch.text == masked[branch.start : branch.end]
+        and (
+            any(
+                branch.path == tuple(part.lower() for part in label.path)
+                and branch.start == label.start
+                and branch.end == label.end
+                for label in outline
+            )
+            or (
+                branch.path == ()
+                and branch.kind == "source-unit"
+                and branch.start == 0
+                and branch.end == first_label
+                and first_label > 0
+            )
+        )
+    ]
+    supersets = []
+    for item in replacements:
+        if not (
+            item.start <= removed.start < removed.end <= item.end
+            and (item.start < removed.start or removed.end < item.end)
+            and item.text == masked[item.start : item.end]
+        ):
+            continue
+        owner = max(
+            (
+                branch
+                for branch in owners
+                if branch.start <= item.start < item.end <= branch.end
+                and (item.kind == "excerpt" or branch.path == item.path)
+            ),
+            key=lambda branch: len(branch.path),
+            default=None,
+        )
+        if owner is not None:
+            supersets.append(
+                {
+                    "path": list(item.path),
+                    "start": item.start,
+                    "end": item.end,
+                    "owner_path": list(owner.path),
+                    "owner_start": owner.start,
+                    "owner_end": owner.end,
+                }
+            )
+    return (
+        {"citation_boundaries": boundaries, "source_aligned_supersets": supersets}
+        if supersets
+        else None
+    )
+
+
+def condition_group_reownership(
+    start: int,
+    end: int,
+    clauses: Any,
+    text: str,
+    outline: Any,
+    old_gates: Any,
+    new_gates: Any,
+) -> dict[str, Any] | None:
+    """Replay original complete condition groups inside an authentic clause.
+
+    A glued legacy obligation can begin in an earlier paragraph, then consume
+    the unconditional action before a later paragraph's grouped conditions.
+    Only the pinned parser's complete groups may replace that overbroad span;
+    the complete action and clause must retain their exact structural owner.
+    """
+    baseline = (old_gates or {}).get("_baseline_condition_module")
+    baseline_source = getattr(baseline, "_audit_baseline_source", None)
+    baseline_ref = getattr(baseline, "_audit_baseline_ref", None)
+    if (
+        not outline
+        or new_gates is None
+        or not baseline_source
+        or baseline_ref != "86a1f911a"
+        or baseline is current
+    ):
+        return None
+    masked = mask_bare_labels(text, outline)
+    clause = next(
+        (
+            clause
+            for clause in clauses
+            if clause.start < end
+            and start < clause.end
+            and end <= clause.end
+            and not masked[start : clause.start].strip()
+            and clause.text == masked[clause.start : clause.end]
+            and clause.text == text[clause.start : clause.end]
+        ),
+        None,
+    )
+    if clause is None:
+        return None
+    label = max(
+        (
+            label
+            for label in outline
+            if label.start <= clause.start < clause.end <= label.end
+        ),
+        key=lambda label: len(label.path),
+        default=None,
+    )
+    if label is None:
+        return None
+    owner = next(
+        (
+            branch
+            for branch in new_gates["branches"]
+            if branch.start <= clause.start < clause.end <= branch.end
+            and branch.text == masked[branch.start : branch.end]
+            and branch.path == tuple(part.lower() for part in label.path)
+            and (branch.start, branch.end) == (label.start, label.end)
+        ),
+        None,
+    )
+    if owner is None:
+        return None
+    # Replaying one whole, unchanged physical clause prevents a shorter input
+    # from manufacturing a condition boundary or losing a later qualifier.
+    original_clauses = tuple(baseline._source_clause_spans(clause.text, branches=()))
+    if original_clauses != ((0, len(clause.text), clause.text),):
+        return None
+    groups = baseline._source_exception_branches(
+        clause.text,
+        branches=(),
+        active_branches=(),
+        deferred_paths=set(),
+    )
+    if len(groups) < 2:
+        return None
+    conditions = []
+    for group in groups:
+        condition = baseline._source_exception_condition_text(group.text)
+        if (
+            not condition
+            or condition.strip() != group.text.strip()
+            or clause.text[group.start : group.end] != group.text
+        ):
+            return None
+        group_start, group_end = clause.start + group.start, clause.start + group.end
+        if not any(
+            branch.path == owner.path
+            and branch.start <= group_start < group_end <= branch.end
+            and branch.text == masked[branch.start : branch.end]
+            for branch in new_gates["tests_conditions"]
+        ):
+            return None
+        conditions.append({"start": group_start, "end": group_end, "text": group.text})
+    required = [
+        group for group in conditions if group["start"] < end and start < group["end"]
+    ]
+    if not required:
+        return None
+    return {
+        "baseline_ref": baseline_ref,
+        "baseline_source_sha256": hashlib.sha256(baseline_source.encode()).hexdigest(),
+        "owner_path": list(owner.path),
+        "owner_start": owner.start,
+        "owner_end": owner.end,
+        "complete_source_clause": branch_record(clause),
+        "all_original_condition_groups": conditions,
+        "required_condition_groups": required,
+        "all_groups_retained_in_actual_conditions": True,
+        "complete_action_retained_in_owned_source_clause": True,
     }
 
 
@@ -381,6 +735,11 @@ def structural_removal_evidence(
         collapse(item.text) == collapse(removed.text) and item.path != removed.path
         for item in overlapping
     )
+    citation_reownership = (
+        citation_boundary_reownership(removed, overlapping, text, outline, new_gates)
+        if not affected and not ownership_only
+        else None
+    )
     connective_clauses = [
         item
         for item in retained_clauses
@@ -410,25 +769,8 @@ def structural_removal_evidence(
             and (gate != "tests_boundaries" or item.label == removed.label)
         ]
 
-        def identity(item: dict[str, Any]) -> tuple[Any, ...] | None:
-            if item["source_start"] is None or item["source_end"] is None:
-                return None
-            return tuple(
-                item.get(key)
-                for key in (
-                    "source_start",
-                    "source_end",
-                    "raw",
-                    "value",
-                    "source_value",
-                    "has_rate_context",
-                    "has_temporal_context",
-                    "requires_rate_context",
-                )
-            ) + (tuple(item.get("alternative_values", ())),)
-
         new_identities = {
-            identity(item.requirement)
+            numeric_requirement_identity(item.requirement)
             for item in new_gates["tests_boundaries"]
             if gate != "control"
             or any(
@@ -441,7 +783,8 @@ def structural_removal_evidence(
         missing_boundaries = [
             item
             for item in old_boundaries
-            if identity(item) is None or identity(item) not in new_identities
+            if numeric_requirement_identity(item) is None
+            or numeric_requirement_identity(item) not in new_identities
         ]
         cues = (
             [
@@ -469,11 +812,85 @@ def structural_removal_evidence(
             and not missing_boundaries
             and not missing_cues,
         }
-    gate_retained = (
-        not uncovered_after_connectives
-        or gate == "tests_conditions"
-        or bool(requirement_proof and requirement_proof["all_requirements_retained"])
-    )
+    condition_proof = None
+    if gate == "tests_conditions":
+        # A legacy condition can accidentally consume the next bare paragraph.
+        # Its own physical structural fragment must remain an actual condition;
+        # retaining only the cue word or keeping the prose in general clauses
+        # cannot certify removal of a tests obligation.
+        cues = (
+            old_gates["_condition_cues"]
+            if old_gates is not None
+            else tuple(
+                {"start": match.start(), "end": match.end()}
+                for match in current._source_exception_or_applicability_matches(text)
+            )
+        )
+        cuts = sorted(
+            {
+                removed.start,
+                removed.end,
+                *(
+                    point
+                    for label in outline
+                    for point in (label.start, label.marker_end, label.end)
+                    if removed.start < point < removed.end
+                ),
+                *(
+                    start
+                    for start, _term in bare_definition_headers(text, outline)
+                    if removed.start < start < removed.end
+                ),
+            }
+        )
+        fragments = [
+            (start, end)
+            for start, end in zip(cuts, cuts[1:])
+            if any(start <= cue["start"] and cue["end"] <= end for cue in cues)
+        ]
+        group_reownership = [
+            condition_group_reownership(
+                start, end, clauses, text, outline, old_gates, new_gates
+            )
+            for start, end in fragments
+        ]
+        required_regions = [
+            (group["start"], group["end"])
+            for (start, end), proof in zip(fragments, group_reownership)
+            for group in (
+                proof["required_condition_groups"]
+                if proof
+                else ({"start": start, "end": end},)
+            )
+        ]
+        missing_condition_offsets = [
+            offset
+            for start, end in required_regions
+            for offset in range(start, end)
+            if not masked[offset].isspace()
+            and not any(
+                item.start <= offset < item.end for item in aligned_replacements
+            )
+        ]
+        condition_proof = {
+            "physical_fragments": [
+                {"start": start, "end": end, "text": masked[start:end]}
+                for start, end in fragments
+            ],
+            "uncovered_condition_offsets": missing_condition_offsets,
+            "original_condition_group_reownership": [
+                proof for proof in group_reownership if proof
+            ],
+            "all_conditions_retained": bool(fragments)
+            and not missing_condition_offsets,
+        }
+    gate_retained = not uncovered_after_connectives
+    if condition_proof is not None:
+        gate_retained = condition_proof["all_conditions_retained"]
+    if requirement_proof is not None and (
+        requirement_proof["boundaries"] or requirement_proof["condition_cues"]
+    ):
+        gate_retained = requirement_proof["all_requirements_retained"]
     return {
         "authenticated_labels": [
             {"token": label.token, "path": list(label.path), "start": label.start}
@@ -491,8 +908,10 @@ def structural_removal_evidence(
             branch_record(item) for item in retained_formula_cues
         ],
         "requirement_identity_proof": requirement_proof,
+        "condition_identity_proof": condition_proof,
         "ownership_only": ownership_only,
-        "structural_artifact": bool(affected or ownership_only)
+        "citation_boundary_reownership": citation_reownership,
+        "structural_artifact": bool(affected or ownership_only or citation_reownership)
         and bool(overlapping or retained_formula_cues)
         and not uncovered
         and gate_retained,
@@ -511,6 +930,13 @@ def compare_gates(old: Any, new: Any, text: str, outline: Any) -> dict[str, Any]
             item.end,
             collapse(item.text),
             tuple(getattr(item, "computation_chapeaux", ())),
+            (
+                item.requirement["source_start"],
+                item.requirement["source_end"],
+                numeric_semantic_identity(item.requirement),
+            )
+            if hasattr(item, "requirement")
+            else None,
         )
 
     for gate in GATES:
@@ -721,10 +1147,7 @@ def numeric_removal_evidence(
     ):
         provenance = {"kind": "source-scalar", "operand": operand}
     elif baseline_validator is not None:
-        for pattern_name, multiplier in (
-            ("_YEAR_DURATION_PATTERN", 12),
-            ("_WEEK_DURATION_PATTERN", 7),
-        ):
+        for pattern_name, multiplier in DURATION_CONVERTERS:
             pattern = getattr(baseline_validator, pattern_name)
             match = pattern.fullmatch(item["raw"])
             if (
@@ -762,6 +1185,671 @@ def numeric_removal_evidence(
         "masked_raw_span": masked[start:end],
         "retained_nonlabel_characters": len(retained_offsets),
     }
+
+
+def numeric_restoration_record(
+    item: dict[str, Any], text: str, outline: Any, baseline_validator: Any
+) -> dict[str, Any]:
+    """Certify restoration of the complete operand on a legacy-excluded line."""
+    start, end = item["source_start"], item["source_end"]
+    label = next(
+        (
+            label
+            for label in outline
+            if start is not None and label.start <= start < label.marker_end
+        ),
+        None,
+    )
+    line_start = None if start is None else text.rfind("\n", 0, start) + 1
+    line_end = None if start is None else text.find("\n", start)
+    if line_end == -1:
+        line_end = len(text)
+    line = "" if line_start is None else text[line_start:line_end]
+    stripped = line.strip()
+    quote_chars = baseline_validator._STRUCTURAL_SOURCE_QUOTE_CHARS
+    legacy_structural_line = stripped.strip(quote_chars)
+    constituent = re.fullmatch(
+        r"(?P<number>\d+)(?P<suffix>[A-Za-z]?)", legacy_structural_line
+    )
+    proof = None
+    if (
+        label is None
+        and start is not None
+        and end is not None
+        and 0 <= start < end <= len(text)
+        and constituent is not None
+        and baseline_validator._STRUCTURAL_SOURCE_LINE_PATTERN.fullmatch(
+            legacy_structural_line
+        )
+        and not item.get("is_word_number", False)
+    ):
+        token_start = (
+            line_start
+            + len(line)
+            - len(line.lstrip())
+            + len(stripped)
+            - len(stripped.lstrip(quote_chars))
+        )
+        number_start = token_start + constituent.start("number")
+        number_end = token_start + constituent.end("number")
+        token_end = token_start + constituent.end()
+        operand = float(constituent.group("number"))
+        # The suffix is a printed structural spelling, not another operand.
+        # Accept an extractor that retains it in raw or normalizes it away,
+        # but never a prefix/subspan of the complete digit run or a new value.
+        if (
+            start == number_start
+            and end in {number_end, token_end}
+            and text[start:end] == item["raw"]
+            and item["value"] == operand
+            and item.get("source_value") in {None, operand}
+            and all(value == operand for value in item.get("alternative_values", ()))
+        ):
+            proof = {
+                "raw": constituent.group("number"),
+                "source_start": number_start,
+                "source_end": number_end,
+                "value": operand,
+                "suffix": constituent.group("suffix"),
+            }
+    return {
+        "previously_blanket_excluded_numeric_line": proof is not None,
+        "restored_numeric_constituent": proof,
+        "line_start": line_start,
+        "line_end": line_end,
+        "line": line,
+        "legacy_structural_line": legacy_structural_line,
+        "authenticated_label": None if label is None else list(label.path),
+    }
+
+
+def complete_numeric_constituent_span(text: str, start: int, end: int) -> bool:
+    """Reject a partial digit/decimal/grouping token while allowing punctuation."""
+    return not (
+        (start > 0 and text[start - 1].isdigit())
+        or (end < len(text) and text[end].isdigit())
+        or (start > 1 and text[start - 1] in ".," and text[start - 2].isdigit())
+        or (end + 1 < len(text) and text[end] in ".," and text[end + 1].isdigit())
+    )
+
+
+def duration_suppressor_provenance(
+    old: dict[str, Any], text: str, recall: str, baseline_validator: Any
+) -> dict[str, Any] | None:
+    """Bind a converted legacy occurrence to its complete numeric operand."""
+    if old.get("source_value") != old["value"] or old.get("is_word_number", False):
+        return None
+    for pattern_name, multiplier in DURATION_CONVERTERS:
+        pattern = getattr(baseline_validator, pattern_name, None)
+        match = None if pattern is None else pattern.fullmatch(old["raw"])
+        if match is None:
+            continue
+        number = match.group("number")
+        # Authenticate a complete digit operand, including a decimal separator
+        # when present. The unit/article can never enter a numeric mask.
+        if re.fullmatch(r"[0-9]+(?:[.,][0-9]+)?", number) is None:
+            continue
+        operand = baseline_validator._parse_belgian_numeric_phrase(number)
+        if operand is None or operand * multiplier != old["value"]:
+            continue
+        source_start = old["source_start"] + match.start("number")
+        source_end = old["source_start"] + match.end("number")
+        recall_start = old["start"] + match.start("number")
+        recall_end = old["start"] + match.end("number")
+        if (
+            text[source_start:source_end] != number
+            or recall[recall_start:recall_end] != number
+            or not complete_numeric_constituent_span(text, source_start, source_end)
+        ):
+            continue
+        return {
+            "kind": pattern_name,
+            "operand": operand,
+            "multiplier": multiplier,
+            "normalized_value": old["value"],
+            "numeric_constituents": [
+                {
+                    "raw": number,
+                    "source_start": source_start,
+                    "source_end": source_end,
+                    "recall_start": recall_start,
+                    "recall_end": recall_end,
+                }
+            ],
+        }
+    return None
+
+
+def captured_special_suppressor_provenance(
+    old: dict[str, Any], text: str, recall: str, snapshot: Any
+) -> dict[str, Any] | None:
+    """Authenticate percent conversion or an actual legacy grouped prefix."""
+    if snapshot is None or not snapshot.get("traced_final_matches_normal"):
+        return None
+    if not any(
+        numeric_requirement_identity(value) == numeric_requirement_identity(old)
+        and (value["start"], value["end"]) == (old["start"], old["end"])
+        for value in snapshot["occurrences"]
+    ):
+        return None
+    start, end = old["source_start"], old["source_end"]
+    recall_start, recall_end = old["start"], old["end"]
+    raw = old["raw"]
+    if (
+        not 0 <= start < end <= len(text)
+        or not 0 <= recall_start < recall_end <= len(recall)
+        or text[start:end] != raw
+        or recall[recall_start:recall_end] != raw
+        or old.get("is_word_number", False)
+        or old.get("alternative_values", ())
+    ):
+        return None
+    if (
+        re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", raw)
+        and complete_numeric_constituent_span(text, start, end)
+        and text[end : end + 1] == recall[recall_end : recall_end + 1] == "%"
+        and old.get("source_value") == float(raw)
+        and old["value"] == float(raw) / 100
+        and old.get("has_rate_context", False)
+        and old.get("requires_rate_context", False)
+        and not old.get("has_temporal_context", False)
+        and not old.get("has_structural_context", False)
+    ):
+        return {
+            "kind": "captured-ascii-percent",
+            "operand": float(raw),
+            "multiplier": 0.01,
+            "normalized_value": old["value"],
+            "preserved_percent_source_span": [end, end + 1],
+            "numeric_constituents": [
+                {
+                    "raw": raw,
+                    "source_start": start,
+                    "source_end": end,
+                    "recall_start": recall_start,
+                    "recall_end": recall_end,
+                }
+            ],
+        }
+    grouped = re.match(r"[0-9]{1,3}(?:,[0-9]{3})+", text[start:])
+    if grouped is None:
+        return None
+    enclosing = grouped.group()
+    enclosing_end, enclosing_recall_end = (
+        start + len(enclosing),
+        recall_start + len(enclosing),
+    )
+    if (
+        raw != enclosing.split(",")[0]
+        or re.fullmatch(r"[0-9]{1,3}", raw) is None
+        or old["value"] != float(raw)
+        or old.get("source_value") != float(raw)
+        or not complete_numeric_constituent_span(text, start, enclosing_end)
+        or recall[recall_start:enclosing_recall_end] != enclosing
+        or any(
+            old.get(name, False)
+            for name in (
+                "has_rate_context",
+                "has_temporal_context",
+                "has_structural_context",
+                "requires_rate_context",
+            )
+        )
+    ):
+        return None
+    return {
+        "kind": "captured-legacy-first-group-prefix",
+        "legacy_partial_capture": {
+            "raw": raw,
+            "value": old["value"],
+            "source_value": old["source_value"],
+            "source_start": start,
+            "source_end": end,
+            "recall_start": recall_start,
+            "recall_end": recall_end,
+        },
+        "operand": float(enclosing.replace(",", "")),
+        "numeric_constituents": [
+            {
+                "raw": enclosing,
+                "source_start": start,
+                "source_end": enclosing_end,
+                "recall_start": recall_start,
+                "recall_end": enclosing_recall_end,
+            }
+        ],
+    }
+
+
+@functools.lru_cache(maxsize=8)
+def baseline_grouped_capture_stage(source: str) -> dict[str, Any] | None:
+    """Locate the exact pinned legacy suppression predicate by its full AST."""
+    assignment = ast.parse(
+        "grouped_value = _parse_belgian_numeric_phrase(match.group(1))"
+    ).body[0]
+    predicate = ast.parse(
+        "grouped_value is not None and not math.isclose(grouped_value, value, "
+        "rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) and "
+        "any(math.isclose(grouped_value, occurrence.value, rel_tol=0, "
+        "abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE) for occurrence in collector.inventory)",
+        mode="eval",
+    ).body
+    functions = [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "_tokenize_numeric_occurrences_from_text"
+    ]
+    if len(functions) != 1:
+        return None
+    function = functions[0]
+    stages = []
+    for loop in ast.walk(function):
+        if not (
+            isinstance(loop, ast.For)
+            and isinstance(loop.iter, ast.Name)
+            and loop.iter.id == "percentage_context_number_matches"
+        ):
+            continue
+        for block in ast.walk(loop):
+            # The pinned assignment is inside the loop's ValueError guard.
+            # Keep the loop ancestry and require that exact guard as well.
+            if not (
+                isinstance(block, ast.With)
+                and len(block.items) == 1
+                and ast.dump(block.items[0].context_expr)
+                == ast.dump(
+                    ast.parse("contextlib.suppress(ValueError)", mode="eval").body
+                )
+            ):
+                continue
+            for left, right in zip(block.body, block.body[1:]):
+                if (
+                    ast.dump(left) == ast.dump(assignment)
+                    and isinstance(right, ast.If)
+                    and ast.dump(right.test) == ast.dump(predicate)
+                ):
+                    stages.append(right.test.values[0].lineno)
+    if len(stages) != 1:
+        return None
+    return {
+        "function": function.name,
+        "function_first_line": min(
+            [function.lineno, *(node.lineno for node in function.decorator_list)]
+        ),
+        "line": stages[0],
+        "predicate": ast.unparse(predicate),
+        "baseline_source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+    }
+
+
+@functools.lru_cache(maxsize=8)
+def baseline_grouped_capture_code(source: str, filename: str) -> CodeType | None:
+    """Compile the unchanged source independently of this audit's future flags."""
+    codes = [
+        value
+        for value in compile(source, filename, "exec", dont_inherit=True).co_consts
+        if isinstance(value, CodeType)
+        and value.co_name == "_tokenize_numeric_occurrences_from_text"
+    ]
+    return codes[0] if len(codes) == 1 else None
+
+
+def baseline_code_identity(value: Any) -> Any:
+    """Retain all immutable code fields without marshal reference-state flags."""
+    if isinstance(value, CodeType):
+        return {
+            "type": "code",
+            **{
+                name: baseline_code_identity(getattr(value, name))
+                for name in (
+                    "co_argcount",
+                    "co_posonlyargcount",
+                    "co_kwonlyargcount",
+                    "co_nlocals",
+                    "co_stacksize",
+                    "co_flags",
+                    "co_code",
+                    "co_consts",
+                    "co_names",
+                    "co_varnames",
+                    "co_filename",
+                    "co_name",
+                    "co_qualname",
+                    "co_firstlineno",
+                    "co_linetable",
+                    "co_exceptiontable",
+                    "co_freevars",
+                    "co_cellvars",
+                )
+            },
+        }
+    if isinstance(value, tuple):
+        return {"type": "tuple", "items": [baseline_code_identity(x) for x in value]}
+    if isinstance(value, frozenset):
+        return {
+            "type": "frozenset",
+            "items": sorted(
+                (baseline_code_identity(x) for x in value),
+                key=lambda x: json.dumps(x, sort_keys=True),
+            ),
+        }
+    return {"type": type(value).__name__, "repr": repr(value)}
+
+
+def baseline_grouped_capture_snapshot(
+    item: dict[str, Any],
+    text: str,
+    recall: str,
+    baseline_validator: Any,
+    old_extractor: Any,
+    *,
+    profile: str = "legacy",
+) -> dict[str, Any] | None:
+    """Observe only the original collector state at this exact grouped token."""
+    source = getattr(baseline_validator, "_audit_baseline_source", None)
+    if source is None:
+        return None
+    stage = baseline_grouped_capture_stage(source)
+    if stage is None:
+        return None
+    tokenizer = inspect.unwrap(
+        baseline_validator._tokenize_numeric_occurrences_from_text
+    )
+    code = tokenizer.__code__
+    expected_code = baseline_grouped_capture_code(source, code.co_filename)
+    code_identity = baseline_code_identity(code)
+    if (
+        code.co_name != stage["function"]
+        or code.co_firstlineno != stage["function_first_line"]
+        or expected_code is None
+        or code_identity != baseline_code_identity(expected_code)
+    ):
+        return None
+    stage = {
+        **stage,
+        "runtime_code_sha256": hashlib.sha256(
+            json.dumps(code_identity, sort_keys=True).encode()
+        ).hexdigest(),
+        "runtime_code_flags": code.co_flags,
+        "compiled_without_inherited_flags": True,
+    }
+    captures = []
+
+    def observe(frame: Any, event: str, _argument: Any) -> Any:
+        if frame.f_code is code and event == "line" and frame.f_lineno == stage["line"]:
+            local = frame.f_locals
+            match = local["match"]
+            if match.group(1) == item["raw"] and local["value"] == item["value"]:
+                # The view carries offsets through the original cleanup. Bind
+                # this actual current match to its physical corpus occurrence.
+                recall_start, recall_end = local["cleaned_view"].source_span(
+                    local["span"]
+                )
+                occurrence = SimpleNamespace(
+                    raw=recall[recall_start:recall_end],
+                    value=local["value"],
+                    start=recall_start,
+                    end=recall_end,
+                )
+                anchored = tuple(
+                    anchored_occurrences(text, recall, (occurrence,)).values()
+                )
+                if len(anchored) == 1 and (
+                    anchored[0]["source_start"],
+                    anchored[0]["source_end"],
+                ) == (item["source_start"], item["source_end"]):
+                    captures.append(tuple(local["collector"].inventory))
+        return observe if frame.f_code is code else None
+
+    normal = tuple(old_extractor(recall))
+    previous_trace = sys.gettrace()
+    try:
+        sys.settrace(observe)
+        traced = tokenizer(recall, profile=profile)
+    finally:
+        sys.settrace(previous_trace)
+    if len(captures) != 1 or [
+        occurrence_record(value) for value in traced.inventory
+    ] != [occurrence_record(value) for value in normal]:
+        return None
+    alternate = baseline_validator._parse_belgian_numeric_phrase(item["raw"])
+    records = tuple(anchored_occurrences(text, recall, captures[0]).values())
+    return {
+        "stage": {**stage, "baseline_ref": baseline_validator._audit_baseline_ref},
+        "profile": profile,
+        "target": {
+            "raw": item["raw"],
+            "value": item["value"],
+            "source_start": item["source_start"],
+            "source_end": item["source_end"],
+        },
+        "snapshot_size": len(captures[0]),
+        "snapshot_sha256": hashlib.sha256(
+            json.dumps(records, sort_keys=True).encode()
+        ).hexdigest(),
+        "occurrences": tuple(value for value in records if value["value"] == alternate),
+        "traced_final_matches_normal": True,
+    }
+
+
+def _cross_occurrence_restoration_from_candidates(
+    item: dict[str, Any],
+    text: str,
+    recall: str,
+    old_numbers: Any,
+    baseline_validator: Any,
+    old_extractor: Any,
+    *,
+    stage_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Replay the exact legacy cross-occurrence grouped-number suppression."""
+    start, end = item["source_start"], item["source_end"]
+    raw = item["raw"]
+    if (
+        start is None
+        or end is None
+        or not 0 <= start < end <= len(text)
+        or text[start:end] != raw
+        or RESTORATION_OPERAND.fullmatch(raw) is None
+        or not complete_numeric_constituent_span(text, start, end)
+        or item.get("is_word_number", False)
+    ):
+        return None
+    operand = float(raw.replace(",", ""))
+    if (
+        item["value"] != operand
+        or item.get("source_value") not in {None, operand}
+        or any(value != operand for value in item.get("alternative_values", ()))
+    ):
+        return None
+    alternate = baseline_validator._parse_belgian_numeric_phrase(raw)
+    if alternate is None or alternate == operand:
+        return None
+    # Any existing reading at the grouped token is a different case: this
+    # certificate concerns only suppression caused by distinct previously
+    # collected tokens. A stage snapshot can prove a physically later token
+    # was already collected by an earlier semantic pass.
+    if any(
+        old.get("source_start") == start and old.get("source_end") == end
+        for old in old_numbers
+    ):
+        return None
+    suppressors = []
+    verified_original = (
+        {
+            (value["start"], value["end"], numeric_requirement_identity(value))
+            for value in old_numbers
+        }
+        if stage_snapshot is not None
+        else None
+    )
+    for old in old_numbers:
+        source_start, source_end = old.get("source_start"), old.get("source_end")
+        if not (
+            source_start is not None
+            and source_end is not None
+            and 0 <= source_start < source_end <= len(text)
+            and (
+                source_end <= start
+                or (stage_snapshot is not None and end <= source_start)
+            )
+            and text[source_start:source_end] == old["raw"]
+            and old["value"] == alternate
+            and not old.get("is_word_number", False)
+            and 0 <= old["start"] < old["end"] <= len(recall)
+            and recall[old["start"] : old["end"]] == old["raw"]
+        ):
+            continue
+        if (
+            re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", old["raw"])
+            and complete_numeric_constituent_span(text, source_start, source_end)
+            and float(old["raw"]) == old["value"]
+            and old.get("source_value") in {None, alternate}
+        ):
+            provenance = {
+                "kind": "source-scalar",
+                "operand": old["value"],
+                "numeric_constituents": [
+                    {
+                        "raw": old["raw"],
+                        "source_start": source_start,
+                        "source_end": source_end,
+                        "recall_start": old["start"],
+                        "recall_end": old["end"],
+                    }
+                ],
+            }
+        else:
+            provenance = duration_suppressor_provenance(
+                old, text, recall, baseline_validator
+            )
+            if provenance is None:
+                provenance = captured_special_suppressor_provenance(
+                    old, text, recall, stage_snapshot
+                )
+            if provenance is None:
+                continue
+            if verified_original is None:
+                verified_original = {
+                    (
+                        item["start"],
+                        item["end"],
+                        numeric_requirement_identity(item),
+                    )
+                    for item in anchored_occurrences(
+                        text, recall, old_extractor(recall)
+                    ).values()
+                }
+            if (
+                old["start"],
+                old["end"],
+                numeric_requirement_identity(old),
+            ) not in verified_original:
+                continue
+        if any(
+            not (
+                constituent["source_end"] <= start or end <= constituent["source_start"]
+            )
+            for constituent in provenance["numeric_constituents"]
+        ):
+            continue
+        suppressors.append(
+            {
+                **old,
+                "suppression_provenance": provenance,
+                "physical_relation": "before" if source_end <= start else "after",
+            }
+        )
+    if not suppressors:
+        return None
+    masked_spans = sorted(
+        {
+            (constituent["recall_start"], constituent["recall_end"])
+            for old in suppressors
+            for constituent in old["suppression_provenance"]["numeric_constituents"]
+        }
+    )
+    if any(left[1] > right[0] for left, right in zip(masked_spans, masked_spans[1:])):
+        return None
+    pieces = []
+    offset = 0
+    for mask_start, mask_end in masked_spans:
+        pieces.extend((recall[offset:mask_start], " " * (mask_end - mask_start)))
+        offset = mask_end
+    pieces.append(recall[offset:])
+    counterfactual = "".join(pieces)
+    restored = next(
+        (
+            occurrence
+            for occurrence in anchored_occurrences(
+                text, counterfactual, old_extractor(counterfactual)
+            ).values()
+            if numeric_requirement_identity(occurrence)
+            == numeric_requirement_identity(item)
+        ),
+        None,
+    )
+    if restored is None:
+        return None
+    return {
+        "raw": raw,
+        "source_start": start,
+        "source_end": end,
+        "operand": operand,
+        "operand_kind": "comma-thousands" if "," in raw else "ascii-dot-decimal",
+        "legacy_alternate_reading": alternate,
+        "distinct_prior_suppressors": suppressors,
+        "counterfactual_masked_recall_spans": [list(span) for span in masked_spans],
+        "counterfactual_only_suppressors_masked": all(
+            character == recall[index]
+            for index, character in enumerate(counterfactual)
+            if not any(left <= index < right for left, right in masked_spans)
+        ),
+        "counterfactual_restored_occurrence": restored,
+        "collector_snapshot": stage_snapshot,
+    }
+
+
+def cross_occurrence_restoration_evidence(
+    item: dict[str, Any],
+    text: str,
+    recall: str,
+    old_numbers: Any,
+    baseline_validator: Any,
+    old_extractor: Any,
+    *,
+    profile: str = "legacy",
+) -> dict[str, Any] | None:
+    """Retain the simple proof, then observe an exact hidden collector cause."""
+    # The corrected suppression guard belongs only to the legacy tokenizer;
+    # other profiles cannot borrow evidence from a different numeric parser.
+    if profile != "legacy" or RESTORATION_OPERAND.fullmatch(item["raw"]) is None:
+        return None
+    old_numbers = tuple(old_numbers)
+    evidence = (
+        _cross_occurrence_restoration_from_candidates(
+            item, text, recall, old_numbers, baseline_validator, old_extractor
+        )
+        if "," in item["raw"]
+        else None
+    )
+    if evidence is not None:
+        return evidence
+    snapshot = baseline_grouped_capture_snapshot(
+        item, text, recall, baseline_validator, old_extractor, profile=profile
+    )
+    if snapshot is None:
+        return None
+    return _cross_occurrence_restoration_from_candidates(
+        item,
+        text,
+        recall,
+        snapshot["occurrences"],
+        baseline_validator,
+        old_extractor,
+        stage_snapshot=snapshot,
+    )
 
 
 def bare_slice_projection(text: str, label: Any, outline: Any) -> dict[str, Any]:
@@ -1042,41 +2130,19 @@ def analyze_row(
         )
     added_records = []
     for item in sorted(added, key=lambda item: item["start"]):
-        start = item["source_start"]
-        label = next(
-            (
-                label
-                for label in outline
-                if start is not None and label.start <= start < label.marker_end
-            ),
-            None,
-        )
-        line_start = None if start is None else text.rfind("\n", 0, start) + 1
-        line_end = None if start is None else text.find("\n", start)
-        if line_end == -1:
-            line_end = len(text)
-        line = "" if line_start is None else text[line_start:line_end]
-        legacy_structural_line = line.strip().strip(
-            baseline_validator._STRUCTURAL_SOURCE_QUOTE_CHARS
-        )
-        restored = bool(
-            label is None
-            and start is not None
-            and line_start <= start < item["source_end"] <= line_end
-            and re.fullmatch(r"\d+[A-Za-z]?", legacy_structural_line)
-            and baseline_validator._STRUCTURAL_SOURCE_LINE_PATTERN.fullmatch(
-                legacy_structural_line
-            )
-        )
         added_records.append(
             {
                 **item,
-                "previously_blanket_excluded_numeric_line": restored,
-                "line_start": line_start,
-                "line_end": line_end,
-                "line": line,
-                "legacy_structural_line": legacy_structural_line,
-                "authenticated_label": None if label is None else list(label.path),
+                **numeric_restoration_record(item, text, outline, baseline_validator),
+                "cross_occurrence_restoration": cross_occurrence_restoration_evidence(
+                    item,
+                    text,
+                    old_recall,
+                    old_numbers.values(),
+                    baseline_validator,
+                    old_extractor,
+                    profile=profile,
+                ),
             }
         )
     old_gates = gates(baseline, text, citation, old_extractor)
@@ -1199,7 +2265,11 @@ def add_counts(counts: Counter[str], result: dict[str, Any]) -> None:
     counts["numeric_occurrences_added"] += len(result["numeric_added"])
     counts["numeric_additions_without_restoration_evidence"] += sum(
         not item["previously_blanket_excluded_numeric_line"]
+        and not item["cross_occurrence_restoration"]
         for item in result["numeric_added"]
+    )
+    counts["numeric_additions_restored_cross_occurrence"] += sum(
+        bool(item["cross_occurrence_restoration"]) for item in result["numeric_added"]
     )
     counts["numeric_demand_values_removed"] += len(
         result["numeric_demand_values_removed"]

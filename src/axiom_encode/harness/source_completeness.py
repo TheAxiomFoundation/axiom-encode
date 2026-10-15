@@ -121,6 +121,7 @@ class SourceStructureBranch:
     end: int
     structural_numeric_spans: tuple[tuple[int, int], ...] = ()
     computation_chapeaux: tuple[tuple[int, int, str], ...] = ()
+    required_principal_output: str | None = None
 
     @property
     def computation_chapeau(self) -> tuple[int, int, str] | None:
@@ -17306,6 +17307,7 @@ def _companion_test_issues(
         boundary_branches,
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
+        source_text=source_text,
     )
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch, boundary in boundary_obligations:
@@ -17401,7 +17403,12 @@ def _companion_test_issues(
                 )
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)} "
-                f"[{_source_exception_effect_requirement(branch.text)}]: `"
+                + (
+                    f"[output {branch.required_principal_output}] "
+                    if branch.required_principal_output
+                    else ""
+                )
+                + f"[{_source_exception_effect_requirement(branch.text)}]: `"
                 f"{_bounded_source_feedback_excerpt(branch.text, limit=220)}`"
                 for branch in missing_exception_branches
             )
@@ -17763,7 +17770,159 @@ def _source_formula_branches(
         ):
             continue
         obligations.append(obligation)
+    if bare_labels:
+        obligations = _retain_bare_punctuation_computations(
+            bare_display_text,
+            branches=active_branches,
+            obligations=obligations,
+            deferred_intervals=deferred_intervals,
+            worksheet_labels=worksheet_labels,
+        )
     return tuple(obligations)
+
+
+def _retain_bare_punctuation_computations(
+    source_text: str,
+    *,
+    branches: Sequence[SourceStructureBranch],
+    obligations: Sequence[SourceStructureBranch],
+    deferred_intervals: Sequence[tuple[int, int]],
+    worksheet_labels: Sequence[tuple[int, int]],
+) -> list[SourceStructureBranch]:
+    """Keep the former full computation when outline boundaries split its text.
+
+    A computation cue can occur in a later child or beside an earlier sibling's
+    operands. The enclosing punctuation clause remains its authenticated source
+    context even when its introduction does not independently name arithmetic.
+    Accepted deferrals split that context into physical active spans.
+    """
+    retained = list(obligations)
+    connectives = {"and", "or", "but", "und", "oder", "aber"}
+    for clause_index, (start, end, text) in enumerate(
+        _source_clause_spans(source_text, branches=()), start=1
+    ):
+        if not source_states_explicit_computation(text):
+            continue
+        active_spans = []
+        previous_end = start
+        for deferred_start, deferred_end in deferred_intervals:
+            if deferred_end <= start or end <= deferred_start:
+                continue
+            active_spans.append((previous_end, max(previous_end, deferred_start)))
+            previous_end = min(end, deferred_end)
+        active_spans.append((previous_end, end))
+        for piece_start, piece_end in active_spans:
+            piece = source_text[piece_start:piece_end]
+            piece_start += len(piece) - len(piece.lstrip())
+            piece_end -= len(piece) - len(piece.rstrip())
+            if piece_start >= piece_end:
+                continue
+            coverage = sorted(
+                (max(piece_start, covered_start), min(piece_end, covered_end))
+                for obligation in retained
+                for covered_start, covered_end in (
+                    (obligation.start, obligation.end),
+                    *(
+                        (cue_start, cue_end)
+                        for cue_start, cue_end, _cue in obligation.computation_chapeaux
+                    ),
+                )
+                if covered_start < piece_end and piece_start < covered_end
+            )
+            uncovered = []
+            covered_end = piece_start
+            for span_start, span_end in coverage:
+                if covered_end < span_start:
+                    uncovered.append(source_text[covered_end:span_start])
+                covered_end = max(covered_end, span_end)
+            uncovered.append(source_text[covered_end:piece_end])
+            if all(
+                not gap.strip() or _collapse_text(gap).lower() in connectives
+                for gap in uncovered
+            ):
+                # Standalone conjunctions already have their own physical
+                # source clauses and do not name an additional computation.
+                continue
+            contained = [
+                obligation
+                for obligation in retained
+                if piece_start <= obligation.start < obligation.end <= piece_end
+            ]
+            previous = min(contained, key=lambda branch: branch.start, default=None)
+            if previous is None and not source_states_explicit_computation(
+                source_text[piece_start:piece_end]
+            ):
+                contextual = min(
+                    (
+                        obligation
+                        for obligation in retained
+                        if start <= obligation.start < obligation.end <= end
+                    ),
+                    key=lambda branch: min(
+                        abs(branch.start - piece_end), abs(branch.end - piece_start)
+                    ),
+                    default=None,
+                )
+                if contextual is not None:
+                    # A deferred sibling can separate an introduction from its
+                    # active computation. Keep that physical context on the
+                    # existing operation without crossing the deferred span or
+                    # requiring another execution of the same operation.
+                    context = (
+                        piece_start,
+                        piece_end,
+                        source_text[piece_start:piece_end],
+                    )
+                    retained[retained.index(contextual)] = replace(
+                        contextual,
+                        computation_chapeaux=tuple(
+                            sorted({*contextual.computation_chapeaux, context})
+                        ),
+                    )
+                    continue
+                # The clause's only computation may belong to an accepted
+                # deferred sibling. Ordinary active prose cannot inherit that
+                # sibling's operation when no active computation remains.
+                continue
+            owner = _most_specific_containing_branch(
+                piece_start, piece_end, branches=branches
+            )
+            replacement = SourceStructureBranch(
+                owner.path if owner else (),
+                "formula-clause",
+                f"{owner.label if owner else 'source unit'} formula clause {clause_index}",
+                source_text[piece_start:piece_end],
+                piece_start,
+                piece_end,
+                structural_numeric_spans=tuple(
+                    (label_start - piece_start, label_end - piece_start)
+                    for label_start, label_end in worksheet_labels
+                    if piece_start <= label_start < label_end <= piece_end
+                ),
+                computation_chapeaux=previous.computation_chapeaux if previous else (),
+            )
+            if _rounding_clause_refers_to_previous_result(
+                replacement,
+                previous=max(
+                    (
+                        obligation
+                        for obligation in retained
+                        if obligation.end <= piece_start
+                    ),
+                    key=lambda branch: branch.end,
+                    default=None,
+                ),
+                source_text=source_text,
+            ):
+                continue
+            if previous is not None:
+                # Expand one existing witness obligation instead of adding a
+                # duplicate for its operation. Other independent computations
+                # in this punctuation clause keep their own witness demands.
+                retained[retained.index(previous)] = replacement
+            else:
+                retained.append(replacement)
+    return sorted(retained, key=lambda branch: (branch.start, branch.end))
 
 
 def _formula_clause_has_nonnumeric_inline_following_operands(
@@ -17922,6 +18081,7 @@ def _source_control_branches(
             boundary_branches,
             narrative_formula_branches=formula_branches,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_text=source_text,
         )
         if not _source_boundary_is_temporal(branch, boundary)
     ]
@@ -21843,6 +22003,19 @@ def _execute_formula_text(
 
 
 def _first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
+    # Formula syntax is independent of the case environment. Limit both the
+    # entry count and text size; large formulas still receive the full parser.
+    if len(text) > 16_384:
+        return _parse_first_formula_branch_node(text)
+    return _cached_first_formula_branch_node(text)
+
+
+@functools.lru_cache(maxsize=256)
+def _cached_first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
+    return _parse_first_formula_branch_node(text)
+
+
+def _parse_first_formula_branch_node(text: str) -> _FormulaBranchNode | None:
     candidates = tuple(
         candidate
         for candidate in (
@@ -26911,8 +27084,12 @@ def _unwitnessed_exception_branches(
     certified_paths: Any = None,
     certified_operations: Any = None,
 ) -> tuple[SourceStructureBranch, ...]:
-    candidate_witnesses = {
-        branch: _exception_witnesses_for_branch(
+    bare_branches = (
+        recognize_source_structure(source_text) if bare_outline(source_text) else ()
+    )
+    candidate_witnesses: dict[SourceStructureBranch, set[_ExceptionWitness]] = {}
+    for branch in exception_branches:
+        witnesses = _exception_witnesses_for_branch(
             branch,
             source_text=source_text,
             input_declarations=input_declarations,
@@ -26924,8 +27101,25 @@ def _unwitnessed_exception_branches(
             toggled_exception_selectors=toggled_exception_selectors,
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
-        for branch in exception_branches
-    }
+        affected_outputs = _bare_definition_condition_outputs(
+            branch,
+            branches=bare_branches,
+            principal_rules=principal_rules,
+            principal_rule_paths=principal_rule_paths,
+            corpus_citation_path=corpus_citation_path,
+        )
+        if not affected_outputs:
+            candidate_witnesses[branch] = witnesses
+            continue
+        for rule_name in affected_outputs:
+            # One physical condition can govern several definitions/outputs.
+            # A calendar output's pair cannot prove that a benefit output also
+            # implements that condition. Retain the real excerpt and offsets;
+            # only the witness obligation is specialized to its affected rule.
+            scoped = replace(branch, required_principal_output=rule_name)
+            candidate_witnesses[scoped] = {
+                witness for witness in witnesses if witness.rule_name == rule_name
+            }
     missing = _unmatched_evidence_obligations(candidate_witnesses)
     if represented_annual_spans is not None:
         for branch, witnesses in candidate_witnesses.items():
@@ -26985,6 +27179,78 @@ def _unwitnessed_exception_branches(
         )
 
     return missing
+
+
+def _bare_definition_condition_outputs(
+    condition: SourceStructureBranch,
+    *,
+    branches: Sequence[SourceStructureBranch],
+    principal_rules: Mapping[str, dict[str, Any]],
+    principal_rule_paths: Mapping[str, set[tuple[str, ...]]],
+    corpus_citation_path: str,
+) -> tuple[str, ...]:
+    """Bind an authenticated enclosing condition to each definition output.
+
+    Definition heads share their owner's legal path, so ancestry alone cannot
+    distinguish their principal outputs. Precise excerpts can exclude a rule
+    owned by another definition; broad or absent excerpts cannot waive a demand.
+    """
+    definitions = tuple(branch for branch in branches if branch.kind == "definition")
+    if not definitions:
+        return ()
+    owner = _most_specific_containing_branch(
+        condition.start, condition.end, branches=branches
+    )
+    if owner is None:
+        return ()
+    if owner.kind == "definition":
+        scopes = (owner,)
+    elif re.search(r"[:—–-]\s*$", condition.text):
+        scope_end = (
+            max(branch.end for branch in branches)
+            if owner.kind == "source-unit"
+            else owner.end
+        )
+        scopes = tuple(
+            definition
+            for definition in definitions
+            if definition.path == owner.path
+            and condition.end <= definition.start < definition.end <= scope_end
+        )
+    else:
+        return ()
+    if not scopes:
+        return ()
+    paths = {scope.path for scope in scopes}
+    normalized_citation = corpus_citation_path.strip("/").casefold()
+    affected = []
+    for name, rule in principal_rules.items():
+        if not paths.intersection(principal_rule_paths.get(name, ())):
+            continue
+        excerpt_owners: set[SourceStructureBranch | None] = set()
+        for citation, excerpt in _rule_source_excerpts(rule):
+            if citation.strip("/").casefold() != normalized_citation:
+                continue
+            normalized_excerpt = _collapse_text(mask_bare_labels(excerpt))
+            possible_owners = {
+                definition
+                for definition in definitions
+                if normalized_excerpt
+                and normalized_excerpt in _collapse_text(definition.text)
+            }
+            excerpt_owners.update(possible_owners or {None})
+        # An exact proof on another definition is positive evidence that the
+        # condition does not govern this output. Every possible owner must be
+        # outside its scope: shared wording cannot select a shorter definition
+        # to waive the condition. Unresolved proof also stays demanded.
+        if (
+            excerpt_owners
+            and None not in excerpt_owners
+            and excerpt_owners.isdisjoint(scopes)
+        ):
+            continue
+        affected.append(name)
+    return tuple(affected)
 
 
 def _unconditional_nonapplicability_witnesses(
@@ -32884,7 +33150,11 @@ def _source_boundary_obligations(
     *,
     narrative_formula_branches: Sequence[SourceStructureBranch] = (),
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    source_text: str | None = None,
 ) -> tuple[tuple[SourceStructureBranch, NumericOccurrenceLike], ...]:
+    # Physical deduplication belongs only to positively recognized bare
+    # outlines. Ambiguous sources retain the existing fallback obligations.
+    physical_coordinates = bool(source_text and bare_outline(source_text))
     obligations: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
     for branch in branches:
         if branch.kind not in {
@@ -32976,8 +33246,8 @@ def _source_boundary_obligations(
                 occurrence.requires_rate_context,
                 occurrence.is_word_number,
                 occurrence.alternative_values,
-                branch.start + occurrence.start,
-                branch.start + occurrence.end,
+                (branch.start if physical_coordinates else 0) + occurrence.start,
+                (branch.start if physical_coordinates else 0) + occurrence.end,
             ): (branch, occurrence)
             for branch, occurrence in obligations
         }.values()

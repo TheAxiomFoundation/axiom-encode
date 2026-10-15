@@ -16793,6 +16793,7 @@ def _tokenize_numeric_occurrences_from_text(
             ):
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16802,7 +16803,11 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    math.isclose(
+                    # An alternate decimal reading only replaces the same
+                    # printed number. A separate count of 2 cannot hide a
+                    # grouped amount of 2,000 elsewhere in the source.
+                    occurrence.span == source_span
+                    and math.isclose(
                         grouped_value,
                         occurrence.value,
                         rel_tol=0,

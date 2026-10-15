@@ -22,6 +22,7 @@ class BareLabel:
 
 
 _NUMBER = re.compile(r"([1-9]\d*)([A-Z]?)\Z")
+_NUMERIC_TOKEN = re.compile(r"\d[\dA-Za-z]*\Z")
 _LETTER = re.compile(r"[a-z]+\Z")
 _ROMAN = re.compile(
     r"(?=[ivxlcdm]+\Z)m{0,3}(?:cm|cd|d?c{0,3})(?:xc|xl|l?x{0,3})(?:ix|iv|v?i{0,3})\Z"
@@ -35,6 +36,39 @@ _PREDICATE = re.compile(
     r"overrides|does|do|was|were|can|cannot|will|ends|ceases|continues|"
     r"requires|entitles|prohibits|permits|provides)\b"
 )
+_NUMERIC_SUBJECT_INTRO = re.compile(
+    r"^(?:a|an|the|another|this|these|those|he|she|it|they|you|we)\s+",
+    re.IGNORECASE,
+)
+_NUMERIC_LOCAL_PREDICATE = re.compile(_PREDICATE.pattern, re.IGNORECASE)
+_TEMPORAL_UNIT = (
+    r"(?:seconds?|minutes?|hours?|days?|weeks?|fortnights?|months?|quarters?|"
+    r"years?|decades?|centur(?:y|ies)|millenni(?:um|a))"
+)
+_NUMERIC_TEMPORAL_FREQUENCY = re.compile(
+    r"^(?:a|an|the|another|this|these|those)\s+(?:(?:whole|entire)\s+)?"
+    + _TEMPORAL_UNIT
+    + r"\b",
+    re.IGNORECASE,
+)
+_NUMERIC_DISTRIBUTIVE_POSSESSION = re.compile(
+    r"^each\s+(?P<subject>[A-Za-z][A-Za-z ’'-]{0,159}?)\s+has\s+"
+    r"(?:a|an|the)\s+\S",
+    re.IGNORECASE,
+)
+_NUMERIC_CONDITIONAL_INTRO = re.compile(
+    r"^(?:if|unless|where|when|whenever|while|whether)\s+", re.IGNORECASE
+)
+_NUMERIC_DISCOURSE_INTRO = re.compile(
+    r"^(?:however|otherwise|accordingly|therefore)(?:,\s+|\s+)", re.IGNORECASE
+)
+_NUMERIC_SCOPE_INTRO = re.compile(r"^in\s+this\s+section,\s+", re.IGNORECASE)
+_NUMERIC_NAMED_MAIN_CLAUSE = re.compile(
+    r"^[A-Z]{2,16}\s+(?:must|shall|may|can|cannot|will)\s+"
+)
+_NUMERIC_RELATIVE_SUBJECT = re.compile(
+    r"\b(?:which|that|who|whom|whose|where|when)\b", re.IGNORECASE
+)
 _DEFINITION = re.compile(
     r"^[ \t]*(?P<term>[^\W\d_](?:[^\W_]|[ \t'’()/-])*?)"
     r"(?:[ \t]*,[^\n|]*?)?[ \t]+means\b",
@@ -46,6 +80,11 @@ _ROW_CAPTION = re.compile(
     r"first|second|third|fourth|fifth|total|subtotal)\b",
     re.IGNORECASE,
 )
+_NUMERIC_CONTINUATION = re.compile(
+    r"^(?:%|(?:" + _TEMPORAL_UNIT + r"|child(?:ren)?|persons?|people|members?|"
+    r"depend[ae]nts?|percent|per\s+cent|dollars?|cents?|or\s+more)\b)",
+    re.IGNORECASE,
+)
 _VALUE_INTRO = re.compile(
     r"\b(?:is|are|equals?|totals?|(?:as )?follows|as shown|"
     r"(?:given|set out|specified|prescribed|listed) below|the following|"
@@ -53,10 +92,33 @@ _VALUE_INTRO = re.compile(
     r"[.;:—–-]?\s*$",
     re.IGNORECASE,
 )
+_VALUE_CONTEXT = re.compile(
+    r"\b(?:lists?|entries|following|below|listed|shown|"
+    r"(?:this|that|as|so)\s+many)\b",
+    re.IGNORECASE,
+)
+_QUANTITY_NOUN = (
+    r"(?:counts?|amounts?|rates?|percentages?|numbers?|years?|"
+    r"totals?|values?|figures?|columns?|rows?|quantit(?:y|ies)|"
+    r"limits?|ceilings?|caps?|thresholds?|maximums?|maxima|minimums?|minima)"
+)
+_UNRESOLVED_QUANTITY = re.compile(rf"\b{_QUANTITY_NOUN}\b", re.IGNORECASE)
+_QUANTITY_ASSIGNMENT = re.compile(
+    _QUANTITY_NOUN + r"(?:\s+of\s+[A-Za-z ’'-]{1,120})?"
+    r"\s+(?:is|are|equals?|totals?)\s+\$?\d+(?:\.\d+)?(?:%|\b)",
+    re.IGNORECASE,
+)
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
-_VARIABLE_INTRO = re.compile(r"^where\s*[,—–:-]?\s*$", re.IGNORECASE)
+_VARIABLE_INTRO = re.compile(
+    r"\b(?:where|formula|symbols?|variables?)\b", re.IGNORECASE
+)
 _VARIABLE_MEANING = re.compile(r"^(?:is|means|represents|denotes|equals)\b")
 _VARIABLE_EXPRESSION = re.compile(r"\b[a-zA-Z]\s*(?:[+*/÷×=]|−|\s-\s)")
+_REFERENCE_INTRO = re.compile(
+    r"\b(?:sections?|subsections?|paragraphs?|subparagraphs?|clauses?|"
+    r"subclauses?|parts?|schedules?|chapters?|regulations?|articles?|see)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _roman_value(token: str) -> int | None:
@@ -113,8 +175,69 @@ def _successor(
 
 def _is_token(line: str) -> bool:
     return bool(
-        _NUMBER.fullmatch(line) or _LETTER.fullmatch(line) or _ROMAN.fullmatch(line)
+        _NUMERIC_TOKEN.fullmatch(line)
+        or _LETTER.fullmatch(line)
+        or _ROMAN.fullmatch(line)
     )
+
+
+def _numeric_main_clause_has_subject(text: str) -> bool:
+    """Use only the first comma-bounded clause's own subject and predicate."""
+    clause = text.split(",", 1)[0]
+    if _NUMERIC_TEMPORAL_FREQUENCY.match(clause):
+        return False
+    subject = _NUMERIC_SUBJECT_INTRO.match(clause)
+    if subject is None:
+        return False
+    predicate = _NUMERIC_LOCAL_PREDICATE.search(clause, subject.end())
+    if predicate is None or _NUMERIC_RELATIVE_SUBJECT.search(
+        clause, subject.end(), predicate.start()
+    ):
+        return False
+    introduction = subject.group().strip().casefold()
+    if introduction in {"a", "an", "the", "another"} and not re.search(
+        r"[^\W\d_]", clause[subject.end() : predicate.start()]
+    ):
+        return False
+    return not (
+        introduction in {"a", "an"}
+        and predicate.group().casefold() in {"are", "were", "have"}
+    )
+
+
+def _numeric_follower_is_independent_prose(text: str) -> bool:
+    """Require a subject, not a quantity's noun or relative continuation."""
+    possession = _NUMERIC_DISTRIBUTIVE_POSSESSION.match(text)
+    if possession is not None:
+        subject = possession.group("subject")
+        return not (
+            _PREDICATE.search(subject.lower())
+            or _NUMERIC_RELATIVE_SUBJECT.search(subject)
+        )
+    if _NUMERIC_SUBJECT_INTRO.match(text):
+        return _numeric_main_clause_has_subject(text)
+    discourse = _NUMERIC_DISCOURSE_INTRO.match(text)
+    if discourse is not None:
+        return _numeric_main_clause_has_subject(text[discourse.end() :])
+    scope = _NUMERIC_SCOPE_INTRO.match(text)
+    if scope is not None:
+        remainder = text[scope.end() :]
+        return bool(
+            _numeric_main_clause_has_subject(remainder) or _DEFINITION.match(remainder)
+        )
+    if _NUMERIC_CONDITIONAL_INTRO.match(text):
+        # A conditional fragment can qualify an operative count. Only an
+        # independently headed clause after the final comma supplies evidence
+        # of a new subsection. Earlier commas may introduce appositives inside
+        # the condition; unsupported complex main clauses retain obligations.
+        _condition, comma, remainder = text.rpartition(",")
+        if comma and remainder[:1].isspace():
+            remainder = remainder.lstrip()
+            return bool(
+                _numeric_main_clause_has_subject(remainder)
+                or _NUMERIC_NAMED_MAIN_CLAUSE.match(remainder)
+            )
+    return False
 
 
 def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
@@ -136,21 +259,35 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
     if not candidates:
         return None
     if any(
+        _NUMERIC_TOKEN.fullmatch(token := lines[index].strip())
+        and _NUMBER.fullmatch(token) is None
+        for index in candidates
+    ):
+        # Unknown numeric spellings may name a sibling rather than continue
+        # the preceding paragraph. Retain them without inventing legal paths.
+        return None
+    if any(
         "\t" in line or "|" in line or _TABLE.search(line) or _PARENTHETICAL.match(line)
         for line in lines
     ):
         return None
     for index in candidates:
-        if index and _VARIABLE_INTRO.fullmatch(lines[index - 1].strip()):
+        if index:
+            if _REFERENCE_INTRO.search(lines[index - 1].strip()):
+                # A wrapped citation can imitate the next sibling ordinal.
+                # Its referenced label remains running text, not a child unit.
+                return None
             # Formula variables can look exactly like an alphabetic outline.
             # Their symbols are operands, rather than statutory child paths.
+            nearby_expression = any(
+                _VARIABLE_EXPRESSION.search(line)
+                for line in lines[max(0, index - 4) : index]
+            )
             if (
                 index + 1 < len(lines)
                 and _VARIABLE_MEANING.match(lines[index + 1].strip())
-            ) or any(
-                _VARIABLE_EXPRESSION.search(line)
-                for line in lines[max(0, index - 4) : index - 1]
-            ):
+                and _VARIABLE_INTRO.search(lines[index - 1].strip())
+            ) or nearby_expression:
                 return None
     first = lines[candidates[0]].strip()
     root_kind = (
@@ -206,14 +343,29 @@ def bare_outline(text: str) -> tuple[BareLabel, ...] | None:
                 not _SENTENCE_END.search(following)
                 or len(re.findall(r"[A-Za-z]+", following)) < 3
                 or not _PREDICATE.search(following)
+                # A noun-headed follower can complete an operative count,
+                # even with a predicate and a child list of its own. Require
+                # positive independent prose, rather than enumerating nouns.
+                or not _numeric_follower_is_independent_prose(following)
                 or _ROW_CAPTION.match(following)
+                # A unit/count follower can complete an operative quantity,
+                # even when the remainder is a full predicate sentence.
+                or _NUMERIC_CONTINUATION.match(following)
                 or (index and not _SENTENCE_END.search(before))
                 # A dangling introduction may be completed by an operative
                 # count. It cannot authenticate a new numeric subsection.
                 or (index and _LIST_INTRO.search(before))
                 or (
                     index
-                    and (_VALUE_INTRO.search(before) or _ROW_CAPTION.match(before))
+                    and (
+                        _VALUE_INTRO.search(before)
+                        or _VALUE_CONTEXT.search(before)
+                        or any(
+                            not _QUANTITY_ASSIGNMENT.match(before, quantity.start())
+                            for quantity in _UNRESOLVED_QUANTITY.finditer(before)
+                        )
+                        or _ROW_CAPTION.match(before)
+                    )
                 )
                 or (
                     candidate_number
