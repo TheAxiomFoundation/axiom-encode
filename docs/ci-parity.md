@@ -316,7 +316,12 @@ the environment.
   directories and caches it writes only the pinned public
   release object at the workflow-defined corpus release path, which the corpus
   checkout's cleanliness check exempts. It refuses a symlink on that path, so
-  the write stays inside the corpus checkout. Like CI's "Link axiom-rules-engine as
+  the write stays inside the corpus checkout. In a corpus checkout that keeps
+  its bytes in lock files (`.axiom/corpus-locks/`), binding the release also
+  places the release's provisions artifacts at the paths the checkout's locks
+  pin, under `data/corpus/provisions/`, staged in `data/corpus/.corpus-fetch-tmp/`.
+  It never replaces an existing file and never follows or creates a symlink
+  there; `AXIOM_CORPUS_NO_FETCH` turns this placement off. Like CI's "Link axiom-rules-engine as
   sibling checkout" step, it links the engine, corpus and rulespec-us
   dependency checkouts next to the temporary checkout. It creates nothing under
   `_axiom/` inside it. CI's checkouts there are real directories, which the
@@ -325,7 +330,11 @@ the environment.
   tracked by a dependency checkout fails resolution. So does committed
   `_axiom` content, which CI's checkouts would land on.
 - **Network.** Unless `--offline` is set, it downloads that object, and cargo
-  and uv may fetch the engine's crates and the repository-test packages.
+  and uv may fetch the engine's crates and the repository-test packages. For
+  a lock-file corpus checkout, provisions come from the corpus cache
+  (`$AXIOM_CORPUS_CACHE`, default `~/.axiom/corpus-cache`), then the
+  checkout's git objects, then, without `--offline` and only when R2 read
+  credentials are configured, R2.
 
 ## Dependency and encoder identity
 
