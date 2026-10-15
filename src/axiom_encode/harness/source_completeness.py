@@ -422,10 +422,15 @@ _INLINE_OUTLINE_EXPLICIT_REFERENCE_COMMAND = re.compile(
     r".{0,160}[:;.!?—]\s*$",
     flags=re.IGNORECASE | re.DOTALL,
 )
+_RECALL_UNIT_WORD = (
+    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
+    r"people|dollars?|cents?)"
+)
 _GLUED_SENTENCE_MARKER = re.compile(
     r"(?<![\w])(?P<label>[1-9]\d?)"
     r"(?![A-ZÄÖÜ](?:\d+)?\b)"
     r"(?!(?i:st|nd|rd|th)\b)"
+    rf"(?!{_RECALL_UNIT_WORD}\b|(?i:per[ \t\u00a0\u202f]+cent)\b)"
     r"(?=[A-ZÄÖÜ](?!:)(?![ \t]*[.:/\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]"
     r"[ \t]*\d))"
 )
@@ -2205,15 +2210,24 @@ _BRACKETED_USC_ET_SEQ_CITATION_LIST = re.compile(
 # continuations keep the identifier's hyphenated shape and never take a range
 # that a unit word follows, so `policy 254, 3 members`, `policy 254, 10-15
 # days` and `policy 10-day notice` keep their values.
-_RECALL_UNIT_WORD = (
-    r"(?i:days?|weeks?|months?|years?|hours?|percent|members?|persons?|"
-    r"people|dollars?|cents?)"
-)
 _RECALL_UNIT_FOLLOWS = (
     rf"[ \t]*(?:%|-?(?:[A-Za-z]+[ \t-]+){{0,2}}{_RECALL_UNIT_WORD}\b)"
 )
 # Scan labels first, then prove their reference boundary. Arbitrary connectives
 # and quantity words cannot prove that a bare coordinated number is a locator.
+_NUMERIC_RECALL_IDENTIFIER_TRANSLATION = str.maketrans(
+    {
+        "\u00a0": " ",
+        "\u202f": " ",
+        "‘": "'",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+        "−": "-",
+        "–": "-",
+        "—": "-",
+    }
+)
 _ENGLISH_SUBDIVISION_NUMERIC_RECALL_LOCATOR = (
     r"(?<![A-Za-z])(?:[A-Za-z][ \t]*)?\d+[A-Za-z]?"
     r"(?:[ \t]+[A-Za-z]\b)?(?:\([A-Za-z]\))*"
@@ -13812,6 +13826,9 @@ def _english_subdivision_numeric_recall_spans(
 ) -> Iterable[tuple[int, int]]:
     """Yield only digits in positively completed subdivision references."""
 
+    # Scan one-to-one typography variants, then mask the original digit spans.
+    # Lowercasing the entire source could expand characters and move offsets.
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
     for citation in _ENGLISH_SUBDIVISION_NUMERIC_RECALL_CITATION.finditer(source_text):
         labels = tuple(
             _ENGLISH_SUBDIVISION_LOCATOR_TOKEN.finditer(
@@ -13837,7 +13854,9 @@ def _english_subdivision_numeric_recall_spans(
             complete = False
         has_range = any(
             re.search(
-                r"[-–—]|\b(?:to|through)\b", source_text[left.end() : right.start()]
+                r"[-–—]|\b(?:to|through)\b",
+                source_text[left.end() : right.start()],
+                flags=re.IGNORECASE,
             )
             for left, right in zip(labels, labels[1:])
         )
@@ -13881,6 +13900,7 @@ def _contiguous_states_numeric_recall_spans(
 ) -> Iterable[tuple[int, int]]:
     """Prove bare/definite geography without guessing currency or unit tokens."""
 
+    source_text = source_text.translate(_NUMERIC_RECALL_IDENTIFIER_TRANSLATION)
     for identifier in _CONTIGUOUS_STATES_NUMERIC_RECALL_IDENTIFIER.finditer(
         source_text
     ):

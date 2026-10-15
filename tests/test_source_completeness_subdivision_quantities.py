@@ -24,6 +24,25 @@ EXTRACT_NUMBERS = functools.partial(
 )
 
 
+def _keyword_case(text: str, style: str) -> str:
+    """Vary every generated keyword without moving numeric occurrences."""
+
+    def transform(match: re.Match[str]) -> str:
+        word = match.group()
+        if style == "upper":
+            return word.upper()
+        if style == "title":
+            return word.title()
+        if style == "mixed":
+            return "".join(
+                letter.lower() if index % 2 == 0 else letter.upper()
+                for index, letter in enumerate(word)
+            )
+        return word
+
+    return re.sub(r"[A-Za-z]+", transform, text)
+
+
 @dataclass(frozen=True)
 class QuantitySource:
     text: str
@@ -77,6 +96,8 @@ def _assert_quantity_source(case: QuantitySource) -> None:
 def _mixed_quantity_sources(draw):
     """Every example includes each construction; values and wording vary."""
     locator = draw(st.integers(min_value=701, max_value=799))
+    case_style = draw(st.sampled_from(("original", "upper", "title", "mixed")))
+    space = draw(st.sampled_from((" ", "\u00a0", "\u202f")))
     first = draw(st.integers(min_value=2, max_value=49))
     second = first + draw(st.integers(min_value=1, max_value=24))
     third = second + draw(st.integers(min_value=1, max_value=24))
@@ -112,6 +133,8 @@ def _mixed_quantity_sources(draw):
         ),
         f"${first} is allowed",
         f"€{second} is allowed",
+        f"{first} dollars are allowed",
+        f"USD {second} is allowed",
         f"{first} qualifying {unit} are allowed",
         *(
             f"{prefix} {first} {unit} must qualify"
@@ -138,6 +161,10 @@ def _mixed_quantity_sources(draw):
     # Quantity context attached to the first number also prevents masking.
     clauses.extend(
         (
+            *(
+                f"Land subdivision {first} {connector} {second}: minimum acreage range. "
+                for connector in ("through", "to")
+            ),
             *(
                 f"Under subdivision {first} or {comparison} eligible {unit}, the credit applies. "
                 for comparison in ("more", "fewer", "less", "greater")
@@ -199,10 +226,25 @@ def _mixed_quantity_sources(draw):
         (offset + number_start, offset + number_start + len(str(locator + 1000)))
     )
     clauses.append(final_clause)
-    return QuantitySource("".join(clauses), tuple(spans))
+    # Exercise the geography phrase beside equal-valued quantities and money.
+    geography = " Use the guidelines for the 48 contiguous states. "
+    start = offset + len(final_clause) + geography.index("48")
+    spans.append((start, start + 2))
+    clauses.extend(
+        (
+            geography,
+            "For USD 48 contiguous states; 48 children qualify. ",
+            "For yuan 48 contiguous states; 48 children qualify. ",
+        )
+    )
+    text = _keyword_case("".join(clauses), case_style).replace(" ", space)
+    return QuantitySource(text, tuple(spans))
 
 
 @given(case=_mixed_quantity_sources())
+@example(
+    case=QuantitySource("Land subdivision 3 THROUGH 5: minimum acreage range.", ())
+)
 @example(
     case=QuantitySource(
         "Under subdivision 2, 3 or more eligible children must qualify.", ((18, 19),)
@@ -231,6 +273,60 @@ def _mixed_quantity_sources(draw):
 )
 def test_every_quantity_occurrence_survives_only_proven_locator_removal(case):
     _assert_quantity_source(case)
+
+
+@pytest.mark.parametrize("connector", ("through", "to"))
+@pytest.mark.parametrize("style", ("original", "upper", "title", "mixed"))
+def test_range_keyword_case_preserves_operative_endpoints(connector, style):
+    source = _keyword_case(
+        f"Land subdivision 3 {connector} 5: minimum acreage range.", style
+    )
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
+@pytest.mark.parametrize("connector", ("through", "to"))
+@pytest.mark.parametrize("style", ("original", "upper", "title", "mixed"))
+@pytest.mark.parametrize("space", (" ", "\u00a0", "\u202f"))
+def test_complete_statutory_ranges_remain_locators_in_keyword_variants(
+    connector, style, space
+):
+    source = _keyword_case(
+        f"Under subdivisions 3 {connector} 5 of this section.", style
+    ).replace(" ", space)
+    spans = tuple(match.span() for match in re.finditer(r"\d+", source))
+    _assert_quantity_source(QuantitySource(source, spans))
+
+
+@pytest.mark.parametrize("space", (" ", "\u00a0", "\u202f"))
+@pytest.mark.parametrize("connector", ("-", "–", "—", "−"))
+def test_typographic_statutory_ranges_preserve_original_text(space, connector):
+    source = f"Under subdivisions 3{connector}5 of this section.".replace(" ", space)
+    spans = tuple(match.span() for match in re.finditer(r"\d+", source))
+    _assert_quantity_source(QuantitySource(source, spans))
+
+
+@pytest.mark.parametrize("space", (" ", "\u00a0", "\u202f"))
+@pytest.mark.parametrize("style", ("original", "upper", "title", "mixed"))
+def test_geography_and_definition_typography_preserves_operative_values(space, style):
+    source = _keyword_case(
+        "Under subdivision 15, “business interest” means 20 percent. "
+        "Use the guidelines for the 48 contiguous states; USD 48 contiguous states.",
+        style,
+    ).replace(" ", space)
+    locator = source.index("15")
+    geography = source.index("48")
+    _assert_quantity_source(
+        QuantitySource(source, ((locator, locator + 2), (geography, geography + 2)))
+    )
+
+
+@pytest.mark.parametrize("style", ("original", "upper", "title", "mixed"))
+@pytest.mark.parametrize(
+    "rate", ("percent", "per cent", "per\u00a0cent", "per\u202fcent")
+)
+def test_glued_percentage_units_do_not_become_sentence_numbers(style, rate):
+    source = _keyword_case(f"Under subdivision 2 or 3{rate} of income.", style)
+    _assert_quantity_source(QuantitySource(source, ()))
 
 
 @pytest.mark.parametrize(
