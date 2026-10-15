@@ -243,6 +243,26 @@ def test_each_conjoined_threshold_keeps_its_own_direction(text, expected):
         "someone with at least 30 quarters of coverage, may buy into Part A.",
         "Custody is for more than one-half of the calendar year if a parent has "
         "physical custody for more than one-half of the calendar year.",
+        # A clause joined by `or` after a negation shares that negation
+        # (review of #1937): reading it alone would invert its direction.
+        "The payment shall not exceed $500 or be less than $100.",
+        "The payment shall not be more than $500 or be less than $100.",
+        "A household whose income does not exceed $500 or fall below $100 is eligible.",
+        "A household whose income is not below $100 or above $500 is eligible.",
+        # Real operative text (us-ok/statute/68-3017).
+        "The amount of uncollected taxes for the previous year or years; provided "
+        "that the reserve so added shall not exceed twenty percent (20%) or be "
+        "less than five percent (5%); and provided, further, that the reserve so "
+        "added shall not be subject to review.",
+        # One fragment, two opposite effects: no single polarity fits both.
+        "A household is ineligible if its income is more than $500, and is "
+        "eligible if its resources are less than $2,000.",
+        "A household is eligible if income is less than $500, and the household "
+        "is ineligible if resources are more than $2,000.",
+        # `more or less than` is not a threshold (us-ga SNAP 3605).
+        "In some instances, more or less than one month's income or expenses OR "
+        "more or less than the four (4) current consecutive weeks of pay for "
+        "fluctuating income is used if one month's income is not representative.",
     ),
 )
 def test_no_new_threshold_without_a_second_source_comparison(text):

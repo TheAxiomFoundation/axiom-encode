@@ -35642,7 +35642,11 @@ def _source_conjoined_threshold_pieces(
         before = fragment[cursor : separator.start()]
         after = fragment[separator.end() :]
         if conjunction in {"or", "oder"} and (
-            re.search(r"\b(?:than|at|als)\s*$", before, flags=re.IGNORECASE)
+            re.search(
+                r"\b(?:than|at|als|more|less|greater|fewer)\s*$",
+                before,
+                flags=re.IGNORECASE,
+            )
             or (
                 # `$500 or more` continues one comparator; `or more than
                 # $1,000` starts another.
@@ -35673,6 +35677,27 @@ def _source_conjoined_threshold_pieces(
         return ()
     pieces.append((cursor, fragment[cursor:]))
     return tuple((start, piece) for start, piece in pieces if piece.strip())
+
+
+def _source_fragment_has_mixed_effect(fragment: str) -> bool:
+    """Whether one fragment states both an eligible and an ineligible effect."""
+
+    lowered = _collapse_text(fragment).lower()
+    negative = re.compile(
+        r"\b(?:keine?\s+berechtigung|keinen?\s+anspruch|"
+        r"nicht\s+berechtigt|ausgeschlossen|gilt\s+nicht|"
+        r"does\s+not\s+apply|not\s+applicable|not\s+eligible|"
+        r"ineligible|excluded)\b"
+    )
+    if not negative.search(lowered):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:gilt(?:\s+für)?|anspruch\s+besteht|berechtigt|"
+            r"appl(?:y|ies)|eligible|qualif(?:y|ies))\b",
+            negative.sub(" ", lowered),
+        )
+    )
 
 
 def _source_conjoined_threshold_obligations(
@@ -35734,28 +35759,49 @@ def _source_conjoined_threshold_obligations(
                 is None
             ):
                 continue
+            if _source_fragment_has_mixed_effect(fragment):
+                # `ineligible if income is more than $500, and eligible if
+                # resources are less than $2,000`: one fragment-level effect
+                # cannot give every clause its own polarity.
+                continue
             polarity = _source_boundary_boolean_polarity(fragment)
-            previous_piece = ""
             for piece_start, piece in _source_conjoined_threshold_pieces(
                 range_fragment
             ):
-                if _PERMISSIVE_THRESHOLD_SCOPE.search(range_fragment[:piece_start]):
+                prefix = range_fragment[:piece_start]
+                if _PERMISSIVE_THRESHOLD_SCOPE.search(prefix):
                     break
-                negated_previous = re.search(
+                if re.search(
+                    r"\b(?:more\s+or\s+less|less\s+or\s+more)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `more or less than four weeks` states no direction.
+                    continue
+                if re.search(
+                    r"\b(?:or|nor|oder|noch)\s*$", prefix, flags=re.IGNORECASE
+                ) and re.search(
+                    r"\b(?:not|no|nor|neither|without|never|nicht|kein\w*|weder)\b",
+                    prefix,
+                    flags=re.IGNORECASE,
+                ):
+                    # `shall not exceed $500 or be less than $100`: a clause
+                    # joined by `or` after a negation shares that negation,
+                    # so its direction cannot be read from the clause alone.
+                    continue
+                previous_piece = range_fragment[:piece_start].rstrip()
+                if re.search(
                     r"\b(?:not|no|nicht)\s+(?:be\s+|been\s+|sein\s+)?"
                     r"(?:less|more|greater|fewer|mehr|weniger)\b",
                     previous_piece,
                     flags=re.IGNORECASE,
-                )
-                previous_piece = piece
-                if negated_previous and re.match(
+                ) and re.match(
                     r"\s*(?:less|more|greater|fewer|mehr|weniger)\b",
                     piece,
                     flags=re.IGNORECASE,
                 ):
-                    # `not less than 10 percent or more than 50 percent`: the
-                    # bare second comparator shares the first one's negation,
-                    # so its direction cannot be read from the piece alone.
+                    # `not less than 3 percent, and more than 15 percent ...`:
+                    # a bare comparator after a negated one is not read alone.
                     continue
                 if not re.search(
                     r"\b(?:zwischen|between|bis|von|ab|unter|über|"
