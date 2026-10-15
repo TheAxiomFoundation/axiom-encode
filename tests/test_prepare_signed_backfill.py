@@ -4326,7 +4326,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
-        ("nz", "a3b2ded3e2bae46923db1059de3d01565dc7424c"),
+        ("nz", "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"),
     ],
 )
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
@@ -4360,7 +4360,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "746bf3b4cc13ea24ef2aefb3509d24bbe9139b6e"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
             ("ca", "09327ea52b2c09d20ce5f826fe61dceb33253abc"),
-            ("nz", "a3b2ded3e2bae46923db1059de3d01565dc7424c"),
+            ("nz", "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"),
         }
     )
     assert REVIEWED_RULESPEC_PR_BASES == frozenset(
@@ -4407,8 +4407,8 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ),
             (
                 "nz",
-                "a3b2ded3e2bae46923db1059de3d01565dc7424c",
-                "nzhub/wep-s75d",
+                "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97",
+                "nzhub/wep-s75e",
             ),
         }
     )
@@ -4656,7 +4656,7 @@ def test_validate_rulespec_base_accepts_nz_reviewed_candidate_branch_tip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = tmp_path / "rulespec-nz"
-    reviewed_ref = "a3b2ded3e2bae46923db1059de3d01565dc7424c"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
@@ -4672,7 +4672,7 @@ def test_validate_rulespec_base_accepts_nz_reviewed_candidate_branch_tip(
             "nz",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="nzhub/wep-s75d",
+            pr_base_branch="nzhub/wep-s75e",
         )
         == "reviewed-head-pr"
     )
@@ -4687,7 +4687,7 @@ def test_validate_rulespec_base_accepts_nz_reviewed_candidate_branch_tip(
     [
         ("nz", "nzhub/wep-candidates", "artifact-only"),
         ("nz", "main", "artifact-only"),
-        ("us", "nzhub/wep-s75d", "neither on main nor an approved reviewed head"),
+        ("us", "nzhub/wep-s75e", "neither on main nor an approved reviewed head"),
     ],
 )
 def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
@@ -4698,7 +4698,7 @@ def test_validate_rulespec_base_rejects_nz_reviewed_candidate_other_pairs(
     message: str,
 ) -> None:
     repo = tmp_path / f"rulespec-{country}"
-    reviewed_ref = "a3b2ded3e2bae46923db1059de3d01565dc7424c"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
@@ -4723,8 +4723,8 @@ def test_validate_rulespec_base_rejects_stale_nz_reviewed_candidate_branch_tip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = tmp_path / "rulespec-nz"
-    reviewed_ref = "a3b2ded3e2bae46923db1059de3d01565dc7424c"
-    branch = "nzhub/wep-s75d"
+    reviewed_ref = "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97"
+    branch = "nzhub/wep-s75e"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
         if args[-1] == f"refs/remotes/origin/{branch}":

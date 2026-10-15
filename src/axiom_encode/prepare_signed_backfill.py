@@ -162,7 +162,7 @@ REVIEWED_RULESPEC_REFS = frozenset(
         # rulespec-nz: reviewed Winter Energy Payment s75 candidate promotion.
         (
             "nz",
-            "a3b2ded3e2bae46923db1059de3d01565dc7424c",
+            "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97",
         ),
     }
 )
@@ -212,8 +212,8 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
         # rulespec-nz: reviewed Winter Energy Payment s75 candidate promotion.
         (
             "nz",
-            "a3b2ded3e2bae46923db1059de3d01565dc7424c",
-            "nzhub/wep-s75d",
+            "163ac0d304db9ef5bb5771c93e1c84ef7f78ce97",
+            "nzhub/wep-s75e",
         ),
     }
 )
