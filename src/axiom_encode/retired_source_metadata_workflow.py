@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Mapping
 
 PLAN_SCHEMA = "axiom-encode/retired-source-metadata-migration-plan/v1"
+PLAN_SCHEMA_V2 = "axiom-encode/retired-source-metadata-migration-plan/v2"
 CHANGES_SCHEMA = "axiom-encode/retired-source-metadata-migration-changes/v1"
 RECEIPT_ROOT = Path(".axiom/retired-source-metadata-migrations")
 MAX_JSON_BYTES = 16 * 1024 * 1024
@@ -65,7 +66,10 @@ def resolve_request(
     from axiom_encode.retired_source_metadata import load_plan_bytes
 
     payload = _json(source_bundle_json)
-    if not isinstance(payload, dict) or payload.get("schema_version") != PLAN_SCHEMA:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in (
+        PLAN_SCHEMA,
+        PLAN_SCHEMA_V2,
+    ):
         return None
     plan = load_plan_bytes(source_bundle_json.encode("utf-8"))
     if plan.base_commit != base_ref:
