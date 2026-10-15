@@ -10,6 +10,7 @@ threads and processes do not inherit.
 
 from __future__ import annotations
 
+import io
 import locale
 import os
 import shutil
@@ -17,6 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 
@@ -202,22 +204,34 @@ def test_repository_test_child_honors_the_no_fetch_opt_out(
     assert (root / REG_PROVISIONS).exists() is not opt_out
 
 
-def test_utf8_ctype_decodes_rulespec_text_as_ci_does(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "caller_locale", ["C", "en_US.ISO8859-1", "xx_XX.not-a-locale"]
+)
+def test_utf8_ctype_decodes_rulespec_text_as_ci_does(
+    tmp_path: Path, caller_locale: str
+) -> None:
     # Cycle 25: LC_ALL=C.UTF-8 in os.environ does not change the running
     # interpreter's LC_CTYPE, so in-process gates decoded files with the
-    # caller's codeset. Outside UTF-8 mode, under ISO-8859-1, "§" became "Â§".
+    # caller's codeset: outside UTF-8 mode "§" became "Â§" (ISO-8859-1) or
+    # raised (ASCII). C exists on every host, so this always runs somewhere.
     source = tmp_path / "statute.yaml"
-    source.write_bytes("7 USC § 2014(e)\n".encode())
+    source.write_bytes("7 USC \u00a7 2014(e)\n".encode())
+    expected = ascii("7 USC \u00a7 2014(e)\n")
     probe = (
-        "import locale, sys\n"
+        "import sys\n"
         "from pathlib import Path\n"
         "from axiom_encode import ci_parity\n"
-        "before = Path(sys.argv[1]).read_text()\n"
+        "def read():\n"
+        "    try:\n"
+        "        return ascii(Path(sys.argv[1]).read_text())\n"
+        "    except UnicodeDecodeError:\n"
+        "        return 'UnicodeDecodeError'\n"
+        "print(read())\n"
         "ci_parity._adopt_utf8_ctype()\n"
-        "print(ascii(before))\n"
-        "print(ascii(Path(sys.argv[1]).read_text()))\n"
+        "print(read())\n"
     )
-    environment = {**os.environ, "LC_ALL": "en_US.ISO8859-1", "LANG": ""}
+    # LC_ALL set: no C-locale coercion; -X utf8=0: no UTF-8 mode.
+    environment = {**os.environ, "LC_ALL": caller_locale, "LANG": ""}
     environment.pop("PYTHONUTF8", None)
 
     result = subprocess.run(
@@ -230,9 +244,9 @@ def test_utf8_ctype_decodes_rulespec_text_as_ci_does(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     before, after = result.stdout.splitlines()
-    if before == after:
-        pytest.skip("no ISO-8859-1 locale on this host")
-    assert after == ascii("7 USC § 2014(e)\n")
+    if before == expected:
+        pytest.skip(f"{caller_locale} already decodes UTF-8 on this host")
+    assert after == expected
 
 
 def test_utf8_ctype_fails_closed_without_a_utf8_locale(
@@ -250,3 +264,73 @@ def test_utf8_ctype_fails_closed_without_a_utf8_locale(
 
     with pytest.raises(ValueError, match="UTF-8 LC_CTYPE"):
         ci_parity._adopt_utf8_ctype()
+
+
+def test_children_get_the_adopted_utf8_locale_without_c_utf8(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Cycle 26: on a host without C.UTF-8, exporting LC_ALL=C.UTF-8 left
+    # spawned workers in an unknown locale (ASCII outside UTF-8 mode); the
+    # run exports the UTF-8 locale it actually adopted.
+    real = locale.setlocale
+    saved = real(locale.LC_CTYPE)
+    try:
+        real(locale.LC_CTYPE, "en_US.UTF-8")
+    except locale.Error:
+        pytest.skip("no en_US.UTF-8 locale on this host")
+    finally:
+        real(locale.LC_CTYPE, saved)
+
+    def without_c_utf8(category: int, name: str | None = None) -> str:
+        if name == "C.UTF-8":
+            raise locale.Error("unsupported locale setting")
+        return real(category, name)
+
+    seen: dict[str, str] = {}
+
+    def resolve(*_: object) -> str:
+        seen.update(LANG=os.environ["LANG"], LC_ALL=os.environ["LC_ALL"])
+        raise ValueError("stop after inspecting the runner environment")
+
+    monkeypatch.setattr(ci_parity, "resolve_commit", resolve)
+    ambient = {"LANG": "C", "LC_ALL": "C", "TZ": "UTC", "PATH": os.defpath}
+    # Such a host starts in a locale it has: C.
+    real(locale.LC_CTYPE, "C")
+    try:
+        monkeypatch.setattr(ci_parity.locale, "setlocale", without_c_utf8)
+        with (
+            mock.patch.dict(os.environ, ambient, clear=True),
+            mock.patch("sys.stdout", io.StringIO()),
+        ):
+            args = SimpleNamespace(
+                repo=Path("/unavailable"), base_ref="base", json=True
+            )
+            assert ci_parity.run_ci(args) == 1
+            assert dict(os.environ) == ambient
+        monkeypatch.undo()
+        assert real(locale.LC_CTYPE) == "C"
+    finally:
+        real(locale.LC_CTYPE, saved)
+
+    assert seen == {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
+
+
+def test_utf8_ctype_keeps_a_callers_own_utf8_locale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Cycle 26: a host with only de_DE.UTF-8 failed closed although its
+    # LC_CTYPE already decoded UTF-8.
+    current = {"name": "de_DE.UTF-8"}
+
+    def only_the_callers(category: int, name: str | None = None) -> str:
+        if name is None or name == "de_DE.UTF-8":
+            return current["name"]
+        raise locale.Error("unsupported locale setting")
+
+    monkeypatch.setattr(ci_parity.locale, "setlocale", only_the_callers)
+    monkeypatch.setattr(ci_parity.locale, "getencoding", lambda: "UTF-8")
+    monkeypatch.setattr(
+        ci_parity, "sys", SimpleNamespace(flags=SimpleNamespace(utf8_mode=0))
+    )
+
+    assert ci_parity._adopt_utf8_ctype() == "de_DE.UTF-8"

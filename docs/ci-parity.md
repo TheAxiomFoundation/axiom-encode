@@ -66,9 +66,11 @@ Python. The scripts cover:
 - **Runner environment.** Gates run on a UTC clock with `LANG` and `LC_ALL`
   set to `C.UTF-8`, as the runner and the supervisor's child environment have
   them. In-process gates also decode files as UTF-8: `ci` switches its own
-  `LC_CTYPE` to a UTF-8 locale (`C.UTF-8`, `en_US.UTF-8` or `UTF-8`) for the
-  run, and fails resolution if none exists outside Python's UTF-8 mode. The
-  caller's values are restored afterwards.
+  `LC_CTYPE` to a UTF-8 locale (`C.UTF-8`, `en_US.UTF-8`, `UTF-8`, or else the
+  caller's own if it is UTF-8) for the run, exports that same locale to child
+  processes (`C.UTF-8` wherever it exists), and fails resolution if none
+  exists outside Python's UTF-8 mode.
+  The caller's values are restored afterwards.
 - **Engine.** As "Build axiom-rules-engine" does, `ci` builds the debug profile
   from a fresh `git archive` of the verified engine pin in a private temporary
   directory, with an empty private `target/` (`--offline` under `--offline`).
@@ -179,8 +181,9 @@ Python. The scripts cover:
   coverage, and repository tests last.
 - **Supervised environment.** CI's supervisor starts each supervised subcommand
   from an empty environment. For those gates, `ci` withholds every `AXIOM_*`
-  variable the supervisor does not forward and makes Git ignore global and
-  system configuration. Unsupervised steps, such as companion tests, get the
+  variable the supervisor does not forward, except the caller's
+  `AXIOM_CORPUS_NO_FETCH` opt-out, and makes Git ignore global and system
+  configuration. Unsupervised steps, such as companion tests, get the
   step's own environment.
 - **Release object.** It is fetched as the caller configures CI to fetch it:
   from the Supabase registry alone when `corpus-release-registry-url` is set,

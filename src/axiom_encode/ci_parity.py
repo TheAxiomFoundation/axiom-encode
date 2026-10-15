@@ -5826,29 +5826,34 @@ def _run_ci_in_checkout(
 _UTF8_CTYPES = ("C.UTF-8", "en_US.UTF-8", "UTF-8")
 
 
-def _adopt_utf8_ctype() -> None:
-    """Decode text in-process as CI's C.UTF-8 runner does.
+def _adopt_utf8_ctype() -> str | None:
+    """Decode text in-process as CI's C.UTF-8 runner does; return the locale.
 
     ``LC_ALL=C.UTF-8`` in the environment reaches subprocesses and --jobs
     workers, but this interpreter keeps the LC_CTYPE it started with, and
     in-process gates read files with ``open()``'s default encoding, which
     follows it outside UTF-8 mode. Under a non-UTF-8 caller locale a RuleSpec
-    "§" would otherwise decode differently in-process than in CI.
+    "§" would otherwise decode differently in-process than in CI. The caller
+    exports the returned name to child processes, so a host without C.UTF-8
+    gives them the UTF-8 locale it does have rather than an unknown one.
     """
 
-    for candidate in _UTF8_CTYPES:
+    # Last, the caller's own LC_CTYPE: a host may have only another UTF-8
+    # locale (de_DE.UTF-8, say), which decodes exactly as C.UTF-8 does.
+    for candidate in (*_UTF8_CTYPES, locale.setlocale(locale.LC_CTYPE)):
         try:
             locale.setlocale(locale.LC_CTYPE, candidate)
         except locale.Error:
             continue
         if locale.getencoding().replace("-", "").upper() == "UTF8":
-            return
+            return candidate
     if not sys.flags.utf8_mode:
         raise ValueError(
             "ci needs a UTF-8 LC_CTYPE to decode files as CI's C.UTF-8 runner "
             f"does; none of {', '.join(_UTF8_CTYPES)} is available here "
             "(or run Python in UTF-8 mode, PYTHONUTF8=1)"
         )
+    return None
 
 
 def run_ci(args: argparse.Namespace) -> int:
@@ -5873,7 +5878,9 @@ def run_ci(args: argparse.Namespace) -> int:
     time.tzset()
     saved_ctype = locale.setlocale(locale.LC_CTYPE)
     try:
-        _adopt_utf8_ctype()
+        adopted = _adopt_utf8_ctype()
+        if adopted is not None:
+            os.environ["LANG"] = os.environ["LC_ALL"] = adopted
         # Refs resolve in the source checkout, where branches, upstreams and
         # remote-tracking refs live; the fresh checkout only sees commits.
         head = resolve_commit(source, "HEAD")

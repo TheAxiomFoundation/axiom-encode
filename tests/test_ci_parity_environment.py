@@ -851,6 +851,9 @@ def test_repository_pytest_provisioning_failure_qualifies_the_verdict(
 def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The step environment keeps only a caller's corpus placement opt-out,
+    # covered in test_ci_parity_review_c24; this test asserts the rest.
+    monkeypatch.delenv("AXIOM_CORPUS_NO_FETCH", raising=False)
     run = _run(tmp_path)
     tests = run.repo / "tests"
     tests.mkdir()
@@ -915,13 +918,20 @@ def test_repository_pytest_gate_uses_venv_and_ci_step_environment(
         ),
         st.text(alphabet="abc123", max_size=10),
         max_size=20,
-    )
+    ),
+    opt_out=st.one_of(st.none(), st.sampled_from(["1", "true", " YES ", "0", ""])),
 )
 @settings(deadline=None)
 def test_repository_environment_never_inherits_ambient_overrides(
-    ambient: dict[str, str],
+    ambient: dict[str, str], opt_out: str | None
 ) -> None:
-    """For all ambient variables, pytest's environment is fixed by run inputs."""
+    """For all ambient variables, pytest's environment is fixed by run inputs,
+    except that the caller's AXIOM_CORPUS_NO_FETCH opt-out is kept."""
+
+    from axiom_encode.corpus_materialize import NO_FETCH_ENV, fetch_disabled
+
+    if opt_out is not None:
+        ambient = {**ambient, NO_FETCH_ENV: opt_out}
 
     run = SimpleNamespace(
         paths={"engine": Path("/pinned/engine")},
@@ -937,6 +947,8 @@ def test_repository_environment_never_inherits_ambient_overrides(
             run, interpreter="/venv/bin/python"
         )
         os.environ.update(ambient)
+        if fetch_disabled(ambient):
+            expected = {**expected, NO_FETCH_ENV: "1"}
         assert (
             ci_parity._repository_test_environment(run, interpreter="/venv/bin/python")
             == expected

@@ -1538,6 +1538,9 @@ def ambient_axiom_environment(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]
     for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_TERMINAL_PROMPT"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("CI_PARITY_LEAKED", raising=False)
+    # A developer's corpus placement opt-out is the one AXIOM_* value a
+    # supervised gate keeps; these assertions are about everything else.
+    monkeypatch.delenv("AXIOM_CORPUS_NO_FETCH", raising=False)
     values = {
         "AXIOM_SECRET_TOKEN": "withheld",
         "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS": "9",
