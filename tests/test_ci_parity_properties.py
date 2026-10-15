@@ -144,9 +144,13 @@ environment_names = st.one_of(
         ["GIT_DIR", "GIT_CONFIG_COUNT", "PYTHONOPTIMIZE", "HOME", NO_FETCH_ENV]
     ),
 )
-environment_values = st.text(
-    st.characters(exclude_categories=("Cs",), exclude_characters="\x00"),
-    max_size=20,
+environment_values = st.one_of(
+    # The corpus placement opt-out's accepted and rejected spellings.
+    st.sampled_from(["1", "true", " YES ", "0", "no", ""]),
+    st.text(
+        st.characters(exclude_categories=("Cs",), exclude_characters="\x00"),
+        max_size=20,
+    ),
 )
 environments = st.dictionaries(environment_names, environment_values, max_size=12)
 
