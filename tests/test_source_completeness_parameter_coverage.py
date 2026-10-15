@@ -143,3 +143,93 @@ def test_principal_output_still_covers_the_exemption():
 """
     )
     assert not _labels(structure, "vi"), structure
+
+
+def _covers(branch_text: str, *values: str, kind: str = "parameter") -> bool:
+    """Whether rules citing (1) with these formula values cover it."""
+
+    source = f"(1) {branch_text}\n(2) The State agency must keep records.\n"
+    rules = "".join(
+        f"""\
+  - name: value_{index}
+    kind: {kind}
+    dtype: Decimal
+    source: 7 CFR 273.4(1)
+    versions:
+      - effective_from: '2025-01-01'
+        formula: '{value}'
+"""
+        for index, value in enumerate(values)
+    )
+    content = f"""\
+format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {CFR}
+rules:
+{rules}"""
+    result = analyze_complete_source_unit(
+        content,
+        source,
+        corpus_citation_path=CFR,
+        test_cases=[],
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="en-US"
+        ),
+        extract_numeric_grounding_occurrences=functools.partial(
+            extract_typed_numeric_occurrences_from_text, profile="en-US"
+        ),
+        extract_named_scalars=extract_named_scalar_occurrences,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    return not any(
+        issue.startswith("[complete-source-unit:structure]")
+        and "Source branch (1) " in issue
+        for issue in result.issues
+    )
+
+
+def test_values_stated_in_words_or_with_a_scale_are_stated_values():
+    # Review item 1: these were uncovered by the first cut (covered on main).
+    assert _covers("The deduction is one-half of the remaining income.", "0.5")
+    assert _covers("The credit rate is fifty percent.", "0.5")
+    assert _covers("The share is two-thirds of the amount.", "0.6666666666666666")
+    assert _covers("Payment is made within ten days.", "10")
+    assert _covers("The annual cap is $1.5 million.", "1500000")
+    assert _covers("The fee is 50 cents per return.", "0.5")
+    # Negative control: a value the branch does not state still covers nothing.
+    assert not _covers("The credit rate is fifty percent.", "0.25")
+
+
+def test_rate_table_rows_compared_with_the_rules_own_threshold_are_stated_values():
+    # Review item 2 (us-co 39-29-103): threshold + rate parameters encode the
+    # table rows that compare income with that same threshold.
+    assert _covers("Amount exceeding $11,000,000 2.25%", "11000000", "0.0225")
+    assert _covers(
+        "Over $10,000 but not over $20,000, 5 percent of the excess over $10,000.",
+        "10000",
+        "20000",
+        "0.05",
+    )
+    # A cross-reference ("set forth in (b) below") is not a comparison.
+    assert _covers("The limit of $2,000 is set forth in paragraph (b) below.", "2000")
+    # Negative controls: a rate alone does not make a condition a table row,
+    # and an eligibility limit without a rate stays operative.
+    assert not _covers("Amount exceeding $11,000,000 2.25%", "0.0225")
+    assert not _covers("Liquid resources that do not exceed $100.", "100")
+
+
+def test_attainment_aggregate_limits_and_lesser_of_are_conditions():
+    # Review item 3: these stay operative, so a parameter does not cover them.
+    assert not _covers("A child who has not attained age 17.", "17")
+    assert not _covers("An individual age 65 and over.", "65")
+    assert not _covers("The credit is a maximum of $2,000 per return.", "2000")
+    assert not _covers("The credit is the lesser of $2,000 or the tax.", "2000")
+    assert not _covers("Income that does not reach $25,000.", "25000")
+    # Positive control: a stated maximum amount (not "a maximum of") is a value.
+    assert _covers("The maximum allotment is $975.", "975")
+
+
+def test_relation_rules_keep_their_citations():
+    # Review item 4: only parameters state values; relation rules are unchanged.
+    assert _covers("A child who has not attained age 17.", "17", kind="source_relation")
