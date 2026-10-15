@@ -24,6 +24,35 @@ guard-only-to-production differential. These staged counts can differ from
 the full differential when a restored quantity and removed locator have the
 same typed inventory key.
 
+## Final corpus differential
+
+The final tested production and audit bytes, identified in the summary,
+passed all 79,687 signed rows across 196 files in 60 completed shards. Every
+row ran all three cleanup paths. Counts compare production with the pinned
+pre-mask baseline:
+
+| Measurement | Count |
+| --- | ---: |
+| Rows changed by entry masks and final numeric recall | 22 |
+| Typed inventory occurrences removed | 51 |
+| Removed typed legal locators | 33 |
+| Removed typed bounded-geography identifiers | 18 |
+| Typed inventory occurrences added | 0 |
+| Entry digit spans masked | 52 (34 legal locators, 18 geography) |
+| Glued-unit quantity restorations in this corpus | 0 |
+
+The 52 independently classified entry spans yield 51 typed removals because
+one locator is absent from the baseline typed inventory. The generated case
+and typography controls exercise the quantity guard even though this signed
+corpus has no matching quantity restoration.
+
+| Audited content | SHA-256 |
+| --- | --- |
+| Production module | `791ad310260cfebe943d9d411e4c0dff0dc43e78b9751cfe44e28b46981cb382` |
+| Audit script | `c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca` |
+| Summary | `2d690ecb362322e3c9ac35f7470b77c889cd07289d37b296b97feabfc1292ab2` |
+| Changed-row ledger | `2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c` |
+
 ## Pinned inputs
 
 | Input | Identity |

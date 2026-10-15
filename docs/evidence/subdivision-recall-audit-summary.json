@@ -1,0 +1,2688 @@
+{
+  "release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+  "release_object_sha256": "8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a",
+  "script_sha256": "c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca",
+  "baseline_module_sha256": "c5b9079804159acc3520002ca32e45bc4b6da390c7e7bda9a698adb3082378de",
+  "current_module_sha256": "791ad310260cfebe943d9d411e4c0dff0dc43e78b9751cfe44e28b46981cb382",
+  "status": "passed",
+  "reproducer_sha256": "92d551114adc27ece17c24f45a7ab4eb257763ad656b23d91ed191738c46426a",
+  "baseline_commit": "86a1f911a338cb071e0ed660d1282714034b6dc4",
+  "release_url": "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/us-rulespec-2026-08-08-obbb-alien-snap/0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc.json",
+  "release_object_bytes": 7150325,
+  "public_keys": [
+    {
+      "base64_raw_ed25519": "KwIYEbbs/905yxn/9Yi6jYTF8oyZcq1FlxiG4e0y0tg=",
+      "raw_key_sha256": "99e3ab380c6de1bd59f2f9f432a8ca43a798e35b6479e6236de6618b931c1628"
+    },
+    {
+      "base64_raw_ed25519": "9EJzeLnZsdBoDEDkU8xbi7HjYVVvd4HDX/BxPHPvXTk=",
+      "raw_key_sha256": "06f641c2fcf6ab0ebb1b6f2b18df36c3c8b8b5ea300b6168f1b3f367810a8fb0"
+    }
+  ],
+  "full_release_files": 196,
+  "full_release_rows": 79687,
+  "declared_bytes": 249961962,
+  "artifact_manifest_sha256": "8985c03a641f6899c99fe2ba7e816e4f536f0eb255c330bfe57d7de8dcb21df5",
+  "signature_verified": true,
+  "scope": "All signed US manual, guidance and statute rows, including headings; no row or length exclusions. Numeric recall only.",
+  "removed_entry_identifiers": {
+    "legal-locator": 34,
+    "bounded-geography": 18
+  },
+  "entry_removed_inventory_occurrences": 51,
+  "entry_removed_inventory_occurrences_by_kind": {
+    "legal-locator": 33,
+    "bounded-geography": 18
+  },
+  "batches": [
+    {
+      "artifact_start": 0,
+      "artifact_end": 5,
+      "row_ranges": [
+        {
+          "artifact_index": 0,
+          "path": "data/corpus/provisions/us-ak/guidance/2026-06-30-ak-apa-standards-ak-dpa-apa-standards-2026.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 1,
+          "path": "data/corpus/provisions/us-ak/guidance/2026-07-01-ak-atap-standards.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 2,
+          "path": "data/corpus/provisions/us-ak/manual/2026-07-16-ak-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 478,
+          "artifact_row_count": 478,
+          "selected_row_count": 478,
+          "physical_row_count": 478
+        },
+        {
+          "artifact_index": 3,
+          "path": "data/corpus/provisions/us-ak/statute/2026-07-24-ak-individual-income-tax.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 4,
+          "path": "data/corpus/provisions/us-al/manual/2026-05-27-al-snap-poe-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 149,
+          "artifact_row_count": 149,
+          "selected_row_count": 149,
+          "physical_row_count": 149
+        }
+      ],
+      "completion_sha256": "db0884b509232af9ed8a7de2e04fb5f7d20049e544b491496949453497f89950",
+      "elapsed_seconds": 114.505,
+      "rows_sha256": "1e81f1d6f625f82303b9feaf3fd91cffbdfd510fee1083d6a947e4cf6c1c8a3d",
+      "rows_bytes": 408274,
+      "removals_sha256": "4ae712cda314eda75962f35f8737e25d45972e78b2154b60d5908be2e7027c25",
+      "removals_bytes": 2505
+    },
+    {
+      "artifact_start": 5,
+      "artifact_end": 10,
+      "row_ranges": [
+        {
+          "artifact_index": 5,
+          "path": "data/corpus/provisions/us-al/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 12,
+          "artifact_row_count": 12,
+          "selected_row_count": 12,
+          "physical_row_count": 12
+        },
+        {
+          "artifact_index": 6,
+          "path": "data/corpus/provisions/us-al/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 7,
+          "path": "data/corpus/provisions/us-ar/manual/2026-07-16-ar-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 810,
+          "artifact_row_count": 810,
+          "selected_row_count": 810,
+          "physical_row_count": 810
+        },
+        {
+          "artifact_index": 8,
+          "path": "data/corpus/provisions/us-ar/statute/2026-07-16-pit-east-us-ar-act-2.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 9,
+          "path": "data/corpus/provisions/us-az/manual/2025-10-30-az-des-faa5-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 7,
+          "artifact_row_count": 7,
+          "selected_row_count": 7,
+          "physical_row_count": 7
+        }
+      ],
+      "completion_sha256": "67011295f5f4f06d979b429c496aa2c602667b81b7761ccca44dd094a0fbe514",
+      "elapsed_seconds": 111.936,
+      "rows_sha256": "68817f7214d29d1459702e9c0c4681701eaed43aa1301a6f608163823c19e173",
+      "rows_bytes": 521510,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 10,
+      "artifact_end": 20,
+      "row_ranges": [
+        {
+          "artifact_index": 10,
+          "path": "data/corpus/provisions/us-az/manual/2026-06-25-az-ccap.jsonl",
+          "row_start": 0,
+          "row_end": 82,
+          "artifact_row_count": 82,
+          "selected_row_count": 82,
+          "physical_row_count": 82
+        },
+        {
+          "artifact_index": 11,
+          "path": "data/corpus/provisions/us-az/manual/2026-07-12-az-des-faa6-utility-amounts.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 12,
+          "path": "data/corpus/provisions/us-az/manual/2026-07-17-faa5-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 143,
+          "artifact_row_count": 143,
+          "selected_row_count": 143,
+          "physical_row_count": 143
+        },
+        {
+          "artifact_index": 13,
+          "path": "data/corpus/provisions/us-az/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 14,
+          "artifact_row_count": 14,
+          "selected_row_count": 14,
+          "physical_row_count": 14
+        },
+        {
+          "artifact_index": 14,
+          "path": "data/corpus/provisions/us-ca/guidance/2025-09-03-ca-cdss-acin.jsonl",
+          "row_start": 0,
+          "row_end": 9,
+          "artifact_row_count": 9,
+          "selected_row_count": 9,
+          "physical_row_count": 9
+        },
+        {
+          "artifact_index": 15,
+          "path": "data/corpus/provisions/us-ca/guidance/2026-06-24-ca-cdss-calworks-acl.jsonl",
+          "row_start": 0,
+          "row_end": 23,
+          "artifact_row_count": 23,
+          "selected_row_count": 23,
+          "physical_row_count": 23
+        },
+        {
+          "artifact_index": 16,
+          "path": "data/corpus/provisions/us-ca/guidance/2026-06-27-ca-dor-ssi-ssp-newsletter.jsonl",
+          "row_start": 0,
+          "row_end": 19,
+          "artifact_row_count": 19,
+          "selected_row_count": 19,
+          "physical_row_count": 19
+        },
+        {
+          "artifact_index": 17,
+          "path": "data/corpus/provisions/us-ca/guidance/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 9,
+          "artifact_row_count": 9,
+          "selected_row_count": 9,
+          "physical_row_count": 9
+        },
+        {
+          "artifact_index": 18,
+          "path": "data/corpus/provisions/us-ca/guidance/2026-07-28-ca-cdss-calfresh-bbce-authority.jsonl",
+          "row_start": 0,
+          "row_end": 47,
+          "artifact_row_count": 47,
+          "selected_row_count": 47,
+          "physical_row_count": 47
+        },
+        {
+          "artifact_index": 19,
+          "path": "data/corpus/provisions/us-ca/statute/2026-06-25-ca-wic-calworks-us-ca-sections-wic-11450-wic-11450.12-wic-11451.5-wic-11452-wic-11452.018.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        }
+      ],
+      "completion_sha256": "27775cca7b7d2b88d425396286fb2e02acd54d1554f6f27ede524c5d567925cb",
+      "elapsed_seconds": 73.1,
+      "rows_sha256": "1539f42c7d5867921292d832c13c9c2cd113ad97160dd8bb6de2430ed8a28ee8",
+      "rows_bytes": 223585,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 20,
+      "artifact_end": 30,
+      "row_ranges": [
+        {
+          "artifact_index": 20,
+          "path": "data/corpus/provisions/us-ca/statute/2026-06-27-ca-ssi-ssp-wic-12200-us-ca-sections-wic-12200.jsonl",
+          "row_start": 0,
+          "row_end": 1,
+          "artifact_row_count": 1,
+          "selected_row_count": 1,
+          "physical_row_count": 1
+        },
+        {
+          "artifact_index": 21,
+          "path": "data/corpus/provisions/us-ca/statute/2026-07-06-ca-rtc-pit-core-us-ca-sections-rtc-17041-rtc-17043-rtc-17045-rtc-17052-rtc-17054-rtc-17073.5.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 22,
+          "path": "data/corpus/provisions/us-ca/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 33,
+          "artifact_row_count": 33,
+          "selected_row_count": 33,
+          "physical_row_count": 33
+        },
+        {
+          "artifact_index": 23,
+          "path": "data/corpus/provisions/us-ca/statute/2026-07-28-ca-cdss-calfresh-bbce-authority-us-ca-sections-wic-18901.3-wic-18901.5.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 24,
+          "path": "data/corpus/provisions/us-co/statute/2026-07-13-us-co-tax-credit-session-laws-r2026-07-19-expression-date.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 25,
+          "path": "data/corpus/provisions/us-co/statute/2026-07-19-rulespec-us-co-title-39-consolidated.jsonl",
+          "row_start": 0,
+          "row_end": 1137,
+          "artifact_row_count": 1137,
+          "selected_row_count": 1137,
+          "physical_row_count": 1137
+        },
+        {
+          "artifact_index": 26,
+          "path": "data/corpus/provisions/us-ct/manual/2026-07-17-ct-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 1275,
+          "artifact_row_count": 1275,
+          "selected_row_count": 1275,
+          "physical_row_count": 1275
+        },
+        {
+          "artifact_index": 27,
+          "path": "data/corpus/provisions/us-ct/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 15,
+          "artifact_row_count": 15,
+          "selected_row_count": 15,
+          "physical_row_count": 15
+        },
+        {
+          "artifact_index": 28,
+          "path": "data/corpus/provisions/us-ct/statute/2026-07-24-ct-income-tax-supplement.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 29,
+          "path": "data/corpus/provisions/us-ct/statute/2026-07-26-ct-12-700-a-10.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "55eedfa51d2fa4484f07dc2aa8f069a0e6bdb00c5f1b89a533fbc5e340738665",
+      "elapsed_seconds": 282.469,
+      "rows_sha256": "d11cc3fbcb4b262602b452d8245220092f517d2f2a4a809565468c1f4bc31760",
+      "rows_bytes": 1549163,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 30,
+      "artifact_end": 33,
+      "row_ranges": [
+        {
+          "artifact_index": 30,
+          "path": "data/corpus/provisions/us-dc/manual/2026-07-17-dc-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 350,
+          "artifact_row_count": 350,
+          "selected_row_count": 350,
+          "physical_row_count": 350
+        },
+        {
+          "artifact_index": 31,
+          "path": "data/corpus/provisions/us-dc/statute/2026-05-19-title-4.jsonl",
+          "row_start": 0,
+          "row_end": 732,
+          "artifact_row_count": 732,
+          "selected_row_count": 732,
+          "physical_row_count": 732
+        },
+        {
+          "artifact_index": 32,
+          "path": "data/corpus/provisions/us-dc/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "c2aa07600d9748bf56106002f0b311ed17956a7b08b482b6ebb165c75b5727e8",
+      "elapsed_seconds": 64.872,
+      "rows_sha256": "93f47cf5b986c8ff59cca97251df01f87dc7685e33421e66a2dcfd10bcec177e",
+      "rows_bytes": 657246,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 33,
+      "artifact_end": 36,
+      "row_ranges": [
+        {
+          "artifact_index": 33,
+          "path": "data/corpus/provisions/us-dc/statute/2026-07-16-pit-east-title-47.jsonl",
+          "row_start": 0,
+          "row_end": 2019,
+          "artifact_row_count": 2019,
+          "selected_row_count": 2019,
+          "physical_row_count": 2019
+        },
+        {
+          "artifact_index": 34,
+          "path": "data/corpus/provisions/us-de/guidance/2026-07-03-de-ssi-state-supplement-poms.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 35,
+          "path": "data/corpus/provisions/us-de/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        }
+      ],
+      "completion_sha256": "3ce82bd3f924a4623dfdde2c9abc67817aedf9942cd1cffa464cadf6774fd5df",
+      "elapsed_seconds": 402.357,
+      "rows_sha256": "88f0cf4709b4031758f36015af9fd8dcb2fdcd73583b2cdc4c81d77b48a01d2c",
+      "rows_bytes": 1235476,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 36,
+      "artifact_end": 37,
+      "row_ranges": [
+        {
+          "artifact_index": 36,
+          "path": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 550,
+          "artifact_row_count": 1107,
+          "selected_row_count": 550,
+          "physical_row_count": 1107
+        }
+      ],
+      "completion_sha256": "698c3c9db944bb198dfafb28012ad8df4b1e65e9ce2d0fd5d374bd0d733f2c02",
+      "elapsed_seconds": 242.854,
+      "rows_sha256": "9d128275d3e228dae39886a04d3dbfe480a3af4cb920826f0382e21824e8e3d3",
+      "rows_bytes": 374675,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 36,
+      "artifact_end": 37,
+      "row_ranges": [
+        {
+          "artifact_index": 36,
+          "path": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 550,
+          "row_end": 1107,
+          "artifact_row_count": 1107,
+          "selected_row_count": 557,
+          "physical_row_count": 1107
+        }
+      ],
+      "completion_sha256": "b83432e4a4dac0a3d9751f334ae49449a8a46f19ff4e5ecfbd0492de10d0366e",
+      "elapsed_seconds": 168.003,
+      "rows_sha256": "d3bb1b09c87fff5ade6f97e7e90264f41da482632ad05b6debd5ab3a55b4db3d",
+      "rows_bytes": 379486,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 37,
+      "artifact_end": 40,
+      "row_ranges": [
+        {
+          "artifact_index": 37,
+          "path": "data/corpus/provisions/us-fl/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 38,
+          "path": "data/corpus/provisions/us-fl/statute/2026-07-24-fl-individual-income-tax-zero-liability.jsonl",
+          "row_start": 0,
+          "row_end": 8,
+          "artifact_row_count": 8,
+          "selected_row_count": 8,
+          "physical_row_count": 8
+        },
+        {
+          "artifact_index": 39,
+          "path": "data/corpus/provisions/us-ga/guidance/2026-06-25-ga-tanf.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        }
+      ],
+      "completion_sha256": "78adf3e7fb5cb3febc190b89fc41839bceca85bc6dce61927bef533a6ccf089b",
+      "elapsed_seconds": 159.848,
+      "rows_sha256": "c8ba1717be4d11dfc1884d2b8c591384d2d7e731c9e4623c7c88410d99052732",
+      "rows_bytes": 10356,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 40,
+      "artifact_end": 41,
+      "row_ranges": [
+        {
+          "artifact_index": 40,
+          "path": "data/corpus/provisions/us-ga/manual/2026-05-27-ga-snap-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 1214,
+          "artifact_row_count": 1214,
+          "selected_row_count": 1214,
+          "physical_row_count": 1214
+        }
+      ],
+      "completion_sha256": "83a761d713ef7355ba1a6409543bcd2c1f995061969d76b0451e35c34b662d0c",
+      "elapsed_seconds": 208.215,
+      "rows_sha256": "65040892c4071098620cdbdfb1a75c44763f1ce2c74ca64b667d844d3b2a935a",
+      "rows_bytes": 795133,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 41,
+      "artifact_end": 44,
+      "row_ranges": [
+        {
+          "artifact_index": 41,
+          "path": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-caps.jsonl",
+          "row_start": 0,
+          "row_end": 506,
+          "artifact_row_count": 506,
+          "selected_row_count": 506,
+          "physical_row_count": 506
+        },
+        {
+          "artifact_index": 42,
+          "path": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-tanf.jsonl",
+          "row_start": 0,
+          "row_end": 47,
+          "artifact_row_count": 47,
+          "selected_row_count": 47,
+          "physical_row_count": 47
+        },
+        {
+          "artifact_index": 43,
+          "path": "data/corpus/provisions/us-ga/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 13,
+          "artifact_row_count": 13,
+          "selected_row_count": 13,
+          "physical_row_count": 13
+        }
+      ],
+      "completion_sha256": "f00603d3cbf4229afac0cdd95e31f132f3ce8c969826c118597c7b7baa33e201",
+      "elapsed_seconds": 134.727,
+      "rows_sha256": "2da31909bb592dbe7a626284c6cf61874ffdb911592c66bb1cc95cc67bcf94df",
+      "rows_bytes": 353334,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 44,
+      "artifact_end": 45,
+      "row_ranges": [
+        {
+          "artifact_index": 44,
+          "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+          "row_start": 0,
+          "row_end": 660,
+          "artifact_row_count": 1320,
+          "selected_row_count": 660,
+          "physical_row_count": 1320
+        }
+      ],
+      "completion_sha256": "76d8cb273d0cfa292411b89390a0dc0c92436e2fc6a2bce7069bd0427b13855a",
+      "elapsed_seconds": 142.393,
+      "rows_sha256": "93838b76598ec5d4fd3dcc86849e2ba77ef68f3acb0a2f80d5aa9d57d3d12bd3",
+      "rows_bytes": 417081,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 44,
+      "artifact_end": 45,
+      "row_ranges": [
+        {
+          "artifact_index": 44,
+          "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+          "row_start": 660,
+          "row_end": 1320,
+          "artifact_row_count": 1320,
+          "selected_row_count": 660,
+          "physical_row_count": 1320
+        }
+      ],
+      "completion_sha256": "efc78a782daf9c5977c99423e9984247eb7a8f5ce046f8a3e8c75edd67816e9e",
+      "elapsed_seconds": 133.287,
+      "rows_sha256": "556064cab229aa1daea89b189ac6dca2a343c6bdb1094b4ede8faf78f118a1dd",
+      "rows_bytes": 416966,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 45,
+      "artifact_end": 50,
+      "row_ranges": [
+        {
+          "artifact_index": 45,
+          "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-pit-session-laws.jsonl",
+          "row_start": 0,
+          "row_end": 8,
+          "artifact_row_count": 8,
+          "selected_row_count": 8,
+          "physical_row_count": 8
+        },
+        {
+          "artifact_index": 46,
+          "path": "data/corpus/provisions/us-hi/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 47,
+          "path": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+          "row_start": 0,
+          "row_end": 156,
+          "artifact_row_count": 156,
+          "selected_row_count": 156,
+          "physical_row_count": 156
+        },
+        {
+          "artifact_index": 48,
+          "path": "data/corpus/provisions/us-ia/manual/2026-07-17-ia-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 443,
+          "artifact_row_count": 443,
+          "selected_row_count": 443,
+          "physical_row_count": 443
+        },
+        {
+          "artifact_index": 49,
+          "path": "data/corpus/provisions/us-ia/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 9,
+          "artifact_row_count": 9,
+          "selected_row_count": 9,
+          "physical_row_count": 9
+        }
+      ],
+      "completion_sha256": "f381ca6185dcce1a86ef456327310013f0b7c571891bacee6bc1cf25eac92768",
+      "elapsed_seconds": 89.574,
+      "rows_sha256": "338d1d5f49e661d732c3df34daec4f2ba35117949b817c6ea730369d497beb78",
+      "rows_bytes": 379148,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 50,
+      "artifact_end": 53,
+      "row_ranges": [
+        {
+          "artifact_index": 50,
+          "path": "data/corpus/provisions/us-ia/statute/2026-07-16-pit-east-us-ia-title-x-chapter-422-r2026-07-24-immutable.jsonl",
+          "row_start": 0,
+          "row_end": 121,
+          "artifact_row_count": 121,
+          "selected_row_count": 121,
+          "physical_row_count": 121
+        },
+        {
+          "artifact_index": 51,
+          "path": "data/corpus/provisions/us-id/statute/2026-07-31-id-title-63-chapter-30-successor.jsonl",
+          "row_start": 0,
+          "row_end": 7,
+          "artifact_row_count": 7,
+          "selected_row_count": 7,
+          "physical_row_count": 7
+        },
+        {
+          "artifact_index": 52,
+          "path": "data/corpus/provisions/us-il/guidance/2026-07-24-il-personal-exemption-guidance.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        }
+      ],
+      "completion_sha256": "829e160aab97f43988109c8eca9cd5fd7744ae47b942184a7eb4867a68d0773a",
+      "elapsed_seconds": 79.838,
+      "rows_sha256": "6671a937cabb0b99956274e14962f956668d6cd2e6986d16b3501493add14bbc",
+      "rows_bytes": 85757,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 53,
+      "artifact_end": 54,
+      "row_ranges": [
+        {
+          "artifact_index": 53,
+          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 100,
+          "artifact_row_count": 12450,
+          "selected_row_count": 100,
+          "physical_row_count": 12450
+        }
+      ],
+      "completion_sha256": "a7a5c623d6a40335ac0454082a6f565912d94400bdbf05ae85c13396c0e6636a",
+      "elapsed_seconds": 66.576,
+      "rows_sha256": "29e4a85f8b4ea269b1decf47a50485dda8e277450806671fb7cd1e4b287d8574",
+      "rows_bytes": 64413,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 53,
+      "artifact_end": 54,
+      "row_ranges": [
+        {
+          "artifact_index": 53,
+          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 100,
+          "row_end": 1100,
+          "artifact_row_count": 12450,
+          "selected_row_count": 1000,
+          "physical_row_count": 12450
+        }
+      ],
+      "completion_sha256": "f0b98eb6aa4126f7f79b2bbc89cfc8add759a85afc84af0423851ab4c0366f42",
+      "elapsed_seconds": 42.936,
+      "rows_sha256": "c5e477962095ff53b1fe4069a4d978eddf9f13134dd1056677eb8cc5e47b5801",
+      "rows_bytes": 645123,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 53,
+      "artifact_end": 54,
+      "row_ranges": [
+        {
+          "artifact_index": 53,
+          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 1100,
+          "row_end": 3100,
+          "artifact_row_count": 12450,
+          "selected_row_count": 2000,
+          "physical_row_count": 12450
+        }
+      ],
+      "completion_sha256": "e7c83642462b108dfed51901cd331266318bccd0b8c09c630340b6076fb7702f",
+      "elapsed_seconds": 60.391,
+      "rows_sha256": "587cc15a39c959d48c384d4a5e211c6270e79385450dc530b4a35bf5e8a89ea2",
+      "rows_bytes": 1292173,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 53,
+      "artifact_end": 54,
+      "row_ranges": [
+        {
+          "artifact_index": 53,
+          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 3100,
+          "row_end": 8100,
+          "artifact_row_count": 12450,
+          "selected_row_count": 5000,
+          "physical_row_count": 12450
+        }
+      ],
+      "completion_sha256": "19bb19e672634eb23909d592acacfea061809bb9f3037ce96273ee6a6b240f31",
+      "elapsed_seconds": 146.075,
+      "rows_sha256": "543e484375efec1375815bd24cb25401b35ddf3d97798ae88c733dfe8615fc52",
+      "rows_bytes": 3257017,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 53,
+      "artifact_end": 54,
+      "row_ranges": [
+        {
+          "artifact_index": 53,
+          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 8100,
+          "row_end": 12450,
+          "artifact_row_count": 12450,
+          "selected_row_count": 4350,
+          "physical_row_count": 12450
+        }
+      ],
+      "completion_sha256": "dbcb4339bdd1c79fd87581e6b7e425d81d4bbdf2d5ad16a0b3f15610c78a88d7",
+      "elapsed_seconds": 157.258,
+      "rows_sha256": "395c3b0d6bba90e9a07513cef3af8737c703729ddb631a117d99ef27ca19c390",
+      "rows_bytes": 2847932,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 54,
+      "artifact_end": 63,
+      "row_ranges": [
+        {
+          "artifact_index": 54,
+          "path": "data/corpus/provisions/us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 55,
+          "path": "data/corpus/provisions/us-il/statute/2026-06-26-ilcs-320-30-us-il-chapter-320-act-30-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        },
+        {
+          "artifact_index": 56,
+          "path": "data/corpus/provisions/us-il/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 40,
+          "artifact_row_count": 40,
+          "selected_row_count": 40,
+          "physical_row_count": 40
+        },
+        {
+          "artifact_index": 57,
+          "path": "data/corpus/provisions/us-il/statute/2026-07-24-il-individual-income-tax-resident-core.jsonl",
+          "row_start": 0,
+          "row_end": 1639,
+          "artifact_row_count": 1639,
+          "selected_row_count": 1639,
+          "physical_row_count": 1639
+        },
+        {
+          "artifact_index": 58,
+          "path": "data/corpus/provisions/us-in/guidance/2026-07-24-in-2026-individual-income-tax-source-hold.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 59,
+          "path": "data/corpus/provisions/us-in/manual/2026-05-27-in-snap-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 484,
+          "artifact_row_count": 484,
+          "selected_row_count": 484,
+          "physical_row_count": 484
+        },
+        {
+          "artifact_index": 60,
+          "path": "data/corpus/provisions/us-in/manual/2026-07-04-in-ssp-sapn.jsonl",
+          "row_start": 0,
+          "row_end": 8,
+          "artifact_row_count": 8,
+          "selected_row_count": 8,
+          "physical_row_count": 8
+        },
+        {
+          "artifact_index": 61,
+          "path": "data/corpus/provisions/us-in/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 62,
+          "path": "data/corpus/provisions/us-in/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        }
+      ],
+      "completion_sha256": "924811124c6d8a30520c72e4d1b9d2154dcc39e70fdf341be4564da2184c072e",
+      "elapsed_seconds": 190.021,
+      "rows_sha256": "e299bc51c99a4070317d604fb2d7c09c7c588abd642fbd415043a00b14202ace",
+      "rows_bytes": 1427001,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 63,
+      "artifact_end": 64,
+      "row_ranges": [
+        {
+          "artifact_index": 63,
+          "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
+          "row_start": 0,
+          "row_end": 2000,
+          "artifact_row_count": 5530,
+          "selected_row_count": 2000,
+          "physical_row_count": 5530
+        }
+      ],
+      "completion_sha256": "8738e56f36697fd0f5883b746c1aef617f9015e0f6ef0d4a05cb792fd99cb5b2",
+      "elapsed_seconds": 355.062,
+      "rows_sha256": "dc92de7ddc34252c9566dabf32db67ec995ad3f426ae9c06c0b8f1754e7a11aa",
+      "rows_bytes": 1225035,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 63,
+      "artifact_end": 64,
+      "row_ranges": [
+        {
+          "artifact_index": 63,
+          "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
+          "row_start": 2000,
+          "row_end": 4000,
+          "artifact_row_count": 5530,
+          "selected_row_count": 2000,
+          "physical_row_count": 5530
+        }
+      ],
+      "completion_sha256": "41b5c57921fa9e1de03ab145d2841e4dd15ddbb899ef6e953ab9795656d516f5",
+      "elapsed_seconds": 113.457,
+      "rows_sha256": "d8c8b2ed0b82485cc9a7ad1e287cd66c5b5221afde26838658a9df98180762f1",
+      "rows_bytes": 1223980,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 63,
+      "artifact_end": 64,
+      "row_ranges": [
+        {
+          "artifact_index": 63,
+          "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
+          "row_start": 4000,
+          "row_end": 5530,
+          "artifact_row_count": 5530,
+          "selected_row_count": 1530,
+          "physical_row_count": 5530
+        }
+      ],
+      "completion_sha256": "aed8a9e96e72aeb5589704d570e6472adb408dd582a9002e42f2d660f0a8825b",
+      "elapsed_seconds": 49.773,
+      "rows_sha256": "c672fffd3a2df0bb37d0fdc80b14a0f9f8c58fe590666e18bf8dbfe622fd9fd0",
+      "rows_bytes": 933900,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 64,
+      "artifact_end": 67,
+      "row_ranges": [
+        {
+          "artifact_index": 64,
+          "path": "data/corpus/provisions/us-ks/guidance/2026-07-04-ks-sspp-guidance.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 65,
+          "path": "data/corpus/provisions/us-ks/guidance/2026-07-21-ks-k40es-2026.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 66,
+          "path": "data/corpus/provisions/us-ks/guidance/2026-07-24-ks-2026-income-tax-rate-determination.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "7e269ec6cee4c58bb0908ea07d3824c7d97ae7009deef028895fc069cec3a2fd",
+      "elapsed_seconds": 27.16,
+      "rows_sha256": "3ac3838b135e07f8f5536d011214949573873dd326f85ddbb266c99399744deb",
+      "rows_bytes": 5869,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 67,
+      "artifact_end": 75,
+      "row_ranges": [
+        {
+          "artifact_index": 67,
+          "path": "data/corpus/provisions/us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 510,
+          "artifact_row_count": 510,
+          "selected_row_count": 510,
+          "physical_row_count": 510
+        },
+        {
+          "artifact_index": 68,
+          "path": "data/corpus/provisions/us-ks/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 69,
+          "path": "data/corpus/provisions/us-ks/statute/2026-07-16-pit-west-us-ks-chapter-79-article-32.jsonl",
+          "row_start": 0,
+          "row_end": 445,
+          "artifact_row_count": 445,
+          "selected_row_count": 445,
+          "physical_row_count": 445
+        },
+        {
+          "artifact_index": 70,
+          "path": "data/corpus/provisions/us-ks/statute/2026-07-24-ks-resident-income-tax-core.jsonl",
+          "row_start": 0,
+          "row_end": 98,
+          "artifact_row_count": 98,
+          "selected_row_count": 98,
+          "physical_row_count": 98
+        },
+        {
+          "artifact_index": 71,
+          "path": "data/corpus/provisions/us-ky/manual/2026-07-17-ky-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 400,
+          "artifact_row_count": 400,
+          "selected_row_count": 400,
+          "physical_row_count": 400
+        },
+        {
+          "artifact_index": 72,
+          "path": "data/corpus/provisions/us-ky/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        },
+        {
+          "artifact_index": 73,
+          "path": "data/corpus/provisions/us-ky/statute/2026-07-22-individual-income-tax.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 74,
+          "path": "data/corpus/provisions/us-la/manual/2026-07-17-la-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 1483,
+          "artifact_row_count": 1483,
+          "selected_row_count": 1483,
+          "physical_row_count": 1483
+        }
+      ],
+      "completion_sha256": "36e4e4e07df9f7aab0e25db2d9a23264958789a32bdee3fe6e78de1539a3b941",
+      "elapsed_seconds": 168.306,
+      "rows_sha256": "e15d050ceaab852038b07fe5c9a733e117135ad522b4c64e5772d898f7dd4388",
+      "rows_bytes": 1912452,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 75,
+      "artifact_end": 76,
+      "row_ranges": [
+        {
+          "artifact_index": 75,
+          "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+          "row_start": 0,
+          "row_end": 1000,
+          "artifact_row_count": 2664,
+          "selected_row_count": 1000,
+          "physical_row_count": 2664
+        }
+      ],
+      "completion_sha256": "f691315f1fbf1921de72a2abd2ef2928449b2ab2af0cf598108d90c971690ef9",
+      "elapsed_seconds": 222.436,
+      "rows_sha256": "7e944680a71647a5ac5905473f99f4ed36a5b774c890503785475bcca8374249",
+      "rows_bytes": 630175,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 75,
+      "artifact_end": 76,
+      "row_ranges": [
+        {
+          "artifact_index": 75,
+          "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+          "row_start": 1000,
+          "row_end": 2000,
+          "artifact_row_count": 2664,
+          "selected_row_count": 1000,
+          "physical_row_count": 2664
+        }
+      ],
+      "completion_sha256": "2f8d78937e7d9e95aa4f7c13e8253c677f0d9680c3a932c2cfcd42ccf50e6e0a",
+      "elapsed_seconds": 397.721,
+      "rows_sha256": "35ea3eae43e39b0d115f7c16d05e5b04cc6b18b4a8ee78eb10d12ec68be9a166",
+      "rows_bytes": 631116,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 75,
+      "artifact_end": 76,
+      "row_ranges": [
+        {
+          "artifact_index": 75,
+          "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+          "row_start": 2000,
+          "row_end": 2664,
+          "artifact_row_count": 2664,
+          "selected_row_count": 664,
+          "physical_row_count": 2664
+        }
+      ],
+      "completion_sha256": "8ab535ff3b53b06f739239e7740d46dd9797daefca139404163c03ee92cfdb11",
+      "elapsed_seconds": 376.322,
+      "rows_sha256": "9d01d56385b9094f3389fa8c504d4dce6bb81674f9f73606352c20099c85573c",
+      "rows_bytes": 418496,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 76,
+      "artifact_end": 81,
+      "row_ranges": [
+        {
+          "artifact_index": 76,
+          "path": "data/corpus/provisions/us-ma/guidance/2026-07-22-ma-2026-surtax-guidance.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 77,
+          "path": "data/corpus/provisions/us-ma/guidance/2026-08-03-ma-dta-snap-cola-official-source-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 20,
+          "artifact_row_count": 20,
+          "selected_row_count": 20,
+          "physical_row_count": 20
+        },
+        {
+          "artifact_index": 78,
+          "path": "data/corpus/provisions/us-ma/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 36,
+          "artifact_row_count": 36,
+          "selected_row_count": 36,
+          "physical_row_count": 36
+        },
+        {
+          "artifact_index": 79,
+          "path": "data/corpus/provisions/us-md/guidance/2026-07-05-md-tca-2026-guidance.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 80,
+          "path": "data/corpus/provisions/us-md/guidance/2026-07-12-md-fia-snap-fy2026.jsonl",
+          "row_start": 0,
+          "row_end": 18,
+          "artifact_row_count": 18,
+          "selected_row_count": 18,
+          "physical_row_count": 18
+        }
+      ],
+      "completion_sha256": "4831d2a68401710fe1d21abb0807ad368e03d3e8e9be550bf63e0650bee96667",
+      "elapsed_seconds": 198.94,
+      "rows_sha256": "70441f6f087dc2be75b9a13d1585a1166d82ddd0289278e17c96c558291998d0",
+      "rows_bytes": 50028,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 81,
+      "artifact_end": 86,
+      "row_ranges": [
+        {
+          "artifact_index": 81,
+          "path": "data/corpus/provisions/us-md/manual/2026-07-17-md-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 379,
+          "artifact_row_count": 379,
+          "selected_row_count": 379,
+          "physical_row_count": 379
+        },
+        {
+          "artifact_index": 82,
+          "path": "data/corpus/provisions/us-md/statute/2026-07-13-recovery-r2026-07-24-immutable.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 83,
+          "path": "data/corpus/provisions/us-me/guidance/2026-07-23-me-individual-income-tax-rates-2026.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 84,
+          "path": "data/corpus/provisions/us-me/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 13,
+          "artifact_row_count": 13,
+          "selected_row_count": 13,
+          "physical_row_count": 13
+        },
+        {
+          "artifact_index": 85,
+          "path": "data/corpus/provisions/us-mi/guidance/2026-07-21-mi-2026-income-tax-rate-notice.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "f81e05c870a49ab44c60c4eb0bd81ea51a1f19e6cd74a87aa19e2fc851356a96",
+      "elapsed_seconds": 175.948,
+      "rows_sha256": "af2808dc2fb93b65d586b9e8f24aa05d665237e49e685d089dec52ef4af1ebbe",
+      "rows_bytes": 252471,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 86,
+      "artifact_end": 87,
+      "row_ranges": [
+        {
+          "artifact_index": 86,
+          "path": "data/corpus/provisions/us-mi/manual/2026-07-17-mi-bridges-manual.jsonl",
+          "row_start": 0,
+          "row_end": 1155,
+          "artifact_row_count": 2310,
+          "selected_row_count": 1155,
+          "physical_row_count": 2310
+        }
+      ],
+      "completion_sha256": "327b8e5cc49d7a14071743bce7836613057b985c6b5d564e00789d29d4725e0a",
+      "elapsed_seconds": 154.864,
+      "rows_sha256": "b70aa24f1c6fc9cac13f1e750b92ea0b171e7da0fa3ad56fe0e256b9a498a3a0",
+      "rows_bytes": 718016,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 86,
+      "artifact_end": 87,
+      "row_ranges": [
+        {
+          "artifact_index": 86,
+          "path": "data/corpus/provisions/us-mi/manual/2026-07-17-mi-bridges-manual.jsonl",
+          "row_start": 1155,
+          "row_end": 2310,
+          "artifact_row_count": 2310,
+          "selected_row_count": 1155,
+          "physical_row_count": 2310
+        }
+      ],
+      "completion_sha256": "91ebb9de8fb0c6417d4f3f66a9a237dc337d7ca980f8e97c7225cffe09f5e938",
+      "elapsed_seconds": 133.574,
+      "rows_sha256": "0f3f6f2e8b7a289f77962d2fb1718ddc80f8230d1902fb5a9c4a61a2dfcc61d0",
+      "rows_bytes": 718465,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 87,
+      "artifact_end": 89,
+      "row_ranges": [
+        {
+          "artifact_index": 87,
+          "path": "data/corpus/provisions/us-mi/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 15,
+          "artifact_row_count": 15,
+          "selected_row_count": 15,
+          "physical_row_count": 15
+        },
+        {
+          "artifact_index": 88,
+          "path": "data/corpus/provisions/us-mn/guidance/2026-07-22-mn-income-tax-inflation-adjusted-amounts-2026.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        }
+      ],
+      "completion_sha256": "b3533cd1fab19a74b383de1aa32a1a0e932870c3cdf00c0cc3e2ff477f9922e2",
+      "elapsed_seconds": 70.612,
+      "rows_sha256": "e7d8fd6618cdca2bf0cecb348e1df48e74f7c65117f016ee61ab0c75f7c61b33",
+      "rows_bytes": 12553,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 89,
+      "artifact_end": 90,
+      "row_ranges": [
+        {
+          "artifact_index": 89,
+          "path": "data/corpus/provisions/us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 1354,
+          "artifact_row_count": 1354,
+          "selected_row_count": 1354,
+          "physical_row_count": 1354
+        }
+      ],
+      "completion_sha256": "d38c76a271bb9b9e9a0565c1309ec25d8b5139c1f1fd646e40e63db15257deef",
+      "elapsed_seconds": 111.089,
+      "rows_sha256": "923f11d801b8a2e53306b6a7e2771742bb8d2edf047029fa27f09fdf1b01fa0b",
+      "rows_bytes": 891416,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 90,
+      "artifact_end": 91,
+      "row_ranges": [
+        {
+          "artifact_index": 90,
+          "path": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 1354,
+          "artifact_row_count": 2708,
+          "selected_row_count": 1354,
+          "physical_row_count": 2708
+        }
+      ],
+      "completion_sha256": "5de5c41d1c37ef74923245335c6d45a06750140a68ea199f76f14e774eb51b2a",
+      "elapsed_seconds": 143.471,
+      "rows_sha256": "38178584c1102d3b642f2cb3098997745b4f87c993c0bfc6aa60222a52201b2d",
+      "rows_bytes": 892770,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 90,
+      "artifact_end": 91,
+      "row_ranges": [
+        {
+          "artifact_index": 90,
+          "path": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
+          "row_start": 1354,
+          "row_end": 2708,
+          "artifact_row_count": 2708,
+          "selected_row_count": 1354,
+          "physical_row_count": 2708
+        }
+      ],
+      "completion_sha256": "2f97f877aeb05965e1e476ea519a4aa8c0d867fde6b27a7f94b8518893e5de70",
+      "elapsed_seconds": 96.427,
+      "rows_sha256": "9464c9920cba590de67afa27fb8141457eb6a8e1c0b93dcea10ef8e3756725cf",
+      "rows_bytes": 870859,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 91,
+      "artifact_end": 92,
+      "row_ranges": [
+        {
+          "artifact_index": 91,
+          "path": "data/corpus/provisions/us-mn/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 125,
+          "artifact_row_count": 125,
+          "selected_row_count": 125,
+          "physical_row_count": 125
+        }
+      ],
+      "completion_sha256": "090be544069d9e87232815be037549e03bc87b265644225176d5530947dec516",
+      "elapsed_seconds": 51.391,
+      "rows_sha256": "13afd6c5f66adddb8fce7a67a3e3017e24587013357fbd3618225b5b467f41ca",
+      "rows_bytes": 75152,
+      "removals_sha256": "95db7f7cc12ca20d6e02ff67e885fe14dd54e7eb005ce89d05c4433778144307",
+      "removals_bytes": 39635
+    },
+    {
+      "artifact_start": 92,
+      "artifact_end": 99,
+      "row_ranges": [
+        {
+          "artifact_index": 92,
+          "path": "data/corpus/provisions/us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 1054,
+          "artifact_row_count": 1054,
+          "selected_row_count": 1054,
+          "physical_row_count": 1054
+        },
+        {
+          "artifact_index": 93,
+          "path": "data/corpus/provisions/us-mo/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 94,
+          "path": "data/corpus/provisions/us-mo/statute/2026-07-16-pit-central-us-mo-143.jsonl",
+          "row_start": 0,
+          "row_end": 170,
+          "artifact_row_count": 170,
+          "selected_row_count": 170,
+          "physical_row_count": 170
+        },
+        {
+          "artifact_index": 95,
+          "path": "data/corpus/provisions/us-ms/manual/2026-07-17-ms-snap-policy-manual.jsonl",
+          "row_start": 0,
+          "row_end": 385,
+          "artifact_row_count": 385,
+          "selected_row_count": 385,
+          "physical_row_count": 385
+        },
+        {
+          "artifact_index": 96,
+          "path": "data/corpus/provisions/us-ms/statute/2026-07-16-pit-central-us-ms-section-27-7-5.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 97,
+          "path": "data/corpus/provisions/us-mt/manual/2026-07-17-mt-snap-policy-manual.jsonl",
+          "row_start": 0,
+          "row_end": 435,
+          "artifact_row_count": 435,
+          "selected_row_count": 435,
+          "physical_row_count": 435
+        },
+        {
+          "artifact_index": 98,
+          "path": "data/corpus/provisions/us-mt/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "b55fbc0660c31bd5a1a88a75b21bd0feee2dc2b4604b06f7b9a232f3e453cf06",
+      "elapsed_seconds": 95.835,
+      "rows_sha256": "60457c392e867432a78c8b953b2827855f8900f46f57aac773bf954fae770b41",
+      "rows_bytes": 1342623,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 99,
+      "artifact_end": 100,
+      "row_ranges": [
+        {
+          "artifact_index": 99,
+          "path": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+          "row_start": 0,
+          "row_end": 2392,
+          "artifact_row_count": 2392,
+          "selected_row_count": 2392,
+          "physical_row_count": 2392
+        }
+      ],
+      "completion_sha256": "92897a6520f4849eb1ec9b6f418514b61335b92ff809f1deaacce9ca80ba236f",
+      "elapsed_seconds": 70.291,
+      "rows_sha256": "45879bcc97f14844afae6bc5531fa0ab6907a7e71035fd9402bbfbe08d9986e4",
+      "rows_bytes": 1469342,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 100,
+      "artifact_end": 110,
+      "row_ranges": [
+        {
+          "artifact_index": 100,
+          "path": "data/corpus/provisions/us-nc/manual/2026-05-27-nc-fns-manuals-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 723,
+          "artifact_row_count": 723,
+          "selected_row_count": 723,
+          "physical_row_count": 723
+        },
+        {
+          "artifact_index": 101,
+          "path": "data/corpus/provisions/us-nc/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 102,
+          "path": "data/corpus/provisions/us-nc/statute/2026-08-03-nc-income-tax-current-union.jsonl",
+          "row_start": 0,
+          "row_end": 58,
+          "artifact_row_count": 58,
+          "selected_row_count": 58,
+          "physical_row_count": 58
+        },
+        {
+          "artifact_index": 103,
+          "path": "data/corpus/provisions/us-nd/manual/2026-07-21-nd-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 167,
+          "artifact_row_count": 167,
+          "selected_row_count": 167,
+          "physical_row_count": 167
+        },
+        {
+          "artifact_index": 104,
+          "path": "data/corpus/provisions/us-nd/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 70,
+          "artifact_row_count": 70,
+          "selected_row_count": 70,
+          "physical_row_count": 70
+        },
+        {
+          "artifact_index": 105,
+          "path": "data/corpus/provisions/us-nd/statute/2026-07-16-pit-central-us-nd-title-57-38.jsonl",
+          "row_start": 0,
+          "row_end": 154,
+          "artifact_row_count": 154,
+          "selected_row_count": 154,
+          "physical_row_count": 154
+        },
+        {
+          "artifact_index": 106,
+          "path": "data/corpus/provisions/us-ne/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 13,
+          "artifact_row_count": 13,
+          "selected_row_count": 13,
+          "physical_row_count": 13
+        },
+        {
+          "artifact_index": 107,
+          "path": "data/corpus/provisions/us-nh/statute/2026-07-16-pit-central-us-nh-title-v-chapter-77.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 108,
+          "path": "data/corpus/provisions/us-nj/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 1,
+          "artifact_row_count": 1,
+          "selected_row_count": 1,
+          "physical_row_count": 1
+        },
+        {
+          "artifact_index": 109,
+          "path": "data/corpus/provisions/us-nj/statute/2026-07-16-pit-central-us-nj-title-54a.jsonl",
+          "row_start": 0,
+          "row_end": 256,
+          "artifact_row_count": 256,
+          "selected_row_count": 256,
+          "physical_row_count": 256
+        }
+      ],
+      "completion_sha256": "0db91a2687b4e3eb02543682f52bb3572fae9ac0cac2a030b5d8df8adf7770e2",
+      "elapsed_seconds": 364.481,
+      "rows_sha256": "386aa35e7bbda2b10d1b5bc607f3cbc99dc4fa87102ebc0308f376ff69cd53c4",
+      "rows_bytes": 938639,
+      "removals_sha256": "d651971e05e589e74a51c2d64000d7473bba05826a96067b9b3ba0894606d9c9",
+      "removals_bytes": 1567
+    },
+    {
+      "artifact_start": 110,
+      "artifact_end": 115,
+      "row_ranges": [
+        {
+          "artifact_index": 110,
+          "path": "data/corpus/provisions/us-nm/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 111,
+          "path": "data/corpus/provisions/us-nm/statute/2026-07-16-pit-central.jsonl",
+          "row_start": 0,
+          "row_end": 1969,
+          "artifact_row_count": 1969,
+          "selected_row_count": 1969,
+          "physical_row_count": 1969
+        },
+        {
+          "artifact_index": 112,
+          "path": "data/corpus/provisions/us-nv/manual/2026-05-27-nv-eligibility-payments-manual-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 821,
+          "artifact_row_count": 821,
+          "selected_row_count": 821,
+          "physical_row_count": 821
+        },
+        {
+          "artifact_index": 113,
+          "path": "data/corpus/provisions/us-nv/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 28,
+          "artifact_row_count": 28,
+          "selected_row_count": 28,
+          "physical_row_count": 28
+        },
+        {
+          "artifact_index": 114,
+          "path": "data/corpus/provisions/us-nv/statute/2026-07-24-nv-individual-income-tax-zero-liability.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        }
+      ],
+      "completion_sha256": "215a4a5351e4a4e85db3374810a6ba0db64be3662fc496227ba848ac6d6d32ac",
+      "elapsed_seconds": 93.722,
+      "rows_sha256": "1571bcd1f011ceca3219bd6441832dbb3a06887744ef023428488800bc28bcaf",
+      "rows_bytes": 1752268,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 115,
+      "artifact_end": 121,
+      "row_ranges": [
+        {
+          "artifact_index": 115,
+          "path": "data/corpus/provisions/us-ny/manual/2026-07-17-ny-snap-manuals.jsonl",
+          "row_start": 0,
+          "row_end": 340,
+          "artifact_row_count": 340,
+          "selected_row_count": 340,
+          "physical_row_count": 340
+        },
+        {
+          "artifact_index": 116,
+          "path": "data/corpus/provisions/us-ny/statute/2026-06-05-nyc-admin-code.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 117,
+          "path": "data/corpus/provisions/us-ny/statute/2026-07-06-ny-tax-article22-core-us-ny-sections-tax-601-tax-606-tax-614-tax-615-tax-616.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 118,
+          "path": "data/corpus/provisions/us-ny/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 11,
+          "artifact_row_count": 11,
+          "selected_row_count": 11,
+          "physical_row_count": 11
+        },
+        {
+          "artifact_index": 119,
+          "path": "data/corpus/provisions/us-oh/guidance/2026-07-21-oh-hb96-final-analysis.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 120,
+          "path": "data/corpus/provisions/us-oh/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 12,
+          "artifact_row_count": 12,
+          "selected_row_count": 12,
+          "physical_row_count": 12
+        }
+      ],
+      "completion_sha256": "cfcee5a1aa2feb86bca6ce2e9524eafaac73b047f2b965b82affffaa58ae6464",
+      "elapsed_seconds": 134.264,
+      "rows_sha256": "9f6629fb7a65475bb0d939cbe23c25fb49725e8257e1b456078cebe2a0dc5136",
+      "rows_bytes": 234933,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 121,
+      "artifact_end": 122,
+      "row_ranges": [
+        {
+          "artifact_index": 121,
+          "path": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
+          "row_start": 0,
+          "row_end": 920,
+          "artifact_row_count": 1841,
+          "selected_row_count": 920,
+          "physical_row_count": 1841
+        }
+      ],
+      "completion_sha256": "1751510109155138e997b02e446b7b5686579ce521c6673152c3c41c8630c094",
+      "elapsed_seconds": 121.391,
+      "rows_sha256": "7b68853e0cd691a117a4a23a39181f4545eacf142b5ede5c508f5fbd99246d05",
+      "rows_bytes": 583914,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 121,
+      "artifact_end": 122,
+      "row_ranges": [
+        {
+          "artifact_index": 121,
+          "path": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
+          "row_start": 920,
+          "row_end": 1841,
+          "artifact_row_count": 1841,
+          "selected_row_count": 921,
+          "physical_row_count": 1841
+        }
+      ],
+      "completion_sha256": "b06760dfee0e9b38a42eceaac84187a2356600832bcfc5ddf7c4983303af0483",
+      "elapsed_seconds": 75.405,
+      "rows_sha256": "def534c1ddda522caf620e58bbef9d6984c99fa3b8dad6da9285947706bdc00a",
+      "rows_bytes": 585341,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 122,
+      "artifact_end": 127,
+      "row_ranges": [
+        {
+          "artifact_index": 122,
+          "path": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
+          "row_start": 0,
+          "row_end": 1323,
+          "artifact_row_count": 1323,
+          "selected_row_count": 1323,
+          "physical_row_count": 1323
+        },
+        {
+          "artifact_index": 123,
+          "path": "data/corpus/provisions/us-or/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 124,
+          "path": "data/corpus/provisions/us-or/statute/2026-07-16-pit-west-us-or-chapter-316.jsonl",
+          "row_start": 0,
+          "row_end": 502,
+          "artifact_row_count": 502,
+          "selected_row_count": 502,
+          "physical_row_count": 502
+        },
+        {
+          "artifact_index": 125,
+          "path": "data/corpus/provisions/us-or/statute/2026-07-24-or-pit-session-laws.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 126,
+          "path": "data/corpus/provisions/us-pa/guidance/2026-07-21-pa-personal-income-tax-rates.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "88665c1e60a23c4b6d8edabff3cd391d3a8e716a5096213b2aee46425c4e008b",
+      "elapsed_seconds": 140.875,
+      "rows_sha256": "0f75cf38d14a05acd6b1186934762118ffa8d1b6a83541ea0f5e7d41969749db",
+      "rows_bytes": 1146753,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 127,
+      "artifact_end": 137,
+      "row_ranges": [
+        {
+          "artifact_index": 127,
+          "path": "data/corpus/provisions/us-pa/manual/2026-07-21-pa-snap-handbook.jsonl",
+          "row_start": 0,
+          "row_end": 1055,
+          "artifact_row_count": 1055,
+          "selected_row_count": 1055,
+          "physical_row_count": 1055
+        },
+        {
+          "artifact_index": 128,
+          "path": "data/corpus/provisions/us-pa/statute/2026-07-16-pit-west-us-pa-act-1971-2-article-3.jsonl",
+          "row_start": 0,
+          "row_end": 115,
+          "artifact_row_count": 115,
+          "selected_row_count": 115,
+          "physical_row_count": 115
+        },
+        {
+          "artifact_index": 129,
+          "path": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 130,
+          "path": "data/corpus/provisions/us-ri/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 1,
+          "artifact_row_count": 1,
+          "selected_row_count": 1,
+          "physical_row_count": 1
+        },
+        {
+          "artifact_index": 131,
+          "path": "data/corpus/provisions/us-ri/statute/2026-07-16-pit-west-us-ri-chapter-44-30.jsonl",
+          "row_start": 0,
+          "row_end": 100,
+          "artifact_row_count": 100,
+          "selected_row_count": 100,
+          "physical_row_count": 100
+        },
+        {
+          "artifact_index": 132,
+          "path": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 460,
+          "artifact_row_count": 460,
+          "selected_row_count": 460,
+          "physical_row_count": 460
+        },
+        {
+          "artifact_index": 133,
+          "path": "data/corpus/provisions/us-sc/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 5,
+          "artifact_row_count": 5,
+          "selected_row_count": 5,
+          "physical_row_count": 5
+        },
+        {
+          "artifact_index": 134,
+          "path": "data/corpus/provisions/us-sc/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 135,
+          "path": "data/corpus/provisions/us-sc/statute/2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl",
+          "row_start": 0,
+          "row_end": 158,
+          "artifact_row_count": 158,
+          "selected_row_count": 158,
+          "physical_row_count": 158
+        },
+        {
+          "artifact_index": 136,
+          "path": "data/corpus/provisions/us-sd/guidance/2026-07-24-sd-personal-income-tax-zero-liability.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        }
+      ],
+      "completion_sha256": "61e5f17b6219dcb3c6c7d7a64258f087620fdd873ca1fad0c2db02b53f78a31e",
+      "elapsed_seconds": 198.996,
+      "rows_sha256": "2d1c7a7ddeae6dd1eeee0c29fb4c502a58d1de8a7967c76345cc205cac8b2117",
+      "rows_bytes": 1226304,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 137,
+      "artifact_end": 147,
+      "row_ranges": [
+        {
+          "artifact_index": 137,
+          "path": "data/corpus/provisions/us-sd/manual/2026-07-21-sd-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 340,
+          "artifact_row_count": 340,
+          "selected_row_count": 340,
+          "physical_row_count": 340
+        },
+        {
+          "artifact_index": 138,
+          "path": "data/corpus/provisions/us-sd/statute/2026-07-24-sd-bank-income-tax-boundary.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 139,
+          "path": "data/corpus/provisions/us-tn/guidance/2026-07-24-tn-individual-income-tax-zero-liability-guidance.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 140,
+          "path": "data/corpus/provisions/us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 233,
+          "artifact_row_count": 233,
+          "selected_row_count": 233,
+          "physical_row_count": 233
+        },
+        {
+          "artifact_index": 141,
+          "path": "data/corpus/provisions/us-tn/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        },
+        {
+          "artifact_index": 142,
+          "path": "data/corpus/provisions/us-tn/statute/2026-07-24-tn-hall-income-tax-zero-rate-statute.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 143,
+          "path": "data/corpus/provisions/us-tx/manual/2026-05-27-tx-manuals-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 550,
+          "artifact_row_count": 550,
+          "selected_row_count": 550,
+          "physical_row_count": 550
+        },
+        {
+          "artifact_index": 144,
+          "path": "data/corpus/provisions/us-tx/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 22,
+          "artifact_row_count": 22,
+          "selected_row_count": 22,
+          "physical_row_count": 22
+        },
+        {
+          "artifact_index": 145,
+          "path": "data/corpus/provisions/us-ut/manual/2026-05-27-ut-manuals-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 2398,
+          "artifact_row_count": 2398,
+          "selected_row_count": 2398,
+          "physical_row_count": 2398
+        },
+        {
+          "artifact_index": 146,
+          "path": "data/corpus/provisions/us-ut/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 7,
+          "artifact_row_count": 7,
+          "selected_row_count": 7,
+          "physical_row_count": 7
+        }
+      ],
+      "completion_sha256": "e3e4e9b1a6de6ab42fd3172e2ff569706967377d2cec930bd9b6a1d527deb1e6",
+      "elapsed_seconds": 376.176,
+      "rows_sha256": "23f54751fe53d3b67c489c761ae6057568f46ff4989f8db5caf210c6644c07ad",
+      "rows_bytes": 2479981,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 147,
+      "artifact_end": 157,
+      "row_ranges": [
+        {
+          "artifact_index": 147,
+          "path": "data/corpus/provisions/us-ut/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 148,
+          "path": "data/corpus/provisions/us-va/manual/2026-07-21-va-snap-manual.jsonl",
+          "row_start": 0,
+          "row_end": 678,
+          "artifact_row_count": 678,
+          "selected_row_count": 678,
+          "physical_row_count": 678
+        },
+        {
+          "artifact_index": 149,
+          "path": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 8,
+          "artifact_row_count": 8,
+          "selected_row_count": 8,
+          "physical_row_count": 8
+        },
+        {
+          "artifact_index": 150,
+          "path": "data/corpus/provisions/us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl",
+          "row_start": 0,
+          "row_end": 911,
+          "artifact_row_count": 911,
+          "selected_row_count": 911,
+          "physical_row_count": 911
+        },
+        {
+          "artifact_index": 151,
+          "path": "data/corpus/provisions/us-vt/statute/2026-07-16-pit-central-us-vt-title-32-chapter-151.jsonl",
+          "row_start": 0,
+          "row_end": 179,
+          "artifact_row_count": 179,
+          "selected_row_count": 179,
+          "physical_row_count": 179
+        },
+        {
+          "artifact_index": 152,
+          "path": "data/corpus/provisions/us-wa/manual/2026-07-21-wa-eaz-manual.jsonl",
+          "row_start": 0,
+          "row_end": 1265,
+          "artifact_row_count": 1265,
+          "selected_row_count": 1265,
+          "physical_row_count": 1265
+        },
+        {
+          "artifact_index": 153,
+          "path": "data/corpus/provisions/us-wa/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 154,
+          "path": "data/corpus/provisions/us-wa/statute/2026-07-16-pit-central-us-wa-title-82.87.jsonl",
+          "row_start": 0,
+          "row_end": 16,
+          "artifact_row_count": 16,
+          "selected_row_count": 16,
+          "physical_row_count": 16
+        },
+        {
+          "artifact_index": 155,
+          "path": "data/corpus/provisions/us-wi/manual/2026-07-21-wi-foodshare-manual.jsonl",
+          "row_start": 0,
+          "row_end": 373,
+          "artifact_row_count": 373,
+          "selected_row_count": 373,
+          "physical_row_count": 373
+        },
+        {
+          "artifact_index": 156,
+          "path": "data/corpus/provisions/us-wi/statute/2026-07-16-pit-west-chapter-71.jsonl",
+          "row_start": 0,
+          "row_end": 116,
+          "artifact_row_count": 116,
+          "selected_row_count": 116,
+          "physical_row_count": 116
+        }
+      ],
+      "completion_sha256": "a01ce64e33c20109d6b9727ad196a80f9176432730833c4439cd53acf28a8328",
+      "elapsed_seconds": 361.382,
+      "rows_sha256": "eb8bf6c47ce518d69e4f4204d94cefdf534f8dc580af16a5428e6ce7c7f233e4",
+      "rows_bytes": 2287263,
+      "removals_sha256": "9c38fab101be9413de3067d8e148a8c9e4851029debf82a7a0507d6904b7c058",
+      "removals_bytes": 26741
+    },
+    {
+      "artifact_start": 157,
+      "artifact_end": 167,
+      "row_ranges": [
+        {
+          "artifact_index": 157,
+          "path": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
+          "row_start": 0,
+          "row_end": 2276,
+          "artifact_row_count": 2276,
+          "selected_row_count": 2276,
+          "physical_row_count": 2276
+        },
+        {
+          "artifact_index": 158,
+          "path": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-snap-healthy-choices-overlay.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 159,
+          "path": "data/corpus/provisions/us-wv/statute/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        },
+        {
+          "artifact_index": 160,
+          "path": "data/corpus/provisions/us-wv/statute/2026-07-16-pit-west-us-wv-chapter-11-article-21.jsonl",
+          "row_start": 0,
+          "row_end": 142,
+          "artifact_row_count": 142,
+          "selected_row_count": 142,
+          "physical_row_count": 142
+        },
+        {
+          "artifact_index": 161,
+          "path": "data/corpus/provisions/us-wy/manual/2026-05-27-wy-manuals-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 9,
+          "artifact_row_count": 9,
+          "selected_row_count": 9,
+          "physical_row_count": 9
+        },
+        {
+          "artifact_index": 162,
+          "path": "data/corpus/provisions/us-wy/manual/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 163,
+          "path": "data/corpus/provisions/us/guidance/2026-03-10-cms-original-medicare-part-a-b.jsonl",
+          "row_start": 0,
+          "row_end": 31,
+          "artifact_row_count": 31,
+          "selected_row_count": 31,
+          "physical_row_count": 31
+        },
+        {
+          "artifact_index": 164,
+          "path": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        },
+        {
+          "artifact_index": 165,
+          "path": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 37,
+          "artifact_row_count": 37,
+          "selected_row_count": 37,
+          "physical_row_count": 37
+        },
+        {
+          "artifact_index": 166,
+          "path": "data/corpus/provisions/us/guidance/2026-05-02-snap-fy2026-income-eligibility-standards-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 3,
+          "artifact_row_count": 3,
+          "selected_row_count": 3,
+          "physical_row_count": 3
+        }
+      ],
+      "completion_sha256": "0b1cc7a428dd15476d99f9b60c8453a34ce2be6f6d8059e369f7a3841aaacd8b",
+      "elapsed_seconds": 146.942,
+      "rows_sha256": "818a898b737ffc184ce86296a30c463a4fdd1a51fd4eccb85d7aae50d42c8c99",
+      "rows_bytes": 1616598,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 167,
+      "artifact_end": 177,
+      "row_ranges": [
+        {
+          "artifact_index": 167,
+          "path": "data/corpus/provisions/us/guidance/2026-05-17-ssa-automatic-determinations-2026.jsonl",
+          "row_start": 0,
+          "row_end": 10,
+          "artifact_row_count": 10,
+          "selected_row_count": 10,
+          "physical_row_count": 10
+        },
+        {
+          "artifact_index": 168,
+          "path": "data/corpus/provisions/us/guidance/2026-05-26-ssa-contribution-and-benefit-base-2024.jsonl",
+          "row_start": 0,
+          "row_end": 2,
+          "artifact_row_count": 2,
+          "selected_row_count": 2,
+          "physical_row_count": 2
+        },
+        {
+          "artifact_index": 169,
+          "path": "data/corpus/provisions/us/guidance/2026-07-03-dc-ossp-ssa-poms.jsonl",
+          "row_start": 0,
+          "row_end": 72,
+          "artifact_row_count": 72,
+          "selected_row_count": 72,
+          "physical_row_count": 72
+        },
+        {
+          "artifact_index": 170,
+          "path": "data/corpus/provisions/us/guidance/2026-07-05-ssa-cola-2026.jsonl",
+          "row_start": 0,
+          "row_end": 4,
+          "artifact_row_count": 4,
+          "selected_row_count": 4,
+          "physical_row_count": 4
+        },
+        {
+          "artifact_index": 171,
+          "path": "data/corpus/provisions/us/guidance/2026-07-08-snap-fy2024-cola.jsonl",
+          "row_start": 0,
+          "row_end": 6,
+          "artifact_row_count": 6,
+          "selected_row_count": 6,
+          "physical_row_count": 6
+        },
+        {
+          "artifact_index": 172,
+          "path": "data/corpus/provisions/us/guidance/2026-07-13-recovery.jsonl",
+          "row_start": 0,
+          "row_end": 102,
+          "artifact_row_count": 102,
+          "selected_row_count": 102,
+          "physical_row_count": 102
+        },
+        {
+          "artifact_index": 173,
+          "path": "data/corpus/provisions/us/guidance/2026-07-23-irs-notice-2025-67.jsonl",
+          "row_start": 0,
+          "row_end": 7,
+          "artifact_row_count": 7,
+          "selected_row_count": 7,
+          "physical_row_count": 7
+        },
+        {
+          "artifact_index": 174,
+          "path": "data/corpus/provisions/us/guidance/2026-08-07-snap-obbb-alien-eligibility-implementation-memo.jsonl",
+          "row_start": 0,
+          "row_end": 12,
+          "artifact_row_count": 12,
+          "selected_row_count": 12,
+          "physical_row_count": 12
+        },
+        {
+          "artifact_index": 175,
+          "path": "data/corpus/provisions/us/statute/2026-06-20-ssi-title-xvi-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 226,
+          "artifact_row_count": 226,
+          "selected_row_count": 226,
+          "physical_row_count": 226
+        },
+        {
+          "artifact_index": 176,
+          "path": "data/corpus/provisions/us/statute/2026-06-23-medicare-426-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 25,
+          "artifact_row_count": 25,
+          "selected_row_count": 25,
+          "physical_row_count": 25
+        }
+      ],
+      "completion_sha256": "113d6de3b07bf95753f3979cabe106ce5e10b39cc90b971c3fd2b781174710c4",
+      "elapsed_seconds": 215.793,
+      "rows_sha256": "fda57e4c8010973ab6235c22d122c5ad6a71d8d5a42efd094dd1a3edc9aafb72",
+      "rows_bytes": 299584,
+      "removals_sha256": "c4779732761157ee5a364eaa7c8ab1f6fd889aa06e0752e56dfff87abfdf39f7",
+      "removals_bytes": 2490
+    },
+    {
+      "artifact_start": 177,
+      "artifact_end": 182,
+      "row_ranges": [
+        {
+          "artifact_index": 177,
+          "path": "data/corpus/provisions/us/statute/2026-06-24-doe-rebates-title-42-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 51,
+          "artifact_row_count": 51,
+          "selected_row_count": 51,
+          "physical_row_count": 51
+        },
+        {
+          "artifact_index": 178,
+          "path": "data/corpus/provisions/us/statute/2026-06-26-medicaid-title-42-r2026-07-15-self-contained-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 112,
+          "artifact_row_count": 112,
+          "selected_row_count": 112,
+          "physical_row_count": 112
+        },
+        {
+          "artifact_index": 179,
+          "path": "data/corpus/provisions/us/statute/2026-06-29-pl-119-21-medicaid-community-engagement-r2026-07-15-self-contained.jsonl",
+          "row_start": 0,
+          "row_end": 12,
+          "artifact_row_count": 12,
+          "selected_row_count": 12,
+          "physical_row_count": 12
+        },
+        {
+          "artifact_index": 180,
+          "path": "data/corpus/provisions/us/statute/2026-07-03-us-usc-26-85-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 1,
+          "artifact_row_count": 1,
+          "selected_row_count": 1,
+          "physical_row_count": 1
+        },
+        {
+          "artifact_index": 181,
+          "path": "data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-title-42-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 276,
+          "artifact_row_count": 276,
+          "selected_row_count": 276,
+          "physical_row_count": 276
+        }
+      ],
+      "completion_sha256": "8ed4d21d15ca09835dae8d9996d198194aba63dc25d6ed56e177c6bd5d5fae99",
+      "elapsed_seconds": 195.126,
+      "rows_sha256": "4eaa19a43a84650db6ff50b37071f2a0c483f10f8180f35874f3bfc8892ed3c0",
+      "rows_bytes": 289468,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 182,
+      "artifact_end": 183,
+      "row_ranges": [
+        {
+          "artifact_index": 182,
+          "path": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 1000,
+          "artifact_row_count": 2453,
+          "selected_row_count": 1000,
+          "physical_row_count": 2453
+        }
+      ],
+      "completion_sha256": "fa74e6446544c375529baa203cbb806a5d08d19b3fdc52611eb3565665294cf4",
+      "elapsed_seconds": 305.105,
+      "rows_sha256": "4ce677fcb02ce0d0da145a35eca337c6cb6576901540128933378d27d3085469",
+      "rows_bytes": 638388,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 182,
+      "artifact_end": 183,
+      "row_ranges": [
+        {
+          "artifact_index": 182,
+          "path": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 1000,
+          "row_end": 2000,
+          "artifact_row_count": 2453,
+          "selected_row_count": 1000,
+          "physical_row_count": 2453
+        }
+      ],
+      "completion_sha256": "713f8e5b86cddb12046fed9444a4af5113052e85e44c32e4b3099fb1c35bf93b",
+      "elapsed_seconds": 135.332,
+      "rows_sha256": "0fe9d4a63fc4df6555dc1ec1ba8184df9bf65345d0e8158e1554ea8b98331c82",
+      "rows_bytes": 637292,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 182,
+      "artifact_end": 183,
+      "row_ranges": [
+        {
+          "artifact_index": 182,
+          "path": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+          "row_start": 2000,
+          "row_end": 2453,
+          "artifact_row_count": 2453,
+          "selected_row_count": 453,
+          "physical_row_count": 2453
+        }
+      ],
+      "completion_sha256": "03c157bbe4a5bc33590f50b0639dc52ce68dbbd4ff2f34a537f4efcfaf1d5464",
+      "elapsed_seconds": 161.132,
+      "rows_sha256": "ffbf355273cecc195f4bbe36c78a65e3a59030074da17b4e3153fd1dac36fcdf",
+      "rows_bytes": 289067,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 183,
+      "artifact_end": 185,
+      "row_ranges": [
+        {
+          "artifact_index": 183,
+          "path": "data/corpus/provisions/us/statute/2026-07-15-hr6644-current-law-r2026-07-19-expression-date.jsonl",
+          "row_start": 0,
+          "row_end": 39,
+          "artifact_row_count": 39,
+          "selected_row_count": 39,
+          "physical_row_count": 39
+        },
+        {
+          "artifact_index": 184,
+          "path": "data/corpus/provisions/us/statute/2026-07-16-hr6644-dependencies-current-law-title-12.jsonl",
+          "row_start": 0,
+          "row_end": 295,
+          "artifact_row_count": 295,
+          "selected_row_count": 295,
+          "physical_row_count": 295
+        }
+      ],
+      "completion_sha256": "4143832542fe9b78a87675433f905f1b92f2d0f23dc8813d5cdd8b6d80668f96",
+      "elapsed_seconds": 278.001,
+      "rows_sha256": "aa618c2a3207769fc2b50f159ee4e153b96e847655aff8926f88a5548065367b",
+      "rows_bytes": 208407,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 185,
+      "artifact_end": 187,
+      "row_ranges": [
+        {
+          "artifact_index": 185,
+          "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-12-title-12-r2026-07-18-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 463,
+          "artifact_row_count": 463,
+          "selected_row_count": 463,
+          "physical_row_count": 463
+        },
+        {
+          "artifact_index": 186,
+          "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-15-title-15.jsonl",
+          "row_start": 0,
+          "row_end": 13,
+          "artifact_row_count": 13,
+          "selected_row_count": 13,
+          "physical_row_count": 13
+        }
+      ],
+      "completion_sha256": "b81195970749139fe39d0ea00aef9255a6dea70885c08da86245bf2ad0227c6d",
+      "elapsed_seconds": 165.13,
+      "rows_sha256": "073c9c7006db94a88998d25ce496c7af027aee4148b4ac709befd99f2f668efb",
+      "rows_bytes": 306428,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 187,
+      "artifact_end": 192,
+      "row_ranges": [
+        {
+          "artifact_index": 187,
+          "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-26-title-26-r2026-07-18-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 115,
+          "artifact_row_count": 115,
+          "selected_row_count": 115,
+          "physical_row_count": 115
+        },
+        {
+          "artifact_index": 188,
+          "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-38-title-38.jsonl",
+          "row_start": 0,
+          "row_end": 25,
+          "artifact_row_count": 25,
+          "selected_row_count": 25,
+          "physical_row_count": 25
+        },
+        {
+          "artifact_index": 189,
+          "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-42-title-42-r2026-07-18-dedup.jsonl",
+          "row_start": 0,
+          "row_end": 305,
+          "artifact_row_count": 305,
+          "selected_row_count": 305,
+          "physical_row_count": 305
+        },
+        {
+          "artifact_index": 190,
+          "path": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-42-consolidated.jsonl",
+          "row_start": 0,
+          "row_end": 1081,
+          "artifact_row_count": 1081,
+          "selected_row_count": 1081,
+          "physical_row_count": 1081
+        },
+        {
+          "artifact_index": 191,
+          "path": "data/corpus/provisions/us/statute/2026-07-22-rulespec-title-7-consolidated.jsonl",
+          "row_start": 0,
+          "row_end": 862,
+          "artifact_row_count": 862,
+          "selected_row_count": 862,
+          "physical_row_count": 862
+        }
+      ],
+      "completion_sha256": "2f695202e1fb6092c90f78314ac908acf396f1a6977af7b50548640ace4910c1",
+      "elapsed_seconds": 243.507,
+      "rows_sha256": "3019a80f0d700345965f60ce410af1a9fc3c0e0025f9883640f9faa0c857dd01",
+      "rows_bytes": 1478023,
+      "removals_sha256": "16e6815a6a0223ae084d2ecf63a6be9d694766e5dcbb095c09729a467f208e84",
+      "removals_bytes": 28121
+    },
+    {
+      "artifact_start": 192,
+      "artifact_end": 194,
+      "row_ranges": [
+        {
+          "artifact_index": 192,
+          "path": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+          "row_start": 0,
+          "row_end": 768,
+          "artifact_row_count": 768,
+          "selected_row_count": 768,
+          "physical_row_count": 768
+        },
+        {
+          "artifact_index": 193,
+          "path": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+          "row_start": 0,
+          "row_end": 1709,
+          "artifact_row_count": 1709,
+          "selected_row_count": 1709,
+          "physical_row_count": 1709
+        }
+      ],
+      "completion_sha256": "632a78e5fbaf032434134adf73ffa6027e4f9edb48f197662ec58ec051217536",
+      "elapsed_seconds": 124.55,
+      "rows_sha256": "e2437f79d455ba6cf38e39e5680a32113634ffdc51b6db6476c9ccde5e4de1d2",
+      "rows_bytes": 1552465,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 194,
+      "artifact_end": 196,
+      "row_ranges": [
+        {
+          "artifact_index": 194,
+          "path": "data/corpus/provisions/us/statute/2026-08-03-rulespec-title-26-current-union.jsonl",
+          "row_start": 0,
+          "row_end": 804,
+          "artifact_row_count": 804,
+          "selected_row_count": 804,
+          "physical_row_count": 804
+        },
+        {
+          "artifact_index": 195,
+          "path": "data/corpus/provisions/us/statute/2026-08-03-tariff-title-19-spine-with-root-title-19.jsonl",
+          "row_start": 0,
+          "row_end": 326,
+          "artifact_row_count": 326,
+          "selected_row_count": 326,
+          "physical_row_count": 326
+        }
+      ],
+      "completion_sha256": "ff2d517eeb9d4de5671118b9e388dda14be273818fb24c3d8dd028648592b67a",
+      "elapsed_seconds": 83.71,
+      "rows_sha256": "23936fed0234268fbf05254b94cfd78d0abbffe07e46697c3985b984af42e5c7",
+      "rows_bytes": 698810,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    }
+  ],
+  "checked_rows": 79687,
+  "entry_unchanged_rows": 79665,
+  "entry_changed_rows": 22,
+  "recall_changed_rows": 22,
+  "removed_inventory_occurrences": 51,
+  "added_inventory_occurrences": 0,
+  "glued_quantity_guard_changed_rows": 0,
+  "restored_glued_quantity_spans": 0,
+  "guard_added_inventory_occurrences": 0,
+  "ledger_changed_rows": 22,
+  "selector_sha256": "1b88863f0e6f09c3383e0572666da892d49125f34bda5088bd90a6706d8b37fd",
+  "python_version": "3.13.9",
+  "gil_disabled_build": false,
+  "existing_definitions_unchanged": false,
+  "baseline_cleanup_suffix_unchanged": true,
+  "bounded_glued_quantity_guard_verified": true,
+  "all_rows_runtime_compared": true,
+  "full_artifact_row_counts_verified": true,
+  "ledgers": {
+    "rows": {
+      "sha256": "fb944bbb31c0361ff1af3195b59362cb7e47a9a9237cba91552adb78712e88ea",
+      "bytes": 50865493
+    },
+    "removals": {
+      "sha256": "2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c",
+      "bytes": 101059
+    }
+  }
+}
