@@ -10,11 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  # The suite, split across parallel shards. tests/ci_shards.py assigns every
+  # test function to exactly one shard; the test-gate job below checks it.
   test:
+    name: test shard ${{ matrix.shard }} of 8 (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.13"]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    outputs:
+      shard_1: ${{ steps.tests.outputs.shard_1 }}
+      shard_2: ${{ steps.tests.outputs.shard_2 }}
+      shard_3: ${{ steps.tests.outputs.shard_3 }}
+      shard_4: ${{ steps.tests.outputs.shard_4 }}
+      shard_5: ${{ steps.tests.outputs.shard_5 }}
+      shard_6: ${{ steps.tests.outputs.shard_6 }}
+      shard_7: ${{ steps.tests.outputs.shard_7 }}
+      shard_8: ${{ steps.tests.outputs.shard_8 }}
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,8 +56,128 @@ jobs:
       - name: Check changelog fragments
         run: .venv/bin/python -m towncrier build --draft --version 0.0.0
 
+      # The real-engine job runs the tests that execute the engine.
       - name: Run tests
-        run: .venv/bin/pytest tests/
+        id: tests
+        env:
+          AXIOM_ENCODE_TEST_SHARD: ${{ matrix.shard }}/8
+        run: |
+          set -e
+          export AXIOM_ENCODE_TEST_SHARD_REPORT="$RUNNER_TEMP/shard-report"
+          .venv/bin/pytest --durations=200 --durations-min=5 -m "not real_engine" tests/
+          # Reached only when pytest exits 0, so a failure anywhere in the run,
+          # including after the report was written, publishes nothing.
+          cat "$RUNNER_TEMP/shard-report" >> "$GITHUB_OUTPUT"
+
+  # Branch protection requires the check named "test (3.13)". It passes only
+  # when every shard published a report and the reports show that together they
+  # ran every test the shards select (all but the real_engine tests, which the
+  # real-engine job runs): all shards collected the same tests and split them the
+  # same way, and the tests they kept add up to the tests collected. A shard
+  # publishes its report only when its pytest run exits 0 having run every
+  # test it kept, so a failed, cancelled or never-started shard leaves its
+  # report empty. `always()` keeps such a shard from turning this job into a
+  # skipped (and so passing) check.
+  test-gate:
+    name: test (3.13)
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check every shard passed and the shards ran every selected test
+        env:
+          SHARDS_RESULT: ${{ needs.test.result }}
+          SHARD_1: ${{ needs.test.outputs.shard_1 }}
+          SHARD_2: ${{ needs.test.outputs.shard_2 }}
+          SHARD_3: ${{ needs.test.outputs.shard_3 }}
+          SHARD_4: ${{ needs.test.outputs.shard_4 }}
+          SHARD_5: ${{ needs.test.outputs.shard_5 }}
+          SHARD_6: ${{ needs.test.outputs.shard_6 }}
+          SHARD_7: ${{ needs.test.outputs.shard_7 }}
+          SHARD_8: ${{ needs.test.outputs.shard_8 }}
+        run: |
+          if [ "$SHARDS_RESULT" != "success" ]; then
+            echo "error: the test shards finished as '$SHARDS_RESULT'" >&2
+            exit 1
+          fi
+          python3 -I tests/ci_shards.py check \
+            "$SHARD_1" "$SHARD_2" "$SHARD_3" "$SHARD_4" \
+            "$SHARD_5" "$SHARD_6" "$SHARD_7" "$SHARD_8"
+
+  real-engine:
+    # Tests that execute the real axiom-rules-engine (tests/real_engine.py),
+    # against an engine built from the pinned commit. The test job has no
+    # engine and deselects them; with AXIOM_REQUIRE_REAL_ENGINE=1 a missing,
+    # unusable or unpinned engine fails them here instead of skipping them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # The engine rulespec-us's reviewed workflow toolchain validates with
+      # (.axiom/workflow-toolchain.toml axiom_rules_engine_ref), also pinned by
+      # issue233-canada-source-diagnostic.yml. The tests check the checkout is
+      # clean at this commit and the binary carries a receipt for it.
+      AXIOM_RULES_ENGINE_REF: 89571cc2a938707fd60a5489b951135345697296
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked --python 3.13 --extra dev
+
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
+      # Outside the workspace, so the encoder checkout stays clean.
+      - name: Check out the pinned axiom-rules-engine
+        run: |
+          set -euo pipefail
+          engine="$RUNNER_TEMP/axiom-rules-engine"
+          git init -q "$engine"
+          git -C "$engine" fetch -q --depth=1 \
+            https://github.com/TheAxiomFoundation/axiom-rules-engine.git \
+            "$AXIOM_RULES_ENGINE_REF"
+          git -C "$engine" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$engine" rev-parse HEAD)" = "$AXIOM_RULES_ENGINE_REF"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      # Dependencies only: rust-cache never caches workspace crates, so the
+      # engine binary itself is compiled below from the pinned checkout on
+      # every run and no cached executable stands in for it.
+      - name: Cache the engine's cargo dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: ${{ runner.temp }}/axiom-rules-engine
+
+      # engine-bind builds with `cargo build --release --locked`, re-checks the
+      # checkout is clean at the pin afterwards, and writes the receipt that
+      # binds the binary's bytes to the commit; the tests verify it.
+      - name: Build and bind the pinned engine
+        run: >-
+          .venv/bin/axiom-encode engine-bind
+          --axiom-rules-engine-path "$RUNNER_TEMP/axiom-rules-engine"
+          --pin "$AXIOM_RULES_ENGINE_REF"
+
+      - name: Run real-engine tests
+        env:
+          AXIOM_REQUIRE_REAL_ENGINE: "1"
+          AXIOM_RULES_ENGINE_ROOT: ${{ runner.temp }}/axiom-rules-engine
+        run: .venv/bin/pytest tests/ -m real_engine
 
   lint:
     runs-on: ubuntu-latest

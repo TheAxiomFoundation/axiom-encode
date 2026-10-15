@@ -1,0 +1,1 @@
+Recognize complete flattened FY2026 FNS income-standard tables as published amounts, ignore nonoperative guidance-footer fragments in paired-case checks, and reanchor parenthesized poverty-level proof excerpts without changing source bytes.

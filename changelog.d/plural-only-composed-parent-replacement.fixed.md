@@ -1,0 +1,1 @@
+Allow a protected source-bound replacement to retire plural-only historical source metadata when its cited pages exactly match the signed composed parent's text-bearing components, with per-page containment evidence and no manual RuleSpec edit.
