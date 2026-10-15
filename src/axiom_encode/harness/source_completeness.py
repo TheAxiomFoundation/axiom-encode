@@ -14452,14 +14452,20 @@ def _source_gate_reviewed_care_noun_text(
     return _SOURCE_GATE_DEPENDENT_CARE_LANGUAGE.sub(replacement, text)
 
 
+def _regular_verb_forms(stem: str) -> frozenset[str]:
+    """Return a regular verb's base, third-person, past and progressive forms."""
+
+    return frozenset({stem, f"{stem}s", f"{stem}ed", f"{stem}ing"})
+
+
 _SOURCE_GATE_CARE_ACTION_FORMS = {
     "billed": frozenset({"bill", "bills", "billed", "billing"}),
     "paid": frozenset({"pay", "pays", "paid", "paying"}),
     "incurred": frozenset({"incur", "incurs", "incurred", "incurring"}),
-    "claim": frozenset({"claim", "claims", "claimed", "claiming"}),
-    "report": frozenset({"report", "reports", "reported", "reporting"}),
+    "claim": _regular_verb_forms("claim"),
+    "report": _regular_verb_forms("report"),
     "require": frozenset({"require", "requires", "required", "requiring"}),
-    "earmark": frozenset({"earmark", "earmarks", "earmarked", "earmarking"}),
+    "earmark": _regular_verb_forms("earmark"),
     "provide": frozenset({"provide", "provides", "provided", "providing"}),
 }
 _SOURCE_GATE_CARE_ACTION_BASE_BY_FORM = {
