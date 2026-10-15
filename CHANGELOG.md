@@ -1,3 +1,7 @@
+## 0.2.2216
+
+- Let a parameter (or other non-principal rule) cover the source branch it cites only when the branch is a stated value: the branch text states one of the rule's values and the branch's own text states no condition, exception or limit. A parameter holding a threshold no longer covers the eligibility condition or exemption that states it; a principal output or precise deferral must account for that branch.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
