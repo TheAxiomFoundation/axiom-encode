@@ -1,0 +1,574 @@
+BEGIN old-safety LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}old-safety', '-p', 'old_complete_plugin', 'tests/test_source_completeness_manual_mask_review_safety.py']
+FFFFFFFFFFFFFF                                                           [100%]
+=================================== FAILURES ===================================
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[raw-en-US] _
+
+profile = 'en-US', shape = 'raw'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[raw-legacy] _
+
+profile = 'legacy', shape = 'raw'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[page-en-US] _
+
+profile = 'en-US', shape = 'page'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[page-legacy] _
+
+profile = 'legacy', shape = 'page'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[root-en-US] _
+
+profile = 'en-US', shape = 'root'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_ test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[root-legacy] _
+
+profile = 'legacy', shape = 'root'
+
+    @pytest.mark.parametrize("profile", ("en-US", "legacy"))
+    @pytest.mark.parametrize("shape", ("raw", "page", "root"))
+    def test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column(
+        profile, shape
+    ):
+        body = (
+            "Section 8701: Applications\n8701.3 Capital Gains\n"
+            "8701.1 Averaging Self-Employment Income\n"
+            "8701.2 Self-Employment From a New Source"
+        )
+        citation = "us-sd/manual/dss/snap-policy-procedure-manual/page-1"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        if shape == "root":
+            citation = citation.rsplit("/page-", 1)[0]
+>       assert {8701.3, 8701.1, 8701.2} <= _demanded(source, citation, profile)
+E       assert {8701.1, 8701.2, 8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.1
+E         8701.3
+E         8701.2
+
+tests/test_source_completeness_manual_mask_review_safety.py:84: AssertionError
+_______ test_generated_contents_titles_need_independent_harmless_context _______
+
+    @settings(max_examples=60, deadline=None)
+>   @given(
+
+        entry=st.sampled_from(UNCERTAIN_CONTENTS_ENTRIES),
+        profile=st.sampled_from(("en-US", "legacy")),
+        shape=st.sampled_from(("raw", "page", "root")),
+        newline=st.sampled_from(("\n", "\r\n")),
+    )
+
+tests/test_source_completeness_manual_mask_review_safety.py:88:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv/lib/python3.13/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+entry = ('us-sd/manual/dss/snap-policy-procedure-manual', '8701.3', 'Capital Gains')
+profile = 'en-US', shape = 'raw', newline = '\n'
+
+    @settings(max_examples=60, deadline=None)
+    @given(
+        entry=st.sampled_from(UNCERTAIN_CONTENTS_ENTRIES),
+        profile=st.sampled_from(("en-US", "legacy")),
+        shape=st.sampled_from(("raw", "page", "root")),
+        newline=st.sampled_from(("\n", "\r\n")),
+    )
+    @example(
+        entry=(
+            "us-sd/manual/dss/snap-policy-procedure-manual",
+            "8701.3",
+            "Capital Gains",
+        ),
+        profile="en-US",
+        shape="raw",
+        newline="\n",
+    )
+    def test_generated_contents_titles_need_independent_harmless_context(
+        entry, profile, shape, newline
+    ):
+        """A published title alone cannot establish the role of a new source body."""
+        namespace, number, title = entry
+        section = re.split(r"[.-]", number)[0]
+        body = f"Section {section}: Applications\n{number} {title}"
+        source = body if shape == "raw" else "Page 1\n\n" + body
+        citation = namespace if shape == "root" else namespace + "/page-1"
+        expected = _raw_values(number, profile)
+>       assert expected <= _demanded(source.replace("\n", newline), citation, profile)
+E       assert {8701.3} <= set()
+E
+E         Extra items in the left set:
+E         8701.3
+E       Failing explicit example: test_generated_contents_titles_need_independent_harmless_context(
+E           entry=('us-sd/manual/dss/snap-policy-procedure-manual',
+E            '8701.3',
+E            'Capital Gains'),
+E           profile='en-US',
+E           shape='raw',
+E           newline='\n',
+E       )
+
+tests/test_source_completeness_manual_mask_review_safety.py:114: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[currency-cells-en-US-raw] _
+
+source = 'Table 1: $2,474 2 $2,909', expected = {2474, 2909}, profile = 'en-US'
+composed = False
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {2474, 2909} <= set()
+E
+E         Extra items in the left set:
+E         2474
+E         2909
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[currency-cells-en-US-sole-body] _
+
+source = 'Page 1\n\nTable 1: $2,474 2 $2,909', expected = {2474, 2909}
+profile = 'en-US', composed = True
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {2474, 2909} <= set()
+E
+E         Extra items in the left set:
+E         2474
+E         2909
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[currency-cells-legacy-raw] _
+
+source = 'Table 1: $2,474 2 $2,909', expected = {2474, 2909}, profile = 'legacy'
+composed = False
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {2474, 2909} <= set()
+E
+E         Extra items in the left set:
+E         2474
+E         2909
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[currency-cells-legacy-sole-body] _
+
+source = 'Page 1\n\nTable 1: $2,474 2 $2,909', expected = {2474, 2909}
+profile = 'legacy', composed = True
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {2474, 2909} <= set()
+E
+E         Extra items in the left set:
+E         2474
+E         2909
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[size-cells-en-US-raw] _
+
+source = 'Table 1: Household size 1 100 size 2 200', expected = {100, 200}
+profile = 'en-US', composed = False
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {100, 200} <= set()
+E
+E         Extra items in the left set:
+E         200
+E         100
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+_ test_flattened_tables_keep_current_main_operative_values[size-cells-en-US-sole-body] _
+
+source = 'Page 1\n\nTable 1: Household size 1 100 size 2 200'
+expected = {100, 200}, profile = 'en-US', composed = True
+
+    @pytest.mark.parametrize("composed", (False, True), ids=("raw", "sole-body"))
+    @pytest.mark.parametrize(
+        "source, expected, profile",
+        (
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "en-US"),
+            ("Table 1: $2,474 2 $2,909", {2474, 2909}, "legacy"),
+            ("Table 1: Household size 1 100 size 2 200", {100, 200}, "en-US"),
+        ),
+        ids=("currency-cells-en-US", "currency-cells-legacy", "size-cells-en-US"),
+    )
+    def test_flattened_tables_keep_current_main_operative_values(
+        source, expected, profile, composed
+    ):
+        """Carry forward main's value-preserving table cleaner during integration."""
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert expected <= _demanded(source, "us-sc/manual/scdhhs/mppm/page-1", profile)
+E       assert {100, 200} <= set()
+E
+E         Extra items in the left set:
+E         200
+E         100
+
+tests/test_source_completeness_manual_mask_review_safety.py:133: AssertionError
+__________ test_generated_flattened_currency_tables_keep_every_amount __________
+
+    @settings(max_examples=16, deadline=None)
+>   @given(
+
+        first=st.integers(min_value=1000, max_value=9999),
+        second=st.integers(min_value=1000, max_value=9999),
+        table=st.integers(min_value=1, max_value=99),
+        currency=st.sampled_from(("$", "£", "€")),
+        composed=st.booleans(),
+        profile=st.sampled_from(("en-US", "legacy")),
+    )
+
+tests/test_source_completeness_manual_mask_review_safety.py:137:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv/lib/python3.13/site-packages/hypothesis/core.py:1691: in _raise_to_user
+    raise the_error_hypothesis_found
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+first = 2474, second = 2909, table = 1, currency = '$', composed = False
+profile = 'en-US'
+
+    @settings(max_examples=16, deadline=None)
+    @given(
+        first=st.integers(min_value=1000, max_value=9999),
+        second=st.integers(min_value=1000, max_value=9999),
+        table=st.integers(min_value=1, max_value=99),
+        currency=st.sampled_from(("$", "£", "€")),
+        composed=st.booleans(),
+        profile=st.sampled_from(("en-US", "legacy")),
+    )
+    @example(
+        first=2474,
+        second=2909,
+        table=1,
+        currency="$",
+        composed=False,
+        profile="en-US",
+    )
+    def test_generated_flattened_currency_tables_keep_every_amount(
+        first, second, table, currency, composed, profile
+    ):
+        """A table locator or adjacent row key never consumes currency cells."""
+        source = f"Table {table}: {currency}{first:,} 2 {currency}{second:,}"
+        if composed:
+            source = "Page 1\n\n" + source
+>       assert {first, second} <= _demanded(
+            source, "us-sc/manual/scdhhs/mppm/page-1", profile
+        )
+E       assert {2474, 2909} <= set()
+E
+E         Extra items in the left set:
+E         2474
+E         2909
+E       Failing explicit example: test_generated_flattened_currency_tables_keep_every_amount(
+E           first=2474,
+E           second=2909,
+E           table=1,
+E           currency='$',
+E           composed=False,
+E           profile='en-US',
+E       )
+
+tests/test_source_completeness_manual_mask_review_safety.py:160: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[raw-en-US]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[raw-legacy]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[page-en-US]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[page-legacy]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[root-en-US]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_reviewed_financial_titles_cannot_authenticate_an_ambiguous_money_column[root-legacy]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_generated_contents_titles_need_independent_harmless_context
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[currency-cells-en-US-raw]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[currency-cells-en-US-sole-body]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[currency-cells-legacy-raw]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[currency-cells-legacy-sole-body]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[size-cells-en-US-raw]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_flattened_tables_keep_current_main_operative_values[size-cells-en-US-sole-body]
+FAILED tests/test_source_completeness_manual_mask_review_safety.py::test_generated_flattened_currency_tables_keep_every_amount
+14 failed in 22.74s
+
+WRAPPER exit 1, elapsed 45.858s
+END old-safety LOG
+
+BEGIN safety LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}safety', 'tests/test_source_completeness_manual_mask_review_safety.py']
+..............                                                           [100%]
+14 passed in 8.09s
+
+WRAPPER exit 0, elapsed 38.018s
+END safety LOG
+
+BEGIN generated-1 LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}generated-1', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-raw-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-footer-raw-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-month-year-raw-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_anchor_and_numbered_column_keep_every_value', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_declarative_monetary_context_before_rows_keeps_every_value[household-payment-window]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[The Year Shown ({qualifier}) Determines Eligibility]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[Shown ({qualifier}) Above]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_caption_retains_uncertain_row_values', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The value shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The year shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The date shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The effective date determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The value shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The year shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The date shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The effective date determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unreferenced_stamps_remain_nonoperative', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[page-sole-body-chunk-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[root-sole-body-chunk-legacy]']
+........................................................................ [ 97%]
+..                                                                       [100%]
+74 passed in 182.32s (0:03:02)
+
+WRAPPER exit 0, elapsed 209.579s
+END generated-1 LOG
+
+BEGIN generated-2 LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}generated-2', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-raw-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-footer-raw-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-month-year-raw-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_declarative_monetary_context_before_rows_keeps_every_value[amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_declarative_monetary_context_before_rows_keeps_every_value[application-date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[This ({qualifier}) Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[As (Of)]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_genuine_locator_scheme_remains_nonoperative', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The value shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The month shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The year shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-Eligibility applies as of the printed date.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The value shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The month shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The year shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-Eligibility applies as of the printed date.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[page-raw-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[root-raw-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_stamp_page_collisions_keep_operative_amounts']
+........................................................................ [ 97%]
+..                                                                       [100%]
+74 passed in 186.67s (0:03:06)
+
+WRAPPER exit 0, elapsed 212.51s
+END generated-2 LOG
+
+BEGIN generated-3 LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}generated-3', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-sole-body-chunk-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-footer-sole-body-chunk-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-month-year-sole-body-chunk-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Fees]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Amount]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Standard]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Fees in dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Rates in percent]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Monetary values]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Rate]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Dollar]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Payment standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Benefit amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_declarative_monetary_context_before_rows_keeps_every_value[payment]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[The Date (Shown) Determines Eligibility]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[Effective ({qualifier}) Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[As ({qualifier}) Of]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_exact_locator_roles_fail_closed_on_context_edits[combined-locators]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The month shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The month shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The year shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-Section 214: Effective Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The month shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The month shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The year shown above determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-Section 214: Effective Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[page-raw-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[root-raw-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_legacy_grouped_aliases_require_same_evidence_span']
+........................................................................ [ 97%]
+..                                                                       [100%]
+74 passed in 165.83s (0:02:45)
+
+WRAPPER exit 0, elapsed 195.712s
+END generated-3 LOG
+
+BEGIN generated-4 LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}generated-4', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-sole-body-chunk-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-footer-sole-body-chunk-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_round_five_operative_values_are_demanded[round-five-fee-month-year-sole-body-chunk-legacy]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[words-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[parentheses-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[footnote-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[units-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[year-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[month-year-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[nested-parentheses-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[line-footnote-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Fee rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Payment amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[mixed-Monetary standards]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Fee]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Payments]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Rates]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Dollars]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Dollar amounts]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_monetary_caption_and_column_qualifiers_keep_every_value[slash-month-year-Unit cost in USD]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_declarative_monetary_context_before_rows_keeps_every_value[limit]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[The Month ({qualifier}) Shown Determines Eligibility]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[Shown (Below)]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_unknown_numbered_titles_cannot_authorize_row_masks[Related Policy ({qualifier})]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_exact_locator_roles_fail_closed_on_context_edits[independent-amount-neighbor]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The date shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-The date shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-This date determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[following-Section 214: This Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The date shown determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-The date shown below determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-This date determines eligibility.]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_generated_referenced_stamp_date_survives_every_source_shape[preceding-Section 214: This Date]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[page-sole-body-chunk-en-US]', 'tests/test_source_completeness_manual_mask_fail_safe.py::test_operative_amount_colliding_with_authenticated_stamp_page_is_demanded[root-sole-body-chunk-en-US]']
+........................................................................ [ 98%]
+.                                                                        [100%]
+73 passed in 159.93s (0:02:39)
+
+WRAPPER exit 0, elapsed 190.163s
+END generated-4 LOG
+
+BEGIN focused LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}focused', 'tests/test_source_completeness_locator_masks.py', 'tests/test_source_completeness_manual_mask_operative_values.py', 'tests/test_source_completeness_manual_mask_review_headings.py', 'tests/test_source_completeness_manual_mask_review_stamps.py', 'tests/test_source_completeness_locator_replays.py', 'tests/test_source_completeness_us_manual_numeric_recall.py', 'tests/test_source_completeness_manual_typography.py']
+........................................................................ [ 18%]
+........................................................................ [ 37%]
+........................................................................ [ 56%]
+........................................................................ [ 75%]
+........................................................................ [ 93%]
+........................                                                 [100%]
+384 passed in 140.71s (0:02:20)
+
+WRAPPER exit 0, elapsed 165.81s
+END focused LOG
+
+BEGIN complete-source LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}complete-source', 'tests/test_source_completeness.py', '-k', 'us_manual or numbered_manual or leading_values or locator_masks']
+..........                                                               [100%]
+10 passed, 6601 deselected in 13.59s
+
+WRAPPER exit 0, elapsed 31.132s
+END complete-source LOG
+
+BEGIN numeric LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}numeric', 'tests/test_rulespec_validation.py', '-k', 'typed_numeric_occurrences or numeric_profile_convention_matrix or legacy_percentage_context or legacy_profile_keeps_uk_single_dot_dual_read or numeric_extraction_reads_single_dot_group_as_decimal_too or grounding_accepts_european or grounding_accepts_spaced_european or grounding_accepts_dot_thousands or grounding_accepts_spaced_thousands or numeric_extraction_handles_ghana_cedi_grouped_thousands']
+............................................                             [100%]
+44 passed, 3118 deselected in 5.82s
+
+WRAPPER exit 0, elapsed 19.883s
+END numeric LOG
+
+BEGIN upstream-controls LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}upstream-controls', '.hub-scratch/r6/main-integration/test_upstream_manual_controls.py']
+................................................................         [100%]
+64 passed in 12.32s
+
+WRAPPER exit 0, elapsed 16.18s
+END upstream-controls LOG
+
+BEGIN locked LOG
+COMMAND ['.venv/bin/pytest', '-q', '-o', 'addopts=', '--no-cov', '-p', 'no:cacheprovider', '--basetemp=${PYTEST_BASETEMP_PREFIX}locked', 'tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set']
+.                                                                        [100%]
+1 passed in 1.83s
+
+WRAPPER exit 0, elapsed 30.99s
+END locked LOG
