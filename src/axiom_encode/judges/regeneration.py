@@ -275,7 +275,7 @@ def _manifest_is_replayable_encode(manifest: dict[str, object]) -> bool:
 
 
 def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]:
-    """Load a current, hash-bound manifest produced by the encoder apply path."""
+    """Load a current hash-bound apply manifest, including trusted frozen history."""
 
     resolved_root = Path(root).resolve(strict=True)
     module = validate_module_path(resolved_root, module.as_posix())
@@ -297,6 +297,7 @@ def load_replay_manifest(root: Path, module: PurePosixPath) -> dict[str, object]
             _load_verified_applied_encoding_manifest_payload(
                 resolved_root,
                 path.relative_to(resolved_root).as_posix(),
+                historical_verification=True,
             )
         )
         if issues:
