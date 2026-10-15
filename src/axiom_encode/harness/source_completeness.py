@@ -19311,8 +19311,29 @@ def _companion_test_issues(
         narrative_formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
+    # A fragment that states several thresholds composes them into one
+    # interval, which keeps only the tighter of two same-direction bounds
+    # (`less than $500 and ... less than $300` keeps $300). Each dropped
+    # threshold is still source-stated, so it is demanded too, with its own
+    # comparator's direction and inclusivity.
+    conjoined_thresholds = _source_conjoined_threshold_obligations(
+        boundary_branches,
+        branches=branches,
+        existing=boundary_obligations,
+        extract_numeric_occurrences=extract_numeric_occurrences,
+    )
+    conjoined_sources = {
+        (branch.path, boundary.start, boundary.end): (interval, polarity)
+        for branch, boundary, interval, polarity in conjoined_thresholds
+    }
     missing_boundaries: list[tuple[SourceStructureBranch, NumericOccurrenceLike]] = []
-    for branch, boundary in boundary_obligations:
+    for branch, boundary in (
+        *boundary_obligations,
+        *(
+            (branch, boundary)
+            for branch, boundary, _interval, _polarity in conjoined_thresholds
+        ),
+    ):
         if _branch_boundary_test_witnesses(
             branch,
             boundary,
@@ -19323,6 +19344,9 @@ def _companion_test_issues(
             formula_environment=formula_environment,
             source_bound_constant_occurrences=source_bound_constant_occurrences,
             extract_numeric_occurrences=extract_numeric_occurrences,
+            source_interval_and_polarity=conjoined_sources.get(
+                (branch.path, boundary.start, boundary.end)
+            ),
         ):
             continue
         missing_boundaries.append((branch, boundary))
@@ -26148,17 +26172,21 @@ def _branch_boundary_test_witnesses(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]]
     | None = None,
     extract_numeric_occurrences: NumericOccurrenceExtractor | None = None,
+    source_interval_and_polarity: tuple[_NumericInterval, int] | None = None,
 ) -> set[tuple[str, str]]:
     witnesses: set[tuple[str, str]] = set()
-    source_interval, source_boolean_polarity = (
-        _source_interval_and_polarity_for_boundary(
-            branch,
-            boundary,
-            extract_numeric_occurrences=extract_numeric_occurrences,
+    if source_interval_and_polarity is not None:
+        source_interval, source_boolean_polarity = source_interval_and_polarity
+    else:
+        source_interval, source_boolean_polarity = (
+            _source_interval_and_polarity_for_boundary(
+                branch,
+                boundary,
+                extract_numeric_occurrences=extract_numeric_occurrences,
+            )
+            if extract_numeric_occurrences is not None
+            else (None, 0)
         )
-        if extract_numeric_occurrences is not None
-        else (None, 0)
-    )
     for rule_name in _rules_covering_branch(branch, principal_rule_paths):
         rule = principal_rules[rule_name]
         for case in asserted_by_rule.get(rule_name, ()):
@@ -35581,6 +35609,212 @@ def _source_boundary_obligations(
             for branch, occurrence in obligations
         }.values()
     )
+
+
+_CONJOINED_THRESHOLD_SEPARATOR = re.compile(
+    r"(?:,\s*)?\s\b(?P<conjunction>and|or|but|und|oder|aber)\b\s"
+    r"|,\s+(?=(?:whose|who|which|deren|dessen)\b)",
+    flags=re.IGNORECASE,
+)
+_PERMISSIVE_THRESHOLD_SCOPE = re.compile(
+    r"\b(?:allowed|anticipated|appears?|apt|authorized|can|capable|could|"
+    r"designed|estimated|expected|forecast|free|liable|likely|may|might|need|"
+    r"occasionally|permitted|possibly|presumed|prone|projected|rarely|seems?|"
+    r"supposed|tends?|typically|unlikely|would)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _source_conjoined_threshold_pieces(
+    fragment: str,
+) -> tuple[tuple[int, str], ...]:
+    """Split one boundary fragment into its conjoined comparison clauses.
+
+    Only a coordinating conjunction separates two clauses. A comparator's own
+    `or` (`less than or equal to`, `at or below`, `$500 or more`) and the
+    `and` of a `between ... and ...` range stay inside one piece.
+    """
+
+    pieces: list[tuple[int, str]] = []
+    cursor = 0
+    for separator in _CONJOINED_THRESHOLD_SEPARATOR.finditer(fragment):
+        conjunction = (separator.group("conjunction") or "").lower()
+        before = fragment[cursor : separator.start()]
+        after = fragment[separator.end() :]
+        if conjunction in {"or", "oder"} and (
+            re.search(r"\b(?:than|at|als)\s*$", before, flags=re.IGNORECASE)
+            or (
+                # `$500 or more` continues one comparator; `or more than
+                # $1,000` starts another.
+                re.match(
+                    r"(?:equal|more|less|greater|fewer|older|younger|over|under|"
+                    r"above|below|higher|lower|mehr|weniger)\b",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+                and not re.match(
+                    r"\w+\s+(?:than\s+|als\s+)?(?:[$€£]\s?)?"
+                    rf"(?:\d|{_ENGLISH_CARDINAL_PHRASE}\b)",
+                    after,
+                    flags=re.IGNORECASE,
+                )
+            )
+        ):
+            continue
+        if conjunction in {"and", "und"} and re.search(
+            r"\b(?:between|zwischen)\b(?!.*\b(?:and|und)\b)",
+            before,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        pieces.append((cursor, before))
+        cursor = separator.end()
+    if not pieces:
+        return ()
+    pieces.append((cursor, fragment[cursor:]))
+    return tuple((start, piece) for start, piece in pieces if piece.strip())
+
+
+def _source_conjoined_threshold_obligations(
+    boundary_branches: Sequence[SourceStructureBranch],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    existing: Sequence[tuple[SourceStructureBranch, NumericOccurrenceLike]],
+    extract_numeric_occurrences: NumericOccurrenceExtractor,
+) -> tuple[
+    tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int], ...
+]:
+    """Return source thresholds that a fragment's composed interval drops.
+
+    `_formula_interval_from_text` reads one fragment as one interval, so
+    `less than $500 and whose net income is less than $300` keeps only the
+    tighter `$300`. Each conjoined clause is read on its own; a threshold that
+    is not already a boundary obligation becomes one, with a one-sided
+    interval carrying its own comparator's direction and inclusivity. Only a
+    fragment that already parses as an operative interval is split, and a
+    clause under a permissive modal (`may`, `could`) is never a threshold. A
+    value the branch already demands, or a span overlapping a demanded
+    threshold, is not demanded again: a boundary witness is keyed by value.
+    """
+
+    claimed: dict[tuple[str, ...], list[NumericOccurrenceLike]] = {}
+    for branch, occurrence in existing:
+        claimed.setdefault(branch.path, []).append(occurrence)
+    obligations: list[
+        tuple[SourceStructureBranch, NumericOccurrenceLike, _NumericInterval, int]
+    ] = []
+    for branch in boundary_branches:
+        if branch.kind not in {
+            "paragraph",
+            "number",
+            "letter",
+            "sentence",
+            "source-unit",
+        }:
+            continue
+        direct_text = authoritative_numeric_recall_text(
+            _source_branch_direct_text(branch, branches=branches)
+        )
+        direct_inventory = tuple(extract_numeric_occurrences(direct_text))
+        for fragment_start, fragment in _source_boundary_fragments(direct_text):
+            range_fragment = fragment.split(":", 1)[0]
+            boundary_context = direct_text[
+                max(0, fragment_start - 160) : fragment_start + len(range_fragment)
+            ]
+            if _source_boundary_is_nonoperative_guidance_definition(
+                range_fragment,
+                context=boundary_context,
+            ) or _formula_has_unequal_english_parenthetical_amount(range_fragment):
+                continue
+            if (
+                _formula_interval_from_text(
+                    range_fragment,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
+                is None
+            ):
+                continue
+            polarity = _source_boundary_boolean_polarity(fragment)
+            previous_piece = ""
+            for piece_start, piece in _source_conjoined_threshold_pieces(
+                range_fragment
+            ):
+                if _PERMISSIVE_THRESHOLD_SCOPE.search(range_fragment[:piece_start]):
+                    break
+                negated_previous = re.search(
+                    r"\b(?:not|no|nicht)\s+(?:be\s+|been\s+|sein\s+)?"
+                    r"(?:less|more|greater|fewer|mehr|weniger)\b",
+                    previous_piece,
+                    flags=re.IGNORECASE,
+                )
+                previous_piece = piece
+                if negated_previous and re.match(
+                    r"\s*(?:less|more|greater|fewer|mehr|weniger)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    # `not less than 10 percent or more than 50 percent`: the
+                    # bare second comparator shares the first one's negation,
+                    # so its direction cannot be read from the piece alone.
+                    continue
+                if not re.search(
+                    r"\b(?:zwischen|between|bis|von|ab|unter|über|"
+                    r"mehr\s+als|weniger\s+als|from|to|"
+                    r"through|less\s+than|more\s+than|at\s+least|up\s+to|"
+                    r"at\s+most|above|below|höchstens|mindestens|"
+                    r"nicht\s+mehr\s+als)\b",
+                    piece,
+                    flags=re.IGNORECASE,
+                ):
+                    continue
+                interval = _shift_numeric_interval(
+                    _formula_interval_from_text(
+                        piece,
+                        extract_numeric_occurrences=extract_numeric_occurrences,
+                    ),
+                    fragment_start + piece_start,
+                )
+                if interval is None:
+                    continue
+                for occurrence, inclusive, is_lower in (
+                    (interval.lower, interval.lower_inclusive, True),
+                    (interval.upper, interval.upper_inclusive, False),
+                ):
+                    if occurrence is None:
+                        continue
+                    branch_claims = claimed.setdefault(branch.path, [])
+                    if any(
+                        (occurrence.start < claim.end and claim.start < occurrence.end)
+                        or math.isclose(
+                            float(occurrence.value),
+                            float(claim.value),
+                            rel_tol=0.0,
+                            abs_tol=1e-9,
+                        )
+                        for claim in branch_claims
+                    ) or not any(
+                        occurrence.start == candidate.start
+                        and occurrence.end == candidate.end
+                        and _numeric_occurrences_are_equivalent(occurrence, candidate)
+                        for candidate in direct_inventory
+                    ):
+                        continue
+                    branch_claims.append(occurrence)
+                    obligations.append(
+                        (
+                            branch,
+                            occurrence,
+                            (
+                                _NumericInterval(occurrence, inclusive, None, False)
+                                if is_lower
+                                else _NumericInterval(
+                                    None, False, occurrence, inclusive
+                                )
+                            ),
+                            polarity,
+                        )
+                    )
+    return tuple(obligations)
 
 
 def _source_boundary_is_nonoperative_guidance_definition(
