@@ -300,7 +300,9 @@ def requested_scope_for_source(
     )
     if target != citation_path and not target.startswith(citation_path + "/"):
         raise ValueError("Requested source must be this exact row or its descendant")
-    scope = vp._scope_prefix_from_requested_source(citation_path, requested_source)
+    scope = vp._scope_prefix_from_requested_source(
+        citation_path, requested_source, preserve_case=True
+    )
     return list(scope) if scope else None
 
 

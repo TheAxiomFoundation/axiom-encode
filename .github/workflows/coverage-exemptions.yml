@@ -23,7 +23,7 @@ jobs:
         env:
           CORPUS_ROOT: ${{ runner.temp }}/coverage-exemption-corpus
         run: |
-          uv run --no-sync python - <<'PY'
+          uv run --locked --no-sync python - <<'PY'
           import subprocess
           from pathlib import Path
           import os
@@ -61,7 +61,7 @@ jobs:
           PY
       - name: Refuse stale entries and check the exact corpus differential
         run: >-
-          uv run --no-sync python scripts/check_coverage_exemptions.py
+          uv run --locked --no-sync python scripts/check_coverage_exemptions.py
           --release us-rulespec-2026-08-08-obbb-alien-snap
           --release-sha256 0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc
           --corpus-path "${{ runner.temp }}/coverage-exemption-corpus"

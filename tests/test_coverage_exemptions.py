@@ -3,6 +3,7 @@
 import hashlib
 from dataclasses import replace
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 import yaml
@@ -317,6 +318,54 @@ def test_reviewed_tombstone_waiver_requires_the_existing_notice_conditions(monke
     assert not vp._authoritative_deferred_editorial_source_slice(
         source + " ", "(2) Repealed.", SCOPE, citation_path=CITATION
     )
+
+
+@pytest.mark.parametrize("requested_label", ["I", "i"])
+@pytest.mark.parametrize("reviewed_label", ["I", "i"])
+@pytest.mark.parametrize("use_rules_file", [False, True])
+@pytest.mark.parametrize("tombstone", [False, True])
+def test_pipeline_exemption_scope_preserves_requested_case(
+    monkeypatch, requested_label, reviewed_label, use_rules_file, tombstone
+):
+    source = (
+        '(a) "benefit" means payable.\n(2) A person is eligible.\n'
+        f"({requested_label}) Repealed.\n(b) Effective date.\n"
+    )
+    demand = vp._high_signal_top_level_coverage_demands(source)[0]
+    scope = ("a", "2", reviewed_label)
+    entry = _entry(
+        source,
+        demand,
+        scope=scope,
+        reason="repealed_tombstone" if tombstone else "nested_under_numbered_parent",
+    )
+    monkeypatch.setattr(ce, "load_coverage_exemptions", lambda: (entry,))
+    monkeypatch.setattr(vp, "_requested_corpus_row_is_repealed", lambda *args: False)
+    if tombstone:
+        # Exercise the waiver's separate registry lookup as well as the gate.
+        monkeypatch.setattr(
+            vp, "filter_coverage_demands", lambda demands, **kw: demands
+        )
+    content = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "module": {
+                "status": "deferred" if tombstone else "active",
+                "summary": f"({requested_label}) Repealed.",
+                "source_verification": {"corpus_citation_path": CITATION},
+            },
+            "rules": [],
+        }
+    )
+    issues = vp.find_source_subparagraph_coverage_issues(
+        content,
+        source_texts={CITATION: source},
+        requested_source=None
+        if use_rules_file
+        else f"{CITATION}/a/2/{requested_label}",
+        rules_file=Path(f"statutes/42/a/2/{requested_label}.yaml"),
+    )
+    assert len(issues) == (0 if requested_label == reviewed_label else 1)
 
 
 @pytest.mark.parametrize(
