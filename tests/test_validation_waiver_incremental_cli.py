@@ -284,7 +284,7 @@ def test_incremental_companion_change_reports_selection_reason(audit_repo, capsy
     assert companion in "; ".join(report["selection_reasons"][audit_repo.paths[0]])
 
 
-def test_partitioning_applies_after_selection_and_is_exhaustive(audit_repo, capsys):
+def test_partitioning_uses_complete_ledger_and_is_exhaustive(audit_repo, capsys):
     reports = []
     executed_parts = []
     for key in ("shard-a", "shard-b"):
@@ -299,7 +299,7 @@ def test_partitioning_applies_after_selection_and_is_exhaustive(audit_repo, caps
         assert report["scope"] == "incremental"
         assert report["selected"] == len(executed) == report["checked"]
         assert report["total_waivers"] == 4
-        assert report["partition"]["total_paths"] == 3
+        assert report["partition"]["total_paths"] == 4
         assert set(report["selection_reasons"]) == set(executed)
         reports.append(report)
         executed_parts.append(set(executed))

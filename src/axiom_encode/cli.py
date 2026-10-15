@@ -4788,7 +4788,11 @@ def _cmd_validation_waivers_audit(args) -> int:
     for path in removed_active_paths:
         classified.setdefault(path, "removed")
     classified = dict(sorted(classified.items()))
-    total_waivers = len(classified)
+    # Ownership must use the complete ledger, independent of each shard's
+    # dependency discovery. A local full fallback must not shift a waiver to
+    # a different shard that selected a smaller incremental scope.
+    all_classified = list(classified.items())
+    total_waivers = len(all_classified)
     scope = "full"
     selection_reasons: dict[str, list[str]] = {}
     fallback_reason = None
@@ -4829,13 +4833,12 @@ def _cmd_validation_waivers_audit(args) -> int:
         )
     partition: dict[str, Any] | None = None
     if partition_key is not None:
-        all_classified = list(classified.items())
-        selected, partition_index, partition_count = _validation_waiver_audit_partition(
+        owned, partition_index, partition_count = _validation_waiver_audit_partition(
             all_classified,
             partition_key=partition_key,
             partition_keys_json=partition_keys_json,
         )
-        classified = dict(selected)
+        classified = {path: kind for path, kind in owned if path in classified}
         partition = {
             "key": partition_key,
             "index": partition_index,
