@@ -18361,7 +18361,10 @@ def _companion_test_issues(
                 "eligible state child care credit and its second operand to "
                 "the federal child/dependent care credit deductible from "
                 "federal tax liability, using operand declarations or "
-                "operand-specific source proof."
+                "operand-specific source proof. Every source-owned formula "
+                "version and applicable alternative must preserve that binding, "
+                "including every overlapping operand and alias version; a valid "
+                "case cannot excuse an invalid alternative."
             )
         observed_periods = sorted(
             {
@@ -19482,6 +19485,23 @@ def _statutory_credit_declaration_role(
 ) -> str | None:
     """Require an unambiguous operand role across its description and proofs."""
 
+    return _statutory_credit_declaration_version_role(
+        declaration,
+        version_index=_selected_rule_formula_version_index(declaration, case),
+        corpus_citation_path=corpus_citation_path,
+        source_text=source_text,
+    )
+
+
+def _statutory_credit_declaration_version_role(
+    declaration: dict[str, Any],
+    *,
+    version_index: int | None,
+    corpus_citation_path: str,
+    source_text: str,
+) -> str | None:
+    """Bind one explicit version without borrowing a companion case's proof."""
+
     description = str(declaration.get("description") or "")
     if _statutory_credit_operand_name_conflicts(str(declaration.get("name") or "")):
         return None
@@ -19493,7 +19513,6 @@ def _statutory_credit_declaration_role(
             # description of what the declaration actually represents.
             return None
         roles.add(role)
-    selected = _selected_rule_formula_version_index(declaration, case)
     citation = corpus_citation_path.strip("/").casefold()
     for path, atom_citation, excerpt in _rule_source_excerpt_atoms(declaration):
         if (
@@ -19501,13 +19520,283 @@ def _statutory_credit_declaration_role(
             and _collapse_text(excerpt) in _collapse_text(source_text)
             and (
                 path == "description"
-                or selected is not None
-                and _formula_proof_version_index(path) == selected
+                or version_index is not None
+                and _formula_proof_version_index(path) == version_index
             )
             and (role := _statutory_credit_operand_role(excerpt))
         ):
             roles.add(role)
     return next(iter(roles)) if len(roles) == 1 else None
+
+
+def _statutory_credit_formulas_bind_operands(
+    branch: SourceStructureBranch,
+    *,
+    principal_rules: Mapping[str, dict[str, Any]],
+    rule_names: set[str],
+    operand_declarations: Mapping[str, dict[str, Any]],
+    corpus_citation_path: str,
+    source_text: str,
+) -> bool:
+    """Validate all credit alternatives before any execution grants a witness.
+
+    Case coverage is existential; the closed-consequence exemption must be
+    universal. Intersect intervals at every dependency hop, inspecting all
+    overlapping versions, all identity alternatives, and all result aliases.
+    Unknown syntax, gaps, cycles and exhausted bounds retain rejection.
+    """
+
+    if not re.search(
+        _STATUTORY_CREDIT_DIFFERENCE_CONSEQUENCE,
+        " ".join(branch.text.split()),
+        flags=re.IGNORECASE,
+    ):
+        return True
+
+    def fact_text(text: str) -> str:
+        return " ".join(
+            word
+            for word in re.findall(r"[\w'’]+", text.casefold())
+            if word not in {"a", "an", "the"}
+        )
+
+    # Only exact descriptions of positive source antecedents may select a
+    # branch here. All other control-flow choices must be inspected, including
+    # nested choices never selected by companion cases. The ordinary source
+    # condition checks still require the independently stated factual gates.
+    condition = re.fullmatch(
+        r"if\s+(?P<facts>.+?),\s*" + _STATUTORY_CREDIT_DIFFERENCE_CONSEQUENCE,
+        " ".join(branch.text.split()),
+        flags=re.IGNORECASE,
+    )
+    segments = (
+        _source_gate_split_conjunctive_conditions(condition["facts"])
+        if condition is not None
+        else []
+    )
+    positive_conditions = bool(segments) and all(
+        connector in {None, "and"}
+        and re.fullmatch(
+            r"\s*(?:the )?(?:resident )?"
+            r"(?:taxpayer|applicant|spouse|child|individual|person) "
+            r"(?:is|has) [a-z '’]+\s*",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(
+            r"\b(?:if|when|only|either|neither|or|nor|not|never|no|false|untrue|"
+            r"without|unless|except)\b",
+            segment,
+            flags=re.IGNORECASE,
+        )
+        for connector, segment in segments
+    )
+    facts = (
+        {fact_text(segment) for _, segment in segments}
+        if positive_conditions
+        else set()
+    )
+    source_true_names = {
+        name
+        for name, declaration in operand_declarations.items()
+        if name not in principal_rules
+        and "versions" not in declaration
+        and str(declaration.get("dtype") or "").casefold() in {"bool", "boolean"}
+        and fact_text(str(declaration.get("description") or "")) in facts
+    }
+
+    def source_true(expression: ast.expr | None) -> bool:
+        if isinstance(expression, ast.Name):
+            return expression.id in source_true_names
+        return (
+            isinstance(expression, ast.BoolOp)
+            and isinstance(expression.op, ast.And)
+            and all(source_true(value) for value in expression.values)
+        )
+
+    def result_leaves(formula: str, depth: int = 0) -> tuple[str, ...] | None:
+        if depth > 32 or not _formula_text_has_executable_branch_tree(formula):
+            return None
+        node = _first_formula_branch_node(formula)
+        if node is None:
+            return (formula,)
+        choices = node.choices
+        if node.kind == "if":
+            for index, selector in enumerate(node.selectors):
+                if source_true(_parse_formula_expression(selector)):
+                    choices = choices[: index + 1]
+                    break
+        leaves: list[str] = []
+        for choice in choices:
+            expanded = result_leaves(
+                formula[: node.start]
+                + textwrap.dedent(choice).strip()
+                + formula[node.end :],
+                depth + 1,
+            )
+            if expanded is None:
+                return None
+            leaves.extend(expanded)
+            if len(leaves) > _CLAMP_STRUCTURAL_LEAF_LIMIT:
+                return None
+        return tuple(leaves)
+
+    def versions_in(
+        declaration: dict[str, Any], start: str | None, end: str | None
+    ) -> tuple[tuple[int, str, str | None, str | None], ...]:
+        raw_versions = declaration.get("versions")
+        if not isinstance(raw_versions, list):
+            return ()
+        versions = _effective_formula_version_intervals(declaration)
+        if len(versions) != len(raw_versions):
+            return ()
+        overlaps = tuple(
+            (index, formula, *overlap)
+            for index, formula, version_start, version_end in versions
+            if (
+                overlap := _formula_interval_intersection(
+                    start, end, version_start, version_end
+                )
+            )
+            is not None
+        )
+        ordered = sorted(overlaps, key=lambda item: item[2] or "")
+        if not ordered or ordered[0][2] != start:
+            return ()
+        covered_end = ordered[0][3]
+        for _, _, next_start, next_end in ordered[1:]:
+            if covered_end is None:
+                break
+            adjacent = _shift_iso_date(covered_end, 1)
+            if next_start is not None and (adjacent is None or next_start > adjacent):
+                return ()
+            covered_end = None if next_end is None else max(covered_end, next_end)
+        return overlaps if covered_end == end else ()
+
+    visits = 0
+
+    def binds(
+        name: str,
+        role: str | None,
+        start: str | None,
+        end: str | None,
+        stack: frozenset[str],
+        *,
+        require_role: bool = True,
+    ) -> bool:
+        nonlocal visits
+        visits += 1
+        if visits > _CLAMP_TEMPORAL_CONTEXT_LIMIT or len(stack) > 32 or name in stack:
+            return False
+        declaration = principal_rules.get(name, operand_declarations.get(name))
+        if declaration is None or _statutory_credit_operand_name_conflicts(name):
+            return False
+        description = " ".join(
+            str(declaration.get("description") or "").casefold().split()
+        )
+        if (
+            role is not None
+            and description not in {"", "an upstream monetary amount."}
+            and _statutory_credit_operand_role(description) != role
+        ):
+            return False
+        versions = (
+            versions_in(declaration, start, end)
+            if "versions" in declaration
+            else ((None, "", start, end),)
+        )
+        if not versions:
+            return False
+        for index, formula, overlap_start, overlap_end in versions:
+            if role is not None and (
+                require_role or tuple(_rule_source_excerpt_atoms(declaration))
+            ):
+                if (
+                    _statutory_credit_declaration_version_role(
+                        declaration,
+                        version_index=index,
+                        corpus_citation_path=corpus_citation_path,
+                        source_text=source_text,
+                    )
+                    != role
+                ):
+                    return False
+            if index is None:
+                if role is None:
+                    return False
+                continue
+            leaves = (
+                _formula_structural_leaves(formula)
+                if role is not None
+                else result_leaves(formula)
+            )
+            if not leaves:
+                return False
+            for leaf in leaves:
+                expression = _parse_formula_expression(leaf)
+                if isinstance(expression, ast.Name):
+                    if not binds(
+                        expression.id,
+                        role,
+                        overlap_start,
+                        overlap_end,
+                        stack | {name},
+                        require_role=False,
+                    ):
+                        return False
+                elif (
+                    role is None
+                    and isinstance(expression, ast.BinOp)
+                    and isinstance(expression.op, ast.Sub)
+                ):
+                    if not all(
+                        isinstance(operand, ast.Name)
+                        and binds(
+                            operand.id,
+                            operand_role,
+                            overlap_start,
+                            overlap_end,
+                            stack | {name},
+                        )
+                        for operand, operand_role in (
+                            (expression.left, "state"),
+                            (expression.right, "federal"),
+                        )
+                    ):
+                        return False
+                else:
+                    return False
+        return True
+
+    for name in sorted(rule_names):
+        rule = principal_rules[name]
+        excerpts = tuple(_rule_formula_source_excerpts(rule))
+        operand_roles = {
+            role
+            for _, excerpt in excerpts
+            if (role := _statutory_credit_operand_role(excerpt)) is not None
+        }
+        # A source-owned operand proof is an identity obligation in its own
+        # right. Validate every version before excluding it from result roots;
+        # otherwise a result could hide behind an operand-only proof excerpt.
+        operand_only = bool(operand_roles) and not any(
+            source_states_explicit_computation(excerpt) for _, excerpt in excerpts
+        )
+        if operand_only and len(operand_roles) != 1:
+            return False
+        versions = _effective_formula_version_intervals(rule)
+        if (
+            not versions
+            or not isinstance(rule.get("versions"), list)
+            or len(versions) != len(rule["versions"])
+        ):
+            return False
+        role = next(iter(operand_roles)) if operand_only else None
+        if not all(
+            binds(name, role, start, end, frozenset()) for _, _, start, end in versions
+        ):
+            return False
+    return True
 
 
 def _statutory_credit_operand_has_identity_formula(
@@ -19644,6 +19933,17 @@ def _formula_branch_test_witnesses(
     operand_declarations: Mapping[str, dict[str, Any]] | None = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
 ) -> set[tuple[str, str]]:
+    # A good execution must never hide another invalid source-owned version,
+    # alternative, operand or alias after the closed credit demand removal.
+    if not _statutory_credit_formulas_bind_operands(
+        branch,
+        principal_rules=principal_rules,
+        rule_names=rule_names,
+        operand_declarations=operand_declarations or principal_rules,
+        corpus_citation_path=corpus_citation_path,
+        source_text=source_text,
+    ):
+        return set()
     interval = _formula_branch_interval(
         branch,
         extract_numeric_occurrences=extract_numeric_occurrences,
