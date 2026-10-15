@@ -557,6 +557,6 @@ trust source. Deploy the reviewed shared-workflow and encoder pins before the
 owner changes either active signing identity.
 
 The active public root is published as the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY`
-Actions variable, which the verification and signing supervisors load as a trust
-root. The active private seed is the `production-signing` environment's signing
-secret.
+Actions variable, which the workflows provision into the supervisors' root-owned
+trust file. The active private seed is the `production-signing` environment's
+signing secret.
