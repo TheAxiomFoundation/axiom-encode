@@ -381,25 +381,37 @@ execution path are unchanged.
 
 ### Workflow deployment and secrets discipline
 
-The signed-apply leg runs the same provisioning as the verification supervisor
-(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
-`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the job only as a secret bound to that one step's `env:`; the launcher
-consumes and clears it.
+Production signed re-encodes run centrally through
+[`targeted-signed-reencode.yml`](../.github/workflows/targeted-signed-reencode.yml)
+in `TheAxiomFoundation/axiom-encode`. Its signing job requires approval through
+the `production-signing` environment. The apply private key belongs only in that
+protected environment; do not configure ungated repository or organization
+copies or pass signing keys from jurisdiction repositories.
 
-**The signing leg must run only on `workflow_dispatch` or `schedule` from the
-main-branch workflow definition, never on `pull_request`.** GitHub does not expose
-repository/organization secrets to workflows triggered by a fork PR, and a PR that
-edits the workflow text runs with the PR's own definition — so fork- or
-PR-modified workflow text can never see the secret. The signer's own event-name
-binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
-allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
-of the YAML.
+The 2026-10-14 maintainer ruling removed the ungated apply-signing and caller
+App keys. The one-time `migrate-apply-signing-key.yml` export lane and its
+`signing-key-migration` environment are retired, as is
+`signed-apply-reusable.yml`, which previously accepted caller-provided keys.
+Route signed re-encodes through the central targeted workflow.
+
+The central signed-apply leg runs the same provisioning as the verification
+supervisor (`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
+`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
+key reaches the signing step only as a protected environment secret bound to
+that step's `env:`; the launcher consumes and clears it.
+
+**The signing leg runs only on `workflow_dispatch` from the main-branch
+workflow definition, never on `pull_request`.** The workflow requires
+`refs/heads/main` before entering the protected environment. The signer's own
+event-name binding (refusing `pull_request*` beneath the allowlist) and
+workflow-ref allowlist (pinned to `@refs/heads/main`) enforce this a second time,
+independently of the YAML.
 
 ### Threat model
 
-- **Who can trigger it.** Only an actor who can dispatch (or schedule) the
-  main-branch workflow — i.e. a repository collaborator. A fork contributor
+- **Who can trigger it.** Only an actor who can dispatch the main-branch
+  workflow — i.e. a repository collaborator — can request signing, which still
+  requires the protected environment approval. A fork contributor
   cannot: their PR neither receives the secret nor matches the pinned workflow
   ref / permitted event.
 - **What the context binding is (and is not).** The `GITHUB_*` values and the
@@ -407,11 +419,11 @@ of the YAML.
   **defense-in-depth against misconfiguration** (an accidental `pull_request`
   trigger, or invoking the signer from the wrong workflow), not a cryptographic
   authentication of the runner. The primary boundary is external to this code:
-  GitHub does not expose repository/organization secrets to fork-PR-triggered
-  runs, and the workflow is restricted to `workflow_dispatch`/`schedule`. An
+  the private key is held in the approval-gated `production-signing` environment,
+  and the workflow is restricted to `workflow_dispatch` on main. An
   actor who could actually forge `GITHUB_*` would have to be able to edit the
   main-branch workflow — a trusted collaborator who can already dispatch it and
-  obtain signatures legitimately. The binding therefore never widens who can
+  request signing approval. The binding therefore never widens who can
   sign; it only narrows it further.
 - **A compromised or malicious PR** can change the module content a future
   generation session encodes, but it cannot exfiltrate the key: the signing leg
@@ -435,8 +447,9 @@ of the YAML.
 Rotating the apply key means generating a new Ed25519 keypair, publishing the new
 public half to the `AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY` Actions variable (which
 the verification and signing supervisors load as a trust root), and placing the
-new private seed into the signing secret. Because the trust root and the signer's
-key are checked against each other at the broker challenge, a mismatched pair
+new private seed into the `production-signing` environment's signing secret.
+Because the trust root and the signer's key are checked against each other at
+the broker challenge, a mismatched pair
 fails closed at startup rather than producing an unverifiable manifest. Old
 manifests remain verifiable only while the corresponding public root is still
 published, so rotate the variable and re-verify historical manifests together.

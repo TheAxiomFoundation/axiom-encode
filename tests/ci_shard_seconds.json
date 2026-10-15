@@ -116,7 +116,6 @@
 "tests/test_sc_2026_oracle_registry.py": 16.4,
 "tests/test_screen_policy_override.py": 0.0,
 "tests/test_screened_derived_output_tests.py": 0.4,
-"tests/test_signed_apply_reusable.py": 5.1,
 "tests/test_signed_snap_queue.py": 5.6,
 "tests/test_signing_broker.py": 0.9,
 "tests/test_signing_supervisor.py": 349.5,
