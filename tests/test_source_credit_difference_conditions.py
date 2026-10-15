@@ -945,9 +945,13 @@ def test_reviewed_care_contract_rejects_unreviewed_fact_and_formula_bindings(mut
                 ),
             ),
         )
+    expected_issue = (
+        "[complete-source-unit:declaration-collision]"
+        if mutation == "rule-shadow"
+        else "[complete-source-unit:source-explicit-conditions]"
+    )
     assert any(
-        "[complete-source-unit:source-explicit-conditions]" in issue
-        for issue in _public_gate(payload, source, cases)
+        expected_issue in issue for issue in _public_gate(payload, source, cases)
     )
 
 

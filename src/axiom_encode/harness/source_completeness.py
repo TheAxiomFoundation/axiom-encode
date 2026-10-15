@@ -5226,6 +5226,29 @@ def _analyze_rulespec_payload(
     source_context: Mapping[str, str | None] | None = None,
     raw_source_text: str | None = None,
 ) -> CompleteSourceUnitAnalysis:
+    local_names = {
+        str(rule.get("name") or "").strip()
+        for rule in payload.get("rules", [])
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    colliding_names = sorted(
+        {
+            str(item.get("name") or "").strip()
+            for item in payload.get("inputs", [])
+            if isinstance(item, dict)
+        }
+        & local_names
+    )
+    if colliding_names:
+        names = ", ".join(f"`{name}`" for name in colliding_names)
+        issue = (
+            "[complete-source-unit:declaration-collision] Document-root input "
+            f"declaration(s) {names} also name local rules. Remove the colliding "
+            "input declarations; local parameters, derived rules and aliases "
+            "resolve before free inputs."
+        )
+        return CompleteSourceUnitAnalysis((issue,), (), 0, 0, 0)
+
     payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(
         source_text, corpus_citation_path=corpus_citation_path
@@ -5450,6 +5473,7 @@ def _analyze_rulespec_payload(
     )
     control_branches = _source_control_branches(
         source_text,
+        raw_source_text=raw_source_text,
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
@@ -5579,6 +5603,7 @@ def _analyze_rulespec_payload(
                 formula_branches=formula_branches,
                 branches=branches,
                 source_text=source_text,
+                raw_source_text=raw_source_text,
                 corpus_citation_path=corpus_citation_path,
                 deferred_paths=deferred_paths,
                 deferred_clauses=deferred_clauses,
@@ -18214,6 +18239,7 @@ def _companion_test_issues(
     certified_operations: Any = None,
     certified_replacement: BoundWorksheetReplacement | None = None,
     certified_composition: BoundWorksheetComposition | None = None,
+    raw_source_text: str | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -18443,6 +18469,7 @@ def _companion_test_issues(
 
     exception_branches = _source_exception_branches(
         source_text,
+        raw_source_text=raw_source_text,
         branches=branches,
         active_branches=active_branches,
         deferred_paths=deferred_paths,
@@ -18901,6 +18928,7 @@ def _source_control_branches(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_exception_controls_only: bool = False,
+    raw_source_text: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses.
 
@@ -18930,6 +18958,7 @@ def _source_control_branches(
     controlled.extend(
         _source_exception_branches(
             source_text,
+            raw_source_text=raw_source_text,
             branches=branches,
             active_branches=active_branches,
             deferred_paths=deferred_paths,
@@ -27466,6 +27495,7 @@ def _source_exception_branches(
     formula_branches: Sequence[SourceStructureBranch] = (),
     deferred_clauses: Sequence[SourceStructureBranch] = (),
     numeric_limits_only: bool = False,
+    raw_source_text: str | None = None,
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
     source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
@@ -27473,7 +27503,9 @@ def _source_exception_branches(
         tuple[int, int, str],
         list[re.Match[str]],
     ] = {}
-    for match in _source_exception_or_applicability_matches(source_text):
+    for match in _source_exception_or_applicability_matches(
+        source_text, raw_source_text=raw_source_text
+    ):
         if any(
             clause.start <= match.start() and match.end() <= clause.end
             for clause in deferred_clauses
@@ -27591,6 +27623,8 @@ def _source_has_arithmetic_comparison_condition(text: str) -> bool:
 
 def _source_exception_or_applicability_matches(
     source_text: str,
+    *,
+    raw_source_text: str | None = None,
 ) -> tuple[re.Match[str], ...]:
     """Return ordered, de-duplicated negative and positive condition cues."""
 
@@ -27601,7 +27635,9 @@ def _source_exception_or_applicability_matches(
             *_APPLICABILITY_LANGUAGE.finditer(source_text),
         )
         if not _is_concessive_condition_cue(source_text, match)
-        and not _is_coordinated_parenthetical_if_any_cue(source_text, match)
+        and not _is_coordinated_parenthetical_if_any_cue(
+            source_text, match, raw_source_text=raw_source_text
+        )
     )
     return tuple(
         {
@@ -27634,6 +27670,8 @@ _REVIEWED_PARENTHETICAL_IF_ANY_CUES = {
 def _is_coordinated_parenthetical_if_any_cue(
     source_text: str,
     match: re.Match[str],
+    *,
+    raw_source_text: str | None = None,
 ) -> bool:
     """Exclude a reviewed cue only at its span in an exact source byte string.
 
@@ -27642,11 +27680,21 @@ def _is_coordinated_parenthetical_if_any_cue(
     establish that another condition witnesses existence.
     """
 
-    if len(source_text) != len(_REVIEWED_NM_SPOUSE_IF_ANY_SOURCE):
+    raw_source = source_text if raw_source_text is None else raw_source_text
+    if len(raw_source) != len(_REVIEWED_NM_SPOUSE_IF_ANY_SOURCE):
         return False
-    return (match.start(), match.end()) in _REVIEWED_PARENTHETICAL_IF_ANY_CUES.get(
-        source_text.encode("utf-8"), frozenset()
-    )
+    offset = 0
+    if raw_source_text is not None:
+        if raw_source.strip() != source_text:
+            return False
+        # Regex spans belong to normalized text; reviewed spans belong to raw
+        # text. Only outer stripping is allowed, never content normalization.
+        offset = len(raw_source) - len(raw_source.lstrip())
+    if (match.start() + offset, match.end() + offset) not in (
+        _REVIEWED_PARENTHETICAL_IF_ANY_CUES.get(raw_source.encode("utf-8"), frozenset())
+    ):
+        return False
+    return True
 
 
 def _is_concessive_condition_cue(
