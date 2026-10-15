@@ -205,13 +205,13 @@ def test_ambiguous_or_quantity_describing_lines_fail_closed(source, expected):
         (
             "93 (07/2026) Chapter 2:Eligibility "
             "Applications filed in (07/2026) are eligible.",
-            {7, 2026},
+            {93, 7, 2026},
         ),
         (
             "93 (07/2026) Chapter 2:Eligibility\n"
             "Benefit amounts, in dollars:\n214.50 Monthly Allowance\n"
             "Applications filed before (07/2026) are eligible.",
-            {214.5, 7, 2026},
+            {93, 214.5, 7, 2026},
         ),
     ),
 )

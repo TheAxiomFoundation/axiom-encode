@@ -2255,9 +2255,10 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
 )
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
-# 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. Neither
-# the page number nor the month/year stamp is a value. The page number is
-# replaced with a neutral mark, not removed: most notebook pages are one
+# 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
+# shapes are only locator candidates: the complete context must establish
+# that neither the leading number nor the stamp is operative. A verified page
+# number is replaced with a neutral mark, not removed: most pages are one
 # line, and a line that then began with `Chapter N:` would be dropped whole
 # as a structural heading, taking the page's real values with it.
 _US_MANUAL_PAGE_NUMBER = re.compile(
@@ -14358,13 +14359,21 @@ def _without_us_manual_locators(text: str, *, corpus_citation_path: str) -> str:
         # preserves row boundaries when a verified locator sits in a table.
         masked = masked[:start] + "—" + masked[start + 1 :]
     page = _US_MANUAL_PAGE_NUMBER.match(text)
-    if page and (
-        re.match(
-            r"\s+(?:" + _US_MANUAL_REVISION_STAMP.pattern + r"\s+)?"
-            r"Chapter[ \t]+\d+[ \t]*:",
-            text[page.end() :],
+    # Chapter syntax alone does not establish the leading number's role:
+    # later prose can use it as an amount without repeating its digits.
+    # Stamp authentication consumes the complete context or matches exact
+    # reviewed source bytes, including references across composed pages.
+    if (
+        page
+        and stamp_spans
+        and (
+            re.match(
+                r"\s+(?:" + _US_MANUAL_REVISION_STAMP.pattern + r"\s+)?"
+                r"Chapter[ \t]+\d+[ \t]*:",
+                text[page.end() :],
+            )
+            or any(text[page.end() : start].isspace() for start, _end in stamp_spans)
         )
-        or any(text[page.end() : start].isspace() for start, _end in stamp_spans)
     ):
         # Keep the sentinel: flattened body text must not become a Chapter
         # heading and be discarded by downstream structure recognition.

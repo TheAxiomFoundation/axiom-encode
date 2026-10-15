@@ -1,0 +1,1 @@
+Require complete manual context before excluding a page-shaped leading integer from numeric recall. Keep referenced and uncertain amounts through structural numeric cleanup, including split-line and composed page headers.
