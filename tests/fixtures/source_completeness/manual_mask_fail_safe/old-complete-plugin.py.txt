@@ -1,0 +1,20 @@
+"""Load byte-exact review-head masks and numeric extractor for public-gate probes."""
+
+from pathlib import Path
+
+
+def pytest_configure(config):
+    from axiom_encode.harness import (
+        manual_locator_metadata,
+        source_completeness,
+        validator_pipeline,
+    )
+
+    snapshots = Path(__file__).resolve().parents[2] / "r6"
+    for module, filename in (
+        (manual_locator_metadata, "manual_locator_metadata_old.py"),
+        (validator_pipeline, "pre_collision_validator.py"),
+        (source_completeness, "source_completeness_old.py"),
+    ):
+        path = snapshots / filename
+        exec(compile(path.read_text(), str(path), "exec"), module.__dict__)

@@ -1,0 +1,73 @@
+{
+  "all_assertions_passed": true,
+  "cases": 11,
+  "results": [
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "741570085586c945c8eedaac105bf802447ae6f1fa001f671597dc1dda9c38b7"
+    },
+    {
+      "diverged": true,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": false,
+      "source_sha256": "77f0c5e6d950387d3a40d77c86d012f15e8e6744006e8e2e1de713b8843c7581"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "c197605970a394762f1d224c00889b31b2b42bebf8d388890cb9e0dd7da5ea7c"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "cd4ca3c683b67e2180d48c7e7eea68bbeffd522f39f6e21c633833207cb66288"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "23acd92e2722a440141e4f2f14a0a69a151a75d6a5df8214e0e84a96142f7c28"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "d68f4666e76a1c146f1f14d5a33d85094d11e16f50c3b80361559cdd16eb6e68"
+    },
+    {
+      "diverged": true,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": false,
+      "source_sha256": "a5bdd46058db6c74cb92db76f92eaf2de493c78d8031a34a0e94af7f3d5f0dc0"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "9ebd816e44ecaa9571291a44d1ee33f1f2016115496ad367eeb2f37863ae832f"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "a096a84bdf1227eb5f782360a73ea49251f2fcfa4db2187bfd18364c905f5e8d"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "31142cdfa6f812a6d0538023ddc298e5ec9663b3b586d39dce28fc58cae918c9"
+    },
+    {
+      "diverged": false,
+      "matches_actual_candidate": true,
+      "matches_actual_main_when_no_divergence": true,
+      "source_sha256": "1c9554f530b713adad83aa778835885375900367cade7013cfd56c9f5f08fd9d"
+    }
+  ],
+  "runtime_package_bindings_verified": true
+}

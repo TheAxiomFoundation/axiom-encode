@@ -1235,6 +1235,19 @@ _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
+_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
+# Page syntax cannot prove that a leading integer is nonoperative. The
+# completeness mask authenticates complete manual context before erasing
+# genuine locators; generic cleanup must preserve candidates that remain,
+# including integers split onto their own line and composed child headers.
+_MANUAL_PAGE_CANDIDATE_LINE_PATTERN = re.compile(
+    # Use the same line boundaries as splitlines(), including PDF separators.
+    r"(?:\A|(?<=[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]))"
+    r"""(?:[^\S\r\n\v\f\x1c-\x1e\x85\u2028\u2029]|["'`“”‘’])*(?P<value>\d{1,4})"""
+    rf"[{re.escape(_STRUCTURAL_SOURCE_QUOTE_CHARS)}]*"
+    r"(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))",
+    re.IGNORECASE,
+)
 _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN = re.compile(
     r"\b(?:(?:Policy|Procedure|Operations)\s+)?"
     r"(?:[A-Z][A-Za-z&/-]*\s+){0,4}?"
@@ -1355,7 +1368,6 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
 )
-_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
     re.IGNORECASE,
@@ -12379,12 +12391,20 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
         )
 
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        match.start("value")
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(text)
+    }
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         line_span = (line_offset, line_offset + len(line))
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets
+            for offset in range(line_offset, line_offset + len(line))
+        )
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
@@ -12397,9 +12417,12 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             line_offset += len(line_with_ending)
             continue
         if (
-            _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+            not page_candidate
+            and (
+                _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped)
+                or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
+            )
             or _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped)
-            or _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped)
             or _TABLE_HEADING_PATTERN.match(structural_stripped)
             or _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped)
             or _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
@@ -12461,7 +12484,11 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             )
             for match in _TABLE_ROW_LABEL_PATTERN.finditer(normalized_line)
         )
-        structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        structural_prefix = (
+            None
+            if page_candidate
+            else _STRUCTURAL_SOURCE_PREFIX_PATTERN.match(normalized_line)
+        )
         if structural_prefix is not None:
             prefix_span = (
                 line_offset + normalized_start + structural_prefix.start(),
@@ -12967,6 +12994,10 @@ def _clean_source_text_for_numeric_extraction_tracked(
     )
     cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
+    page_candidate_offsets = {
+        tracked.offsets[match.start("value")]
+        for match in _MANUAL_PAGE_CANDIDATE_LINE_PATTERN.finditer(tracked.text)
+    }
     for tracked_line in tracked.lines():
         ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
         content = _TrackedText(
@@ -12977,6 +13008,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
         line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
+        page_candidate = bool(page_candidate_offsets) and any(
+            offset in page_candidate_offsets for offset in content.offsets
+        )
         if _TABLE_HEADING_PATTERN.match(
             structural_stripped
         ) and _INLINE_TABLE_VALUE_PATTERN.search(structural_stripped):
@@ -13000,7 +13034,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
             cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = True
             continue
-        if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_LINE_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -13010,7 +13046,9 @@ def _clean_source_text_for_numeric_extraction_tracked(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
             continue
-        if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+        if not page_candidate and _STRUCTURAL_SOURCE_CITATION_PATTERN.match(
+            structural_stripped
+        ):
             cleaned_lines.append(
                 _TrackedText.concat([content.blank(0, len(line)), terminator])
             )
@@ -13062,7 +13100,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
         normalized = normalized.sub(
             _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
         )
-        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        if not page_candidate:
+            normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
         cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
 
     tracked = _TrackedText.concat(cleaned_lines)
@@ -16856,6 +16895,10 @@ def _tokenize_numeric_occurrences_from_text(
             ):
                 continue
             grouped_value = _parse_belgian_numeric_phrase(match.group(1))
+            source_span = cleaned_view.source_span(span)
+            # Prefer a grouped reading only when this same source token
+            # supplied it. An unrelated integer (such as a retained page
+            # number) cannot disambiguate an operative decimal amount.
             if (
                 grouped_value is not None
                 and not math.isclose(
@@ -16865,7 +16908,8 @@ def _tokenize_numeric_occurrences_from_text(
                     abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE,
                 )
                 and any(
-                    math.isclose(
+                    occurrence.span == source_span
+                    and math.isclose(
                         grouped_value,
                         occurrence.value,
                         rel_tol=0,
