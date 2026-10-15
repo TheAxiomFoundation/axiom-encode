@@ -38,7 +38,7 @@
       "Owner evidence must name the full literal provision ancestry, rather than the source container or nearest numeric marker alone. The corrected Iowa, Louisiana, New Jersey, and New Mexico paths were checked again against raw source headers."
     ],
     "remaining_findings": [],
-    "reviewer_identity": "The registry retains the user-required pending-independent-review reviewer string; this separate artifact records the build agents' completed review."
+    "reviewer_identity": "Reviewed with the pending-independent-review placeholder in each reviewer field (registry_sha256 above). After the reviews, the hub replaced that placeholder with a record of the verification; the shipped registry (3dfa00327fe73b1deca582f06ecd6fecc4137b23bee8616ab7496c564cd445f0) differs from the reviewed bytes only in reviewer."
   },
   "runtime_and_ci_review": {
     "reviewer_role": "build independent agent; independent of runtime and workflow implementation author",

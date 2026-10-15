@@ -124,7 +124,7 @@ folding and duplicated-ancestor failures before their fixes.
 
 ## Independent review cycle
 
-Two independent reviews of the final list ran on 2026-10-15. Both joined every entry and rejected candidate to signed corpus bytes and hand-audited a sample: 55 accepted entries plus all 21 rejections in the first. The earlier review and fix chronology below is reported, not reproducible from this repository.
+Two independent reviews of the final list ran on 2026-10-15. Both joined every entry and rejected candidate to signed corpus bytes; the first also hand-audited 55 accepted entries and all 21 rejections. The earlier review and fix chronology below is reported, not reproducible from this repository.
 
 An agent independent of the seed author opened every accepted physical window
 and owner span, including outer ancestry where needed; it also checked every
@@ -132,10 +132,12 @@ rejection. Other agents independently reviewed the runtime gate, waiver, corpus
 status reader, proposal/checker and CI. Findings about full owner citations,
 relevant waiver labels, physical JSONL line splitting, exact status, and proposal
 scope were fixed and reviewed again. The final CI transport change also received
-a separate review. No actionable findings remain. The required pending reviewer
-string remains unchanged; this is build-agent review, not a claim of human
-approval. [independent-review.json](independent-review.json) binds the reviewed
-registry bytes and records the review roles and limits.
+a separate review. No actionable findings remain. This is review by separate GPT-6.1 Sol runs, not a
+claim of human approval. After the reviews, each entry's `reviewer` field was
+changed from the pending-review placeholder to a record of that verification;
+no other byte changed. [independent-review.json](independent-review.json) binds the
+reviewed registry bytes (`1832cbc8…`); the shipped file (`3dfa0032…`) differs
+only in `reviewer`, and records the review roles and limits.
 
 The round-1 independent source review caught two related callers during the
 fix cycle: the offline proposer still folded scope keys, and a rules-file
