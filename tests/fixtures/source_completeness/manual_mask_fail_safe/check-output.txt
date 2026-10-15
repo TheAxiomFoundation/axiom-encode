@@ -1,0 +1,42 @@
+uv-sync: exit 0; completed
+
+ruff: exit 0
+All checks passed!
+
+
+format: exit 0
+258 files already formatted
+
+
+compile: exit 0
+
+
+towncrier: exit 0; completed
+
+diff: exit 0
+
+
+locked: exit 0
+.                                                                        [100%]
+1 passed in 52.73s
+
+
+pytest: exit 0; 74 passed in 805.60s (0:13:25)
+
+pytest: exit 0; 74 passed in 823.69s (0:13:43)
+
+pytest: exit 0; 74 passed in 763.27s (0:12:43)
+
+pytest: exit 0; 73 passed in 757.42s (0:12:37)
+
+pytest: exit 0; 384 passed in 121.03s (0:02:01)
+
+pytest: exit 0; 10 passed, 6601 deselected in 25.96s
+
+pytest: exit 0; 44 passed, 3118 deselected in 16.57s
+
+pytest: exit 0; 64 passed in 106.30s (0:01:46)
+
+Old reviewed source: expected exit 1; 12 failed in 9.93s
+
+Exact old source, metadata and extractor: expected exit 1; 14 failed in 158.90s (0:02:38)
