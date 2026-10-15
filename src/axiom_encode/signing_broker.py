@@ -21,6 +21,7 @@ import threading
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -89,6 +90,12 @@ class SigningBroker(Protocol):
     def apply_public_key_raw(self) -> bytes | None: ...
 
     @property
+    def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]: ...
+
+    @property
+    def retired_apply_inventory(self) -> dict[str, object] | None: ...
+
+    @property
     def eval_public_key_raw(self) -> bytes | None: ...
 
     @property
@@ -111,6 +118,8 @@ class BrokerStatus:
     eval_public_key_raw: bytes | None
     corpus_release_public_key_raw: bytes | None
     corpus_release_public_keys_raw: tuple[bytes, ...]
+    retired_apply_public_keys_raw: tuple[bytes, ...] = ()
+    retired_apply_inventory: dict[str, object] | None = None
 
 
 def scrub_private_signing_environment(
@@ -187,7 +196,13 @@ class SigningBrokerClient:
             "corpus_release_public_key",
         }
         status_fields = set(status)
-        if status_fields not in {
+        retired_status_fields = {"retired_apply_public_keys", "retired_apply_inventory"}
+        has_retired_status = bool(status_fields & retired_status_fields)
+        if has_retired_status and not retired_status_fields <= status_fields:
+            raise SigningBrokerError(
+                "Signing broker returned incomplete retired apply trust"
+            )
+        if status_fields - retired_status_fields not in {
             frozenset(legacy_status_fields),
             frozenset({*legacy_status_fields, "corpus_release_public_keys"}),
         }:
@@ -253,12 +268,42 @@ class SigningBrokerClient:
                 "Signing broker must expose distinct protected apply, eval, and "
                 "corpus release trust roots"
             )
+        retired_apply_public_keys_raw: tuple[bytes, ...] = ()
+        retired_apply_inventory: dict[str, object] | None = None
+        if has_retired_status:
+            encoded_retired = status["retired_apply_public_keys"]
+            if not isinstance(encoded_retired, list) or not encoded_retired:
+                raise SigningBrokerError(
+                    "Signing broker returned malformed retired apply roots"
+                )
+            retired_apply_public_keys_raw = tuple(
+                self._decode_required_status_public_key(value, label="retired apply")
+                for value in encoded_retired
+            )
+            for public_key in retired_apply_public_keys_raw:
+                if public_key in protected_roots:
+                    raise SigningBrokerError(
+                        "Signing broker returned conflicting retired apply roots"
+                    )
+                protected_roots.add(public_key)
+            from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+            try:
+                retired_apply_inventory = validate_retired_apply_inventory(
+                    status["retired_apply_inventory"]
+                )
+            except ValueError as exc:
+                raise SigningBrokerError(
+                    "Signing broker returned malformed retired apply inventory"
+                ) from exc
         self._status = BrokerStatus(
             frozenset(raw_capabilities),
             apply_public_key_raw,
             eval_public_key_raw,
             corpus_release_public_key_raw,
             corpus_release_public_keys_raw,
+            retired_apply_public_keys_raw,
+            retired_apply_inventory,
         )
 
     @staticmethod
@@ -306,6 +351,14 @@ class SigningBrokerClient:
     @property
     def apply_public_key_raw(self) -> bytes | None:
         return self._status.apply_public_key_raw
+
+    @property
+    def retired_apply_public_keys_raw(self) -> tuple[bytes, ...]:
+        return self._status.retired_apply_public_keys_raw
+
+    @property
+    def retired_apply_inventory(self) -> dict[str, object] | None:
+        return deepcopy(self._status.retired_apply_inventory)
 
     @property
     def eval_public_key_raw(self) -> bytes | None:
