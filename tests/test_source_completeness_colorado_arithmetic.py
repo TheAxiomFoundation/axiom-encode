@@ -1310,6 +1310,14 @@ def test_unbulleted_fact_list_preserves_an_alternative_inside_its_member(
         "A credit applies if the taxpayer is a resident under 26 U.S.C. 1, the spouse has no income, and the taxpayer is blind.",
         ("taxpayer_is_resident", "spouse_has_no_income", "taxpayer_is_blind"),
     ),
+    breaks={1, 2, 3, 12, 17},
+    oxford_comma=False,
+)
+@example(
+    profile=(
+        "A credit applies if the taxpayer is a resident under 26 U.S.C. 1, the spouse has no income, and the taxpayer is blind.",
+        ("taxpayer_is_resident", "spouse_has_no_income", "taxpayer_is_blind"),
+    ),
     breaks={12},
     oxford_comma=False,
 )
@@ -1377,6 +1385,100 @@ def test_serial_comma_factual_conditions_keep_three_distinct_demands_under_wraps
             gates,
             terminal_evidence=evidence,
         )
+
+
+@pytest.mark.parametrize("oxford_comma", [False, True])
+def test_wrapped_usc_citation_keeps_all_serial_facts_and_income_polarity(
+    oxford_comma,
+):
+    source = (
+        "A credit applies if the taxpayer is a resident under 26 U.S.C. 1, "
+        "the spouse has no income, and the taxpayer is blind."
+    )
+    if not oxford_comma:
+        source = source.replace(", and", " and")
+    wrapped = "".join(
+        word + ("\n" if index in {1, 2, 3, 12, 17} else " ")
+        for index, word in enumerate(source.split(), start=1)
+    ).strip()
+    gates = sc._source_conjunctive_fact_gates(wrapped)
+    assert gates == (
+        (frozenset({"taxpayer"}), frozenset({"resident"})),
+        (frozenset({"spouse"}), frozenset({"no_income"})),
+        (frozenset({"taxpayer"}), frozenset({"blind"})),
+    )
+    names = ("taxpayer_is_resident", "spouse_has_no_income", "taxpayer_is_blind")
+    inputs = [
+        {"name": name, "dtype": "Boolean", "description": name.replace("_", " ")}
+        for name in names
+    ] + [{"name": "refund_amount", "dtype": "Money"}]
+    evidence = sc._terminal_gate_evidence({"inputs": inputs})
+    assert sc._terminal_names_corroborate_source_gates(
+        frozenset(names), gates, terminal_evidence=evidence
+    )
+    formula = "if " + " and ".join(names) + ": refund_amount else: 0"
+    assert not _condition_issues(
+        wrapped, [_rule("cash_refund_amount", formula, wrapped)], inputs
+    )
+    for omitted in names:
+        retained = frozenset(names) - {omitted}
+        assert not sc._terminal_names_corroborate_source_gates(
+            retained, gates, terminal_evidence=evidence
+        )
+        omitted_formula = (
+            "if "
+            + " and ".join(name for name in names if name != omitted)
+            + ": refund_amount else: 0"
+        )
+        assert _condition_issues(
+            wrapped, [_rule("cash_refund_amount", omitted_formula, wrapped)], inputs
+        )
+        environment = {
+            **dict.fromkeys(names, True),
+            omitted: False,
+            "refund_amount": 50,
+        }
+        assert _execute(formula, environment) == 0
+        assert _execute(omitted_formula, environment) == 50
+    positive_inputs = [
+        {
+            "name": "spouse_has_income",
+            "dtype": "Boolean",
+            "description": "The spouse has income.",
+        },
+        *[item for item in inputs if item["name"] != "spouse_has_no_income"],
+    ]
+    assert not sc._terminal_names_corroborate_source_gates(
+        frozenset({"taxpayer_is_resident", "spouse_has_income", "taxpayer_is_blind"}),
+        gates,
+        terminal_evidence=sc._terminal_gate_evidence({"inputs": positive_inputs}),
+    )
+
+
+def test_completed_usc_citation_keeps_its_following_sentence_boundary():
+    source = (
+        "the taxpayer is a resident under 26 U.S.C. 1.\n"
+        "The spouse has no income and the taxpayer is blind."
+    )
+    joined = sc._source_gate_join_wrapped_continuations(source)
+    assert "26 U.S.C. 1.\nThe spouse" in joined
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "The spouse has no income and the taxpayer is blind.",
+        "1. The spouse has no income and the taxpayer is blind.",
+        "A. The spouse has no income and the taxpayer is blind.",
+        "\n1, the spouse has no income and the taxpayer is blind.",
+    ],
+)
+def test_usc_abbreviation_does_not_hide_an_incomplete_citation_or_outline_row(
+    continuation,
+):
+    source = "the taxpayer is resident under 26 U.S.C.\n" + continuation
+    joined = sc._source_gate_join_wrapped_continuations(source)
+    assert "26 U.S.C.\n" + continuation in joined
 
 
 @settings(max_examples=15, deadline=None)

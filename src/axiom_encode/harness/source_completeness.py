@@ -277,14 +277,14 @@ class _NamedSourceNumber:
 
 
 _JOINED_PARENTHESIZED_REPEAL_PEERS_PATTERN = (
-    r"(?:(?:and\s+|,\s*(?:and\s+)?)\([A-Za-z0-9.]+\)\s*)+"
+    r"(?:(?:and\s+|,\s*(?:and\s+)?)\([A-Za-z0-9.-]+\)\s*)+"
 )
 _JOINED_PARENTHESIZED_BARE_REPEAL_SUFFIX = (
     _JOINED_PARENTHESIZED_REPEAL_PEERS_PATTERN
     + r"repealed(?:[ \t]*[.;])?[ \t]*(?=\r?$)"
 )
 _PARAGRAPH_MARKER = re.compile(
-    r"(?m)^[ \t]*(?P<marker>\((?P<label>\d+(?:\.\d+)?[a-z]?|[a-z])\))"
+    r"(?m)^[ \t]*(?P<marker>\((?P<label>\d+(?:\.\d+)?[a-z]?|[a-z](?:-[1-9]\d*)?)\))"
     r"(?=\s|bis\b|" + _JOINED_PARENTHESIZED_BARE_REPEAL_SUFFIX + r")",
     flags=re.IGNORECASE,
 )
@@ -347,17 +347,20 @@ _LETTER_MARKER = re.compile(
 )
 _PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?m)^[ \t]*(?:[A-Z]\.)?"
-    r"(?P<marker>\((?:\d+(?:\.\d+)?[a-z]?|[a-z]|[ivxlcdm]{2,15})\)"
-    r"(?:[ \t]*\((?:\d+(?:\.\d+)?[a-z]?|[a-z]|[ivxlcdm]{2,15})\))*)"
+    r"(?P<marker>\((?:\d+(?:\.\d+)?[a-z]?|[a-z](?:-[1-9]\d*)?|[ivxlcdm]{2,15})\)"
+    r"(?:[ \t]*\((?:\d+(?:\.\d+)?[a-z]?|[a-z](?:-[1-9]\d*)?|[ivxlcdm]{2,15})\))*)"
     r"(?=\s|bis\b|" + _JOINED_PARENTHESIZED_BARE_REPEAL_SUFFIX + r")",
     flags=re.IGNORECASE,
 )
 _INLINE_PARENTHESIZED_OUTLINE_MARKER = re.compile(
     r"(?:(?<=[.!?;:])[ \t]+|(?<=—)[ \t]*)"
-    r"(?P<marker>\((?:\d+(?:\.\d+)?[a-z]?|[a-z]|[ivxlcdm]{2,15})\)"
-    r"(?:[ \t]*\((?:\d+(?:\.\d+)?[a-z]?|[a-z]|[ivxlcdm]{2,15})\))*)"
+    r"(?P<marker>\((?:\d+(?:\.\d+)?[a-z]?|[a-z](?:-[1-9]\d*)?|[ivxlcdm]{2,15})\)"
+    r"(?:[ \t]*\((?:\d+(?:\.\d+)?[a-z]?|[a-z](?:-[1-9]\d*)?|[ivxlcdm]{2,15})\))*)"
     r"(?=\s|bis\b)",
     flags=re.IGNORECASE,
+)
+_SERIAL_INLINE_ROMAN_OUTLINE_MARKER = re.compile(
+    r"\b(?:and|or)[ \t]+(?P<marker>\((?P<label>[ivxlcdm]{2,15})\))(?=\s)",
 )
 _OUTLINE_REFERENCE_SOFT_SPACE = r"(?:[ \t]|\r?\n(?![ \t]*\r?\n))"
 _LINE_WRAPPED_OUTLINE_REFERENCE_CONTEXT = re.compile(
@@ -369,7 +372,7 @@ _LINE_WRAPPED_OUTLINE_REFERENCE_CONTEXT = re.compile(
     rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}*"
     rf"(?:,{_OUTLINE_REFERENCE_SOFT_SPACE}*)?"
     rf"(?:(?:and|or|to|through){_OUTLINE_REFERENCE_SOFT_SPACE}+)?"
-    rf"\([A-Za-z0-9.]+\))*"
+    rf"\([A-Za-z0-9.-]+\))*"
     rf"(?:{_OUTLINE_REFERENCE_SOFT_SPACE}*"
     rf"(?:,(?:{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:and|or))?|"
     rf"{_OUTLINE_REFERENCE_SOFT_SPACE}+(?:and|or|to|through)))?"
@@ -387,7 +390,7 @@ _LINE_WRAPPED_OUTLINE_REFERENCE_TAIL = re.compile(
     flags=re.IGNORECASE,
 )
 _JOINED_PARENTHESIZED_REPEAL = re.compile(
-    r"\s*(?P<chain>(?:\([A-Za-z0-9.]+\)\s*)+)"
+    r"\s*(?P<chain>(?:\([A-Za-z0-9.-]+\)\s*)+)"
     r"(?P<peers>"
     + _JOINED_PARENTHESIZED_REPEAL_PEERS_PATTERN
     + r")repealed\s*[.;]?\s*",
@@ -2950,7 +2953,7 @@ def _nested_parenthesized_outline_markers(
     for index, match in enumerate(matches):
         labels = tuple(
             label.lower()
-            for label in re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker"))
+            for label in re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker"))
         )
         if not labels or not all(
             _is_parenthesized_outline_label(label) for label in labels
@@ -2994,7 +2997,7 @@ def _nested_parenthesized_outline_markers(
                 tuple(
                     item.lower()
                     for item in re.findall(
-                        r"\(([A-Za-z0-9.]+)\)", matches[index + 1].group("marker")
+                        r"\(([A-Za-z0-9.-]+)\)", matches[index + 1].group("marker")
                     )
                 )
                 if index + 1 < len(matches)
@@ -3091,7 +3094,7 @@ def _parenthesized_outline_root_child_evidence(
         return labels[1]
     if following is None:
         return None
-    following_labels = re.findall(r"\(([A-Za-z0-9.]+)\)", following.group("marker"))
+    following_labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", following.group("marker"))
     between = source_text[match.end("marker") : following.start("marker")]
     # A returning ancestor's (b) is not evidence of a child. Admit a detached
     # first (a) only when the intervening structural chapeau introduces it.
@@ -3114,7 +3117,7 @@ def _parenthesized_outline_following_sibling_label(
     """Peek through a bounded numeric-child run to resolve a single Roman letter."""
 
     match = matches[match_index]
-    labels = re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker"))
+    labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker"))
     if not labels or not (
         len(labels[-1]) == 1
         and labels[-1].isupper()
@@ -3135,7 +3138,9 @@ def _parenthesized_outline_following_sibling_label(
             )
         ):
             continue
-        following_labels = re.findall(r"\(([A-Za-z0-9.]+)\)", following.group("marker"))
+        following_labels = re.findall(
+            r"\(([A-Za-z0-9.-]+)\)", following.group("marker")
+        )
         if not following_labels:
             return None
         label = following_labels[0]
@@ -3186,8 +3191,9 @@ def _qualified_parenthesized_legal_outline_markers(
 
     A flat parenthesized scan cannot distinguish repeated labels such as
     ``(a)(3)``, ``(a)(6)(ii)(G)(3)``, and ``(c)(3)``.  Use the conventional
-    U.S. legal hierarchy only when sequential root subsections prove that the
-    source is an outline; otherwise retain the legacy flat recognizer.
+    U.S. legal hierarchy when sequential roots or a corroborated attached
+    extension prove that the source is an outline; otherwise retain the legacy
+    flat recognizer.
     """
 
     line_matches = tuple(
@@ -3213,6 +3219,16 @@ def _qualified_parenthesized_legal_outline_markers(
             or not _inline_outline_marker_has_reference_context(source_text, match)
         )
     )
+    serial_inline_matches = _qualified_serial_inline_roman_outline_markers(
+        source_text, (*line_matches, *inline_matches)
+    )
+    inline_matches = tuple(
+        heapq.merge(
+            inline_matches,
+            serial_inline_matches,
+            key=lambda match: match.start("marker"),
+        )
+    )
     inline_marker_starts = {match.start("marker") for match in inline_matches}
     matches = tuple(
         heapq.merge(
@@ -3224,7 +3240,9 @@ def _qualified_parenthesized_legal_outline_markers(
     if not matches:
         return ()
 
-    first_labels = tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", matches[0].group("marker")))
+    first_labels = tuple(
+        re.findall(r"\(([A-Za-z0-9.-]+)\)", matches[0].group("marker"))
+    )
     outline_levels = (
         _NUMERIC_ROOT_PARENTHESIZED_LEGAL_OUTLINE_LEVELS
         if first_labels and first_labels[0][0].isdigit()
@@ -3234,8 +3252,11 @@ def _qualified_parenthesized_legal_outline_markers(
     markers: list[_OutlineMarker] = []
     emitted_paths: set[tuple[str, ...]] = set()
     active: list[tuple[int, str, str, str]] = []
+    attached_extension_seeds: dict[int, tuple[str, str]] = {}
+    has_attached_extension_siblings = False
+    colon_child_parent: tuple[int, tuple[int, str, str, str]] | None = None
     for match_index, match in enumerate(matches):
-        raw_labels = tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker")))
+        raw_labels = tuple(re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker")))
         if not raw_labels or not all(
             _is_parenthesized_outline_label(label) for label in raw_labels
         ):
@@ -3250,7 +3271,15 @@ def _qualified_parenthesized_legal_outline_markers(
         following_sibling_label = _parenthesized_outline_following_sibling_label(
             source_text, matches, match_index
         )
-        attached_parent_level: int | None = None
+        attached_parent_level = (
+            colon_child_parent[1][0]
+            if colon_child_parent is not None
+            and colon_child_parent[0] == marker_start
+            and active
+            and active[-1] == colon_child_parent[1]
+            else None
+        )
+        colon_child_parent = None
         for label_index, raw_label in enumerate(raw_labels):
             level, category = _parenthesized_legal_outline_level(
                 raw_label,
@@ -3275,9 +3304,34 @@ def _qualified_parenthesized_legal_outline_markers(
                 and level == 0
             ):
                 break
+            # A corrected deep attachment must not remove the evidence that
+            # authenticated this outline. Its still-active first child can
+            # prove the immediate same-parent, same-case successor.
+            seed = attached_extension_seeds.get(level)
+            previous = next((entry for entry in active if entry[0] == level), None)
+            if (
+                attached_parent_level is None
+                and seed is not None
+                and previous is not None
+                and (previous[1], previous[3]) == seed
+                and raw_label.islower() == seed[0].islower()
+                and _parenthesized_outline_label_follows(seed[0], raw_label, seed[1])
+            ):
+                has_attached_extension_siblings = True
+            attached_extension_seeds = {
+                old_level: old_seed
+                for old_level, old_seed in attached_extension_seeds.items()
+                if old_level < level
+            }
             active = [entry for entry in active if entry[0] < level]
             normalized = raw_label.lower()
             active.append((level, raw_label, normalized, category))
+            if (
+                attached_parent_level is not None
+                and (level >= len(outline_levels) or outline_levels[level] != category)
+                and _parenthesized_outline_label_is_first(raw_label, category)
+            ):
+                attached_extension_seeds[level] = (raw_label, category)
             path = tuple(entry[2] for entry in active)
             is_repeated_attached_ancestor = (
                 len(raw_labels) > 1
@@ -3299,6 +3353,24 @@ def _qualified_parenthesized_legal_outline_markers(
                 )
                 emitted_paths.add(path)
             attached_parent_level = level
+            if (
+                len(raw_labels) == 1
+                and category == "numeric"
+                and root_child_evidence == "a"
+                and not _inline_outline_marker_has_reference_context(
+                    source_text, matches[match_index + 1]
+                )
+                and not any(
+                    child_level > level and child_category == "lower-alpha"
+                    for child_level, child_category in enumerate(outline_levels)
+                )
+            ):
+                # Existing first-child evidence authenticates the next (a)
+                # directly beneath this still-active, colon-owned parent.
+                colon_child_parent = (
+                    matches[match_index + 1].start("marker"),
+                    active[-1],
+                )
 
     root_category = outline_levels[0]
     root_labels = [marker.label[1:-1] for marker in markers if len(marker.path) == 1]
@@ -3313,7 +3385,7 @@ def _qualified_parenthesized_legal_outline_markers(
             and re.fullmatch(r"[a-z]", labels[1]) is not None
             and all(_is_parenthesized_outline_label(label) for label in labels)
             for labels in (
-                re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker"))
+                re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker"))
                 for match in matches
             )
         )
@@ -3332,7 +3404,80 @@ def _qualified_parenthesized_legal_outline_markers(
         and _parenthesized_outline_label_follows(first, second, root_category)
         for first, second in itertools.pairwise(root_labels)
     )
-    return tuple(markers) if has_sequential_roots else ()
+    return (
+        tuple(markers)
+        if has_sequential_roots or has_attached_extension_siblings
+        else ()
+    )
+
+
+def _qualified_serial_inline_roman_outline_markers(
+    source_text: str, existing_matches: Sequence[re.Match[str]]
+) -> tuple[re.Match[str], ...]:
+    """Recover a serial Roman clause only when it introduces actual subclauses."""
+
+    ordered = sorted(existing_matches, key=lambda match: match.start("marker"))
+    selected: list[re.Match[str]] = []
+    for candidate in _SERIAL_INLINE_ROMAN_OUTLINE_MARKER.finditer(source_text):
+        marker_start = candidate.start("marker")
+        previous = next(
+            (
+                match
+                for match in reversed(ordered)
+                if match.start("marker") < marker_start
+            ),
+            None,
+        )
+        following = next(
+            (match for match in ordered if match.start("marker") > marker_start), None
+        )
+        if previous is None or following is None:
+            continue
+        prior_labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", previous.group("marker"))
+        next_labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", following.group("marker"))
+        label = candidate.group("label")
+        if not (
+            prior_labels
+            and prior_labels[-1].islower()
+            and _parenthesized_outline_label_follows(prior_labels[-1], label, "roman")
+            and next_labels[:1] == ["I"]
+        ):
+            continue
+        prefix = source_text[previous.end("marker") : marker_start]
+        if len(prefix) > 1024:
+            continue
+        locator_chain = re.search(
+            r"(?:\([A-Za-z0-9.-]+\)\s*(?:,\s*)?)+(?:and|or)\s*$",
+            prefix,
+            re.IGNORECASE,
+        )
+        if locator_chain is not None and _INLINE_OUTLINE_REFERENCE_CONTEXT.search(
+            prefix[: locator_chain.start()].rstrip() + ":"
+        ):
+            continue
+        if (
+            _LINE_WRAPPED_OUTLINE_REFERENCE_CONTEXT.search(prefix.rstrip() + "\n")
+            or _INLINE_OUTLINE_EXPLICIT_REFERENCE_COMMAND.search(prefix)
+            or re.search(
+                r"\b(?:see|refer(?:s|red|ring)?|compare(?:s|d)?)\b", prefix, re.I
+            )
+            or re.search(r"[.!?;:\"“”]|\r?\n[ \t]*\r?\n", prefix)
+        ):
+            continue
+        body = source_text[candidate.end("marker") : following.start("marker")]
+        if len(body) > 1024 or re.search(r"[.!?;\"“”]|\r?\n[ \t]*\r?\n", body):
+            continue
+        if (
+            re.search(
+                r"\bfollowing\s+subclauses?\b(?:\s+[A-Za-z][A-Za-z'-]*){0,12}\s*:\s*$",
+                body,
+                re.IGNORECASE,
+            )
+            is None
+        ):
+            continue
+        selected.append(candidate)
+    return tuple(selected)
 
 
 def _flattened_inline_numeric_root_starts(
@@ -3364,7 +3509,7 @@ def _flattened_inline_numeric_root_starts(
     if not ordered_matches or ordered_matches[0] not in inline_matches:
         return frozenset()
     has_inline_first_root = any(
-        tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker")))[:1] == ("1",)
+        tuple(re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker")))[:1] == ("1",)
         for match in inline_matches
     )
     if not has_inline_first_root:
@@ -3373,7 +3518,7 @@ def _flattened_inline_numeric_root_starts(
     expected = 1
     selected_starts: list[int] = []
     for match in inline_matches:
-        labels = tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("marker")))
+        labels = tuple(re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("marker")))
         if not labels or re.fullmatch(r"\d+", labels[0]) is None:
             continue
         value = int(labels[0])
@@ -3562,7 +3707,7 @@ def _line_start_is_wrapped_outline_reference(
     ):
         return False
     chain = re.compile(
-        rf"(?:\([A-Za-z0-9.]+\){_OUTLINE_REFERENCE_SOFT_SPACE}*)+"
+        rf"(?:\([A-Za-z0-9.-]+\){_OUTLINE_REFERENCE_SOFT_SPACE}*)+"
     ).match(source_text, marker_start)
     if chain is None:
         return False
@@ -3579,14 +3724,17 @@ def _line_start_is_wrapped_outline_reference(
         flags=re.IGNORECASE,
     ):
         return True
-    # A decimal credit can repeat its own locator in "this subsection (2.5)
+    # A decimal or inserted-alpha provision can repeat its own locator in "this subsection (2.5)
     # for each lease" or "(4.5) but was not remitted". Admit those
     # continuations only for the current root;
     # "For purposes of this subsection" cannot hide a new decimal branch.
-    labels = re.findall(r"\(([A-Za-z0-9.]+)\)", chain.group())
+    labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", chain.group())
     if (
         len(labels) != 1
-        or re.fullmatch(r"\d+\.\d+[a-z]?", labels[0], flags=re.IGNORECASE) is None
+        or re.fullmatch(
+            r"\d+\.\d+[a-z]?|[a-z]-[1-9]\d*", labels[0], flags=re.IGNORECASE
+        )
+        is None
         or re.search(
             rf"\bthis{_OUTLINE_REFERENCE_SOFT_SPACE}+subsection"
             r"[ \t]*\r?\n[ \t]*\Z",
@@ -3612,18 +3760,14 @@ def _line_start_is_wrapped_outline_reference(
         )
         for previous_index, previous in enumerate(previous_matches):
             previous_labels = re.findall(
-                r"\(([A-Za-z0-9.]+)\)", previous.group("marker")
+                r"\(([A-Za-z0-9.-]+)\)", previous.group("marker")
             )
             if not previous_labels or not all(
                 _is_parenthesized_outline_label(label) for label in previous_labels
             ):
                 continue
             active_root = next(
-                (
-                    normalized
-                    for level, _, normalized, category in active
-                    if level == 0 and category == "numeric"
-                ),
+                (normalized for level, _, normalized, category in active if level == 0),
                 "",
             )
             if _line_start_is_wrapped_outline_reference(
@@ -3674,11 +3818,7 @@ def _line_start_is_wrapped_outline_reference(
                 active.append((level, raw_label, raw_label.lower(), category))
                 attached_parent_level = level
         _active_numeric_root = next(
-            (
-                normalized
-                for level, _, normalized, category in active
-                if level == 0 and category == "numeric"
-            ),
+            (normalized for level, _, normalized, category in active if level == 0),
             "",
         )
     return labels[0].lower() == _active_numeric_root
@@ -3692,8 +3832,8 @@ def _joined_parenthesized_repeal_locators(
     match = _JOINED_PARENTHESIZED_REPEAL.fullmatch(source_text)
     if match is None:
         return None
-    chain = tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("chain")))
-    peers = tuple(re.findall(r"\(([A-Za-z0-9.]+)\)", match.group("peers")))
+    chain = tuple(re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("chain")))
+    peers = tuple(re.findall(r"\(([A-Za-z0-9.-]+)\)", match.group("peers")))
     labels = (*chain, *peers)
     if not all(_is_parenthesized_outline_label(label) for label in labels):
         return None
@@ -3750,8 +3890,12 @@ def _parenthesized_legal_outline_level(
     if attached_parent_level is not None:
         level = next(
             (level for level in candidate_levels if level > attached_parent_level),
-            candidate_levels[-1],
+            None,
         )
+        if level is None:
+            # An authenticated attached chain can exceed the conventional
+            # profile. Keep every explicit ancestor instead of reusing its level.
+            return attached_parent_level + 1, outline_levels[candidate_levels[-1]]
         return level, outline_levels[level]
 
     # A decimal root may follow a deep numbered item. An unambiguous alpha child
@@ -3766,10 +3910,17 @@ def _parenthesized_legal_outline_level(
     ):
         return 0, "numeric"
 
+    # Dynamic attachments can occupy a conventional slot of another category.
+    # Follow the actual ancestor category, preserving Roman case at those slots.
     continuing = [
         (level, category)
         for level, previous, _normalized, category in active
-        if level in candidate_levels
+        if category in categories
+        and (
+            (level < len(outline_levels) and outline_levels[level] == category)
+            or category != "roman"
+            or previous.islower() == raw_label.islower()
+        )
         and _parenthesized_outline_label_follows(previous, raw_label, category)
     ]
     if continuing:
@@ -3791,8 +3942,13 @@ def _parenthesized_legal_outline_level(
 
     same_category = [
         (level, category)
-        for level, _previous, _normalized, category in active
+        for level, previous, _normalized, category in active
         if category in categories
+        and (
+            (level < len(outline_levels) and outline_levels[level] == category)
+            or category != "roman"
+            or previous.islower() == raw_label.islower()
+        )
     ]
     if same_category:
         return max(same_category, key=lambda item: item[0])
@@ -3871,9 +4027,19 @@ def _parenthesized_outline_label_follows(
             )
         )
     if category in {"lower-alpha", "upper-alpha"}:
+        previous_match = re.fullmatch(r"([a-z])(?:-([1-9]\d*))?", previous, re.I)
+        current_match = re.fullmatch(r"([a-z])(?:-([1-9]\d*))?", current, re.I)
+        if previous_match is None or current_match is None:
+            return False
+        previous_base, previous_suffix = previous_match.groups()
+        current_base, current_suffix = current_match.groups()
         return (
-            len(previous) == len(current) == 1
-            and ord(current.lower()) == ord(previous.lower()) + 1
+            current_base.lower() == previous_base.lower()
+            and current_suffix is not None
+            and int(current_suffix) == int(previous_suffix or "0") + 1
+        ) or (
+            current_suffix is None
+            and ord(current_base.lower()) == ord(previous_base.lower()) + 1
         )
     if category == "roman":
         previous_value = _roman_outline_value(previous)
@@ -3932,7 +4098,7 @@ def _nested_outline_marker_spans(
 def _is_parenthesized_outline_label(label: str) -> bool:
     return bool(
         re.fullmatch(r"\d+(?:\.\d+)?[a-z]?", label, flags=re.IGNORECASE)
-        or re.fullmatch(r"[a-z]", label, flags=re.IGNORECASE)
+        or re.fullmatch(r"[a-z](?:-[1-9]\d*)?", label, flags=re.IGNORECASE)
         or _is_roman_outline_label(label)
     )
 
@@ -6184,12 +6350,12 @@ def _strip_source_clause_marker(text: str) -> str:
 
     compound = re.match(
         r"^\s*(?:(?-i:[A-Z])\.)?"
-        r"(?P<chain>(?:\([A-Za-z0-9.]+\))+)",
+        r"(?P<chain>(?:\([A-Za-z0-9.-]+\))+)",
         text,
         flags=re.IGNORECASE,
     )
     if compound is not None:
-        labels = re.findall(r"\(([A-Za-z0-9.]+)\)", compound.group("chain"))
+        labels = re.findall(r"\(([A-Za-z0-9.-]+)\)", compound.group("chain"))
         if labels and all(_is_parenthesized_outline_label(label) for label in labels):
             return text[compound.end() :].lstrip()
     return re.sub(
@@ -14945,12 +15111,26 @@ def _source_gate_join_wrapped_continuations(
         flags=re.IGNORECASE,
     )
     operand_start = command.start() if command is not None else len(text)
+    # A qualified citation can wrap between its abbreviation and section
+    # number. Only its authenticated interior dots lack sentence force; a
+    # period following the completed citation remains a logical boundary.
+    citation_periods = (
+        frozenset(
+            position
+            for reference in _qualified_usc_dependencies(text)
+            for position in range(reference.start(), reference.end())
+            if text[position] == "."
+        )
+        if re.search(r"\.[ \t]*\r?\n[ \t]*[1-9]\d*", text)
+        else frozenset()
+    )
     lines = text.split("\n")
     pieces: list[str] = []
     line_start = 0
     for index, line in enumerate(lines):
         if index:
             prior_line = lines[index - 1]
+            prior_terminal = line_start - len(prior_line) - 2 + len(prior_line.rstrip())
             marker = _PARENTHESIZED_OUTLINE_MARKER.match(text, line_start)
             outline_row = marker is not None and not (
                 _line_start_is_wrapped_outline_reference(text, marker.start("marker"))
@@ -14959,7 +15139,10 @@ def _source_gate_join_wrapped_continuations(
                 not prior_line.strip()
                 or not line.strip()
                 or line_start > operand_start
-                or prior_line.rstrip().endswith((".", ";", ":", "!", "?"))
+                or (
+                    prior_line.rstrip().endswith((".", ";", ":", "!", "?"))
+                    and prior_terminal not in citation_periods
+                )
                 or outline_row
                 or re.match(
                     r"^[ \t]*(?:[●•‣▪–—*-]\s+|(?:\d+|[A-Za-z])[.)]\s+)",
@@ -34079,6 +34262,10 @@ def _source_boundary_obligations(
         {
             (
                 branch.path,
+                # Recall offsets are relative to this source origin. Distinct
+                # temporal copies must survive; different end bounds from
+                # structural/narrative extraction do not make a new occurrence.
+                branch.start,
                 float(occurrence.value),
                 occurrence.has_rate_context,
                 occurrence.has_temporal_context,
