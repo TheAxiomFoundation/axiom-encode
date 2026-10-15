@@ -17641,6 +17641,8 @@ def _companion_test_issues(
                 branch.text,
                 branch_path=branch.path,
                 independently_covered_paths=independently_covered_paths,
+                corpus_citation_path=corpus_citation_path,
+                source_text=source_text,
             )
         )
         unconditional_nonapplicability_branches = tuple(
@@ -26282,6 +26284,8 @@ def _exception_cues_have_distinct_conditions(between: str) -> bool:
 def _source_exception_requires_paired_witness(
     text: str,
     *,
+    corpus_citation_path: str = "",
+    source_text: str = "",
     branch_path: tuple[str, ...] = (),
     independently_covered_paths: set[tuple[str, ...]] | frozenset[tuple[str, ...]] = (
         frozenset()
@@ -26298,6 +26302,18 @@ def _source_exception_requires_paired_witness(
     if _source_is_nonoperative_guidance_instruction(collapsed):
         return False
     if _source_is_guidance_glossary_description(collapsed):
+        return False
+    if (
+        corpus_citation_path == _MANUAL_PROCEDURE_CITATION
+        and _source_condition_is_manual_procedure(collapsed)
+        and (
+            _collapse_text(source_text or text).lower() == collapsed.lower()
+            or hashlib.sha256(
+                _collapse_text(source_text).lower().encode("utf-8")
+            ).hexdigest()
+            == _MANUAL_PROCEDURE_SOURCE_SHA256
+        )
+    ):
         return False
     # PDF extraction can reorder the standard USDA footer around table cells.
     # Remove only its recognizable fragments, then evaluate any remaining
@@ -26503,6 +26519,39 @@ def _source_is_nonoperative_guidance_instruction(text: str) -> bool:
             flags=re.IGNORECASE,
         )
     )
+
+
+# These complete, source-bound clauses instruct a worker to perform the next
+# calculation. They state no comparison result or claimant applicability fact.
+# Full-string matching deliberately retains obligations for every alteration,
+# including appended conditions, qualifications, and unfamiliar procedure prose.
+_MANUAL_PROCEDURE_CITATION = (
+    "us-fl/manual/dcf/ess-program-policy-manual/2600-calculation-of-benefits/page-8"
+)
+# Authenticate the complete page too: clause extraction must not hide an added
+# qualification behind a sentence or structural boundary.
+_MANUAL_PROCEDURE_SOURCE_SHA256 = (
+    "e17c82b40e09f545b80f2cedfad3bfc91daea3eea87801f9cb3c10188fccf0a0"
+)
+_MANUAL_PROCEDURE_CLAUSES = frozenset(
+    {
+        "chapter: 2600 calculation of benefits program: fs 1 2610.0000 food stamps "
+        "when the eligibility specialist has determined available income as per "
+        "chapters 1800 and 2400, the policy in this chapter must be used to perform "
+        "the budgets and tests to determine eligibility for benefits and the benefit "
+        "amount. 2610.0100 budgets and test calculations (fs) each program has "
+        "budgets and tests that must be executed in order to determine eligibility.",
+        "refer to appendix a-1 for the 165% need standard table. 2610.0104.03 gross "
+        "income test (fs) when gross income is determined, that income is compared "
+        "to the allowable gross income limit for the assistance group's size.",
+    }
+)
+
+
+def _source_condition_is_manual_procedure(text: str) -> bool:
+    """Recognize only the two complete reviewed sequencing instructions."""
+
+    return _collapse_text(text).lower() in _MANUAL_PROCEDURE_CLAUSES
 
 
 def _source_is_guidance_glossary_description(text: str) -> bool:

@@ -1,0 +1,593 @@
+{
+  "corpus_repository": "TheAxiomFoundation/axiom-corpus",
+  "git_commit": "8f7d60aaced28ee4252b9237f9d6e02360dc34bc",
+  "file_count": 117,
+  "total_bytes": 146278276,
+  "files": {
+    "us/guidance/2026-03-10-cms-original-medicare-part-a-b.jsonl": {
+      "sha256": "2c3795a63b60c7d7275a9bd791e19c3b0d3a38f8126c2e0d9e64e87450d2af4c",
+      "git_blob": "7439c85a8e95e4d09f2e262b4a26e28f3dda7025",
+      "bytes": 65782
+    },
+    "us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl": {
+      "sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+      "git_blob": "34bbd0627638abc73270f7675c16a9a5e01fc363",
+      "bytes": 5832
+    },
+    "us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl": {
+      "sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+      "git_blob": "53e79ad6339f9632cc2e14b1ad7bf38ced2b7c59",
+      "bytes": 102166
+    },
+    "us/guidance/2026-05-02-snap-fy2026-income-eligibility-standards-r2026-07-15-self-contained.jsonl": {
+      "sha256": "9b69ba7e32160b0c85db6ac7d36b57ded16ae4f944a6fb81de4798a5b59a77c6",
+      "git_blob": "a16eaad3c1536aeb4c45a843fc90544a7efbc642",
+      "bytes": 6099
+    },
+    "us/guidance/2026-05-17-ssa-automatic-determinations-2026.jsonl": {
+      "sha256": "7664e9d4dfc53681f4cc9e8f04d908805f69472e1bd2fb5e854331beca93a142",
+      "git_blob": "1dfacdc55ff9c8323f7470e22f2143634b8efdba",
+      "bytes": 20061
+    },
+    "us/guidance/2026-05-26-ssa-contribution-and-benefit-base-2024.jsonl": {
+      "sha256": "6f6eeac0d0c8090f32732588760bb78eee2018837e7672038a4fbcd84146f933",
+      "git_blob": "0c8e99f1cdbb17822e6ce7d6698bcc29dcb5875d",
+      "bytes": 2852
+    },
+    "us/guidance/2026-06-01-irs-rev-proc-2025-25-irs-rev-proc-2025-25.jsonl": {
+      "sha256": "7bbb1c17aa0bfb04479d2bcb51d1124412067d13010b5b9aef93e32218d87754",
+      "git_blob": "2a43a41b8db293cef515d3bca3a636c2cfec383a",
+      "bytes": 10391
+    },
+    "us/guidance/2026-07-03-dc-ossp-ssa-poms.jsonl": {
+      "sha256": "088a9073062b82374fb17be9023b723aa55ad1bf07d0b8ef29393636975d6947",
+      "git_blob": "77bae745b9a0c812d34b1f74278e8d92b5a1036d",
+      "bytes": 215732
+    },
+    "us/guidance/2026-07-05-ssa-cola-2026.jsonl": {
+      "sha256": "7e66da7602050ec650a27877fb9dcf6229a29122498ea2274ae24229a062ada3",
+      "git_blob": "fa2768c0937fa3ac8a62808672d6164883379bcd",
+      "bytes": 49646
+    },
+    "us/guidance/2026-07-08-snap-fy2024-cola.jsonl": {
+      "sha256": "cf95bd487adf1e2da2db4f94937031903ec0fa5f56afe5bc9c457d84c2639d47",
+      "git_blob": "df3e5eb1e6ddebffbf96e63188bd1c2131e65298",
+      "bytes": 14224
+    },
+    "us/guidance/2026-07-08-snap-qc-fy2024-technical-documentation.jsonl": {
+      "sha256": "d3312b709954ef5f231b4e0add2ef8cff441cea21192436e6e4eed4c54022ef3",
+      "git_blob": "7471c067fcd0a72a37fe0e7eeba9a68ef7a64e79",
+      "bytes": 729455
+    },
+    "us/guidance/2026-07-13-recovery.jsonl": {
+      "sha256": "bbb5283dbefc08dfee6c705375ccb52987c368083978a6a11f8d3323a8f127e1",
+      "git_blob": "f769a2bfde59782380041ccc9bf436dfeeb353c1",
+      "bytes": 270889
+    },
+    "us/guidance/2026-07-23-irs-notice-2025-67.jsonl": {
+      "sha256": "4838e2001b16f4afcb0b97b7a194743adbaa14da59cb30f5b06626551baa018f",
+      "git_blob": "e3ed1dd441791c664f64bbeadc4bf82039bb44ec",
+      "bytes": 22313
+    },
+    "us/guidance/2026-08-03-snap-obbb-abawd-exceptions-implementation-memo.jsonl": {
+      "sha256": "d7717b18377518de7a920e124b18dd9438de05c2c1f4b218331fbfe83fd5556d",
+      "git_blob": "577bc00104aae9c2f03a8bdc7368100ee49cca7f",
+      "bytes": 26084
+    },
+    "us/guidance/2026-08-07-snap-obbb-alien-eligibility-implementation-memo.jsonl": {
+      "sha256": "6475df5a213466d7998301a4541fb93aa5107c084dc6fc25ab695eac887c1a42",
+      "git_blob": "08e69d630ca8774106c31910a6277b461fe1ea5e",
+      "bytes": 41415
+    },
+    "us-ak/manual/2026-07-16-ak-snap-manual.jsonl": {
+      "sha256": "01b43cfbdfb219c5d89114cef469eaa2043855e12e33d790cd68986808f8cabb",
+      "git_blob": "ea30a13c4d3e18f09b223428123fc248fc769cdd",
+      "bytes": 1772069
+    },
+    "us-ak/guidance/2026-06-30-ak-apa-standards-ak-dpa-apa-standards-2026.jsonl": {
+      "sha256": "efd900fd44033b1f64dff017ca78c51d68ee6b951ff07b98e29539fc84ec3ead",
+      "git_blob": "9d4d28bf1038ae8650203d4966feaf0d57cd0340",
+      "bytes": 4717
+    },
+    "us-ak/guidance/2026-07-01-ak-atap-standards.jsonl": {
+      "sha256": "1323f678568e926d1fd1be274666b20654e7c6cbaee72355848b8eb7fa62bd25",
+      "git_blob": "226c417863e4fc9a7a3aff5a4e2ebe3f9903f3f6",
+      "bytes": 13956
+    },
+    "us-al/manual/2026-05-27-al-snap-poe-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "d3c43bffac6cf187ba640170984db471382fbb1ca507e7882275e96a727b773c",
+      "git_blob": "d2e844895c6f8aa9721ba49f0152faaceb73d5ee",
+      "bytes": 801359
+    },
+    "us-al/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "149b7b203d432c2719ea454baa65979a5fb7da8dee3eacb325575f7695dc5ce1",
+      "git_blob": "a194b7ada0e011610a4101197196676e15ec5fa5",
+      "bytes": 44830
+    },
+    "us-ar/manual/2026-07-16-ar-snap-manual.jsonl": {
+      "sha256": "0469f6a6d2dbd91e7861e5bfa260da95a2ebcfe486fba54f51da2f838829693e",
+      "git_blob": "eeff5312143ea579f75b3a892c9337ef3266d54c",
+      "bytes": 2777793
+    },
+    "us-az/manual/2025-10-30-az-des-faa5-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "35965089f0f21979670bda683f2b9c392d3c79efe787887518ad5d141fd08504",
+      "git_blob": "854a9ccd2e7ad7deece516db06404a7effb02b49",
+      "bytes": 31471
+    },
+    "us-az/manual/2026-06-25-az-ccap.jsonl": {
+      "sha256": "d83b08cbdf3d084112585529daeeb2aea3cdd92bc40a7ffe5d9651d7e045ae00",
+      "git_blob": "adebe99602d1b11db15b98a0c056f64545958cb0",
+      "bytes": 320305
+    },
+    "us-az/manual/2026-07-12-az-des-faa6-utility-amounts.jsonl": {
+      "sha256": "858d2cdcbe913367bc28b5a1812509610bd6ebb18cde5f9360dc2245ed997167",
+      "git_blob": "876f8b7fd87b1f33d80a04daec1485a433c24541",
+      "bytes": 4321
+    },
+    "us-az/manual/2026-07-17-faa5-recovery.jsonl": {
+      "sha256": "8175940d284808c43222bc1a90328344f39fcb42f38b29581c162994535fc932",
+      "git_blob": "dba3ec4de05fa5ddcea793ab757b2da4dfe00f7d",
+      "bytes": 361899
+    },
+    "us-ca/guidance/2025-09-03-ca-cdss-acin.jsonl": {
+      "sha256": "223bc0109bee37ef6bcca06fc8f86fd7f04e0eaf9c27a05868dd712a074b9f0d",
+      "git_blob": "e4535a257b6fb3ad8fda9b377c747c2655a7be88",
+      "bytes": 26595
+    },
+    "us-ca/guidance/2026-06-24-ca-cdss-calworks-acl.jsonl": {
+      "sha256": "d4a34f1241e5d8e4af624d0d1f45806f5be53b997fdadd2960a977aef6bcdf00",
+      "git_blob": "6eba6d05e68f05abf461a27ccd8c10609b10a546",
+      "bytes": 66767
+    },
+    "us-ca/guidance/2026-06-27-ca-dor-ssi-ssp-newsletter.jsonl": {
+      "sha256": "36fab8fd8ad5e4b2b81145839a943dcba88ea4b3f2e7e1f10125183695b094ff",
+      "git_blob": "b2b0b04d96ccdfe90dc75be354f2c4624a2565fb",
+      "bytes": 40693
+    },
+    "us-ca/guidance/2026-07-13-recovery.jsonl": {
+      "sha256": "ae4a13aa23b8b7ecaf4814e28e9f90be110848d3acfc93090dd11fb556b10262",
+      "git_blob": "90a4c95a95d9081693dbee53523171d9391b247d",
+      "bytes": 26283
+    },
+    "us-ca/guidance/2026-07-28-ca-cdss-calfresh-bbce-authority.jsonl": {
+      "sha256": "41f7997a9704cfa05b22a4e6873e2a6721e2e1d3f6822ac7d41ef72f4769675d",
+      "git_blob": "a8a8ffe84676f66f23be407d501cd482b07c6fb8",
+      "bytes": 166518
+    },
+    "us-ct/manual/2026-07-17-ct-snap-manual.jsonl": {
+      "sha256": "ab7776f91ca4422b76ef969e8b1c547342fe447c5aee0fc17d1ca5abfe5bc254",
+      "git_blob": "9d30ee1c00bd9c3b4f1ac82088a8a6a745e464dd",
+      "bytes": 2784635
+    },
+    "us-dc/manual/2026-07-17-dc-snap-manual.jsonl": {
+      "sha256": "25ba11fb0fd9229df5b76e4b5441383214d80694ecfc9966f2c704e641bd63da",
+      "git_blob": "4b2db5f52f7695224b942a0f9164769b45546762",
+      "bytes": 1407834
+    },
+    "us-dc/manual/2026-07-19-dc-child-care-subsidy.jsonl": {
+      "sha256": "771983245d98c9e32fd0c5250c5ca1e22e175def73851bc974e72ede5ccb236a",
+      "git_blob": "a08505708407efaf293fdc94718ec62ffb357da4",
+      "bytes": 231370
+    },
+    "us-de/guidance/2026-07-03-de-ssi-state-supplement-poms.jsonl": {
+      "sha256": "7b8a4e05aba19c441422df0d4d4af08b819312e6b31ab05cfcf1341506df6bc0",
+      "git_blob": "20b292dd86812ee9ee94b98037f72ecccf3af42b",
+      "bytes": 9637
+    },
+    "us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "df6457c68714d84da88e01d24e43f7b008b65cd0be61d1a1410ccc2ffe667b1b",
+      "git_blob": "9508ee069feee711df6249bce7f01aaec61f0d1c",
+      "bytes": 5055872
+    },
+    "us-fl/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "dc436075d980ef75f7827bfd59ddc81a3e97661fa83d1aefff738f4446ae87cf",
+      "git_blob": "cefd57789cb52b0d5b67ce161bdf460b450de32f",
+      "bytes": 7586
+    },
+    "us-ga/manual/2026-05-27-ga-snap-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "94851857003b1d678be9513cc0ae9306434c7f73e93e078fb2fc01344a616eb1",
+      "git_blob": "5c713c204c50b275860cb7cba297124eaa3366b0",
+      "bytes": 3500128
+    },
+    "us-ga/manual/2026-06-24-ga-ssp.jsonl": {
+      "sha256": "6b9e4da7323b5363eb0a1878cf922fbb680b0dabf9bb3db104b0162771ebb0e8",
+      "git_blob": "c6178dc1e715af55f230f6e8685c4f191720a9f8",
+      "bytes": 32391
+    },
+    "us-ga/manual/2026-06-25-ga-caps.jsonl": {
+      "sha256": "e5143513d0f11570afd7f0784df5d8b94899e72d6edc268e6483ea85d7bdab74",
+      "git_blob": "42a428c1cf04706547cc090d91081fd30a263814",
+      "bytes": 2220690
+    },
+    "us-ga/manual/2026-06-25-ga-tanf.jsonl": {
+      "sha256": "969301c7abced68f013cba41306b34bebc2793ce6a39059376c4e6c2dc9c136b",
+      "git_blob": "d3d1b01f8e16e7e232b02f77b01a8bd828d5bb29",
+      "bytes": 85793
+    },
+    "us-ga/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl": {
+      "sha256": "b5168dc6d8999cff9242d14ad7a789fb3794e1274cd1458d15b894e7f8c7465e",
+      "git_blob": "a932dbc539312a9792646a2ea35b75dcdd81198a",
+      "bytes": 31274
+    },
+    "us-ga/guidance/2026-06-25-ga-tanf.jsonl": {
+      "sha256": "248b2c5c4eebcc4c0b4c59b58afa4cda3b9e78e4373f2cdfd4057d9f125750ee",
+      "git_blob": "eabc89d5afbe2cb1d3861ff047d52d75c6f58578",
+      "bytes": 9342
+    },
+    "us-ia/manual/2026-07-17-ia-snap-manual.jsonl": {
+      "sha256": "7e28b901322e220afc90ad3c8a3340190126cf2128c80631ddbd6ecce7cf4a18",
+      "git_blob": "987d790171b036510b32e2b3e6aaad9c5a121248",
+      "bytes": 1572905
+    },
+    "us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "0ee5bcae1dfd3a609445d3cd1266f924f2bfd110d3083e044fae127b2c9141e4",
+      "git_blob": "c83a30d4035c91010ebec5851476a84652086614",
+      "bytes": 29101704
+    },
+    "us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl": {
+      "sha256": "799280cd6bd43b37d2a03fe4e2994fdb519df268a6141927364b28101fa1e47b",
+      "git_blob": "4ac37ebed247adeb3ae52b03e067157d323a4583",
+      "bytes": 9060
+    },
+    "us-il/guidance/2026-07-24-il-personal-exemption-guidance.jsonl": {
+      "sha256": "004372d4c4d8037cb781085b5ed511ccc691d77d4a607eae46f690a1c929fceb",
+      "git_blob": "53ef0ed7265b4329966afd4f6fbae0b13b4c7b0d",
+      "bytes": 11887
+    },
+    "us-in/manual/2026-05-27-in-snap-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "ff153fa0bc1631949c52a75cbd6b55cfc536dcd78ad757c1462c7a6bf705195e",
+      "git_blob": "dbbcefc15021c0077ffae72d4155a9a940bb4882",
+      "bytes": 1919360
+    },
+    "us-in/manual/2026-07-04-in-ssp-sapn.jsonl": {
+      "sha256": "158143a279d27c5f2e07231690b9ae5deb30aa1ab4651522cf4d1924663726b4",
+      "git_blob": "227373cef541e0b55570be698f3533bfefbe089e",
+      "bytes": 18825
+    },
+    "us-in/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "29f8ac30f87c475e8749afb7a7e2c525aac323afb2b50d42025cbdc43a40a1cf",
+      "git_blob": "ae663ee7fb648f7ac3cba6e2f2c4ad52117164c1",
+      "bytes": 4530
+    },
+    "us-in/guidance/2026-07-24-in-2026-individual-income-tax-source-hold.jsonl": {
+      "sha256": "24f8fd07ae768af35d1e197db4d0be73fed9e5a2a1601c0464f8d4ada0ddf74d",
+      "git_blob": "133ebfd3b7ff5c795e9642af59817b39fe7f1785",
+      "bytes": 15434
+    },
+    "us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl": {
+      "sha256": "a5314b07ab3b8171c6979d9f0583df87bd1f562b0a4cfd5d39df4ccd3cd8349f",
+      "git_blob": "abfe46cbcc912a582976d7c854114b04c7cdb59a",
+      "bytes": 2219205
+    },
+    "us-ks/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl": {
+      "sha256": "64023aa77ea152a90499a91b335351a7006b3db939cedde22dae8b3edcfbc165",
+      "git_blob": "a946842bf741aae4efc4c22e6a226cf40b35df8e",
+      "bytes": 10486
+    },
+    "us-ks/guidance/2026-07-04-ks-sspp-guidance.jsonl": {
+      "sha256": "b43fa062c35f08f5b0f00ed171e1a4aa2a63cecc992772c03ed69ef82cf04a52",
+      "git_blob": "b071eb6060544e7c864672674ad3a6ed662bd619",
+      "bytes": 20400
+    },
+    "us-ks/guidance/2026-07-21-ks-k40es-2026.jsonl": {
+      "sha256": "17d6e7c4fdfed6f3d28e173a08499d0ab75b4e7f159793e61fb494c4081a3bd0",
+      "git_blob": "a176f81f0c63ec800e19ed2990b4519721d7b735",
+      "bytes": 13229
+    },
+    "us-ks/guidance/2026-07-24-ks-2026-income-tax-rate-determination.jsonl": {
+      "sha256": "1a7e6fd4896bb7784b725fff4284595c383b03b33cf20a770767cc6dd460c4fe",
+      "git_blob": "9f80fe59bd89a2dcdf62deb9c806429f20e19ee8",
+      "bytes": 8700
+    },
+    "us-ky/manual/2026-07-17-ky-snap-manual.jsonl": {
+      "sha256": "61e1b246213b0ca2a9f9721f5e608287758afc26567d8d5ae60b37250d19eb15",
+      "git_blob": "c7423d7c393efeec2f310a5a540a4a9cb8c69b88",
+      "bytes": 1346531
+    },
+    "us-la/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "427c6b6b2f2bf4247b9c419a8e505666e2614794bb8f229a6d5a0209cc4745f8",
+      "git_blob": "2fa6571bd891bb943766dc62d36fc3424bf0a361",
+      "bytes": 8284
+    },
+    "us-la/manual/2026-07-17-la-snap-manual.jsonl": {
+      "sha256": "a8c7d1b761c24a1e05f79f7ea50f22970a71c5f679cf4d2ddac40efc6aff0313",
+      "git_blob": "51679316a7f0a374b65b2629c6012300cb609dec",
+      "bytes": 4750029
+    },
+    "us-ma/guidance/2025-11-17-dta-policy-online-snap-cola-sua-heating-cooling.jsonl": {
+      "sha256": "61b4d9e03448401a1bf589c45c040e4a027ee811658e808817689c06e0c3b916",
+      "git_blob": "f10eb7de8bcaf0688cb1c68080f389fdab069165",
+      "bytes": 1754
+    },
+    "us-ma/guidance/2025-11-17-dta-policy-online-snap-cola.jsonl": {
+      "sha256": "5dd76da4f9f4384df7064d88d85379bcf77e99c3fccbfcecf68d2a59c980291f",
+      "git_blob": "0dc4eaca71889376e37fd18ee46685dc30e89dc1",
+      "bytes": 4885
+    },
+    "us-ma/guidance/2026-07-22-ma-2026-surtax-guidance.jsonl": {
+      "sha256": "d2e7dc17a349dd1f8d305eb801295fadbd39b905cf1cdb13700d9c2f81a9a6dc",
+      "git_blob": "776ed63c8b894f79a778b31fab4a6c76b3c06144",
+      "bytes": 9299
+    },
+    "us-ma/guidance/2026-08-03-ma-dta-snap-cola-official-source-recovery.jsonl": {
+      "sha256": "c5431fa0a069da8eb355b68810a567b9e35cddcbd3debb4111d0693b61cd3cf6",
+      "git_blob": "f922b6032e342d6f74a6feaa21798423b4ae4677",
+      "bytes": 38612
+    },
+    "us-md/manual/2026-07-17-md-snap-manual.jsonl": {
+      "sha256": "d94019390c8bb1349cc976802aee53aaeaea2821fd1f535545dafc423eb990a3",
+      "git_blob": "c3b162fb2b27c547cf3d3f19020f119499c96bf3",
+      "bytes": 1519525
+    },
+    "us-md/guidance/2026-07-05-md-tca-2026-guidance.jsonl": {
+      "sha256": "67268c199dac651e8487162b1304e613dbd7f95411c43ad2e8864af8de88ca50",
+      "git_blob": "350b2bf07f55abe654d97225382e53307e560ae4",
+      "bytes": 12039
+    },
+    "us-md/guidance/2026-07-05-md-tca-guidance.jsonl": {
+      "sha256": "68346f93defc7d0065944b8f91d0bd8e2e2a9fd14efe18ddc5ca9ce2c25214e2",
+      "git_blob": "3726133c1c5a2048bcf99c90970ada91f9852f60",
+      "bytes": 12540
+    },
+    "us-md/guidance/2026-07-12-md-fia-snap-fy2026.jsonl": {
+      "sha256": "a3b9d1e6d9f562c03fd4a9fda3d48d91bb286d9c1239673a1fa7c387492ceaf2",
+      "git_blob": "0ffd3e41b681e04fdd21a201a9ecd66e1580b1ed",
+      "bytes": 52471
+    },
+    "us-me/guidance/2026-07-23-me-individual-income-tax-rates-2026.jsonl": {
+      "sha256": "44d02f78209843db3c66029977038f3f5aee92e652a0a1520a3f3dba90bfb555",
+      "git_blob": "3f693ef6a635c02f41b73994adfa1d709b34419b",
+      "bytes": 9790
+    },
+    "us-mi/manual/2026-06-27-mi-mdhhs-rft-248.jsonl": {
+      "sha256": "279d25fec96756a6f3f1d1cb4607318a2cb393e0052d71d3d9d40841c3eb8f8d",
+      "git_blob": "4cec7af8f4b82d3ee6e2d199cb37d203d7856a5e",
+      "bytes": 10093
+    },
+    "us-mi/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "89d4327f6141bb707ceafb88a47d27192353ed451d818beb5444f6be8a918ad6",
+      "git_blob": "6625a4d6f5df18ccbd864d094a46b64e4fd47e74",
+      "bytes": 18680
+    },
+    "us-mi/manual/2026-07-17-mi-bridges-manual.jsonl": {
+      "sha256": "4ee408c8a2a0fe24b52606f2a85b103baa13f72610baee5ea660ed62684f94e0",
+      "git_blob": "1f0e1614fe6d73905688ffe936202e94ce509624",
+      "bytes": 7384487
+    },
+    "us-mi/guidance/2026-07-21-mi-2026-income-tax-rate-notice.jsonl": {
+      "sha256": "8b215e0dd3ecf57cb186314450c9a78bab1f342282222d8fcf2e636f12d824c1",
+      "git_blob": "9a0f0920b545ac27ef0f441de4d94fe71306ec03",
+      "bytes": 5660
+    },
+    "us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "a24ccdcfa49952661f02a86f9d5753fcaa311c17c0989c0099cff1bbc6af92a5",
+      "git_blob": "4c6249853c9bf984636a1054a11bc818b4a1cddc",
+      "bytes": 4208312
+    },
+    "us-mn/manual/2026-06-27-mn-dhs-msa-revised-sections-2026-01.jsonl": {
+      "sha256": "f8bdc86cb2ca94407121a6f2c7ca417ad7d373d578d355df8a7189061f93b6a3",
+      "git_blob": "3f043dcd63fed5f2ff73108947142ae0260c416f",
+      "bytes": 28930
+    },
+    "us-mn/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "3d10ac0bc34d600bc75975b7c91fdbb23967ebcc11761f6a4ba9f06e9f3e3d0a",
+      "git_blob": "555b3274406929c61b499bed3830741f697e7b16",
+      "bytes": 6928506
+    },
+    "us-mn/guidance/2026-07-22-mn-income-tax-inflation-adjusted-amounts-2026.jsonl": {
+      "sha256": "bea6395688d0ebf45cd53f8b801913020ff89c7939d0e97d666526b00fe49557",
+      "git_blob": "72f8e8a8d846ba17c915d9767eee3d95e3862937",
+      "bytes": 14644
+    },
+    "us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "802e015a0d2d9175d9e3fe0eb3e8f01aa633f5bbf90353f8063fcc6c1e3791cc",
+      "git_blob": "491793970034f1f79ff0aaaaf48385b6d817b94a",
+      "bytes": 3033518
+    },
+    "us-mo/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "ae2f3a6667c27bc7f07342df931ff9ddd6f75b74926949ae46d0af324a1ba4d2",
+      "git_blob": "341e6ab04bccb23379a0e9c56ec08d3b45c25120",
+      "bytes": 4453
+    },
+    "us-ms/manual/2026-07-17-ms-snap-policy-manual.jsonl": {
+      "sha256": "e6d4fca111c2eb6663e2b3194c17e6511f55af499189efb861c99eb4f6531572",
+      "git_blob": "62537213db498b83c2a697c8429729b0ee0dda0a",
+      "bytes": 1017612
+    },
+    "us-mt/manual/2026-07-17-mt-snap-policy-manual.jsonl": {
+      "sha256": "fd5294d31a900e1095b14acf3967dac7d8350e927cf34fd8b8a166d96f2400bf",
+      "git_blob": "401d36f3ab9e28e9e7c09c2ccf0b7eaa14bc9016",
+      "bytes": 1493347
+    },
+    "us-nc/manual/2026-05-27-nc-fns-manuals-r2026-07-15-self-contained.jsonl": {
+      "sha256": "4d654db161545388e2f355ec19950d528812bc75c8b143b6d245280d3c316fc1",
+      "git_blob": "5f2e7c79b0e46d64629a3e7ee89e9c1e32be017f",
+      "bytes": 2567587
+    },
+    "us-nc/manual/2026-07-03-nc-work-first-manual.jsonl": {
+      "sha256": "587284e4503f25a0284ab4c8183359ef26cc8e74720c869ad847a52d62ae4017",
+      "git_blob": "3637f45548403cb1f97f0f70bdf2ce8d79d01372",
+      "bytes": 109179
+    },
+    "us-nc/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "d16ae1b8fb05cd8e7edec7a644c24a0e7799cba3d2644aa6c421ffe5cc77c855",
+      "git_blob": "70627e8312e2ca146b035e4f4f81d5150ac02ffa",
+      "bytes": 7388
+    },
+    "us-nd/manual/2026-05-27-nd-snap-manual.jsonl": {
+      "sha256": "0a97cb9054aa5cbe79e4d502aa441aa8004cc3d4124170cb766bfe31f7229fd2",
+      "git_blob": "461e574f0c7f28e6df300c5386c9f3b13a9c61b3",
+      "bytes": 1032250
+    },
+    "us-nd/manual/2026-07-21-nd-snap-manual.jsonl": {
+      "sha256": "faeb5569e773a5fe963461a14510fd7ca0c5b607973252fae5cb929d6f05b703",
+      "git_blob": "d1185a312e347d93a8deb8542a082ebd99fc44b8",
+      "bytes": 1058602
+    },
+    "us-nv/manual/2026-05-27-nv-eligibility-payments-manual-r2026-07-15-self-contained.jsonl": {
+      "sha256": "ee9b83aac58ac83d0f04f7c9cade97bc44e0b3d9459d044ac872407402a4e0de",
+      "git_blob": "ae88438fd7d0310aaf15bfdf5395baf2e432ee31",
+      "bytes": 3011614
+    },
+    "us-nv/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "abd08a7c01a636277e6eb62fa8d13d1546ea5b048a797960139d8858d30913ee",
+      "git_blob": "2ca06e39e7e3ffaeaa3607602650fcbf5bc3b24e",
+      "bytes": 103078
+    },
+    "us-ny/manual/2026-07-17-ny-snap-manuals.jsonl": {
+      "sha256": "a7e1d31a0ece8e0e64a883513fbedfad81c1a847b3e627d7a2eb38a46d93af9d",
+      "git_blob": "6594f7273e9da19c00df0e912eb72aa12db6919f",
+      "bytes": 2651897
+    },
+    "us-oh/guidance/2026-07-21-oh-hb96-final-analysis.jsonl": {
+      "sha256": "316e37feeb31b27013ad98fe8f1f4babc7a3cdae64ac342016a4b5f5d75af868",
+      "git_blob": "965d5b789e1c1153c358a8c65c015ccc3ec74ed9",
+      "bytes": 147375
+    },
+    "us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl": {
+      "sha256": "f0ce2f26eea4d11e8cc9f9aef0096f5274935d1950c1397663e9a8265e807e7b",
+      "git_blob": "3e8e17c803e72bf4418ffc5aa0a3eaaf27776f13",
+      "bytes": 5125748
+    },
+    "us-pa/manual/2026-07-21-pa-snap-handbook.jsonl": {
+      "sha256": "23ab0a15f6a9f075b41720b34314a4edcc03c7284f7d430d1c7a58faf8598819",
+      "git_blob": "f9a1ea8db37822495ceb5e6e4f1a558d179d940b",
+      "bytes": 3039141
+    },
+    "us-pa/guidance/2026-07-21-pa-personal-income-tax-rates.jsonl": {
+      "sha256": "cbdd85b4ed23d8d4f9cdad594777a9662099ba9068ed68c0e541b1548d6142dc",
+      "git_blob": "b967a3abf2b81b6b581dba8b139a9497d9f80413",
+      "bytes": 3478
+    },
+    "us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl": {
+      "sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+      "git_blob": "125b23b400f6625114aac9b5ad5e9c05aef4dedc",
+      "bytes": 20775
+    },
+    "us-sc/manual/2026-05-27-sc-snap-manual.jsonl": {
+      "sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+      "git_blob": "2bdfbd73fc5ee1ac64459f5e01dd3e89d4f1cb21",
+      "bytes": 1765816
+    },
+    "us-sc/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "54b8c4494ee7292c830ceee33804312b081117493589ece3aec9321166ac3074",
+      "git_blob": "d8274e06eaf1d3b80894ddb330343e36c2e018f8",
+      "bytes": 8786
+    },
+    "us-sd/manual/2026-05-27-sd-snap-manual.jsonl": {
+      "sha256": "b9b0ceb150d674f547e5638075c454ba468bb6b95276398c78b720faa0592fd4",
+      "git_blob": "7f9a953d77d9ec9754c68cace4e6586031411628",
+      "bytes": 1432267
+    },
+    "us-sd/manual/2026-07-21-sd-snap-manual.jsonl": {
+      "sha256": "6e655a296b8333c7d80b3deb7d536e5eea9fde65cbe615db373905656c9dc9ed",
+      "git_blob": "fbe61543e4de4207389d3d437db3abca42fac007",
+      "bytes": 1449919
+    },
+    "us-sd/guidance/2026-07-24-sd-personal-income-tax-zero-liability.jsonl": {
+      "sha256": "a7013957ce93f011230192149364a881d34eab2abc75fdfb80a7e01db4d02edc",
+      "git_blob": "ca42f664822fe704a877288de0c3e4ef3a95158d",
+      "bytes": 53323
+    },
+    "us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl": {
+      "sha256": "3bd08c8f293e4ee743b07e43bdb3e3ace40485f28add397d5851d77eaab38b3c",
+      "git_blob": "f29f6960cf3bd8dc3627e378af8069946fdaa54f",
+      "bytes": 868150
+    },
+    "us-tn/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "064377b8ee2b0bb279c22078b0feb6f8fff78ab44df809f1866245711fdc0827",
+      "git_blob": "cf8d2a55f13a14ccdb5911354e61a4e08bb4644b",
+      "bytes": 32960
+    },
+    "us-tn/guidance/2026-07-24-tn-individual-income-tax-zero-liability-guidance.jsonl": {
+      "sha256": "452796b29729cd556bde2092c79e9c9063c08c71b0f8255d351ca10c20d2e1ab",
+      "git_blob": "14fe4cb5477dbbbae51beb5df9e34619e8cd8f57",
+      "bytes": 8625
+    },
+    "us-tx/manual/2026-05-27-tx-manuals-r2026-07-15-self-contained.jsonl": {
+      "sha256": "215d6ae9b3edf164b6436ce3bec2c6796b4f251a826aac474a9ae38585ddb8a9",
+      "git_blob": "56b2ea44fc1323785bc25aed7801196d90745327",
+      "bytes": 1079473
+    },
+    "us-tx/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl": {
+      "sha256": "08379645df34931cbd55f6dc66a5d18c20e0e489805bfd68eb61ace31a8f39f1",
+      "git_blob": "851826032960470efffbd12e238ab0349e8a1a38",
+      "bytes": 38304
+    },
+    "us-tx/manual/2026-07-13-tx-twh-c120.jsonl": {
+      "sha256": "8ff9d0373da4d71fe1302b3658c5c72b44c5ca90448c5aa34c631db31d7c5d52",
+      "git_blob": "06ec51eeddd76301faccf6ce38f607c3055a7227",
+      "bytes": 30311
+    },
+    "us-ut/manual/2026-05-27-ut-manuals-r2026-07-15-self-contained.jsonl": {
+      "sha256": "9930f612a350dbd0ce6bfa636a32e2d7c6af2c498522927864e4f2cba74f1fce",
+      "git_blob": "43ebbdd42c39a7f30d48d165c7dd4788534bc06b",
+      "bytes": 6093290
+    },
+    "us-ut/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "edaf362364218f45666c63c75c930ee1e7ebb5c2621a73f97b27b9f47b08a8bb",
+      "git_blob": "9493b9345cbebf676d6dd3cbf8209f6a56aadc3a",
+      "bytes": 14605
+    },
+    "us-va/manual/2026-05-27-va-snap-manual.jsonl": {
+      "sha256": "00b5747b1d5898294ee3083efe3616c4bff654f7b983279548d04952f6dce257",
+      "git_blob": "4c44f2da93f719888ef017ac90e8fb38e1cc10ea",
+      "bytes": 2505469
+    },
+    "us-va/manual/2026-07-21-va-snap-manual.jsonl": {
+      "sha256": "8d451aa6ed4bad4e531443b999d66eef225c7b85280f460930ec055fd279db3c",
+      "git_blob": "a47c2194e8f3c935df469b3f115c6710dd1779b7",
+      "bytes": 2663973
+    },
+    "us-vt/manual/2026-05-27-vt-3squaresvt-manual.jsonl": {
+      "sha256": "a8f37dc440dece6b92d5f405709e24aebe623f7f92d9b16720b789f470c0f02a",
+      "git_blob": "25cec8e5c813cfef57c844ff48be266e167479fe",
+      "bytes": 2016035
+    },
+    "us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl": {
+      "sha256": "03befc8c1fa53c732c7c0d692f0e82b5553160982077825f0df1761c8bdfdafb",
+      "git_blob": "aaeea3bceac3b21a75bca7041ca34cd01f61722e",
+      "bytes": 2003872
+    },
+    "us-wa/manual/2026-07-21-wa-eaz-manual.jsonl": {
+      "sha256": "7dfd6337e8e9c5ca8c3ca129b34b6d378e06045ed95334126e0378fc7aa5a51b",
+      "git_blob": "3028ca0ce856d4afe15f0575591cefd785914695",
+      "bytes": 3454062
+    },
+    "us-wi/manual/2026-05-27-wi-foodshare-manual.jsonl": {
+      "sha256": "2afb6e711ca9b918324b646e14a61f9a865556193fb2547379fdd93c18a5c4da",
+      "git_blob": "01e02d629f6380d64882520426dcfb89dc878158",
+      "bytes": 1363313
+    },
+    "us-wi/manual/2026-07-21-wi-foodshare-manual.jsonl": {
+      "sha256": "1cf8c375721412519e44814b52657ad90f3376786175cef3a302fda5241f13d5",
+      "git_blob": "dade075f46184a1e95bc7fea93a4cd05fa15c956",
+      "bytes": 1445373
+    },
+    "us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl": {
+      "sha256": "6deddfc0b8b6f3b48de93be6982fb1707481c9653369a779d8f3d35e57747bee",
+      "git_blob": "22ca65e3b56e15e4faf44bc0ed7d91f1b327c0e1",
+      "bytes": 8097805
+    },
+    "us-wv/manual/2026-07-21-wv-snap-healthy-choices-overlay.jsonl": {
+      "sha256": "f85a78468afbd4cd5ba3193c763d53296665f3b137928c74b01c369b529e8823",
+      "git_blob": "23c06b057603faabd96f0571c8f06893dd172e26",
+      "bytes": 5929
+    },
+    "us-wy/manual/2026-05-27-wy-manuals-r2026-07-15-self-contained.jsonl": {
+      "sha256": "ec5a969633326f080a5f51388f3cd42e0e43f3d303a82e73d776e9b32faef228",
+      "git_blob": "dbbccd5a4f4ac5ecb06013aec865abd52d0d2dec",
+      "bytes": 193152
+    },
+    "us-wy/manual/2026-07-13-recovery.jsonl": {
+      "sha256": "e3da9e1632cb78df23630a325e4d5b3d78483a879cfb16841a089ae5f4ff60e3",
+      "git_blob": "dd53e44e1076a507bfaa43cf122af048df9ecd99",
+      "bytes": 506578
+    },
+    "us-wy/guidance/2026-07-24-wy-individual-income-tax-absence.jsonl": {
+      "sha256": "34d9dc6a0dcf0bb4ea4127ac293d83aff953389bbaa35cf3e1818a044f6b7991",
+      "git_blob": "3cd455d4a64a00427d0575d41cef112811dfff18",
+      "bytes": 9979
+    }
+  }
+}
