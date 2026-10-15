@@ -170,3 +170,42 @@ def test_actual_deferred_policy_consumers():
             rules_file=Path(relative),
             source_texts={citation: source},
         )
+
+
+@pytest.mark.parametrize("section_token", ["§", "section", "sec.", "Sec."])
+def test_bibliographic_section_abbreviation_requires_authoritative_scope(section_token):
+    source = (FIXTURES / "b-12-source.txt").read_text()
+    scope = ("b", "8")
+    summary = (
+        "(8) Repealed. Pub. L. 98-21, title III, "
+        + section_token
+        + " 324(b)(3)(B), Apr. 20, 1983, 97 Stat. 124."
+    )
+    assert vp._bibliographic_editorial_notice(summary)
+    assert issues(source, summary, scope) == []
+    assert issues(source, summary, ("b", "7"))
+    assert not vp._authoritative_deferred_editorial_source_slice(
+        "(b) Wages (1) Payments are taxable.", summary, scope
+    )
+    assert issues(source, summary + " Taxes remain payable.", scope)
+    cert = _certify(source, scope)
+    changed = (
+        source[: cert.notice_span[1]]
+        + " Taxes remain payable."
+        + source[cert.notice_span[1] :]
+    )
+    assert issues(changed, summary, scope)
+
+
+@pytest.mark.parametrize(
+    "section_token", ["sec", "secs.", "secret.", "sec..", "sec. eligibility"]
+)
+def test_bibliographic_section_abbreviation_rejects_incomplete_or_extended_tokens(
+    section_token,
+):
+    summary = (
+        "(8) Repealed. Pub. L. 98-21, title III, "
+        + section_token
+        + " 324(b)(3)(B), Apr. 20, 1983, 97 Stat. 124."
+    )
+    assert not vp._bibliographic_editorial_notice(summary)

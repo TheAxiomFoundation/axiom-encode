@@ -10,7 +10,7 @@ BIBLIOGRAPHIC_NOTICE = re.compile(
     r"\((?P<label>[1-9]\d*)\)\s*(?:Repealed|Omitted)\.\s+"
     r"Pub\.\s*L\.\s*\d+[-–]\d+,\s*"
     r"(?:div\.\s*[A-Z],\s*)?title\s+[IVXLCDM]+,\s*"
-    r"(?:§|section)\s*\d+(?:\([A-Za-z0-9]+\))*\s*,\s*"
+    r"(?:§|section|sec\.)\s*\d+(?:\([A-Za-z0-9]+\))*\s*,\s*"
     r"(?:Jan\.|January|Feb\.|February|Mar\.|March|Apr\.|April|May|"
     r"June|July|Aug\.|August|Sept\.|September|Oct\.|October|Nov\.|November|"
     r"Dec\.|December)\s+(?:[1-9]|[12]\d|3[01]),\s*\d{4}\s*,\s*"
