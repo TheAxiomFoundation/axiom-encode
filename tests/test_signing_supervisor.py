@@ -227,7 +227,26 @@ def main():
         result["roots"]["retired_apply_keys"] = [
             b64encode(key).decode("ascii") for key in broker.retired_apply_public_keys_raw
         ]
-        result["retired_apply_inventory"] = broker.retired_apply_inventory
+        result["retired_apply_inventory"] = {
+            "schema": "axiom-encode/retired-apply-inventory/v1",
+            "repositories": [
+                {
+                    "repository": repository["repository"],
+                    "cutoff_commit": repository["cutoff_commit"],
+                    "artifacts": [
+                        {
+                            "path": artifact["path"],
+                            "sha256": artifact["sha256"],
+                            "covered_files": [
+                                dict(covered) for covered in artifact["covered_files"]
+                            ],
+                        }
+                        for artifact in repository["artifacts"].values()
+                    ],
+                }
+                for repository in broker.retired_apply_inventory.values()
+            ],
+        }
     if os.environ.get("CODEX_HOME"):
         metadata = codex_home.stat()
         result["codex_home_mode"] = metadata.st_mode & 0o777

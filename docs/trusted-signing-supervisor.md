@@ -525,6 +525,17 @@ an already frozen commit must explicitly use `guard-generated --retrospective`;
 its actual checkout head must equal or precede the trusted cutoff, and its
 `--head-ref` must be `HEAD` or that exact SHA.
 
+The broker validates and detaches the inventory once at attachment, exposing a
+deeply immutable index by repository and artifact path. Each guard invocation
+owns fresh repository-history and covered-source caches, including retrospective
+preflight. Successful repository checks (identity, complete history,
+graft/replacement exclusion and cutoff ancestry) are snapshots
+for that operation and resolved HEAD only. Each admission rereads HEAD. Direct
+admission checks its own frozen blobs, live bytes, coverage and supersession
+history. Nested guards have independent caches; return or exception discards
+the operation's caches.
+Calls outside an operation do not share history caches.
+
 Nested retirement, migration, legacy replacement, and retained successor
 evidence uses the same protected inventory. Each retired signature must identify
 the exact embedded historical payload preserved by a frozen inventoried
