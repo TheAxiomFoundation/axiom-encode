@@ -4,11 +4,11 @@
   "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
   "release_object_sha256": "8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a",
   "script_sha256": "c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca",
-  "baseline_module_sha256": "c5b9079804159acc3520002ca32e45bc4b6da390c7e7bda9a698adb3082378de",
-  "current_module_sha256": "791ad310260cfebe943d9d411e4c0dff0dc43e78b9751cfe44e28b46981cb382",
+  "baseline_module_sha256": "875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62",
+  "current_module_sha256": "b3f687fd6dd664b7dc7452f4e71048c5690b9b44a821efb03080ce45f0eb1b14",
   "status": "passed",
-  "reproducer_sha256": "92d551114adc27ece17c24f45a7ab4eb257763ad656b23d91ed191738c46426a",
-  "baseline_commit": "86a1f911a338cb071e0ed660d1282714034b6dc4",
+  "reproducer_sha256": "5178432ed1f89aeda789702f98e6eb53d7a4fd23baebe5a34e688f9651a878b5",
+  "baseline_commit": "4f3547461300bfa70569f57c83728b2ad25d9d0b",
   "release_url": "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/us-rulespec-2026-08-08-obbb-alien-snap/0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc.json",
   "release_object_bytes": 7150325,
   "public_keys": [
@@ -39,7 +39,7 @@
   "batches": [
     {
       "artifact_start": 0,
-      "artifact_end": 5,
+      "artifact_end": 10,
       "row_ranges": [
         {
           "artifact_index": 0,
@@ -85,19 +85,7 @@
           "artifact_row_count": 149,
           "selected_row_count": 149,
           "physical_row_count": 149
-        }
-      ],
-      "completion_sha256": "db0884b509232af9ed8a7de2e04fb5f7d20049e544b491496949453497f89950",
-      "elapsed_seconds": 114.505,
-      "rows_sha256": "1e81f1d6f625f82303b9feaf3fd91cffbdfd510fee1083d6a947e4cf6c1c8a3d",
-      "rows_bytes": 408274,
-      "removals_sha256": "4ae712cda314eda75962f35f8737e25d45972e78b2154b60d5908be2e7027c25",
-      "removals_bytes": 2505
-    },
-    {
-      "artifact_start": 5,
-      "artifact_end": 10,
-      "row_ranges": [
+        },
         {
           "artifact_index": 5,
           "path": "data/corpus/provisions/us-al/manual/2026-07-13-recovery.jsonl",
@@ -144,12 +132,12 @@
           "physical_row_count": 7
         }
       ],
-      "completion_sha256": "67011295f5f4f06d979b429c496aa2c602667b81b7761ccca44dd094a0fbe514",
-      "elapsed_seconds": 111.936,
-      "rows_sha256": "68817f7214d29d1459702e9c0c4681701eaed43aa1301a6f608163823c19e173",
-      "rows_bytes": 521510,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
+      "completion_sha256": "135bd2cee53a274c29b19cab9fc9725927d6cb47d88e6cd1a39aa446748f4934",
+      "elapsed_seconds": 46.993,
+      "rows_sha256": "a4e2b0b823ff0a54529138145cdaca124aa80ab058908f2aa79f1fd25685546d",
+      "rows_bytes": 929784,
+      "removals_sha256": "4ae712cda314eda75962f35f8737e25d45972e78b2154b60d5908be2e7027c25",
+      "removals_bytes": 2505
     },
     {
       "artifact_start": 10,
@@ -246,8 +234,8 @@
           "physical_row_count": 5
         }
       ],
-      "completion_sha256": "27775cca7b7d2b88d425396286fb2e02acd54d1554f6f27ede524c5d567925cb",
-      "elapsed_seconds": 73.1,
+      "completion_sha256": "4c552af05bb2048530872c97f5fba4db130389bc0405133f0d89be34f0b8baec",
+      "elapsed_seconds": 16.731,
       "rows_sha256": "1539f42c7d5867921292d832c13c9c2cd113ad97160dd8bb6de2430ed8a28ee8",
       "rows_bytes": 223585,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -348,8 +336,8 @@
           "physical_row_count": 2
         }
       ],
-      "completion_sha256": "55eedfa51d2fa4484f07dc2aa8f069a0e6bdb00c5f1b89a533fbc5e340738665",
-      "elapsed_seconds": 282.469,
+      "completion_sha256": "d049efa8b331658da5e439f9d5a0b31352edd364d1f5465e41ddde33d95de928",
+      "elapsed_seconds": 37.54,
       "rows_sha256": "d11cc3fbcb4b262602b452d8245220092f517d2f2a4a809565468c1f4bc31760",
       "rows_bytes": 1549163,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -357,7 +345,7 @@
     },
     {
       "artifact_start": 30,
-      "artifact_end": 33,
+      "artifact_end": 40,
       "row_ranges": [
         {
           "artifact_index": 30,
@@ -385,19 +373,7 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        }
-      ],
-      "completion_sha256": "c2aa07600d9748bf56106002f0b311ed17956a7b08b482b6ebb165c75b5727e8",
-      "elapsed_seconds": 64.872,
-      "rows_sha256": "93f47cf5b986c8ff59cca97251df01f87dc7685e33421e66a2dcfd10bcec177e",
-      "rows_bytes": 657246,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 33,
-      "artifact_end": 36,
-      "row_ranges": [
+        },
         {
           "artifact_index": 33,
           "path": "data/corpus/provisions/us-dc/statute/2026-07-16-pit-east-title-47.jsonl",
@@ -424,61 +400,16 @@
           "artifact_row_count": 6,
           "selected_row_count": 6,
           "physical_row_count": 6
-        }
-      ],
-      "completion_sha256": "3ce82bd3f924a4623dfdde2c9abc67817aedf9942cd1cffa464cadf6774fd5df",
-      "elapsed_seconds": 402.357,
-      "rows_sha256": "88f0cf4709b4031758f36015af9fd8dcb2fdcd73583b2cdc4c81d77b48a01d2c",
-      "rows_bytes": 1235476,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 36,
-      "artifact_end": 37,
-      "row_ranges": [
+        },
         {
           "artifact_index": 36,
           "path": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
           "row_start": 0,
-          "row_end": 550,
-          "artifact_row_count": 1107,
-          "selected_row_count": 550,
-          "physical_row_count": 1107
-        }
-      ],
-      "completion_sha256": "698c3c9db944bb198dfafb28012ad8df4b1e65e9ce2d0fd5d374bd0d733f2c02",
-      "elapsed_seconds": 242.854,
-      "rows_sha256": "9d128275d3e228dae39886a04d3dbfe480a3af4cb920826f0382e21824e8e3d3",
-      "rows_bytes": 374675,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 36,
-      "artifact_end": 37,
-      "row_ranges": [
-        {
-          "artifact_index": 36,
-          "path": "data/corpus/provisions/us-fl/manual/2026-05-27-fl-ess-manual-r2026-07-15-self-contained.jsonl",
-          "row_start": 550,
           "row_end": 1107,
           "artifact_row_count": 1107,
-          "selected_row_count": 557,
+          "selected_row_count": 1107,
           "physical_row_count": 1107
-        }
-      ],
-      "completion_sha256": "b83432e4a4dac0a3d9751f334ae49449a8a46f19ff4e5ecfbd0492de10d0366e",
-      "elapsed_seconds": 168.003,
-      "rows_sha256": "d3bb1b09c87fff5ade6f97e7e90264f41da482632ad05b6debd5ab3a55b4db3d",
-      "rows_bytes": 379486,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 37,
-      "artifact_end": 40,
-      "row_ranges": [
+        },
         {
           "artifact_index": 37,
           "path": "data/corpus/provisions/us-fl/manual/2026-07-13-recovery.jsonl",
@@ -507,16 +438,16 @@
           "physical_row_count": 4
         }
       ],
-      "completion_sha256": "78adf3e7fb5cb3febc190b89fc41839bceca85bc6dce61927bef533a6ccf089b",
-      "elapsed_seconds": 159.848,
-      "rows_sha256": "c8ba1717be4d11dfc1884d2b8c591384d2d7e731c9e4623c7c88410d99052732",
-      "rows_bytes": 10356,
+      "completion_sha256": "8bb4831223d7598a226c2a8856381b4fbbc14e7551b46d7b81bd290b74dc359c",
+      "elapsed_seconds": 44.874,
+      "rows_sha256": "d851068bb898b2f03d6a3100d0cbc14d607610ded4da93f5df1eb4c725d43040",
+      "rows_bytes": 2657239,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "removals_bytes": 0
     },
     {
       "artifact_start": 40,
-      "artifact_end": 41,
+      "artifact_end": 50,
       "row_ranges": [
         {
           "artifact_index": 40,
@@ -526,19 +457,7 @@
           "artifact_row_count": 1214,
           "selected_row_count": 1214,
           "physical_row_count": 1214
-        }
-      ],
-      "completion_sha256": "83a761d713ef7355ba1a6409543bcd2c1f995061969d76b0451e35c34b662d0c",
-      "elapsed_seconds": 208.215,
-      "rows_sha256": "65040892c4071098620cdbdfb1a75c44763f1ce2c74ca64b667d844d3b2a935a",
-      "rows_bytes": 795133,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 41,
-      "artifact_end": 44,
-      "row_ranges": [
+        },
         {
           "artifact_index": 41,
           "path": "data/corpus/provisions/us-ga/manual/2026-06-25-ga-caps.jsonl",
@@ -565,61 +484,16 @@
           "artifact_row_count": 13,
           "selected_row_count": 13,
           "physical_row_count": 13
-        }
-      ],
-      "completion_sha256": "f00603d3cbf4229afac0cdd95e31f132f3ce8c969826c118597c7b7baa33e201",
-      "elapsed_seconds": 134.727,
-      "rows_sha256": "2da31909bb592dbe7a626284c6cf61874ffdb911592c66bb1cc95cc67bcf94df",
-      "rows_bytes": 353334,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 44,
-      "artifact_end": 45,
-      "row_ranges": [
+        },
         {
           "artifact_index": 44,
           "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
           "row_start": 0,
-          "row_end": 660,
-          "artifact_row_count": 1320,
-          "selected_row_count": 660,
-          "physical_row_count": 1320
-        }
-      ],
-      "completion_sha256": "76d8cb273d0cfa292411b89390a0dc0c92436e2fc6a2bce7069bd0427b13855a",
-      "elapsed_seconds": 142.393,
-      "rows_sha256": "93838b76598ec5d4fd3dcc86849e2ba77ef68f3acb0a2f80d5aa9d57d3d12bd3",
-      "rows_bytes": 417081,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 44,
-      "artifact_end": 45,
-      "row_ranges": [
-        {
-          "artifact_index": 44,
-          "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
-          "row_start": 660,
           "row_end": 1320,
           "artifact_row_count": 1320,
-          "selected_row_count": 660,
+          "selected_row_count": 1320,
           "physical_row_count": 1320
-        }
-      ],
-      "completion_sha256": "efc78a782daf9c5977c99423e9984247eb7a8f5ce046f8a3e8c75edd67816e9e",
-      "elapsed_seconds": 133.287,
-      "rows_sha256": "556064cab229aa1daea89b189ac6dca2a343c6bdb1094b4ede8faf78f118a1dd",
-      "rows_bytes": 416966,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 45,
-      "artifact_end": 50,
-      "row_ranges": [
+        },
         {
           "artifact_index": 45,
           "path": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-pit-session-laws.jsonl",
@@ -666,16 +540,16 @@
           "physical_row_count": 9
         }
       ],
-      "completion_sha256": "f381ca6185dcce1a86ef456327310013f0b7c571891bacee6bc1cf25eac92768",
-      "elapsed_seconds": 89.574,
-      "rows_sha256": "338d1d5f49e661d732c3df34daec4f2ba35117949b817c6ea730369d497beb78",
-      "rows_bytes": 379148,
+      "completion_sha256": "2887e44551c2d1576739574b9163d981fb9454f275bc4aecd738a50d7b64b5d5",
+      "elapsed_seconds": 49.716,
+      "rows_sha256": "25dba578f6b95f49bbc95a9d54c325c1967c91178f78ba99b1659bb32fa6610f",
+      "rows_bytes": 2361662,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "removals_bytes": 0
     },
     {
       "artifact_start": 50,
-      "artifact_end": 53,
+      "artifact_end": 60,
       "row_ranges": [
         {
           "artifact_index": 50,
@@ -703,124 +577,16 @@
           "artifact_row_count": 6,
           "selected_row_count": 6,
           "physical_row_count": 6
-        }
-      ],
-      "completion_sha256": "829e160aab97f43988109c8eca9cd5fd7744ae47b942184a7eb4867a68d0773a",
-      "elapsed_seconds": 79.838,
-      "rows_sha256": "6671a937cabb0b99956274e14962f956668d6cd2e6986d16b3501493add14bbc",
-      "rows_bytes": 85757,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 53,
-      "artifact_end": 54,
-      "row_ranges": [
+        },
         {
           "artifact_index": 53,
           "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
           "row_start": 0,
-          "row_end": 100,
-          "artifact_row_count": 12450,
-          "selected_row_count": 100,
-          "physical_row_count": 12450
-        }
-      ],
-      "completion_sha256": "a7a5c623d6a40335ac0454082a6f565912d94400bdbf05ae85c13396c0e6636a",
-      "elapsed_seconds": 66.576,
-      "rows_sha256": "29e4a85f8b4ea269b1decf47a50485dda8e277450806671fb7cd1e4b287d8574",
-      "rows_bytes": 64413,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 53,
-      "artifact_end": 54,
-      "row_ranges": [
-        {
-          "artifact_index": 53,
-          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
-          "row_start": 100,
-          "row_end": 1100,
-          "artifact_row_count": 12450,
-          "selected_row_count": 1000,
-          "physical_row_count": 12450
-        }
-      ],
-      "completion_sha256": "f0b98eb6aa4126f7f79b2bbc89cfc8add759a85afc84af0423851ab4c0366f42",
-      "elapsed_seconds": 42.936,
-      "rows_sha256": "c5e477962095ff53b1fe4069a4d978eddf9f13134dd1056677eb8cc5e47b5801",
-      "rows_bytes": 645123,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 53,
-      "artifact_end": 54,
-      "row_ranges": [
-        {
-          "artifact_index": 53,
-          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
-          "row_start": 1100,
-          "row_end": 3100,
-          "artifact_row_count": 12450,
-          "selected_row_count": 2000,
-          "physical_row_count": 12450
-        }
-      ],
-      "completion_sha256": "e7c83642462b108dfed51901cd331266318bccd0b8c09c630340b6076fb7702f",
-      "elapsed_seconds": 60.391,
-      "rows_sha256": "587cc15a39c959d48c384d4a5e211c6270e79385450dc530b4a35bf5e8a89ea2",
-      "rows_bytes": 1292173,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 53,
-      "artifact_end": 54,
-      "row_ranges": [
-        {
-          "artifact_index": 53,
-          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
-          "row_start": 3100,
-          "row_end": 8100,
-          "artifact_row_count": 12450,
-          "selected_row_count": 5000,
-          "physical_row_count": 12450
-        }
-      ],
-      "completion_sha256": "19bb19e672634eb23909d592acacfea061809bb9f3037ce96273ee6a6b240f31",
-      "elapsed_seconds": 146.075,
-      "rows_sha256": "543e484375efec1375815bd24cb25401b35ddf3d97798ae88c733dfe8615fc52",
-      "rows_bytes": 3257017,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 53,
-      "artifact_end": 54,
-      "row_ranges": [
-        {
-          "artifact_index": 53,
-          "path": "data/corpus/provisions/us-il/manual/2026-05-27-il-cash-snap-medical-manual-r2026-07-15-self-contained.jsonl",
-          "row_start": 8100,
           "row_end": 12450,
           "artifact_row_count": 12450,
-          "selected_row_count": 4350,
+          "selected_row_count": 12450,
           "physical_row_count": 12450
-        }
-      ],
-      "completion_sha256": "dbcb4339bdd1c79fd87581e6b7e425d81d4bbdf2d5ad16a0b3f15610c78a88d7",
-      "elapsed_seconds": 157.258,
-      "rows_sha256": "395c3b0d6bba90e9a07513cef3af8737c703729ddb631a117d99ef27ca19c390",
-      "rows_bytes": 2847932,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 54,
-      "artifact_end": 63,
-      "row_ranges": [
+        },
         {
           "artifact_index": 54,
           "path": "data/corpus/provisions/us-il/manual/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
@@ -874,7 +640,19 @@
           "artifact_row_count": 484,
           "selected_row_count": 484,
           "physical_row_count": 484
-        },
+        }
+      ],
+      "completion_sha256": "3fc2a8bd328d60dc5e129e862941cb8f3d4ffd9870566783af2b910b1e3da7ee",
+      "elapsed_seconds": 57.39,
+      "rows_sha256": "8ff1004cfe8dff58503be6ad56041b3a8b8fa8d66d0a214b54e9cee7685e34cf",
+      "rows_bytes": 9607099,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 60,
+      "artifact_end": 70,
+      "row_ranges": [
         {
           "artifact_index": 60,
           "path": "data/corpus/provisions/us-in/manual/2026-07-04-in-ssp-sapn.jsonl",
@@ -901,82 +679,16 @@
           "artifact_row_count": 10,
           "selected_row_count": 10,
           "physical_row_count": 10
-        }
-      ],
-      "completion_sha256": "924811124c6d8a30520c72e4d1b9d2154dcc39e70fdf341be4564da2184c072e",
-      "elapsed_seconds": 190.021,
-      "rows_sha256": "e299bc51c99a4070317d604fb2d7c09c7c588abd642fbd415043a00b14202ace",
-      "rows_bytes": 1427001,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 63,
-      "artifact_end": 64,
-      "row_ranges": [
+        },
         {
           "artifact_index": 63,
           "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
           "row_start": 0,
-          "row_end": 2000,
-          "artifact_row_count": 5530,
-          "selected_row_count": 2000,
-          "physical_row_count": 5530
-        }
-      ],
-      "completion_sha256": "8738e56f36697fd0f5883b746c1aef617f9015e0f6ef0d4a05cb792fd99cb5b2",
-      "elapsed_seconds": 355.062,
-      "rows_sha256": "dc92de7ddc34252c9566dabf32db67ec995ad3f426ae9c06c0b8f1754e7a11aa",
-      "rows_bytes": 1225035,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 63,
-      "artifact_end": 64,
-      "row_ranges": [
-        {
-          "artifact_index": 63,
-          "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
-          "row_start": 2000,
-          "row_end": 4000,
-          "artifact_row_count": 5530,
-          "selected_row_count": 2000,
-          "physical_row_count": 5530
-        }
-      ],
-      "completion_sha256": "41b5c57921fa9e1de03ab145d2841e4dd15ddbb899ef6e953ab9795656d516f5",
-      "elapsed_seconds": 113.457,
-      "rows_sha256": "d8c8b2ed0b82485cc9a7ad1e287cd66c5b5221afde26838658a9df98180762f1",
-      "rows_bytes": 1223980,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 63,
-      "artifact_end": 64,
-      "row_ranges": [
-        {
-          "artifact_index": 63,
-          "path": "data/corpus/provisions/us-in/statute/2026-07-16-pit-east-us-in-title-6.jsonl",
-          "row_start": 4000,
           "row_end": 5530,
           "artifact_row_count": 5530,
-          "selected_row_count": 1530,
+          "selected_row_count": 5530,
           "physical_row_count": 5530
-        }
-      ],
-      "completion_sha256": "aed8a9e96e72aeb5589704d570e6472adb408dd582a9002e42f2d660f0a8825b",
-      "elapsed_seconds": 49.773,
-      "rows_sha256": "c672fffd3a2df0bb37d0fdc80b14a0f9f8c58fe590666e18bf8dbfe622fd9fd0",
-      "rows_bytes": 933900,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 64,
-      "artifact_end": 67,
-      "row_ranges": [
+        },
         {
           "artifact_index": 64,
           "path": "data/corpus/provisions/us-ks/guidance/2026-07-04-ks-sspp-guidance.jsonl",
@@ -1003,19 +715,7 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        }
-      ],
-      "completion_sha256": "7e269ec6cee4c58bb0908ea07d3824c7d97ae7009deef028895fc069cec3a2fd",
-      "elapsed_seconds": 27.16,
-      "rows_sha256": "3ac3838b135e07f8f5536d011214949573873dd326f85ddbb266c99399744deb",
-      "rows_bytes": 5869,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 67,
-      "artifact_end": 75,
-      "row_ranges": [
+        },
         {
           "artifact_index": 67,
           "path": "data/corpus/provisions/us-ks/manual/2026-05-27-ks-keesm-r2026-07-15-self-contained.jsonl",
@@ -1042,7 +742,19 @@
           "artifact_row_count": 445,
           "selected_row_count": 445,
           "physical_row_count": 445
-        },
+        }
+      ],
+      "completion_sha256": "5ff358e0e2316e7b23f2d73cc7253d022660f93222c1d77bfc821f03ab994097",
+      "elapsed_seconds": 139.163,
+      "rows_sha256": "a3398a083624859080822ff79e94ca6a149dc84e0ce4bd0694de3373772b487b",
+      "rows_bytes": 4003795,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 70,
+      "artifact_end": 80,
+      "row_ranges": [
         {
           "artifact_index": 70,
           "path": "data/corpus/provisions/us-ks/statute/2026-07-24-ks-resident-income-tax-core.jsonl",
@@ -1087,82 +799,16 @@
           "artifact_row_count": 1483,
           "selected_row_count": 1483,
           "physical_row_count": 1483
-        }
-      ],
-      "completion_sha256": "36e4e4e07df9f7aab0e25db2d9a23264958789a32bdee3fe6e78de1539a3b941",
-      "elapsed_seconds": 168.306,
-      "rows_sha256": "e15d050ceaab852038b07fe5c9a733e117135ad522b4c64e5772d898f7dd4388",
-      "rows_bytes": 1912452,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 75,
-      "artifact_end": 76,
-      "row_ranges": [
+        },
         {
           "artifact_index": 75,
           "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
           "row_start": 0,
-          "row_end": 1000,
-          "artifact_row_count": 2664,
-          "selected_row_count": 1000,
-          "physical_row_count": 2664
-        }
-      ],
-      "completion_sha256": "f691315f1fbf1921de72a2abd2ef2928449b2ab2af0cf598108d90c971690ef9",
-      "elapsed_seconds": 222.436,
-      "rows_sha256": "7e944680a71647a5ac5905473f99f4ed36a5b774c890503785475bcca8374249",
-      "rows_bytes": 630175,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 75,
-      "artifact_end": 76,
-      "row_ranges": [
-        {
-          "artifact_index": 75,
-          "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
-          "row_start": 1000,
-          "row_end": 2000,
-          "artifact_row_count": 2664,
-          "selected_row_count": 1000,
-          "physical_row_count": 2664
-        }
-      ],
-      "completion_sha256": "2f8d78937e7d9e95aa4f7c13e8253c677f0d9680c3a932c2cfcd42ccf50e6e0a",
-      "elapsed_seconds": 397.721,
-      "rows_sha256": "35ea3eae43e39b0d115f7c16d05e5b04cc6b18b4a8ee78eb10d12ec68be9a166",
-      "rows_bytes": 631116,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 75,
-      "artifact_end": 76,
-      "row_ranges": [
-        {
-          "artifact_index": 75,
-          "path": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
-          "row_start": 2000,
           "row_end": 2664,
           "artifact_row_count": 2664,
-          "selected_row_count": 664,
+          "selected_row_count": 2664,
           "physical_row_count": 2664
-        }
-      ],
-      "completion_sha256": "8ab535ff3b53b06f739239e7740d46dd9797daefca139404163c03ee92cfdb11",
-      "elapsed_seconds": 376.322,
-      "rows_sha256": "9d01d56385b9094f3389fa8c504d4dce6bb81674f9f73606352c20099c85573c",
-      "rows_bytes": 418496,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 76,
-      "artifact_end": 81,
-      "row_ranges": [
+        },
         {
           "artifact_index": 76,
           "path": "data/corpus/provisions/us-ma/guidance/2026-07-22-ma-2026-surtax-guidance.jsonl",
@@ -1198,7 +844,19 @@
           "artifact_row_count": 4,
           "selected_row_count": 4,
           "physical_row_count": 4
-        },
+        }
+      ],
+      "completion_sha256": "22a7b9f5cdbec93299d45b6c1b3e460309c9fec2211b685c3475933ec7894784",
+      "elapsed_seconds": 141.717,
+      "rows_sha256": "c3e3c099417cd9de247e9df9ace4b2d85ced990866e0e03308d737658dd89477",
+      "rows_bytes": 3028348,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 80,
+      "artifact_end": 86,
+      "row_ranges": [
         {
           "artifact_index": 80,
           "path": "data/corpus/provisions/us-md/guidance/2026-07-12-md-fia-snap-fy2026.jsonl",
@@ -1207,19 +865,7 @@
           "artifact_row_count": 18,
           "selected_row_count": 18,
           "physical_row_count": 18
-        }
-      ],
-      "completion_sha256": "4831d2a68401710fe1d21abb0807ad368e03d3e8e9be550bf63e0650bee96667",
-      "elapsed_seconds": 198.94,
-      "rows_sha256": "70441f6f087dc2be75b9a13d1585a1166d82ddd0289278e17c96c558291998d0",
-      "rows_bytes": 50028,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 81,
-      "artifact_end": 86,
-      "row_ranges": [
+        },
         {
           "artifact_index": 81,
           "path": "data/corpus/provisions/us-md/manual/2026-07-17-md-snap-manual.jsonl",
@@ -1266,10 +912,10 @@
           "physical_row_count": 2
         }
       ],
-      "completion_sha256": "f81e05c870a49ab44c60c4eb0bd81ea51a1f19e6cd74a87aa19e2fc851356a96",
-      "elapsed_seconds": 175.948,
-      "rows_sha256": "af2808dc2fb93b65d586b9e8f24aa05d665237e49e685d089dec52ef4af1ebbe",
-      "rows_bytes": 252471,
+      "completion_sha256": "d9abbecae70fa96c55a3bdc52c738479286877b6f8f753f6f7347dee187d23c0",
+      "elapsed_seconds": 28.183,
+      "rows_sha256": "549d94ddd76ce4a49e082e1ac3517cc6f72d2a090f8e8d1d77a6fd173d44fa3f",
+      "rows_bytes": 263696,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "removals_bytes": 0
     },
@@ -1287,8 +933,8 @@
           "physical_row_count": 2310
         }
       ],
-      "completion_sha256": "327b8e5cc49d7a14071743bce7836613057b985c6b5d564e00789d29d4725e0a",
-      "elapsed_seconds": 154.864,
+      "completion_sha256": "40ad50ac6e38b4c85aebfdd3b08f3cb49659576dc37767c868746edff3c52f14",
+      "elapsed_seconds": 53.577,
       "rows_sha256": "b70aa24f1c6fc9cac13f1e750b92ea0b171e7da0fa3ad56fe0e256b9a498a3a0",
       "rows_bytes": 718016,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1308,8 +954,8 @@
           "physical_row_count": 2310
         }
       ],
-      "completion_sha256": "91ebb9de8fb0c6417d4f3f66a9a237dc337d7ca980f8e97c7225cffe09f5e938",
-      "elapsed_seconds": 133.574,
+      "completion_sha256": "cd92c5fc21fff96f0a50031969323b9572443cf882361921b096d37d4f2ec6eb",
+      "elapsed_seconds": 44.029,
       "rows_sha256": "0f3f6f2e8b7a289f77962d2fb1718ddc80f8230d1902fb5a9c4a61a2dfcc61d0",
       "rows_bytes": 718465,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -1317,7 +963,7 @@
     },
     {
       "artifact_start": 87,
-      "artifact_end": 89,
+      "artifact_end": 90,
       "row_ranges": [
         {
           "artifact_index": 87,
@@ -1336,19 +982,7 @@
           "artifact_row_count": 5,
           "selected_row_count": 5,
           "physical_row_count": 5
-        }
-      ],
-      "completion_sha256": "b3533cd1fab19a74b383de1aa32a1a0e932870c3cdf00c0cc3e2ff477f9922e2",
-      "elapsed_seconds": 70.612,
-      "rows_sha256": "e7d8fd6618cdca2bf0cecb348e1df48e74f7c65117f016ee61ab0c75f7c61b33",
-      "rows_bytes": 12553,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 89,
-      "artifact_end": 90,
-      "row_ranges": [
+        },
         {
           "artifact_index": 89,
           "path": "data/corpus/provisions/us-mn/manual/2026-05-27-mn-combined-manual-r2026-07-15-self-contained.jsonl",
@@ -1359,59 +993,26 @@
           "physical_row_count": 1354
         }
       ],
-      "completion_sha256": "d38c76a271bb9b9e9a0565c1309ec25d8b5139c1f1fd646e40e63db15257deef",
-      "elapsed_seconds": 111.089,
-      "rows_sha256": "923f11d801b8a2e53306b6a7e2771742bb8d2edf047029fa27f09fdf1b01fa0b",
-      "rows_bytes": 891416,
+      "completion_sha256": "3b04fe48ed0cff3b7a9828f6260b99f3c5ccc3205a04f1987a470f9cd796188e",
+      "elapsed_seconds": 63.714,
+      "rows_sha256": "b21a422c87cbc9ab71772ad0be64fa64573fc62c3fc0e9d144256ae534c87d01",
+      "rows_bytes": 903969,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "removals_bytes": 0
     },
     {
       "artifact_start": 90,
-      "artifact_end": 91,
+      "artifact_end": 100,
       "row_ranges": [
         {
           "artifact_index": 90,
           "path": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
           "row_start": 0,
-          "row_end": 1354,
-          "artifact_row_count": 2708,
-          "selected_row_count": 1354,
-          "physical_row_count": 2708
-        }
-      ],
-      "completion_sha256": "5de5c41d1c37ef74923245335c6d45a06750140a68ea199f76f14e774eb51b2a",
-      "elapsed_seconds": 143.471,
-      "rows_sha256": "38178584c1102d3b642f2cb3098997745b4f87c993c0bfc6aa60222a52201b2d",
-      "rows_bytes": 892770,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 90,
-      "artifact_end": 91,
-      "row_ranges": [
-        {
-          "artifact_index": 90,
-          "path": "data/corpus/provisions/us-mn/manual/2026-07-13-recovery.jsonl",
-          "row_start": 1354,
           "row_end": 2708,
           "artifact_row_count": 2708,
-          "selected_row_count": 1354,
+          "selected_row_count": 2708,
           "physical_row_count": 2708
-        }
-      ],
-      "completion_sha256": "2f97f877aeb05965e1e476ea519a4aa8c0d867fde6b27a7f94b8518893e5de70",
-      "elapsed_seconds": 96.427,
-      "rows_sha256": "9464c9920cba590de67afa27fb8141457eb6a8e1c0b93dcea10ef8e3756725cf",
-      "rows_bytes": 870859,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 91,
-      "artifact_end": 92,
-      "row_ranges": [
+        },
         {
           "artifact_index": 91,
           "path": "data/corpus/provisions/us-mn/statute/2026-07-13-recovery.jsonl",
@@ -1420,19 +1021,7 @@
           "artifact_row_count": 125,
           "selected_row_count": 125,
           "physical_row_count": 125
-        }
-      ],
-      "completion_sha256": "090be544069d9e87232815be037549e03bc87b265644225176d5530947dec516",
-      "elapsed_seconds": 51.391,
-      "rows_sha256": "13afd6c5f66adddb8fce7a67a3e3017e24587013357fbd3618225b5b467f41ca",
-      "rows_bytes": 75152,
-      "removals_sha256": "95db7f7cc12ca20d6e02ff67e885fe14dd54e7eb005ce89d05c4433778144307",
-      "removals_bytes": 39635
-    },
-    {
-      "artifact_start": 92,
-      "artifact_end": 99,
-      "row_ranges": [
+        },
         {
           "artifact_index": 92,
           "path": "data/corpus/provisions/us-mo/manual/2026-05-27-mo-snap-manual-r2026-07-15-self-contained.jsonl",
@@ -1495,19 +1084,7 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        }
-      ],
-      "completion_sha256": "b55fbc0660c31bd5a1a88a75b21bd0feee2dc2b4604b06f7b9a232f3e453cf06",
-      "elapsed_seconds": 95.835,
-      "rows_sha256": "60457c392e867432a78c8b953b2827855f8900f46f57aac773bf954fae770b41",
-      "rows_bytes": 1342623,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 99,
-      "artifact_end": 100,
-      "row_ranges": [
+        },
         {
           "artifact_index": 99,
           "path": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
@@ -1518,12 +1095,12 @@
           "physical_row_count": 2392
         }
       ],
-      "completion_sha256": "92897a6520f4849eb1ec9b6f418514b61335b92ff809f1deaacce9ca80ba236f",
-      "elapsed_seconds": 70.291,
-      "rows_sha256": "45879bcc97f14844afae6bc5531fa0ab6907a7e71035fd9402bbfbe08d9986e4",
-      "rows_bytes": 1469342,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
+      "completion_sha256": "b8b9659603c1a3a0a7f77f0e66ac40fb98c415981cd91149377be5de95c94e11",
+      "elapsed_seconds": 232.98,
+      "rows_sha256": "bf58434b5ac8726eda7158be8f0d59f5d2f7c2a4904b154681d111be65644f1b",
+      "rows_bytes": 4650746,
+      "removals_sha256": "95db7f7cc12ca20d6e02ff67e885fe14dd54e7eb005ce89d05c4433778144307",
+      "removals_bytes": 39635
     },
     {
       "artifact_start": 100,
@@ -1620,8 +1197,8 @@
           "physical_row_count": 256
         }
       ],
-      "completion_sha256": "0db91a2687b4e3eb02543682f52bb3572fae9ac0cac2a030b5d8df8adf7770e2",
-      "elapsed_seconds": 364.481,
+      "completion_sha256": "150815e950189d5c41bdcbc5ac3dcc475cb9e8acc862f1d303f098ce6ebb14ee",
+      "elapsed_seconds": 259.801,
       "rows_sha256": "386aa35e7bbda2b10d1b5bc607f3cbc99dc4fa87102ebc0308f376ff69cd53c4",
       "rows_bytes": 938639,
       "removals_sha256": "d651971e05e589e74a51c2d64000d7473bba05826a96067b9b3ba0894606d9c9",
@@ -1629,7 +1206,7 @@
     },
     {
       "artifact_start": 110,
-      "artifact_end": 115,
+      "artifact_end": 120,
       "row_ranges": [
         {
           "artifact_index": 110,
@@ -1675,19 +1252,7 @@
           "artifact_row_count": 4,
           "selected_row_count": 4,
           "physical_row_count": 4
-        }
-      ],
-      "completion_sha256": "215a4a5351e4a4e85db3374810a6ba0db64be3662fc496227ba848ac6d6d32ac",
-      "elapsed_seconds": 93.722,
-      "rows_sha256": "1571bcd1f011ceca3219bd6441832dbb3a06887744ef023428488800bc28bcaf",
-      "rows_bytes": 1752268,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 115,
-      "artifact_end": 121,
-      "row_ranges": [
+        },
         {
           "artifact_index": 115,
           "path": "data/corpus/provisions/us-ny/manual/2026-07-17-ny-snap-manuals.jsonl",
@@ -1732,7 +1297,19 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        },
+        }
+      ],
+      "completion_sha256": "8841f3c18f0719fd1c842119bef073e9d40703f738df0b077d23f4c7b3ff715c",
+      "elapsed_seconds": 95.963,
+      "rows_sha256": "ac5a36b0fb7f96b1cbbb9b0c50695112260ff01e68856110d2d0a4624a47c8ec",
+      "rows_bytes": 1980027,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 120,
+      "artifact_end": 130,
+      "row_ranges": [
         {
           "artifact_index": 120,
           "path": "data/corpus/provisions/us-oh/statute/2026-07-13-recovery.jsonl",
@@ -1741,61 +1318,16 @@
           "artifact_row_count": 12,
           "selected_row_count": 12,
           "physical_row_count": 12
-        }
-      ],
-      "completion_sha256": "cfcee5a1aa2feb86bca6ce2e9524eafaac73b047f2b965b82affffaa58ae6464",
-      "elapsed_seconds": 134.264,
-      "rows_sha256": "9f6629fb7a65475bb0d939cbe23c25fb49725e8257e1b456078cebe2a0dc5136",
-      "rows_bytes": 234933,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 121,
-      "artifact_end": 122,
-      "row_ranges": [
+        },
         {
           "artifact_index": 121,
           "path": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
           "row_start": 0,
-          "row_end": 920,
-          "artifact_row_count": 1841,
-          "selected_row_count": 920,
-          "physical_row_count": 1841
-        }
-      ],
-      "completion_sha256": "1751510109155138e997b02e446b7b5686579ce521c6673152c3c41c8630c094",
-      "elapsed_seconds": 121.391,
-      "rows_sha256": "7b68853e0cd691a117a4a23a39181f4545eacf142b5ede5c508f5fbd99246d05",
-      "rows_bytes": 583914,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 121,
-      "artifact_end": 122,
-      "row_ranges": [
-        {
-          "artifact_index": 121,
-          "path": "data/corpus/provisions/us-ok/statute/2026-07-16-pit-central-us-ok-title-68-r2026-07-24-immutable.jsonl",
-          "row_start": 920,
           "row_end": 1841,
           "artifact_row_count": 1841,
-          "selected_row_count": 921,
+          "selected_row_count": 1841,
           "physical_row_count": 1841
-        }
-      ],
-      "completion_sha256": "b06760dfee0e9b38a42eceaac84187a2356600832bcfc5ddf7c4983303af0483",
-      "elapsed_seconds": 75.405,
-      "rows_sha256": "def534c1ddda522caf620e58bbef9d6984c99fa3b8dad6da9285947706bdc00a",
-      "rows_bytes": 585341,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 122,
-      "artifact_end": 127,
-      "row_ranges": [
+        },
         {
           "artifact_index": 122,
           "path": "data/corpus/provisions/us-or/manual/2026-07-16-or-programs-eligibility-notebook.jsonl",
@@ -1840,19 +1372,7 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        }
-      ],
-      "completion_sha256": "88665c1e60a23c4b6d8edabff3cd391d3a8e716a5096213b2aee46425c4e008b",
-      "elapsed_seconds": 140.875,
-      "rows_sha256": "0f75cf38d14a05acd6b1186934762118ffa8d1b6a83541ea0f5e7d41969749db",
-      "rows_bytes": 1146753,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 127,
-      "artifact_end": 137,
-      "row_ranges": [
+        },
         {
           "artifact_index": 127,
           "path": "data/corpus/provisions/us-pa/manual/2026-07-21-pa-snap-handbook.jsonl",
@@ -1879,7 +1399,19 @@
           "artifact_row_count": 5,
           "selected_row_count": 5,
           "physical_row_count": 5
-        },
+        }
+      ],
+      "completion_sha256": "cc696202817a8d1eca16550e768ad43960541c25cf5a6bdbf1dea17df4303529",
+      "elapsed_seconds": 201.496,
+      "rows_sha256": "348f94d2859b1a63cd373017b184078a8778ac2f6557889a8fbe6d96a64a6787",
+      "rows_bytes": 3097041,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 130,
+      "artifact_end": 140,
+      "row_ranges": [
         {
           "artifact_index": 130,
           "path": "data/corpus/provisions/us-ri/statute/2026-07-13-recovery.jsonl",
@@ -1942,19 +1474,7 @@
           "artifact_row_count": 2,
           "selected_row_count": 2,
           "physical_row_count": 2
-        }
-      ],
-      "completion_sha256": "61e5f17b6219dcb3c6c7d7a64258f087620fdd873ca1fad0c2db02b53f78a31e",
-      "elapsed_seconds": 198.996,
-      "rows_sha256": "2d1c7a7ddeae6dd1eeee0c29fb4c502a58d1de8a7967c76345cc205cac8b2117",
-      "rows_bytes": 1226304,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 137,
-      "artifact_end": 147,
-      "row_ranges": [
+        },
         {
           "artifact_index": 137,
           "path": "data/corpus/provisions/us-sd/manual/2026-07-21-sd-snap-manual.jsonl",
@@ -1981,7 +1501,19 @@
           "artifact_row_count": 4,
           "selected_row_count": 4,
           "physical_row_count": 4
-        },
+        }
+      ],
+      "completion_sha256": "90c01f3587803534680921e058f5a48da43f670381fa004440d1bcdfe55a6e03",
+      "elapsed_seconds": 29.452,
+      "rows_sha256": "8ab666d40f48b6e95f03e81062543afb9002688f9bb2028481be1f0d66328a33",
+      "rows_bytes": 672213,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 140,
+      "artifact_end": 150,
+      "row_ranges": [
         {
           "artifact_index": 140,
           "path": "data/corpus/provisions/us-tn/manual/2026-05-27-tn-snap-policies-r2026-07-15-self-contained.jsonl",
@@ -2044,19 +1576,7 @@
           "artifact_row_count": 7,
           "selected_row_count": 7,
           "physical_row_count": 7
-        }
-      ],
-      "completion_sha256": "e3e4e9b1a6de6ab42fd3172e2ff569706967377d2cec930bd9b6a1d527deb1e6",
-      "elapsed_seconds": 376.176,
-      "rows_sha256": "23f54751fe53d3b67c489c761ae6057568f46ff4989f8db5caf210c6644c07ad",
-      "rows_bytes": 2479981,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 147,
-      "artifact_end": 157,
-      "row_ranges": [
+        },
         {
           "artifact_index": 147,
           "path": "data/corpus/provisions/us-ut/statute/2026-07-13-recovery.jsonl",
@@ -2083,7 +1603,19 @@
           "artifact_row_count": 8,
           "selected_row_count": 8,
           "physical_row_count": 8
-        },
+        }
+      ],
+      "completion_sha256": "d9866cee4b2484e0e0c3e5020e9f927d3ae955b1a893e42c47c374ce8b872dca",
+      "elapsed_seconds": 30.726,
+      "rows_sha256": "fd62df3b067c16fc3cfd942b061dd72ede269a6bfe129bbb2ce5483198716c61",
+      "rows_bytes": 2686958,
+      "removals_sha256": "9c38fab101be9413de3067d8e148a8c9e4851029debf82a7a0507d6904b7c058",
+      "removals_bytes": 26741
+    },
+    {
+      "artifact_start": 150,
+      "artifact_end": 160,
+      "row_ranges": [
         {
           "artifact_index": 150,
           "path": "data/corpus/provisions/us-vt/manual/2026-07-21-vt-3squaresvt-manual.jsonl",
@@ -2146,19 +1678,7 @@
           "artifact_row_count": 116,
           "selected_row_count": 116,
           "physical_row_count": 116
-        }
-      ],
-      "completion_sha256": "a01ce64e33c20109d6b9727ad196a80f9176432730833c4439cd53acf28a8328",
-      "elapsed_seconds": 361.382,
-      "rows_sha256": "eb8bf6c47ce518d69e4f4204d94cefdf534f8dc580af16a5428e6ce7c7f233e4",
-      "rows_bytes": 2287263,
-      "removals_sha256": "9c38fab101be9413de3067d8e148a8c9e4851029debf82a7a0507d6904b7c058",
-      "removals_bytes": 26741
-    },
-    {
-      "artifact_start": 157,
-      "artifact_end": 167,
-      "row_ranges": [
+        },
         {
           "artifact_index": 157,
           "path": "data/corpus/provisions/us-wv/manual/2026-07-21-wv-income-maintenance-manual.jsonl",
@@ -2185,7 +1705,19 @@
           "artifact_row_count": 10,
           "selected_row_count": 10,
           "physical_row_count": 10
-        },
+        }
+      ],
+      "completion_sha256": "864c59f1aa2583d3ac5a5b55365853efa201e628e5d15e114760ce87dcf6bee5",
+      "elapsed_seconds": 87.97,
+      "rows_sha256": "3efb306beceadaa4dd7310b1445e62cac61cc0813c62ad0464c8663e51053e3b",
+      "rows_bytes": 3333563,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 160,
+      "artifact_end": 170,
+      "row_ranges": [
         {
           "artifact_index": 160,
           "path": "data/corpus/provisions/us-wv/statute/2026-07-16-pit-west-us-wv-chapter-11-article-21.jsonl",
@@ -2248,19 +1780,7 @@
           "artifact_row_count": 3,
           "selected_row_count": 3,
           "physical_row_count": 3
-        }
-      ],
-      "completion_sha256": "0b1cc7a428dd15476d99f9b60c8453a34ce2be6f6d8059e369f7a3841aaacd8b",
-      "elapsed_seconds": 146.942,
-      "rows_sha256": "818a898b737ffc184ce86296a30c463a4fdd1a51fd4eccb85d7aae50d42c8c99",
-      "rows_bytes": 1616598,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 167,
-      "artifact_end": 177,
-      "row_ranges": [
+        },
         {
           "artifact_index": 167,
           "path": "data/corpus/provisions/us/guidance/2026-05-17-ssa-automatic-determinations-2026.jsonl",
@@ -2287,7 +1807,19 @@
           "artifact_row_count": 72,
           "selected_row_count": 72,
           "physical_row_count": 72
-        },
+        }
+      ],
+      "completion_sha256": "ec6675b20acf3904cf55cce88cf779885799ed3979ee461f23e22185dfe105ed",
+      "elapsed_seconds": 28.444,
+      "rows_sha256": "d30516186290062996dd955cfd52cbe532409811fa3a4ed13bee8c600a5e9307",
+      "rows_bytes": 196195,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 170,
+      "artifact_end": 180,
+      "row_ranges": [
         {
           "artifact_index": 170,
           "path": "data/corpus/provisions/us/guidance/2026-07-05-ssa-cola-2026.jsonl",
@@ -2350,19 +1882,7 @@
           "artifact_row_count": 25,
           "selected_row_count": 25,
           "physical_row_count": 25
-        }
-      ],
-      "completion_sha256": "113d6de3b07bf95753f3979cabe106ce5e10b39cc90b971c3fd2b781174710c4",
-      "elapsed_seconds": 215.793,
-      "rows_sha256": "fda57e4c8010973ab6235c22d122c5ad6a71d8d5a42efd094dd1a3edc9aafb72",
-      "rows_bytes": 299584,
-      "removals_sha256": "c4779732761157ee5a364eaa7c8ab1f6fd889aa06e0752e56dfff87abfdf39f7",
-      "removals_bytes": 2490
-    },
-    {
-      "artifact_start": 177,
-      "artifact_end": 182,
-      "row_ranges": [
+        },
         {
           "artifact_index": 177,
           "path": "data/corpus/provisions/us/statute/2026-06-24-doe-rebates-title-42-title-42-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
@@ -2389,7 +1909,19 @@
           "artifact_row_count": 12,
           "selected_row_count": 12,
           "physical_row_count": 12
-        },
+        }
+      ],
+      "completion_sha256": "4f9f68f3231c88b592e4582d7cb55ba554e37931c607ab3e877ddb5c6c44e175",
+      "elapsed_seconds": 22.908,
+      "rows_sha256": "e9e963718d065d61653924ed6e65b0fe07ade91c17a851244f461d7e2c3dcd6b",
+      "rows_bytes": 363811,
+      "removals_sha256": "c4779732761157ee5a364eaa7c8ab1f6fd889aa06e0752e56dfff87abfdf39f7",
+      "removals_bytes": 2490
+    },
+    {
+      "artifact_start": 180,
+      "artifact_end": 182,
+      "row_ranges": [
         {
           "artifact_index": 180,
           "path": "data/corpus/provisions/us/statute/2026-07-03-us-usc-26-85-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
@@ -2409,10 +1941,10 @@
           "physical_row_count": 276
         }
       ],
-      "completion_sha256": "8ed4d21d15ca09835dae8d9996d198194aba63dc25d6ed56e177c6bd5d5fae99",
-      "elapsed_seconds": 195.126,
-      "rows_sha256": "4eaa19a43a84650db6ff50b37071f2a0c483f10f8180f35874f3bfc8892ed3c0",
-      "rows_bytes": 289468,
+      "completion_sha256": "6d41d0bdc7172c2344caf922cd40b33cf27859c4b8e8cd9dfca7962657d728e0",
+      "elapsed_seconds": 34.8,
+      "rows_sha256": "4b08603cca56cf8225560d12c9c4192adc58077b664d0461de24cbf8c588baab",
+      "rows_bytes": 172599,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "removals_bytes": 0
     },
@@ -2430,8 +1962,8 @@
           "physical_row_count": 2453
         }
       ],
-      "completion_sha256": "fa74e6446544c375529baa203cbb806a5d08d19b3fdc52611eb3565665294cf4",
-      "elapsed_seconds": 305.105,
+      "completion_sha256": "a33a1c9585d0cb3801917653a72fe6de1b713ca14ed2319bce38a84b75ebc37b",
+      "elapsed_seconds": 34.609,
       "rows_sha256": "4ce677fcb02ce0d0da145a35eca337c6cb6576901540128933378d27d3085469",
       "rows_bytes": 638388,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -2451,8 +1983,8 @@
           "physical_row_count": 2453
         }
       ],
-      "completion_sha256": "713f8e5b86cddb12046fed9444a4af5113052e85e44c32e4b3099fb1c35bf93b",
-      "elapsed_seconds": 135.332,
+      "completion_sha256": "3bd4e32d7917e84cf68e9169b81149ace4bde14d4eabb25aab6b086661f90c50",
+      "elapsed_seconds": 28.425,
       "rows_sha256": "0fe9d4a63fc4df6555dc1ec1ba8184df9bf65345d0e8158e1554ea8b98331c82",
       "rows_bytes": 637292,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -2472,8 +2004,8 @@
           "physical_row_count": 2453
         }
       ],
-      "completion_sha256": "03c157bbe4a5bc33590f50b0639dc52ce68dbbd4ff2f34a537f4efcfaf1d5464",
-      "elapsed_seconds": 161.132,
+      "completion_sha256": "a4b2a5595218e866af3cdf6dde35ae6383fc15c877ec6e8d10d07b2e10eafc49",
+      "elapsed_seconds": 19.618,
       "rows_sha256": "ffbf355273cecc195f4bbe36c78a65e3a59030074da17b4e3153fd1dac36fcdf",
       "rows_bytes": 289067,
       "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -2481,7 +2013,7 @@
     },
     {
       "artifact_start": 183,
-      "artifact_end": 185,
+      "artifact_end": 190,
       "row_ranges": [
         {
           "artifact_index": 183,
@@ -2500,19 +2032,7 @@
           "artifact_row_count": 295,
           "selected_row_count": 295,
           "physical_row_count": 295
-        }
-      ],
-      "completion_sha256": "4143832542fe9b78a87675433f905f1b92f2d0f23dc8813d5cdd8b6d80668f96",
-      "elapsed_seconds": 278.001,
-      "rows_sha256": "aa618c2a3207769fc2b50f159ee4e153b96e847655aff8926f88a5548065367b",
-      "rows_bytes": 208407,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 185,
-      "artifact_end": 187,
-      "row_ranges": [
+        },
         {
           "artifact_index": 185,
           "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-12-title-12-r2026-07-18-dedup.jsonl",
@@ -2530,19 +2050,7 @@
           "artifact_row_count": 13,
           "selected_row_count": 13,
           "physical_row_count": 13
-        }
-      ],
-      "completion_sha256": "b81195970749139fe39d0ea00aef9255a6dea70885c08da86245bf2ad0227c6d",
-      "elapsed_seconds": 165.13,
-      "rows_sha256": "073c9c7006db94a88998d25ce496c7af027aee4148b4ac709befd99f2f668efb",
-      "rows_bytes": 306428,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 187,
-      "artifact_end": 192,
-      "row_ranges": [
+        },
         {
           "artifact_index": 187,
           "path": "data/corpus/provisions/us/statute/2026-07-17-hr6644-dependency-closure-title-26-title-26-r2026-07-18-dedup.jsonl",
@@ -2569,7 +2077,19 @@
           "artifact_row_count": 305,
           "selected_row_count": 305,
           "physical_row_count": 305
-        },
+        }
+      ],
+      "completion_sha256": "e7bb05b02d25e4328b09e09f3a4d5cb4f1a05fa07350fcaac9540557cb22b3cb",
+      "elapsed_seconds": 52.408,
+      "rows_sha256": "c93089b7fbbe9ff3e54633f5130fdf26dbee9c0caf605d47301b7e63215df60a",
+      "rows_bytes": 801101,
+      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "removals_bytes": 0
+    },
+    {
+      "artifact_start": 190,
+      "artifact_end": 196,
+      "row_ranges": [
         {
           "artifact_index": 190,
           "path": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-42-consolidated.jsonl",
@@ -2587,19 +2107,7 @@
           "artifact_row_count": 862,
           "selected_row_count": 862,
           "physical_row_count": 862
-        }
-      ],
-      "completion_sha256": "2f695202e1fb6092c90f78314ac908acf396f1a6977af7b50548640ace4910c1",
-      "elapsed_seconds": 243.507,
-      "rows_sha256": "3019a80f0d700345965f60ce410af1a9fc3c0e0025f9883640f9faa0c857dd01",
-      "rows_bytes": 1478023,
-      "removals_sha256": "16e6815a6a0223ae084d2ecf63a6be9d694766e5dcbb095c09729a467f208e84",
-      "removals_bytes": 28121
-    },
-    {
-      "artifact_start": 192,
-      "artifact_end": 194,
-      "row_ranges": [
+        },
         {
           "artifact_index": 192,
           "path": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
@@ -2617,19 +2125,7 @@
           "artifact_row_count": 1709,
           "selected_row_count": 1709,
           "physical_row_count": 1709
-        }
-      ],
-      "completion_sha256": "632a78e5fbaf032434134adf73ffa6027e4f9edb48f197662ec58ec051217536",
-      "elapsed_seconds": 124.55,
-      "rows_sha256": "e2437f79d455ba6cf38e39e5680a32113634ffdc51b6db6476c9ccde5e4de1d2",
-      "rows_bytes": 1552465,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
-    },
-    {
-      "artifact_start": 194,
-      "artifact_end": 196,
-      "row_ranges": [
+        },
         {
           "artifact_index": 194,
           "path": "data/corpus/provisions/us/statute/2026-08-03-rulespec-title-26-current-union.jsonl",
@@ -2649,12 +2145,12 @@
           "physical_row_count": 326
         }
       ],
-      "completion_sha256": "ff2d517eeb9d4de5671118b9e388dda14be273818fb24c3d8dd028648592b67a",
-      "elapsed_seconds": 83.71,
-      "rows_sha256": "23936fed0234268fbf05254b94cfd78d0abbffe07e46697c3985b984af42e5c7",
-      "rows_bytes": 698810,
-      "removals_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "removals_bytes": 0
+      "completion_sha256": "1ef6c4afa6a12ecc448a1b641f74cce51ec7a4172a319660aff429e980969917",
+      "elapsed_seconds": 88.462,
+      "rows_sha256": "586f2a32da6aee251dc4d26860e7a7c6b07573d6367da094136fca46c241f5ac",
+      "rows_bytes": 3443032,
+      "removals_sha256": "16e6815a6a0223ae084d2ecf63a6be9d694766e5dcbb095c09729a467f208e84",
+      "removals_bytes": 28121
     }
   ],
   "checked_rows": 79687,
@@ -2677,7 +2173,7 @@
   "full_artifact_row_counts_verified": true,
   "ledgers": {
     "rows": {
-      "sha256": "fb944bbb31c0361ff1af3195b59362cb7e47a9a9237cba91552adb78712e88ea",
+      "sha256": "f19e64c7f9f8034423f5e92d6e622c790ebd5f118d18fe1ef33b63177977de05",
       "bytes": 50865493
     },
     "removals": {

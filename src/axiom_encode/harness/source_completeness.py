@@ -13841,14 +13841,12 @@ def _english_subdivision_numeric_recall_spans(
         complete = statutory_tail or _ENGLISH_SUBDIVISION_REFERENCE_BOUNDARY.match(
             source_text, citation.end()
         )
-        # A suffix letter can be a unit (`3 m`, `3m`). Parenthesized letters
-        # identify hierarchy; an unparenthesized suffix remains ambiguous.
+        # A suffix letter can be a unit (`3 m`, `3m`, `15m a`). Parenthesized
+        # letters identify hierarchy; any unparenthesized suffix is ambiguous.
         ambiguous_labels = {
             label.span()
             for label in labels
-            if re.search(
-                r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])(?:\([A-Za-z]\))*$", label.group()
-            )
+            if re.search(r"\d(?:[A-Za-z]|[ \t]+[A-Za-z])", label.group())
         }
         if ambiguous_labels:
             complete = False

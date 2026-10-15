@@ -407,6 +407,58 @@ def test_possessive_counts_and_single_letter_units_are_operative(source, locator
     _assert_quantity_source(QuantitySource(source, locator_spans))
 
 
+@pytest.mark.parametrize(
+    "source",
+    (
+        "A land subdivision 2 or 3 m.",
+        "Under subdivision 2 or 3 m.",
+    ),
+)
+def test_ambiguous_coordinated_single_letter_units_keep_every_number(source):
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
+def test_singular_statutory_range_keeps_every_number():
+    source = "Under subdivision 3 to 5 of this section."
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
+def test_shared_quantity_coordination_keeps_every_number():
+    source = "Under subdivision 2, 3 or 4 children are eligible."
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "Land subdivision 15m x.",
+        "Each lot in the subdivision 15m a.",
+    ),
+)
+def test_two_letter_suffixes_keep_the_quantity(source):
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
+@given(
+    quantity=st.integers(min_value=1, max_value=999),
+    gap=st.sampled_from(("", " ", "\t")),
+    first=st.sampled_from(
+        tuple("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    ),
+    second=st.one_of(
+        st.none(),
+        st.sampled_from(tuple("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")),
+    ),
+)
+@example(quantity=15, gap="", first="m", second="x")
+@example(quantity=15, gap=" ", first="m", second=None)
+@settings(max_examples=35, deadline=None)
+def test_unparenthesized_letter_suffixes_keep_quantities(quantity, gap, first, second):
+    suffix = first if second is None else f"{first} {second}"
+    source = f"Land subdivision {quantity}{gap}{suffix}."
+    _assert_quantity_source(QuantitySource(source, ()))
+
+
 def test_coordinated_decimal_rate_requires_the_full_operative_token():
     source = "under subdivision 2 or 20.5 percent"
     cleaned = completeness.authoritative_numeric_recall_text(

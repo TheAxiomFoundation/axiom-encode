@@ -2,10 +2,10 @@
 
 The [reproduction helper](../../scripts/reproduce_subdivision_recall_audit.py)
 runs the repository's independent span audit against a fixed signed corpus
-release and the pre-mask baseline. It downloads and verifies one corpus
-artifact at a time. Each audit subprocess has a 480-second timeout within a
-540-second shard budget. Run each shard as a separate command; a whole audit
-is longer than one shard.
+release and the PR's merge base with `origin/main`. It downloads and verifies
+one corpus artifact at a time. Each audit subprocess has a 480-second timeout
+within a 540-second shard budget. Run each shard as a separate command; a whole
+audit is longer than one shard.
 
 The checked-in [summary](subdivision-recall-audit-summary.json) records the
 production and audit script byte hashes, signed input identities, coverage,
@@ -24,12 +24,21 @@ guard-only-to-production differential. These staged counts can differ from
 the full differential when a restored quantity and removed locator have the
 same typed inventory key.
 
+## Heuristic limit
+
+A singular `subdivision N` followed by `.`, `;`, `:` or end of text counts as
+a locator. Land-use readings of that shape are outside the heuristic: for
+example, `A minor subdivision 4.`, `The maximum lots in a subdivision 5; larger
+plats require review.` and `Land subdivision 3: minimum acreage.` mask the
+number and remove its numeric demand. No such land-use reading appears among
+the masked locators in the signed corpus below.
+
 ## Final corpus differential
 
 The final tested production and audit bytes, identified in the summary,
-passed all 79,687 signed rows across 196 files in 60 completed shards. Every
+passed all 79,687 signed rows across 196 files in 27 completed shards. Every
 row ran all three cleanup paths. Counts compare production with the pinned
-pre-mask baseline:
+merge-base baseline:
 
 | Measurement | Count |
 | --- | ---: |
@@ -46,11 +55,22 @@ one locator is absent from the baseline typed inventory. The generated case
 and typography controls exercise the quantity guard even though this signed
 corpus has no matching quantity restoration.
 
+These counts match the round-3 independent review: 22 changed rows, 52 masked
+spans, 51 typed removals and zero additions. The regenerated changed-row
+ledger is byte-identical to the previously checked-in ledger.
+
+This run used checkout HEAD `1bbb52d6f177c07f2e43a921b9a2212899dab8a2` with
+this nit-fix working-tree patch applied; no new commit was created. The
+unmodified HEAD production module's SHA-256 was
+`a2e08252a7cd4b2142546820f61c4306ea8f528beab93ded83e0f6b897be74c4`.
+The production-module hash below identifies the final tested working-tree bytes.
+
 | Audited content | SHA-256 |
 | --- | --- |
-| Production module | `791ad310260cfebe943d9d411e4c0dff0dc43e78b9751cfe44e28b46981cb382` |
+| Production module | `b3f687fd6dd664b7dc7452f4e71048c5690b9b44a821efb03080ce45f0eb1b14` |
 | Audit script | `c3d30f2cdb427fd3c6125257da720775f3d8cfec083f653bcce36fef80c745ca` |
-| Summary | `2d690ecb362322e3c9ac35f7470b77c889cd07289d37b296b97feabfc1292ab2` |
+| Reproduction helper | `5178432ed1f89aeda789702f98e6eb53d7a4fd23baebe5a34e688f9651a878b5` |
+| Summary | `aeacd21fe4580eea9781d0c56cd4c57feadecaf13dc0c7741fd945c589b1a3f8` |
 | Changed-row ledger | `2838be19c23c224a37866fb81db40dbaa8889498e029d55c231430f106d61d1c` |
 
 ## Pinned inputs
@@ -62,8 +82,8 @@ corpus has no matching quantity restoration.
 | Release object SHA-256 | `8d0fd2993fa667b13205947b71b91aafbb56be73351e9acebbd03255e233190a` |
 | Release object bytes | `7150325` |
 | Corpus revision | `e79781bddeaba4d3697c5375c7371b2a038f0f74` |
-| Baseline revision | `86a1f911a338cb071e0ed660d1282714034b6dc4` |
-| Baseline module SHA-256 | `c5b9079804159acc3520002ca32e45bc4b6da390c7e7bda9a698adb3082378de` |
+| Baseline revision (merge base with `origin/main`) | `4f3547461300bfa70569f57c83728b2ad25d9d0b` |
+| Baseline module SHA-256 | `875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62` |
 
 The immutable, content-addressed
 [signed release object](https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/us-rulespec-2026-08-08-obbb-alien-snap/0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc.json)
@@ -73,7 +93,7 @@ files, totaling 249,961,962 bytes. Headings and bodies are included, with no
 row or source-length exclusions.
 
 The verification roots are the public keys published in the
-[pinned repository verifier](https://github.com/TheAxiomFoundation/axiom-encode/blob/86a1f911a338cb071e0ed660d1282714034b6dc4/scripts/verify_real_defects.py#L60-L68):
+[pinned repository verifier](https://github.com/TheAxiomFoundation/axiom-encode/blob/4f3547461300bfa70569f57c83728b2ad25d9d0b/scripts/verify_real_defects.py#L60-L68):
 
 | Base64 raw Ed25519 key | SHA-256 of raw 32-byte key |
 | --- | --- |
@@ -98,11 +118,12 @@ root, set `UV_CACHE_DIR` to the shared fleet cache, set numeric thread limits,
 then prepare a new scratch directory:
 
 ```sh
-export UV_CACHE_DIR="${UV_CACHE_DIR:?Set the shared uv cache directory}"
+umask 022
+export UV_CACHE_DIR=/private/tmp/hub-shared-uv-cache
 export OMP_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 MKL_NUM_THREADS=4
 export VECLIB_MAXIMUM_THREADS=4 NUMEXPR_NUM_THREADS=4 OMP_WAIT_POLICY=PASSIVE
 uv sync --locked --python 3.13 --extra dev
-.venv/bin/python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/round2/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py prepare --directory .hub-scratch/nitfix/corpus
 ```
 
 The checked-in summary records the successful artifact and row bounds. Print
@@ -110,15 +131,16 @@ the exact shard commands from those bounds, then run each printed line as a
 separate command:
 
 ```sh
-.venv/bin/python - <<'PY'
+uv run --locked python - <<'PY'
 import json
 from pathlib import Path
 
 summary = json.loads(Path("docs/evidence/subdivision-recall-audit-summary.json").read_text())
 for batch in summary["batches"]:
     command = [
-        ".venv/bin/python", "scripts/reproduce_subdivision_recall_audit.py", "shard",
-        "--directory", ".hub-scratch/round2/corpus",
+        "uv", "run", "--locked", "python",
+        "scripts/reproduce_subdivision_recall_audit.py", "shard",
+        "--directory", ".hub-scratch/nitfix/corpus",
         "--artifact-start", str(batch["artifact_start"]),
         "--artifact-limit", str(batch["artifact_end"] - batch["artifact_start"]),
     ]
@@ -140,7 +162,7 @@ Summarization requires contiguous, complete signed coverage across all slices.
 After every shard exits successfully, run:
 
 ```sh
-.venv/bin/python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/round2/corpus
+uv run --locked python scripts/reproduce_subdivision_recall_audit.py summarize --directory .hub-scratch/nitfix/corpus
 ```
 
 `summary.json`, `combined.rows.jsonl` and `combined.removals.jsonl` are produced
