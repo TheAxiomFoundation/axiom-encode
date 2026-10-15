@@ -36,6 +36,15 @@ from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 import yaml
 
+from axiom_encode.harness.manual_locator_metadata import (
+    MANUAL_CONTENTS_HEADINGS,
+    MANUAL_SECTION_CAPTIONS,
+    MISSOURI_FOOD_STAMP_BLOCK_SECTIONS,
+    OREGON_OPEN_REVISION_CAPTIONS,
+    REVIEWED_MANUAL_COMPOSITIONS,
+    REVIEWED_MANUAL_LOCATOR_SPANS,
+    REVIEWED_MANUAL_REVISION_STAMPS,
+)
 from axiom_encode.harness.proof_validator import (
     _normalize_atom_path,
     _source_proof_evidence_spans,
@@ -2221,17 +2230,10 @@ _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
     rf"(?!{_RECALL_UNIT_FOLLOWS}))*",
     flags=re.IGNORECASE,
 )
-# Paginated US manuals repeat numbered section headings such as
-# `214.3 Telephone Allowance` or `770-1 Advance Notice of Adverse Action` on
-# their own line. Only a dotted or hyphenated label followed by a digit-free,
-# unpunctuated, title-case title of at least two words is a heading; a
-# flattened table row such as `7.65 Percent`, `24-60 MONTH TIME LIMIT`,
-# `75.38 AABD cash payment`, `1-2 Person Household` or a whole-dollar amount
-# such as `44.00 Countable Earned Income` keeps its value, and so does a
-# cents-shaped label next to a line that opens with a `$` amount (a flattened
-# budget table: `$470.00 Supplemental Security Income (SSI)` above `44.50
-# Countable Earned Income`). No title-case section heading in the US manual
-# corpus at ba210f4b has such a neighbor.
+# These are heading *candidates*. Capitalization alone cannot distinguish a
+# section number from an amount/rate/range at the start of a table row.
+# _without_us_manual_locators requires independent numbering evidence and
+# gives quantity-table context priority over that evidence.
 _MANUAL_CENTS_LABEL = re.compile(r"[ \t]*\d+\.\d{2}")
 _MANUAL_DOLLAR_AMOUNT_LINE = re.compile(r"[ \t]*\$[ \t]*\d")
 _NUMBERED_MANUAL_HEADING_LABEL = re.compile(
@@ -2253,15 +2255,56 @@ _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
 )
 # Paginated US manuals open each page with its page number and a revision
 # stamp: the Oregon Programs Eligibility Notebook reads `93 (07/2026) Chapter
-# 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. Neither
-# the page number nor the month/year stamp is a value. The page number is
-# replaced with a neutral mark, not removed: most notebook pages are one
+# 2:Eligibility ...` or `26 Chapter 1: Introduction ... (07/2026)`. These
+# shapes are only locator candidates: the complete context must establish
+# that neither the leading number nor the stamp is operative. A verified page
+# number is replaced with a neutral mark, not removed: most pages are one
 # line, and a line that then began with `Chapter N:` would be dropped whole
 # as a structural heading, taking the page's real values with it.
 _US_MANUAL_PAGE_NUMBER = re.compile(
     r"\A\s*\d{1,4}(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))"
 )
 _US_MANUAL_REVISION_STAMP = re.compile(r"\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)")
+_MANUAL_QUANTITY_CAPTION = re.compile(
+    r"\b(?:amounts?|rates?|counts?|ages?|percent(?:ages?)?|increments?|"
+    r"units?|costs?|quantit(?:y|ies)|currenc(?:y|ies)|USD|EUR|GBP|CAD|AUD|"
+    r"coefficients?|factors?|formulas?|"
+    r"dollars?|cents?|bands?|brackets?|earnings?|fees?|charges?|"
+    r"days?|weeks?|months?|years?|hours?|household[ \t]+size|"
+    r"(?:benefit|payment)[ \t]+levels?|standards?|limits?|ceilings?|thresholds?|maximums?|minimums?|"
+    r"allotments?|deductions?|allowances?)\b",
+    re.IGNORECASE,
+)
+_MANUAL_OPERATIVE_HEADING_CONTEXT = re.compile(
+    _MANUAL_QUANTITY_CAPTION.pattern
+    + r"|\b(?:monetary|payments?)\b"
+    + r"|\b(?:shown[ \t]+(?:above|below)|(?:month|date|year)[ \t]+shown|"
+    r"this[ \t]+date|effective[ \t]+date|as[ \t]+of)\b",
+    re.IGNORECASE,
+)
+# Contents membership alone cannot prove a title harmless: financial topics
+# can also caption operative numeric columns. Other titles require an exact
+# reviewed complete-source role rather than heuristic context authority.
+_MANUAL_NONOPERATIVE_PROCEDURE_TITLES = frozenset(
+    {
+        "Application Process",
+        "Retroactive Applications",
+        "Advance Notice of Adverse Action",
+        "Warranties, Representations and Covenants",
+    }
+)
+_MANUAL_TABLE_COLUMN = re.compile(
+    r"[ \t]*(?:household[ \t]+(?:type|size)|assistance[ \t]+group|"
+    r"benefit[ \t]+type|payment[ \t]+type)[ \t]*\r?\n?",
+    re.IGNORECASE,
+)
+_MANUAL_QUANTITY_TITLE = re.compile(
+    r"\b(?:monthly|weekly|daily|annual)[ \t]+(?:allowance|rate|amount|payment)\b"
+    r"|\b(?:USD|EUR|GBP|CAD|AUD)\b"
+    r"|\b(?:eligible[ \t]+children|young[ \t]+adults|payroll[ \t]+contribution|"
+    r"child[ \t]+benefit|employer[ \t]+payment|filing[ \t]+charge)\b",
+    re.IGNORECASE,
+)
 _TITLE_SUFFIX_LEGAL_CITATION = re.compile(
     r"\b(?:sections?\s+)?(?:\d+)?[a-z]\s*"
     r"[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
@@ -13510,6 +13553,835 @@ def _is_manual_amount_row(label: re.Match[str]) -> bool:
     return any(_MANUAL_DOLLAR_AMOUNT_LINE.match(line) for line in neighbors)
 
 
+def _manual_number_parts(number: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.split(r"[.-]", number))
+
+
+def _manual_quantity_line_starts(text: str) -> frozenset[int]:
+    """Propagate a quantity caption through every numeric row in one pass.
+
+    Blank separators do not end a table. A nonnumeric prose line resets the
+    context. There is no lookback limit that can orphan late rows of a long
+    table, and the scan stays linear regardless of the number of rows.
+    """
+
+    starts = set()
+    quantity_caption = False
+    quantity_topic = False
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if not line.strip():
+            offset += len(line)
+            continue
+        if re.match(r"[ \t]*\$?[ \t]*\d", line):
+            if quantity_caption:
+                starts.add(offset)
+            quantity_topic = False
+            offset += len(line)
+            continue
+        # May in a date or after a calendar preposition is a month, not a verb.
+        # Keep ordinary "fees may ..." prose from starting a table context.
+        verb_line = re.sub(
+            r"\bMay(?=(?:[ \t]+|[,/][ \t]*)"
+            r"(?:(?:\d{1,2},?[ \t]+)?(?:19|20)\d{2}\b|\((?:19|20)\d{2}\)))",
+            "",
+            line,
+            flags=re.IGNORECASE,
+        )
+        verb_line = re.sub(
+            r"\b((?:for|in|during|from|through|until|before|after|to|of)[ \t]+)May\b",
+            r"\1",
+            verb_line,
+            flags=re.IGNORECASE,
+        )
+        body_verb = re.search(
+            r"\b(?:is|are|was|were|has|have|had|must|may|will|shall|can|"
+            r"performed|filed|provided|required|explained|accepted|counted|considered|"
+            r"includes?|excludes?|contains?|receives?|applies|calculate|determine)\b",
+            verb_line,
+            re.IGNORECASE,
+        )
+        column_label = re.sub(r"\([^)]*\)", "", line).strip()
+        if not body_verb:
+            column_label = re.sub(
+                r"\b[A-Za-z]{1,6}\.(?=\s|$)",
+                lambda match: match[0][:-1],
+                column_label,
+            )
+        column_heading = bool(
+            (
+                not re.search(r"[.!?;]", column_label)
+                or (
+                    not body_verb
+                    and re.fullmatch(
+                        r"[A-Za-z][A-Za-z \t/'’-]{0,100}[.:]", column_label
+                    )
+                )
+            )
+            and not re.match(
+                r"[ \t]*(?:Chapter|Section)[ \t]*:?[ \t]+\d", line, re.IGNORECASE
+            )
+        )
+        explicit_table = re.match(
+            r"[ \t]*(?:(?:the[ \t]+)?following[ \t]+(?:table|chart)|"
+            r"(?:the|this)[ \t]+(?:table|chart)[ \t]+(?:lists?|shows?))\b",
+            line,
+            re.IGNORECASE,
+        )
+        caption_line = re.sub(
+            r"^[ \t]*(?:Chapter|Section)[ \t]+\d+(?:[.-]\d+)*[ \t]*:[ \t]*",
+            "",
+            line,
+            flags=re.IGNORECASE,
+        )
+        caption = bool(
+            explicit_table
+            or _MANUAL_TABLE_COLUMN.fullmatch(line)
+            or (
+                len(caption_line) <= 180
+                and (
+                    not body_verb
+                    or re.match(
+                        r"[ \t]*(?:The[ \t]+)?(?:unit[ \t]+)?"
+                        r"(?:costs?|rates?|coefficients?|factors?|formulas?|"
+                        r"quantit(?:y|ies)|currenc(?:y|ies)|units?)[ \t]+(?:is|are)\b",
+                        caption_line,
+                        re.IGNORECASE,
+                    )
+                )
+                and (
+                    re.search(
+                        r"[=×÷*$€£¥%]|\b(?:USD|EUR|GBP|CAD|AUD)\b",
+                        caption_line,
+                        re.IGNORECASE,
+                    )
+                    # Dates and per-member counts can appear in explicit
+                    # quantity captions without changing their role.
+                    or (
+                        len(caption_line.split()) <= 18
+                        and re.search(
+                            r"\b(?:units?|costs?|rates?|quantit(?:y|ies)|"
+                            r"currenc(?:y|ies)|coefficients?|factors?|formulas?|"
+                            r"fees?|charges?|amounts?|payments?|standards?|dollars?|cents?)\b",
+                            caption_line,
+                            re.IGNORECASE,
+                        )
+                    )
+                )
+            )
+            or (
+                (
+                    line.strip() in {"$", "%"}
+                    or _MANUAL_QUANTITY_CAPTION.search(caption_line)
+                )
+                and not re.match(r"[ \t]*Count[ \t]+as\b", line, re.IGNORECASE)
+                and (
+                    (not body_verb and len(line) <= 180 and line.rstrip().endswith(":"))
+                    or (
+                        not body_verb
+                        and len(caption_line.split()) <= 18
+                        and not re.search(r"[\d.!?;]", caption_line)
+                    )
+                )
+            )
+        )
+        unknown_caption = bool(
+            line.rstrip().endswith(":")
+            and not re.search(
+                r"\b(?:includes?|excludes?|contains?)\b", line, re.IGNORECASE
+            )
+            and not re.match(
+                r"[ \t]*(?:Calculate|Determine|Count|Do|Chapter|Section)\b",
+                line,
+                re.IGNORECASE,
+            )
+        )
+        # A topic such as "Income" or "Allotments" alone is not a table
+        # caption; manuals also use these as links in navigation lists.
+        weak_topic = bool(
+            re.fullmatch(
+                r"[ \t]*(?:income|allotments?|deductions?|allowances?|"
+                r"standards?|limits?)[ \t]*\r?\n?",
+                line,
+                re.IGNORECASE,
+            )
+        )
+        quantity_caption = (
+            (caption or unknown_caption)
+            and not weak_topic
+            or (quantity_caption and column_heading)
+            or (quantity_topic and column_heading)
+        )
+        quantity_topic = weak_topic and not quantity_caption
+        offset += len(line)
+    return frozenset(starts)
+
+
+def _manual_ambiguous_numeric_line_starts(
+    text: str, *, reviewed_headings: Iterable[tuple[str, str]] = ()
+) -> frozenset[int]:
+    """Keep uncaptioned decimal/range rows unless independently identified.
+
+    A matching section root or contents slug cannot tell an amount column
+    from a heading sequence. Whole-dollar rows may lead the same table.
+    Multipart identifiers do not have the shape of a decimal amount.
+    """
+
+    starts = set()
+    rows: list[int] = []
+    amount_rows = 0
+    all_reviewed = True
+    reviewed = frozenset(reviewed_headings)
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        if not line.strip():
+            offset += len(line)
+            continue
+        row = re.match(r"[ \t]*\$?[ \t]*(\d+(?:[.-]\d+)?)(?![.\d-])[ \t]+(.*)", line)
+        if row and "-" in row[1]:
+            low, high = row[1].split("-")
+            if int(low) > int(high):
+                row = None
+        marker = re.match(r"[ \t]*—[ \t]+", line)
+        if row or marker:
+            rows.append(offset)
+            amount_rows += bool(marker) or "." in row[1] or "-" in row[1]
+            all_reviewed = all_reviewed and bool(
+                row and (row[1], row[2].strip()) in reviewed
+            )
+        else:
+            if rows and amount_rows and not all_reviewed:
+                starts.update(rows)
+            rows.clear()
+            amount_rows = 0
+            all_reviewed = True
+        offset += len(line)
+    if rows and amount_rows and not all_reviewed:
+        starts.update(rows)
+    return frozenset(starts)
+
+
+def _manual_heading_context_is_independent(
+    text: str,
+    candidates: Iterable[re.Match[str]],
+    *,
+    reviewed_titles: Iterable[str],
+) -> bool:
+    """Prove the complete context harmless before using heuristic headings.
+
+    A title/numbering scheme establishes a locator only in a closed context.
+    Unknown captions, columns, qualifiers, footnotes and prose keep every
+    candidate number. In particular, no vocabulary or qualifier length can
+    turn an unrecognised monetary caption into permission to mask its rows.
+    Numbered lines also require an exact independently reviewed title: an
+    unknown numbered sentence cannot authenticate the context of its neighbors.
+    Self-contained facts follow all candidate headings; before another row
+    they might be its monetary or date caption and cannot authorize masking.
+    Exact reviewed complete-source roles are authenticated separately.
+    """
+
+    headings = {candidate.start(): candidate for candidate in candidates}
+    last_heading_end = max((heading.end() for heading in headings.values()), default=0)
+    titles = frozenset(reviewed_titles) & _MANUAL_NONOPERATIVE_PROCEDURE_TITLES
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        content = line.strip()
+        candidate = headings.get(offset)
+        if not content or re.fullmatch(r"Page \d+", content):
+            pass
+        elif candidate:
+            if candidate[
+                "title"
+            ] not in titles or _MANUAL_OPERATIVE_HEADING_CONTEXT.search(
+                candidate["title"]
+            ):
+                return False
+        elif re.fullmatch(
+            r"(?:TABLE OF CONTENTS|CONTENTS PAGES|SUBJECT PAGES)", content
+        ):
+            pass
+        elif re.fullmatch(
+            r"\d{1,4}[ \t]+"
+            + _US_MANUAL_REVISION_STAMP.pattern
+            + r"[ \t]+Chapter 2:[ \t]*Eligibility",
+            content,
+        ):
+            pass
+        elif re.fullmatch(
+            r"(?:Chapter|Section)[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
+            r"[ \t]*(?:Applications?|Policy)",
+            content,
+        ):
+            pass
+        elif content == "Fees may be waived for a category.":
+            # This complete modal sentence supplies no table/date reference.
+            pass
+        elif re.fullmatch(
+            r"CAPS Policy – Provider Rights and Responsibilities No\.: CAPS/00-\d+ "
+            r"Effective Date: \d{2}/\d{2}/\d{4} Revised: \d{2}/\d{2}/\d{4} "
+            r"Revision Effective: \d{2}/\d{2}/\d{4}|CAPS Policy Manual",
+            content,
+        ):
+            # Each date in this complete metadata header is printed explicitly.
+            pass
+        elif offset < last_heading_end or not _manual_section_remainder_is_independent(
+            line, heading_spans=()
+        ):
+            return False
+        offset += len(line)
+    return True
+
+
+def _manual_heading_spans(
+    text: str, *, corpus_citation_path: str
+) -> tuple[tuple[int, int], ...]:
+    """Authenticate candidates against independent document/section numbering.
+
+    Numeric rows alone never corroborate themselves, siblings, parents or
+    descendants. A known procedure-title scheme with distinct sibling labels
+    supplies stronger evidence than a section root alone. Read section anchors
+    before other locator masks erase them.
+    """
+
+    # Generic page cleanup used to expose headings before this mask ran. Use
+    # the same view for candidate recognition without moving any offsets.
+    heading_text = re.sub(
+        r"(?im)^[ \t]*Page[ \t]+\d+(?:[ \t]+of[ \t]+\d+)?\b[ \t]*",
+        lambda match: " " * len(match[0]),
+        text,
+    )
+    candidates = tuple(_NUMBERED_MANUAL_HEADING_LABEL.finditer(heading_text))
+    quantity_lines = _manual_quantity_line_starts(heading_text)
+    path_numbers = []
+    for component in corpus_citation_path.split("/")[2:]:
+        # Dates in transmittal/release slugs do not identify a section.
+        match = re.match(
+            r"(?:keesm|fns-|appendix-|[a-f]-|snap-manual-)?(\d+(?:[.-]\d+)*)", component
+        )
+        if match and not re.match(r"(?:19|20)\d{2}-\d{2}-\d{2}", match[1]):
+            path_numbers.append(_manual_number_parts(match[1]))
+    anchors = []
+    if corpus_citation_path.startswith("us-mo/manual/dss/snap/"):
+        section = MISSOURI_FOOD_STAMP_BLOCK_SECTIONS.get(
+            corpus_citation_path.rsplit("/", 1)[-1]
+        )
+        if section is not None:
+            anchors.append((section,))
+    if corpus_citation_path.startswith("us-ga/manual/decal/caps/policy-manual/"):
+        anchors.extend(
+            (int(match[1]),) for match in re.finditer(r"\bNo\.: CAPS/00-(\d+)\b", text)
+        )
+    if corpus_citation_path.startswith("us-mn/manual/"):
+        header = re.match(
+            r"COMBINED MANUAL\s+ISSUE DATE \d{2}/\d{4}\s+"
+            r"[A-Z -]+\s+(\d{4}(?:\.\d{2})*)[ \t]*(?:\r?\n|$)",
+            text,
+        )
+        if header:
+            anchors.append(_manual_number_parts(header[1]))
+    for line in text.splitlines():
+        for match in re.finditer(
+            r"\b(?:chapter|section)[ \t]*:?[ \t]*(\d+(?:[.-]\d+)*)\b",
+            line[:240],
+            re.IGNORECASE,
+        ):
+            prefix = line[: match.start()].strip()
+            if not prefix or (
+                re.search(r"\bmanual\b", prefix, re.IGNORECASE)
+                and _is_title_case_manual_heading(prefix)
+            ):
+                anchors.append(_manual_number_parts(match[1]))
+    spans = []
+    contents_headings = next(
+        (
+            headings
+            for namespace, headings in MANUAL_CONTENTS_HEADINGS.items()
+            if corpus_citation_path == namespace
+            or corpus_citation_path.startswith(namespace + "/")
+        ),
+        (),
+    )
+    caption_headings = {
+        heading
+        for caption, headings in MANUAL_SECTION_CAPTIONS.items()
+        if re.search(rf"(?m)^{re.escape(caption)}[ \t]*$", text) is not None
+        for heading in headings
+    }
+    # A documented procedure-title scheme can use another section number,
+    # but a lone title still might be an amount. Require distinct siblings
+    # in that scheme; quantity/currency/formula context always takes priority.
+    procedure_suffixes = {
+        (_manual_number_parts(number)[1:], title)
+        for number, title in contents_headings
+        if len(_manual_number_parts(number)) == 2
+    }
+    procedure_siblings: dict[tuple[int, ...], set[tuple[int, ...]]] = {}
+    procedure_candidates = []
+    for candidate in candidates:
+        number = candidate[0].strip()
+        parts = _manual_number_parts(number)
+        if (
+            len(parts) == 2
+            and (parts[1:], candidate["title"]) in procedure_suffixes
+            and candidate.start() not in quantity_lines
+            and not _MANUAL_QUANTITY_TITLE.search(candidate["title"])
+        ):
+            procedure_siblings.setdefault(parts[:-1], set()).add(parts)
+            procedure_candidates.append((parts[:-1], number, candidate["title"]))
+    sibling_headings = {
+        (number, title)
+        for root, number, title in procedure_candidates
+        if len(procedure_siblings[root]) >= 2
+    }
+    ambiguous_lines = _manual_ambiguous_numeric_line_starts(
+        heading_text,
+        reviewed_headings=(*contents_headings, *caption_headings, *sibling_headings),
+    )
+    for namespace, pages_by_hash in REVIEWED_MANUAL_LOCATOR_SPANS.items():
+        if corpus_citation_path == namespace or corpus_citation_path.startswith(
+            namespace + "/"
+        ):
+            spans.extend(
+                pages_by_hash.get(
+                    hashlib.sha256(text.rstrip().encode()).hexdigest(), ()
+                )
+            )
+            break
+    reviewed_titles = {
+        title for _number, title in (*contents_headings, *caption_headings)
+    }
+    if corpus_citation_path.startswith("us-ut/manual/dws/"):
+        reviewed_titles.add("Advance Notice of Adverse Action")
+    if corpus_citation_path.startswith("us-ga/manual/decal/caps/policy-manual/"):
+        reviewed_titles.add("Warranties, Representations and Covenants")
+    if not _manual_heading_context_is_independent(
+        heading_text, candidates, reviewed_titles=reviewed_titles
+    ):
+        return tuple(sorted(set(spans)))
+    for candidate in candidates:
+        if not _is_title_case_manual_heading(candidate["title"]):
+            continue
+        number = candidate[0].strip()
+        parts = _manual_number_parts(number)
+        reviewed_contents = (number, candidate["title"]) in contents_headings
+        reviewed_caption = (number, candidate["title"]) in caption_headings
+        if (
+            (candidate.start() in quantity_lines and len(parts) <= 2)
+            or candidate.start() in ambiguous_lines
+            or _is_manual_amount_row(candidate)
+            or _MANUAL_QUANTITY_TITLE.search(candidate["title"])
+        ):
+            continue
+        # A citation/document section supplies the root, not a page number.
+        own_section = any(parts[: len(anchor)] == anchor for anchor in anchors)
+        own_document = any(parts[0] == anchor[0] for anchor in path_numbers)
+        indiana_section = (
+            corpus_citation_path.startswith(
+                "us-in/manual/dfr/snap-tanf-program-policy-manual/"
+            )
+            and re.fullmatch(r"\d{4}\.\d{2}\.\d{2}(?:\.\d{2})?", number) is not None
+        )
+        nevada_section = (
+            corpus_citation_path.startswith("us-nv/manual/dwss/eligibility-payments/")
+            and re.search(rf"\b[A-F]-{parts[0]}(?:[.\s]|$)", text) is not None
+        )
+        contents_header = re.search(
+            r"\b(?:TABLE OF CONTENTS|CONTENTS\s+PAGES|SUBJECT\s+PAGES)\b", text
+        )
+        contents_segment = (
+            ""
+            if contents_header is None
+            else text[contents_header.end() : candidate.start()]
+        )
+        contents_segment = re.sub(
+            r"(?m)^[ \t]*(?:\d+(?:-\d+)?[ \t]+)?(?:[A-Z]|\d+)\.[ \t]+",
+            "",
+            contents_segment,
+        )
+        contents_segment = _NUMBERED_MANUAL_HEADING_LABEL.sub("", contents_segment)
+        contents_segment = re.sub(r"\.{3,}", "", contents_segment)
+        contents = "table-of-contents" in corpus_citation_path or bool(
+            contents_header
+            and contents_header.end() < candidate.start()
+            and not re.search(r"[.!?]", contents_segment)
+        )
+        transmittal = (
+            corpus_citation_path.startswith("us-ak/manual/dpa/snap/transmittals-")
+            and re.search(r"\bOVERVIEW OF CHANGES\b", text) is not None
+            and re.fullmatch(r"\d{3}-\d{1,2}", number) is not None
+        )
+        # Ascending two-part hyphen labels are row-key ranges. Only complete
+        # reviewed source roles can identify a genuine locator among them.
+        if "-" in number and len(parts) == 2 and parts[0] <= parts[1]:
+            continue
+        # The retained Utah pilot control is an isolated policy heading on a
+        # page citation. Authenticate its exact known title and policy scheme;
+        # do not generalize this exception to arbitrary hyphenated row keys.
+        utah_notice = (
+            number == "770-1"
+            and candidate["title"] == "Advance Notice of Adverse Action"
+            and (
+                corpus_citation_path.startswith("us-ut/manual/dws/")
+                or re.search(r"(?m)^SNAP MANUAL\b", text) is not None
+            )
+        )
+        if any(
+            (
+                own_section,
+                own_document,
+                reviewed_contents,
+                reviewed_caption,
+                indiana_section,
+                nevada_section,
+                transmittal,
+                contents,
+                utah_notice,
+            )
+        ):
+            spans.append((candidate.end() - len(number), candidate.end()))
+    return tuple(sorted(set(spans)))
+
+
+def _manual_section_remainder_is_independent(
+    text: str, *, heading_spans: Iterable[tuple[int, int]]
+) -> bool:
+    """Require a complete suffix of harmless headings and independent facts.
+
+    These procedure titles cannot refer to a revision date. Body sentences
+    must supply their own quantities or absolute dates; unknown prose keeps
+    the header date, even after an otherwise self-contained declaration.
+    """
+
+    authenticated = frozenset(heading_spans)
+    body = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        heading = _NUMBERED_MANUAL_HEADING_LABEL.match(content)
+        caption = re.fullmatch(
+            r"[ \t]*Section[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
+            r"[ \t]*Applications?[ \t]*",
+            content,
+        )
+        safe_heading = bool(
+            heading
+            and heading["title"] in ("Application Process", "Retroactive Applications")
+            and (
+                offset + heading.end() - len(heading[0].strip()),
+                offset + heading.end(),
+            )
+            in authenticated
+        )
+        if content.strip() and not (not body and (caption or safe_heading)):
+            body.append(line)
+        offset += len(line)
+    return bool(
+        re.fullmatch(
+            r"\s*(?:(?:"
+            r"The (?:payment|amount|limit) is \$\d+(?:\.\d+)?"
+            r"(?: and \$\d+(?:\.\d+)?)*\."
+            r"|Households receive \$\d+(?:\.\d+)? and must apply within \d+ days\."
+            r"|Applications filed in \((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)"
+            r" are eligible\."
+            r")\s*)*",
+            "".join(body),
+        )
+    )
+
+
+def _manual_revision_stamp_spans(
+    text: str, *, corpus_citation_path: str, _allow_section_boundary: bool = False
+) -> tuple[tuple[int, int], ...]:
+    """Remove page/form metadata only, never an in-sentence month/year.
+
+    Require a complete known header and a metadata boundary after the stamp.
+    Flattened headers without a boundary need exact reviewed source bytes.
+    Agency form revision dates require both the registered document namespace
+    and a complete form identifier in metadata position.
+    """
+
+    # The resolver inserts each child's heading before its body. Authenticate
+    # within those actual page boundaries, retaining coordinates in the input
+    # that the completeness gate receives, including at a bodyless book root.
+    pages = tuple(re.finditer(r"(?m)^Page \d+\r?\n\r?\n", text))
+    if pages:
+        reviewed_composition = any(
+            (
+                corpus_citation_path == namespace
+                or corpus_citation_path.startswith(namespace + "/")
+            )
+            and hashlib.sha256(text.encode()).hexdigest() in hashes
+            for namespace, hashes in REVIEWED_MANUAL_COMPOSITIONS.items()
+        )
+        chunks = [(0, pages[0].start())] + [
+            (
+                page.end(),
+                pages[index + 1].start() if index + 1 < len(pages) else len(text),
+            )
+            for index, page in enumerate(pages)
+        ]
+        chunk_spans = [
+            _manual_revision_stamp_spans(
+                text[offset:chunk_end],
+                corpus_citation_path=corpus_citation_path,
+                _allow_section_boundary=reviewed_composition,
+            )
+            for offset, chunk_end in chunks
+        ]
+        metadata_only = []
+        for (offset, chunk_end), page_spans in zip(chunks, chunk_spans):
+            chunk = text[offset:chunk_end]
+            prefix = chunk[: page_spans[0][0]] if page_spans else ""
+            caption = re.sub(r"\A\s*\d{1,4}\s+", "", prefix)
+            normalized = " ".join(prefix.split())
+            metadata_only.append(
+                bool(
+                    not chunk.strip()
+                    or len(page_spans) == 1
+                    and page_spans[0][1] == len(chunk.rstrip())
+                    and (
+                        " ".join(caption.split()) in OREGON_OPEN_REVISION_CAPTIONS
+                        or normalized
+                        == "OREGON PROGRAMS ELIGIBILITY NOTEBOOK (OPEN) "
+                        "100-13450_DHS 2818"
+                        or normalized
+                        == "WISCONSIN DEPARTMENT OF HEALTH SERVICES "
+                        "Division of Medicaid Services P-16001"
+                        or re.fullmatch(
+                            r"(?:Other[ \t_]{4,})?"
+                            r"(?:This institution is an equal opportunity provider[ \t]+)?"
+                            r"032-(?:02|03|12)-\d{3}[\dA-Z]-\d{2}(?:-eng)?",
+                            prefix.strip(" \t\r\n_"),
+                        )
+                    )
+                )
+            )
+        # References on earlier or later pages can make a locally authentic
+        # stamp operative. Only metadata elsewhere in the composed source is
+        # independently harmless; compute that full context in linear work.
+        body_chunks = sum(not metadata for metadata in metadata_only)
+        return tuple(
+            (offset + start, offset + end)
+            for index, (offset, chunk_end) in enumerate(chunks)
+            for start, end in chunk_spans[index]
+            if reviewed_composition or body_chunks == int(not metadata_only[index])
+        )
+
+    spans = []
+    oregon_open = corpus_citation_path == "us-or/manual/odhs/open" or (
+        corpus_citation_path.startswith("us-or/manual/odhs/open/")
+    )
+    reviewed_start = None
+    for namespace, pages_by_hash in REVIEWED_MANUAL_REVISION_STAMPS.items():
+        if corpus_citation_path == namespace or corpus_citation_path.startswith(
+            namespace + "/"
+        ):
+            reviewed_start = pages_by_hash.get(
+                hashlib.sha256(text.rstrip().encode()).hexdigest()
+            )
+            break
+    initial_page = re.match(r"\A\s*\d{1,4}[ \t]+", text)
+    for stamp in _US_MANUAL_REVISION_STAMP.finditer(text):
+        if stamp.start() == reviewed_start:
+            spans.append(stamp.span())
+            continue
+        suffix = text[stamp.end() :]
+        header = re.match(
+            r"[ \t]+(?P<caption>Chapter[ \t]+\d+[ \t]*:[ \t]*"
+            r"[^\r\n.!?]{1,180})(?:\r?\n|$)",
+            suffix,
+        )
+        section_heading = False
+        independent_amount = False
+        if header:
+            remainder = suffix[header.end() :]
+            # A complete amount declaration with its own subject ends this
+            # known OPEN header. Require the entire remainder: an additional
+            # sentence can make the leading date operative. A newline or a
+            # capitalized predicate alone cannot establish this boundary.
+            independent_amount = bool(
+                oregon_open
+                and " ".join(header["caption"].split())
+                in ("Chapter 2:Eligibility", "Chapter 2: Eligibility")
+                and re.fullmatch(
+                    r"\s*The (?:payment|amount|limit) is \$\d+(?:\.\d+)?"
+                    r"(?: and \$\d+(?:\.\d+)?)*\.\s*",
+                    remainder,
+                )
+            )
+            # A heading alone cannot make later prose independent of the
+            # date. Reviewed compositions authenticate the complete source;
+            # otherwise consume the entire remainder with the closed grammar.
+            section = re.match(
+                r"[ \t]*Section[ \t]+\d+(?:[.-]\d+)*[ \t]*:"
+                r"[ \t]*Applications?[ \t]*\r?\n",
+                remainder,
+            )
+            heading_spans = (
+                _manual_heading_spans(
+                    remainder, corpus_citation_path=corpus_citation_path
+                )
+                if section
+                else ()
+            )
+            section_heading = bool(
+                section
+                and any(
+                    start >= section.end()
+                    and not remainder[section.end() : start].strip()
+                    for start, _end in heading_spans
+                )
+                and (
+                    _allow_section_boundary
+                    or _manual_section_remainder_is_independent(
+                        remainder, heading_spans=heading_spans
+                    )
+                )
+            )
+        header_boundary = independent_amount or bool(
+            header
+            and " ".join(header["caption"].split())
+            in (
+                *OREGON_OPEN_REVISION_CAPTIONS,
+                "Chapter 2:Eligibility",
+                "Chapter 2:Eligibility • Section 1: Application Introduction",
+            )
+            and (not suffix[header.end() :].strip() or section_heading)
+        )
+        if (
+            initial_page
+            and stamp.start() == initial_page.end()
+            and (
+                header_boundary
+                or re.fullmatch(
+                    r"[ \t]+OREGON PROGRAMS ELIGIBILITY NOTEBOOK(?: \(OPEN\))?\s*",
+                    suffix,
+                )
+            )
+        ):
+            spans.append(stamp.span())
+            continue
+        prefix = text[: stamp.start()]
+        if oregon_open:
+            reverse_header = re.fullmatch(
+                r"[ \t]+OREGON PROGRAMS ELIGIBILITY NOTEBOOK \(OPEN\) "
+                r"\d{1,4}[ \t]+(?P<caption>Chapter[ \t]+\d+[ \t]*:[ \t]*"
+                r"[^\r\n.!?]{1,180})\s*",
+                suffix,
+            )
+            if (
+                not prefix.strip()
+                and reverse_header
+                and " ".join(reverse_header["caption"].split())
+                in (
+                    *OREGON_OPEN_REVISION_CAPTIONS,
+                    "Chapter 9: Summer EBT Program (SEBT)",
+                )
+            ):
+                spans.append(stamp.span())
+                continue
+            caption = re.sub(r"\A\s*\d{1,4}\s+", "", prefix)
+            normalized = " ".join(caption.split())
+            if (
+                initial_page
+                and normalized in OREGON_OPEN_REVISION_CAPTIONS
+                and re.fullmatch(
+                    r"(?:\s*|[ \t]+Introduction to the manual\s*)",
+                    text[stamp.end() :],
+                )
+            ):
+                spans.append(stamp.span())
+                continue
+            if (
+                re.fullmatch(
+                    r"OREGON PROGRAMS ELIGIBILITY NOTEBOOK \(OPEN\) "
+                    r"100-13450_DHS 2818[ \t]+",
+                    prefix,
+                )
+                and not text[stamp.end() :].strip()
+            ):
+                spans.append(stamp.span())
+                continue
+        if (
+            corpus_citation_path.startswith("us-va/manual/dss/snap/")
+            and re.fullmatch(
+                r"\s*(?:Issuance/Administrative Worker\s+Date\s+)?"
+                r"(?:[ \t_]*|Other[ \t_]{4,})"
+                r"(?:This institution is an equal opportunity provider[ \t]+)?"
+                r"032-(?:02|03|12)-\d{3}[\dA-Z]-\d{2}(?:-eng)?[ \t]+$",
+                prefix,
+            )
+            and re.fullmatch(
+                r"(?:\s*|\s+(?:Applicant Name|"
+                r"Benefit Program Specialist Telephone Number|"
+                r"PERMANENT VERIFICATION LOG)[ \t_]*\s*|"
+                r"\s+(?:Chart [12] \(Gross Income Limit \d+%\)[ \t]*)+"
+                r"HH Size\s*)",
+                text[stamp.end() :],
+            )
+        ):
+            spans.append(stamp.span())
+        elif (
+            corpus_citation_path.startswith("us-wi/manual/dhs/foodshare/")
+            and re.fullmatch(
+                r"WISCONSIN DEPARTMENT OF HEALTH SERVICES "
+                r"Division of Medicaid Services P-16001[ \t]+",
+                prefix,
+            )
+            and re.fullmatch(
+                r"(?:\s*|\s+FoodShare Handbook Release \d{2}-\d{2}\s*)",
+                text[stamp.end() :],
+            )
+        ):
+            spans.append(stamp.span())
+    return tuple(spans)
+
+
+def _without_us_manual_locators(text: str, *, corpus_citation_path: str) -> str:
+    """Mask corroborated US manual metadata without moving source offsets."""
+
+    if (
+        not _US_CORPUS_CITATION_PATH.match(corpus_citation_path)
+        or "/manual/" not in corpus_citation_path
+    ):
+        return text
+    stamp_spans = _manual_revision_stamp_spans(
+        text, corpus_citation_path=corpus_citation_path
+    )
+    spans = (
+        *_manual_heading_spans(text, corpus_citation_path=corpus_citation_path),
+        *stamp_spans,
+    )
+    masked = _mask_numeric_spans(text, spans)
+    for start, end in spans:
+        # A visible nonnumeric boundary prevents a second pass from pairing
+        # a neighboring body date with the same form/cover identifier, and
+        # preserves row boundaries when a verified locator sits in a table.
+        masked = masked[:start] + "—" + masked[start + 1 :]
+    page = _US_MANUAL_PAGE_NUMBER.match(text)
+    # Chapter syntax alone does not establish the leading number's role:
+    # later prose can use it as an amount without repeating its digits.
+    # Stamp authentication consumes the complete context or matches exact
+    # reviewed source bytes, including references across composed pages.
+    if (
+        page
+        and stamp_spans
+        and (
+            re.match(
+                r"\s+(?:" + _US_MANUAL_REVISION_STAMP.pattern + r"\s+)?"
+                r"Chapter[ \t]+\d+[ \t]*:",
+                text[page.end() :],
+            )
+            or any(text[page.end() : start].isspace() for start, _end in stamp_spans)
+        )
+    ):
+        # Keep the sentinel: flattened body text must not become a Chapter
+        # heading and be discarded by downstream structure recognition.
+        start, end = page.span()
+        masked = masked[:start] + "—" + " " * (end - start - 1) + masked[end:]
+    return masked
+
+
 def _corroborated_form_output_label_spans(
     source_text: str,
 ) -> tuple[tuple[int, int], ...]:
@@ -13749,6 +14621,9 @@ def authoritative_numeric_recall_text(
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _without_us_manual_locators(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     source_text = _mask_numeric_spans(
         source_text, _corroborated_form_output_label_spans(source_text)
     )
@@ -13909,18 +14784,6 @@ def authoritative_numeric_recall_text(
             lambda match: re.sub(r"\d", " ", match.group(0)),
             cleaned,
         )
-        if "/manual/" in corpus_citation_path:
-            cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub(
-                lambda match: (
-                    ""
-                    if _is_title_case_manual_heading(match.group("title"))
-                    and not _is_manual_amount_row(match)
-                    else match.group(0)
-                ),
-                cleaned,
-            )
-            cleaned = _US_MANUAL_PAGE_NUMBER.sub("—", cleaned)
-            cleaned = _US_MANUAL_REVISION_STAMP.sub(" ", cleaned)
     cleaned = re.sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",
