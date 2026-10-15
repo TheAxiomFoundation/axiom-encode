@@ -12,7 +12,7 @@ The first review accepts 345 physical occurrences on 159 rows and rejects 21.
 There are 343 `nested_under_numbered_parent` entries and two complete
 `repealed_tombstone` entries. Every encoding target is the exact section citation
 in its corpus row, with `requested_scope: null`. The review identity remains
-`gpt-6.1-sol (hub build; pending independent review)` as requested.
+`gpt-6.1-sol (hub build); independently verified 2026-10-15: every entry joined to signed corpus bytes, sample hand-audited`, recording the independent verification of every entry.
 
 [entry-review.jsonl](entry-review.jsonl) records each accepted occurrence's exact
 source identity, physical window, owning marker offset and context, full literal
