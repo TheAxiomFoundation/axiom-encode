@@ -295,6 +295,18 @@ def local_signing_public_key(kind: str) -> bytes | None:
     return None if keys is None else keys.get(kind)
 
 
+def local_verification_active() -> bool:
+    """True inside ``axiom-encode ci``'s verification-only trust context.
+
+    There, ci's own roots are the only apply and eval trust: a root it was not
+    given verifies nothing, and no attached signing broker stands in for it
+    (a broker's retired roots would judge historical manifests unlike the
+    pinned CI).
+    """
+
+    return _LOCAL_SIGNING_PUBLIC_KEYS.get() is not None
+
+
 @contextmanager
 def local_corpus_release_verification(
     public_key: str,

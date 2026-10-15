@@ -90,6 +90,7 @@ LEGACY_PIN = "615c1df9b9ace7deea84da65efd137f46f8bad2b"
 EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26)
 CURRENT_KEY = base64.b64encode(bytes(range(32))).decode("ascii")
 APPLY_KEY = base64.b64encode(bytes(range(128, 160))).decode("ascii")
+EVAL_KEY = base64.b64encode(bytes(range(160, 192))).decode("ascii")
 RETIRED_KEY = base64.b64encode(bytes(range(32, 64))).decode("ascii")
 OTHER_RETIRED_KEY = base64.b64encode(bytes(range(64, 96))).decode("ascii")
 RELEASE = "us-rulespec-2026-09-01"
@@ -2923,6 +2924,8 @@ class _CiHarness:
             CURRENT_KEY,
             "--apply-public-key",
             APPLY_KEY,
+            "--eval-public-key",
+            EVAL_KEY,
             "--encode-path",
             str(self.paths["encode"]),
             "--engine-path",
@@ -3409,6 +3412,27 @@ def test_run_ci_legacy_pin_without_retired_keys_has_no_note(
     assert run_ci(harness.args()) == 0
 
     assert _report(capsys)["notes"] == []
+
+
+def test_run_ci_notes_each_missing_apply_and_eval_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Inside ci these roots are the only apply and eval trust (cycle 28).
+    harness = _CiHarness(tmp_path, monkeypatch, workflow_sha=LEGACY_PIN)
+    args = harness.args()
+    args.apply_public_key = None
+    args.eval_public_key = None
+
+    assert run_ci(args) == 0
+
+    assert _report(capsys)["notes"] == [
+        "no --apply-public-key: signed encoder apply manifests cannot be "
+        "verified, so a change that CI accepts on its manifest fails here",
+        "no --eval-public-key: any gate that verifies authenticated eval "
+        "result evidence fails here",
+    ]
 
 
 def test_run_ci_text_report(
