@@ -1,3 +1,7 @@
+## 0.2.2219
+
+- Bind a session-law ("section N of this act") deferral only to a reference in the branch's own text (not descendants, unrecognized siblings, later session-law sections or compiler notes) that an exception or condition governs ("except as provided in", "unless ... under", "subject to the provisions/conditions ... of").
+
 ## 0.2.2218
 
 - Scope the session-law ("section N of this act") deferral reader to statute and guidance law-compilation sources that self-reference their own act. Regulations, policies and manuals that name "section N of the Act" (a codified enabling statute) no longer pass as same-act dependencies.
