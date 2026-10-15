@@ -1136,11 +1136,31 @@ def _tree(root: Path) -> dict[str, bytes | None]:
     }
 
 
+def _spy_reads_under(monkeypatch: pytest.MonkeyPatch, root: Path) -> list[Path]:
+    """Record every ``Path.read_bytes`` that resolves under ``root``."""
+
+    reads: list[Path] = []
+    real = Path.read_bytes
+    resolved_root = root.resolve()
+
+    def spy(self: Path) -> bytes:
+        if self.resolve().is_relative_to(resolved_root):
+            reads.append(self)
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", spy)
+    return reads
+
+
 @pytest.mark.parametrize("position", _CACHE_LINK_POSITIONS)
 @pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
 @pytest.mark.parametrize("sha", EMBEDDED_PINS, ids=lambda s: s[:8])
 def test_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
-    tmp_path: Path, sha: str, offline: bool, position: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sha: str,
+    offline: bool,
+    position: str,
 ) -> None:
     # Cycle 22 reproduced this: an ignored ``releases`` link in a local corpus
     # checkout passes the clean-checkout check and the tracked-symlink
@@ -1150,6 +1170,7 @@ def test_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
     payload, digest = _release_payload()
     outside = _link_cache_outside(corpus, digest, position, payload)
     before = _tree(outside)
+    reads = _spy_reads_under(monkeypatch, outside)
     fetcher = _Fetcher(_registry_rows([{"release_object": payload}]))
 
     with pytest.raises(ValueError, match="is a symlink"):
@@ -1162,19 +1183,24 @@ def test_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
             fetcher=fetcher,
         )
 
-    assert _tree(outside) == before
+    # Refused before any fetch, read or write: offline, the linked object is
+    # never read as a stand-in for the download.
+    assert reads == []
     assert fetcher.calls == []
+    monkeypatch.undo()
+    assert _tree(outside) == before
 
 
 @pytest.mark.parametrize("position", _CACHE_LINK_POSITIONS)
 @pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
 def test_legacy_release_cache_symlink_fails_closed_and_leaves_its_target_untouched(
-    tmp_path: Path, offline: bool, position: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool, position: str
 ) -> None:
     corpus = _corpus(tmp_path)
     payload, digest = _release_payload()
     outside = _link_cache_outside(corpus, digest, position, payload)
     before = _tree(outside)
+    reads = _spy_reads_under(monkeypatch, outside)
     seen: list[str] = []
 
     with pytest.raises(ValueError, match="is a symlink"):
@@ -1186,8 +1212,10 @@ def test_legacy_release_cache_symlink_fails_closed_and_leaves_its_target_untouch
             fetcher=lambda url: seen.append(url) or json.dumps(payload).encode(),
         )
 
-    assert _tree(outside) == before
+    assert reads == []
     assert seen == []
+    monkeypatch.undo()
+    assert _tree(outside) == before
 
 
 def _write_tampered_cache(corpus: Path, payload: dict[str, Any], digest: str) -> Path:
