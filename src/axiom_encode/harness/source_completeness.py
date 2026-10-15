@@ -5470,9 +5470,16 @@ def _analyze_rulespec_payload(
             default=None,
         )
         if pending_deferral is not None:
-            branches_behind_imprecise_deferral.setdefault(
+            pending = branches_behind_imprecise_deferral.setdefault(
                 pending_deferral[1], []
-            ).append(branch)
+            )
+            # A repeated (path, label) is one structure finding, as the
+            # final de-duplication of identical findings makes it.
+            if not any(
+                (listed.path, listed.label) == (branch.path, branch.label)
+                for listed in pending
+            ):
+                pending.append(branch)
             continue
         descendants = tuple(
             candidate

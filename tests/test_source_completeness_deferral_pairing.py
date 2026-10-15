@@ -167,6 +167,26 @@ def test_a_precise_deferral_covers_the_branches_it_listed():
     assert not _findings(accepted, "structure")
 
 
+def test_a_repeated_branch_is_listed_once_like_its_single_finding(monkeypatch):
+    # Flattened text can yield the same (path, label) twice; without a
+    # deferral both render one identical, de-duplicated structure finding.
+    recognize = completeness.recognize_source_structure
+
+    def doubled(source_text, **kwargs):
+        branches = recognize(source_text, **kwargs)
+        return (*branches, *(b for b in branches if b.path == ("a", "1")))
+
+    monkeypatch.setattr(completeness, "recognize_source_structure", doubled)
+    with_deferral = _analyze(_module(IMPRECISE_A, rule_source="7 CFR 273.4(c)"))
+    without = _analyze(_module(rule_source="7 CFR 273.4(c)"))
+
+    _own, pending = completeness.split_imprecise_deferral_branches(
+        _findings(with_deferral, "deferral")[0]
+    )
+    assert pending == ("a", "a/1", "a/2")
+    assert len(_findings(without, "structure")) == 4
+
+
 def test_nested_imprecise_deferrals_each_hold_their_own_branches():
     nested = IMPRECISE_A + (
         "    - output: us:regulations/7-cfr/273/4/a/2#qualified_alien_eligible\n"
