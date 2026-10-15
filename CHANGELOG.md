@@ -1,3 +1,7 @@
+## 0.2.2218
+
+- Scope the session-law ("section N of this act") deferral reader to statute and guidance law-compilation sources that self-reference their own act. Regulations, policies and manuals that name "section N of the Act" (a codified enabling statute) no longer pass as same-act dependencies.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
