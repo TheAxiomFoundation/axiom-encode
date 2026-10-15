@@ -4626,6 +4626,15 @@ def main() -> None:
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
     base_parser.add_argument("pr_base_branch", nargs="?", default="main")
+    index_parser = subparsers.add_parser(
+        "refresh-provisions-index",
+        help=(
+            "append one unsigned commit regenerating the derived reverse index "
+            "on the signed lane and emit refresh evidence"
+        ),
+    )
+    index_parser.add_argument("repo", type=Path)
+    index_parser.add_argument("lane_base")
     fresh_parser = subparsers.add_parser("validate-fresh-primary-test-target")
     fresh_parser.add_argument("repo", type=Path)
     fresh_parser.add_argument("citation")
@@ -4782,6 +4791,18 @@ def main() -> None:
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
                     pr_base_branch=args.pr_base_branch,
+                )
+            )
+        elif args.command == "refresh-provisions-index":
+            from axiom_encode.provisions_index import refresh_lane_index
+
+            if COMMIT_PATTERN.fullmatch(args.lane_base) is None:
+                raise ValueError("lane base must be a full lowercase commit SHA")
+            print(
+                json.dumps(
+                    refresh_lane_index(args.repo, args.lane_base),
+                    indent=2,
+                    sort_keys=True,
                 )
             )
         elif args.command == "validate-fresh-primary-test-target":
