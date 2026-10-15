@@ -559,3 +559,15 @@ def test_live_read_rejects_symlink_swap_at_open(
     assert raced
     assert issue is not None
     assert target.is_symlink()
+
+
+def test_side_branch_head_is_not_directly_admitted(frozen: _Frozen) -> None:
+    """A head that neither descends from nor precedes the cutoff is refused."""
+    early = frozen.cutoff
+    (frozen.repo / "README.txt").write_text("later frozen main\n")
+    frozen.inventory["repositories"][0]["cutoff_commit"] = frozen.commit("later cutoff")
+    _git(frozen.repo, "checkout", "-b", "side", early)
+    (frozen.repo / "side.txt").write_text("side\n")
+    frozen.commit("side commit")
+    issue = retired_apply_admission_issue(frozen.inventory, frozen.context)
+    assert issue is not None and "descend" in issue
