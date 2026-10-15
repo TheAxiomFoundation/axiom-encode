@@ -31284,6 +31284,7 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
     )
     inserted_phrase_end = inserted.end() - 1 if inserted is not None else None
     end = None
+    skip_phrase_close = False
     depth = 0
     for index, character in enumerate(condition_text):
         if character == "(":
@@ -31297,6 +31298,9 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
             rest = condition_text[index + 1 :]
             if re.match(r"\s*(?:and|but|or|nor)\b", rest, flags=re.IGNORECASE):
                 continue
+            if index > 0 and condition_text[index - 1].isdigit() and rest[:1].isdigit():
+                # A thousands separator (`$1,500`).
+                continue
             if re.match(
                 r"\s*[^,;.()]{1,60},\s*(?:and|or)\b", rest, flags=re.IGNORECASE
             ) or re.match(
@@ -31306,13 +31310,26 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
                 flags=re.IGNORECASE,
             ):
                 continue
-            if inserted_phrase_end is not None and index <= inserted_phrase_end:
+            if skip_phrase_close:
+                skip_phrase_close = False
+                continue
+            if re.match(r"\s*[^,;.()]{1,20},", rest):
+                # A short inserted phrase (`..., above, ...`, `..., in 1969, ...`)
+                # and the comma that closes it.
+                skip_phrase_close = True
+                continue
+            if (
+                inserted_phrase_end is not None and index <= inserted_phrase_end
+            ) or len(re.findall(r"\w+", condition_text[:index])) < 3:
                 # `If, in a taxable year, ...`: an inserted phrase, not the end.
                 continue
             end = index
             break
-    if end is None or not _EXCEPTION_OUTCOME_CONSEQUENCE.search(
-        condition_text[end + 1 :]
+    if (
+        end is None
+        # `if so`, `if applicable`: an anaphoric condition needs its context.
+        or len(re.findall(r"\w+", condition_text[:end])) < 4
+        or not _EXCEPTION_OUTCOME_CONSEQUENCE.search(condition_text[end + 1 :])
     ):
         return condition_text
     return condition_text[:end]

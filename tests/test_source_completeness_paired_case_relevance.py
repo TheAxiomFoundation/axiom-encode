@@ -208,6 +208,23 @@ def test_pair_toggling_the_exception_condition_still_witnesses_it():
             "reissued.",
             "When a paper warrant is lost, stolen or not received",
         ),
+        # A thousands separator and a short inserted phrase do not end it.
+        (
+            "if his or her nonexcludable resources do not exceed $1,500 prior to "
+            "1985, the individual is eligible.",
+            "if his or her nonexcludable resources do not exceed $1,500 prior to 1985",
+        ),
+        (
+            "If the benefits described in paragraph (6)(a), above, are included in "
+            "federal taxable income, the benefits are excluded.",
+            "If the benefits described in paragraph (6)(a), above, are included in "
+            "federal taxable income",
+        ),
+        # An anaphoric condition (`if so`) keeps its whole clause.
+        (
+            "if so, whether they are deemed to have demonstrated community engagement.",
+            "if so, whether they are deemed to have demonstrated community engagement.",
+        ),
         # A trailing condition without an end is kept whole.
         (
             "unless the household contains an elderly member.",
