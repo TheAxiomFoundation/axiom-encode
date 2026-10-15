@@ -72,6 +72,10 @@ from axiom_encode.ci_parity import (
     verify_ambient_encoder,
     verify_dependency_checkout,
 )
+from axiom_encode.corpus_materialize import (
+    remote_fetch_disabled,
+    remote_fetch_is_disabled,
+)
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
@@ -1819,7 +1823,7 @@ def test_run_cli_batch_isolates_concurrent_workers_and_keeps_input_order(
     active = {"now": 0, "max": 0}
     calls = []
 
-    def fake_isolated(invocation, keyring, worker_cap, signing_roots=None):
+    def fake_isolated(invocation, keyring, worker_cap, signing_roots=None, *, offline):
         index = invocations.index(invocation)
         with lock:
             calls.append((index, tuple(keyring), worker_cap))
@@ -1860,7 +1864,7 @@ def test_run_cli_batch_worker_cap_is_cpu_count_over_jobs(
 ) -> None:
     caps = []
 
-    def fake_isolated(invocation, keyring, cap, signing_roots=None):
+    def fake_isolated(invocation, keyring, cap, signing_roots=None, *, offline):
         caps.append(cap)
         return 0, ""
 
@@ -1902,6 +1906,7 @@ def test_run_cli_isolated_passes_keyring_on_stdin_only(
     assert captured["cwd"] == tmp_path
     module_file = str(Path(ci_parity.__file__).resolve())
     assert json.loads(captured["input"]) == {
+        "offline": False,
         "package_root": str(Path(module_file).parents[1]),
         "module_file": module_file,
         "keyring": [CURRENT_KEY, RETIRED_KEY],
@@ -1964,6 +1969,52 @@ def test_isolated_cli_main_runs_under_the_local_keyring(
         "supervised": supervised,
     }
     assert toolchain_module._LOCAL_CORPUS_RELEASE_PUBLIC_KEYS.get() is None
+
+
+@pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
+def test_run_cli_batch_carries_offline_into_isolated_workers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool
+) -> None:
+    # Cycle 24: ``ci --offline`` disables remote corpus fetches through a
+    # context variable, which neither the pool's threads nor the worker
+    # processes inherit; the batch passes it on explicitly.
+    seen: list[bool] = []
+
+    def fake_isolated(invocation, keyring, worker_cap, signing_roots, *, offline):
+        seen.append(offline)
+        return 0, ""
+
+    monkeypatch.setattr(ci_parity, "_run_cli_isolated", fake_isolated)
+    with remote_fetch_disabled() if offline else contextlib.nullcontext():
+        _run_cli_batch(_invocations(tmp_path, 3), jobs=2, keyring=(CURRENT_KEY,))
+
+    assert seen == [offline] * 3
+
+
+@pytest.mark.parametrize("offline", [True, False], ids=["offline", "online"])
+def test_isolated_cli_main_runs_offline_requests_without_remote_fetches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool
+) -> None:
+    seen: dict[str, bool] = {}
+
+    def fake_run_cli(arguments, *, environment, cwd, supervised):
+        seen["remote_fetch_disabled"] = remote_fetch_is_disabled()
+        return 0, ""
+
+    monkeypatch.setattr(ci_parity, "_run_cli", fake_run_cli)
+    _isolated_cli_main(
+        {
+            "offline": offline,
+            "keyring": [CURRENT_KEY],
+            "arguments": ["validate"],
+            "cwd": str(tmp_path),
+            "supervised": True,
+            "environment": {},
+        }
+    )
+
+    assert seen == {"remote_fetch_disabled": offline}
+    assert remote_fetch_is_disabled() is False
 
 
 def test_isolated_cli_main_rejects_a_malformed_keyring_before_running(

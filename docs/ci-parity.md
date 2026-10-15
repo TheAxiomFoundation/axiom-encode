@@ -320,8 +320,10 @@ the environment.
   its bytes in lock files (`.axiom/corpus-locks/`), binding the release also
   places the release's provisions artifacts at the paths the checkout's locks
   pin, under `data/corpus/provisions/`, staged in `data/corpus/.corpus-fetch-tmp/`.
-  It never replaces an existing file and never follows or creates a symlink
-  there; `AXIOM_CORPUS_NO_FETCH` turns this placement off. Like CI's "Link axiom-rules-engine as
+  There, as axiom-corpus does, it deletes `.corpus-fetch-` leftovers more than
+  a day old. It never replaces an existing file and never follows or creates a
+  symlink there. `AXIOM_CORPUS_NO_FETCH` turns this placement off, for ci's own
+  bind and for every gate: the supervised strip keeps that one opt-out. Like CI's "Link axiom-rules-engine as
   sibling checkout" step, it links the engine, corpus and rulespec-us
   dependency checkouts next to the temporary checkout. It creates nothing under
   `_axiom/` inside it. CI's checkouts there are real directories, which the
@@ -334,7 +336,7 @@ the environment.
   a lock-file corpus checkout, provisions come from the corpus cache
   (`$AXIOM_CORPUS_CACHE`, default `~/.axiom/corpus-cache`), then the
   checkout's git objects, then, without `--offline` and only when R2 read
-  credentials are configured, R2.
+  credentials are configured, R2. `--offline` holds in `--jobs` workers too.
 
 ## Dependency and encoder identity
 
