@@ -503,6 +503,37 @@ class TestCascade:
         )
         assert len(migration.cascade_rewrites) == 1
 
+    def test_unrelated_escaped_valid_pin_is_not_normalized(self):
+        leaf = _values_module({"amount": 1})
+        unrelated_leaf = _module("    corpus_citation_path: us/statute/26/unrelated\n")
+        unchanged_pin = (
+            "          - kind: import\n"
+            "            import:\n"
+            "              target: us:statutes/26/unrelated#amount\n"
+            f'              hash: "\\x73ha256:{_hash(unrelated_leaf)}" # keep\n'
+        ).encode()
+        mixed_importer = _importer("us:statutes/26/example", leaf).replace(
+            b"    versions: []", unchanged_pin + b"    versions: []"
+        )
+        base = {
+            PRIMARY: leaf,
+            "us/statutes/26/importer.yaml": mixed_importer,
+            "us/statutes/26/unrelated.yaml": unrelated_leaf,
+        }
+
+        migration = build_migration(_plan(), base_tree=TREE, base_files=base)
+        post = {
+            **base,
+            **{item.path.as_posix(): item.after for item in migration.files},
+        }
+
+        assert [item.path.as_posix() for item in migration.files] == [
+            PRIMARY,
+            "us/statutes/26/importer.yaml",
+        ]
+        assert unchanged_pin in post["us/statutes/26/importer.yaml"]
+        assert len(migration.cascade_rewrites) == 1
+
     def test_unrelated_huge_or_noncanonical_hash_free_module_is_skipped(self):
         base = {
             PRIMARY: _values_module({"amount": 1}),

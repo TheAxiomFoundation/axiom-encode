@@ -569,6 +569,8 @@ def _cascade(base_files: Mapping[str, bytes], rewritten: Mapping[str, bytes]):
             replacement = "sha256:" + _sha256(
                 final.get(scan.target_path, base_files[scan.target_path])
             )
+            if replacement == scan.declared_hash:
+                continue
             text = (
                 text[: scan.start_index]
                 + _render_scalar(replacement, scan.scalar_style)
