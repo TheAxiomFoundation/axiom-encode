@@ -31,7 +31,7 @@ removes a demand at runtime.
 With the signed release and its artifacts materialized at `CORPUS_ROOT`:
 
 ```sh
-uv run --no-sync python scripts/check_coverage_exemptions.py \
+uv run --locked --no-sync python scripts/check_coverage_exemptions.py \
   --release us-rulespec-2026-08-08-obbb-alien-snap \
   --release-sha256 0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc \
   --corpus-path CORPUS_ROOT --output ledger.json
@@ -68,6 +68,13 @@ caused a targeted test failure; no source mutation was left in the working tree.
 | Citation equality becomes casefolded equality | Same exact-match regressions | Killed: 1 failed, 7 passed |
 | Both literal window and window digest checks removed | `test_literal_window_is_required_even_with_matching_window_digest` | Killed: 1 failed |
 
+Round 1 reran 21 runtime and 17 tooling mutations and added eight scope/identity
+mutations. All **46 mutations were killed**, with no test errors, skips or
+timeouts. The round-1 runner compiled mutated modules in memory, verified the
+working files were unchanged, and removed each pytest temporary directory.
+The package-version mutation was excluded under this round's instruction to
+leave version files unchanged.
+
 Schema tests check reason enum, reviewer, literal keys, window digest and required
 provenance. Proposal/checker tests cover signature and byte changes, physical
 JSONL rows containing Unicode line separators, exact scope, stale offsets and
@@ -76,21 +83,26 @@ rows, and unapproved candidate output that cannot load as approved entries.
 ## Final focused checks
 
 The combined coverage, properties, proposal, baseline differential, repair
-overlay and corpus resolver run passed **742 tests**, with no failures, errors
+overlay and corpus resolver run passed **796 tests**, with no failures, errors
 or skips. The dependent RuleSpec checklist, eval and CLI repair selection passed
 **45 tests**, with 5,378 deselected and no failures, errors or skips. These are
-787 distinct passing tests. The full repository suite and real-engine suite
+841 distinct passing tests. The full repository suite and real-engine suite
 were not run.
 
+The workflow pins file passed **252 tests**, with its opt-in environment check
+skipped. Enabling that check separately passed **1 test**, confirming the
+environment matches the lock. The focused lock-policy test also passed after
+reproducing its failure against the original workflow in memory.
+
 ```sh
-uv run --no-sync pytest -q -o addopts= \
+uv run --locked --no-sync pytest -q -o addopts= \
   tests/test_coverage_exemptions.py tests/test_propose_coverage_exemptions.py \
   tests/test_nested_branch_coverage.py tests/test_nested_branch_coverage_differential.py \
   tests/test_nested_branch_coverage_fail_safe.py tests/test_nested_branch_coverage_review.py \
   tests/test_nested_branch_coverage_structural_proof.py tests/test_editorial_source_boundaries.py \
   tests/test_evals_deferred_repair.py tests/test_repair_overlay_failure_is_retryable.py \
   tests/test_corpus_resolver.py
-uv run --no-sync pytest -q -o addopts= \
+uv run --locked --no-sync pytest -q -o addopts= \
   tests/test_rulespec_validation.py tests/test_evals.py tests/test_cli.py \
   -k 'source_subparagraph_coverage or subparagraph_coverage_checklist or repair_candidate_overlay or mixed_missing_deferred_output or missing_deferred_output_repair or nonoperative_source_coverage_repair'
 ```
@@ -99,8 +111,16 @@ Local runs used named disposable pytest temporary directories, removed after
 verification. The generated wheel contains byte-identical registry data. Exact
 source comparison confirms both main scanner functions are unchanged, there is
 one runtime filter call, and the existing authoritative waiver conditions remain
-the left-hand conjuncts of the narrowed waiver. Version, lock and runtime pin
-constants were left unchanged.
+the left-hand conjuncts of the narrowed waiver. Only the encoder version and its
+lock entry change; dependency and runtime pins remain unchanged.
+
+Round 1 adds 54 regression cases. Signed test-release fixtures cover uppercase
+and lowercase requested rows, absent or active requested rows alongside a
+case-distinct tombstone, human and RuleSpec target inputs, request precedence,
+and rules-file fallback from section and subsection parents. All existing
+notice conditions remain required. Registry gate, reviewed-waiver and proposal
+tests also require literal requested-scope case. The new cases reproduced the
+folding and duplicated-ancestor failures before their fixes.
 
 ## Independent review cycle
 
@@ -114,3 +134,11 @@ a separate review. No actionable findings remain. The required pending reviewer
 string remains unchanged; this is build-agent review, not a claim of human
 approval. [independent-review.json](independent-review.json) binds the reviewed
 registry bytes and records the review roles and limits.
+
+The round-1 independent source review caught two related callers during the
+fix cycle: the offline proposer still folded scope keys, and a rules-file
+fallback from a subsection parent duplicated an ancestor in the metadata
+lookup. Both were fixed, covered by regressions, and reviewed again with no
+actionable findings remaining. Corpus authentication now uses a separately
+normalized literal requested citation; only the outline scanner folds scope
+labels. Both workflow commands explicitly retain the lock.

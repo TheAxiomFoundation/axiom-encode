@@ -139,6 +139,31 @@ def test_proposal_context_records_literal_requested_source(corpus):
     assert candidate["proposal_context"]["requested_source"] == source
 
 
+@pytest.mark.parametrize("label", ["I", "i"])
+def test_proposal_cli_keeps_literal_requested_scope(corpus, monkeypatch, capsys, label):
+    row = next(proposal.iter_release_rows(corpus))
+    requested = f"{row.citation_path}/a/2/{label}"
+    monkeypatch.setattr(proposal, "load_release", lambda *args: corpus)
+    assert (
+        proposal.main(
+            [
+                "--release",
+                "coverage-fixture",
+                "--corpus-path",
+                str(corpus.root),
+                "--citation",
+                row.citation_path,
+                "--requested-source",
+                requested,
+            ]
+        )
+        == 0
+    )
+    candidate = json.loads(capsys.readouterr().out)
+    assert candidate["requested_scope"] == ["a", "2", label]
+    assert candidate["proposal_context"]["requested_source"] == requested
+
+
 def _resign_rows(corpus, records):
     path = corpus.root / corpus.artifacts[0].path
     path.write_text(

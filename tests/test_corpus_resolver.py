@@ -4013,7 +4013,99 @@ def test_coverage_repeal_status_uses_only_the_bound_exact_release_row(tmp_path):
     )
     token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(_release(tmp_path))
     try:
-        assert vp._requested_corpus_row_is_repealed(CITATION, ("2",))
-        assert not vp._requested_corpus_row_is_repealed(CITATION, ("3",))
+        assert vp._requested_corpus_row_is_repealed(CITATION + "/2")
+        assert not vp._requested_corpus_row_is_repealed(CITATION + "/3")
+        assert not vp._requested_corpus_row_is_repealed(None)
+    finally:
+        vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)
+
+
+@pytest.mark.parametrize("label", ["I", "i"])
+@pytest.mark.parametrize("status", ["repealed", "active", None])
+@pytest.mark.parametrize(
+    "request_form",
+    ["corpus", "human", "target", "rules_file", "rules_file_subsection", "precedence"],
+)
+def test_coverage_repeal_authenticates_case_sensitive_requested_row(
+    tmp_path, label, status, request_form
+):
+    import yaml
+
+    from axiom_encode.harness import validator_pipeline as vp
+
+    section = "us/statute/42/1"
+    citation = section + "/a" if request_form == "rules_file_subsection" else section
+    requested = f"{section}/a/2/{label}"
+    other = f"{section}/a/2/{label.swapcase()}"
+    source = (
+        '(a) "benefit" means payable.\n(2) A person is eligible.\n'
+        f"({label}) Repealed.\n(b) Effective date.\n"
+    )
+    version = "case-sensitive-repeal"
+    _write_selector(tmp_path, [_scope(version)])
+    rows = [{"citation_path": citation, "body": source}]
+    if status is not None:
+        rows.append(
+            {
+                "citation_path": requested,
+                "body": None if status == "repealed" else "An operative child.",
+                "metadata": {"status": status},
+            }
+        )
+    # A missing/active requested row must not borrow the other case's status.
+    # Positive cases have only the literal requested tombstone.
+    if status != "repealed":
+        rows.append(
+            {
+                "citation_path": other,
+                "body": None,
+                "metadata": {"status": "repealed"},
+            }
+        )
+    _write_rows(tmp_path, version, rows)
+    release = _release(tmp_path)
+    assert corpus_resolver.local_corpus_row_is_repealed(requested, release) is (
+        status == "repealed"
+    )
+    requested_source = {
+        "corpus": f" /{requested}/ ",
+        "human": f"42 USC 1(a)(2)({label})",
+        "target": f"us:statutes/42/1/a/2/{label}",
+        "rules_file": None,
+        "rules_file_subsection": None,
+        "precedence": requested,
+    }[request_form]
+    file_label = label.swapcase() if request_form == "precedence" else label
+    rules_file = tmp_path / f"statutes/42/1/a/2/{file_label}.yaml"
+
+    def issues(
+        *, summary=f"({label}) Repealed.", text=source, module_status="deferred"
+    ):
+        content = yaml.safe_dump(
+            {
+                "format": "rulespec/v1",
+                "module": {
+                    "status": module_status,
+                    "summary": summary,
+                    "source_verification": {"corpus_citation_path": citation},
+                },
+                "rules": [],
+            }
+        )
+        return vp.find_source_subparagraph_coverage_issues(
+            content,
+            source_texts={citation: text},
+            requested_source=requested_source,
+            rules_file=rules_file,
+        )
+
+    token = vp._AUTHORITATIVE_CORPUS_RELEASE.set(release)
+    try:
+        assert len(issues()) == (0 if status == "repealed" else 1)
+        # Signed metadata supplements all of the original notice conditions.
+        assert len(issues(summary="(3) Repealed.")) == 1
+        assert len(issues(summary=f"({label}) An operative provision.")) == 1
+        assert len(issues(module_status="active")) == 1
+        assert len(issues(text=source.replace("Repealed.", "An operative child."))) == 1
     finally:
         vp._AUTHORITATIVE_CORPUS_RELEASE.reset(token)
