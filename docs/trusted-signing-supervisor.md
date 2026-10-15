@@ -394,11 +394,36 @@ The ungated apply-signing and caller App keys were removed during the October
 `signed-apply-reusable.yml`, which previously accepted caller-provided keys.
 Route signed re-encodes through the central targeted workflow.
 
-The central signed-apply leg runs the same provisioning as the verification
-supervisor (`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
+The central signed-apply leg runs the same provisioning as the verification supervisor
+(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
 `axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the signing step only as a protected environment secret bound to
-that step's `env:`; the launcher consumes and clears it.
+key in `targeted-signed-reencode.yml` is bound only to the signer-launch steps'
+`env:`. Those steps use shell
+builtins to read prepared argument data, then `exec` the owned apply-signer
+binary with `--key-env`; they never launch Python, workflow helpers, the CLI,
+or another external executable directly. The raw key exists only in the
+signer's launch environment: Actions initially supplies it to the step shell,
+which uses builtins and replaces itself with the signer without launching any
+other process. Its fixed Bash invocation uses privileged mode to ignore inherited
+startup files, shell functions, and shell options; its step environment clears
+dynamic loader hooks. The launcher consumes and clears the key before spawning
+the supervisor. Its private key pipe connects only owned signer processes;
+no helper receives the key through arguments, files, or descriptors.
+
+In `targeted-signed-reencode.yml`, input refusals, source-bundle parsing, repair
+extraction, corpus and queue preparation all run in earlier steps without the
+apply key. Preparation writes NUL-delimited arguments and ordered operations,
+never key material. Each signing step reads argument data without evaluating
+it. The next preparation step reconciles inventory and runs the checkpoint
+guard before preparing another signature, preserving the checks between source,
+dependent, and canonical-refresh lanes. Nineteen signing slots cover the
+existing maximum of sixteen sources plus a target and two dependents;
+an unfinished transaction fails closed. The final `encode_apply` step reports
+upstream failures and completes the last checkpoint.
+
+The CLI and helpers can request signatures through the broker when supervised,
+but never see the raw key. Repository-token helpers also run in separate steps
+before token-bearing checkout or publication commands.
 
 **The signing leg runs only on `workflow_dispatch` from the main-branch
 workflow definition, never on `pull_request`.** The workflow requires

@@ -85,6 +85,9 @@ def test_dispatch_uses_existing_source_input_and_same_protected_authority() -> N
     assert set(migration["env"]) == {
         "PYTHONUNBUFFERED",
         "AXIOM_ENCODE_APPLY_SIGNING_KEY",
+        "LD_PRELOAD",
+        "LD_AUDIT",
+        "LD_LIBRARY_PATH",
         "RULESPEC_CHECKOUT",
     }
     assert "--codex-auth" not in command
@@ -131,10 +134,13 @@ def test_guard_runs_before_receipt_packaging_and_commit_and_publish_recheck() ->
     assert '"$helper" verify' in commit
     assert '"$helper" stage' in commit
     assert '"$helper" verify-committed' in commit
+    verify = _step("Verify retired source metadata migration before publication")
+    assert "verify-committed" in verify["run"]
+    assert "GH_TOKEN" not in verify["env"]
     publish = _step(
         "Push retired source metadata migration branch and open draft pull request"
     )["run"]
-    assert "verify-committed" in publish
+    assert "python" not in publish
     assert "draft: true" in publish
     assert "--input" in publish
     assert ".base.ref == $branch and .base.sha == $sha" in publish
@@ -146,7 +152,8 @@ def test_guard_runs_before_receipt_packaging_and_commit_and_publish_recheck() ->
     [
         "Package retired source metadata migration changes",
         "Commit retired source metadata migration locally",
-        "Push retired source metadata migration branch and open draft pull request",
+        "Verify retired source metadata migration before publication",
+        "Prepare retired source metadata pull request branch",
     ],
 )
 def test_publication_refuses_without_trusted_interpreter(name: str) -> None:
