@@ -1,85 +1,67 @@
-# Manual-mask corpus evidence
+# Manual-mask validation evidence
 
-`corpus-summary.json` binds the fresh raw-manual differential to the exact
-encoder source, locator metadata, numeric extractor, baseline commits, and all
-231 immutable corpus input files. `corpus-deltas.jsonl` records every changed
-raw row, its authenticated input-row hash, and its exact numeric deltas. The
-summary gives the ledger hash and the full execution-evidence hashes.
-`corpus-rows.jsonl.gz` makes every raw row's proof mode, hashes, mask counts, and
-length/idempotence checks available without source prose or timings.
-`sole-page-rows.jsonl.gz` similarly records every US helper qualification row
-and its exact numeric deltas when fresh inventory comparisons run. The summary
-records each compressed ledger's filename, SHA256, row count, and byte size.
+`final-checks-summary.json` binds the final source, locator registry, numeric
+extractor, both generated regression files, and changelog to their SHA256s.
+The final focused checks passed **812 tests**, including all 295 original
+generated cases, 14 additional safety cases, and the earlier regression and
+replay files. `final-check-output.txt` preserves normalized observed logs;
+`final-check-reproduction.md` explains the exact selections, original
+Hypothesis settings, transparent shared-cache launcher, and expected negative
+control. All 14 corrected safety cases fail on the exact reviewed original
+source, registry, and extractor. The earlier probe files remain unchanged.
 
-The completed initial raw scan processes all 68,848 manual rows at the pinned
-corpus commit, with candidate source SHA256
-`03952d547c40cd42378428c6bc470193633678cbc7346591e1deec20edddd618`.
-Every row runs the actual cleaner prefixes from the main baseline, reviewed
-baseline, and that candidate snapshot. Equal prefix bytes plus identical suffix and
-extractor dependencies establish equal inventories. Unequal prefixes run each
-actual complete recall function and freshly extract both numeric profiles.
-Inventories are compared with occurrence counts, excluding only raw text and
-character offsets from semantic identity. No historical inventories or
-interrupted results are reused.
+`checks-summary.json`, `check-output.txt`, and their reproduction snapshots
+remain historical evidence for earlier implementation hashes. Their results
+are excluded from the 812 final-byte passes. Interrupted attempts and the two
+initial unsupported expectations in the new test file are also excluded.
+No pre-existing assertion was weakened. Currency cells are covered in both
+numeric profiles; size-only cells use the interpretation current main supports.
 
-When `execution_scope` is `fresh_final_byte_bridge`, final evidence adds a fresh
-helper and actual-prefix comparison for every row against the completed raw
-snapshot. Exact prefix equality and unchanged suffix/extractor dependencies
-permit inherited inventories; changed prefixes rerun actual complete recalls
-and both profiles. The summary and complete ledger record this bridge
-explicitly. It is not another full extraction run, and the earlier completed
-snapshot is not relabeled as the final source.
-`previous-complete-corpus-summary.json` and
-`previous-complete-corpus-rows.jsonl.gz` preserve that original completed scan.
-The final `corpus-summary.json` and `corpus-rows.jsonl.gz` carry the current
-source hashes and fresh bridge proofs.
-`previous-complete-source.patch` reconstructs the completed candidate source
-from the final committed source. Apply it only to a copied source in an isolated
-scratch tree, then verify the resulting SHA256 against the recorded candidate
-hash. The locator metadata is identical between these two snapshots.
-Recorded runner and verifier snapshots are data files ending in `.py.txt`;
-their exact hashes, pipeline proofs, and independent completion reports are
-listed in the summary. For inspection or reproduction, restore these files as
-scripts under `.hub-scratch/r6/corpus/`, with authenticated input files under
-its `input/` directory, and restore `corpus-input-manifest.json` as
-`corpus-manifest.json`. Immutable input addresses and the preserved-input audit
-are also included. The original three-snapshot runner must receive the
-reconstructed candidate source as its source snapshot, while the explicit
-bridge and qualification use the final source. Do not substitute final bytes
-into a run recorded against the candidate hash.
+`corpus-summary.json` records the completed comparison of **68,848 raw rows
+from 231 files** against main `4f3547461300bfa70569f57c83728b2ad25d9d0b`.
+The subsequently observed main `52c76d75849a628bbfd62b31795fd06e6bf9fdd1` has an identical encoder source-package tree and lockfiles; `corpus-main-forward-equivalence.json` records that equality without relabeling the executed baseline.
+The pinned corpus is `8f7d60aaced28ee4252b9237f9d6e02360dc34bc`.
+68,848 raw rows in 231 files; en-US: 244 changed inventories, 422 added row/value demands and 525 added occurrences; legacy: 661 changed inventories, 1,008 added row/value demands and 1,680 added occurrences; zero removed demands, occurrences or typed entries in both profiles.
+Both profiles remove **zero demanded values, numeric occurrences, or typed
+entries**. Additions are conservative retention and can include locators,
+publication dates, and ambiguous numeric readings; they are not all recovered
+operative quantities. Demand additions count distinct row/value pairs;
+occurrence additions also include values already demanded in the same row.
+Typed comparisons retain value/kind/unit metadata and ignore raw spelling
+and character offsets.
 
-The compact ledger classifies additions as conservative source-number
-retention. Such additions can include genuine section locators and publication
-dates; they must not all be described as recovered operative quantities.
-Context flags describe the stored delta excerpts, while their hashes bind the
-full excerpts retained in execution evidence. Both main-to-final and
-reviewed-to-final comparisons remove zero demanded values, numeric occurrences,
-or typed inventory entries in both profiles.
+`corpus-rows.jsonl.gz` contains every authenticated input-row key/hash,
+recall/helper hashes, proof mode, and helper length/idempotence assertion.
+It is 7.7 MB, so it is not committed; it is retained with the review evidence,
+and its SHA256 (`424c1a35108287db3ab6a97893e729cfa6ac3adac54939a99e8177c4036b66ac`)
+is authenticated in `corpus-artifacts.json`.
+`corpus-deltas.jsonl` lists every changed row and its exact numeric deltas.
+`corpus-input-manifest.json` supplies immutable addresses, SHA256s, Git blob
+SHA1s, byte sizes, and row counts for all inputs. `corpus-artifacts.json`
+authenticates the compact published bundle and the decompressed ledger hash.
 
-The separate sole-page qualification wraps every US body with `Page 1` and
-compares final locator-helper body views, masked digit positions, Python string
-length, and idempotence. Changed body views additionally run the actual final
-complete recall function and fresh typed extraction in both profiles. This is
-a helper qualification, not a complete composed-book differential. Generated
-tests in `test_source_completeness_manual_mask_fail_safe.py` exercise the public
-complete-source gate across caption qualifiers and referenced stamps in other
-composition shapes.
-The qualification completed in two explicit segments at identical final source,
-metadata, extractor, and authenticated input bytes: 47,180 records from the
-original process, followed by fresh execution of its 58 outstanding rows. The
-original process stalled and was interrupted; no successful original exit is
-claimed. `segmented_execution` binds both segment hashes, and the independent
-verifier checks their disjoint, complete 47,238-row input coverage and totals.
+All rows are checked through the actual main/candidate recall functions with
+bounded within-run memoization; no previous-run or interrupted-run records
+are reused. Differing recall text runs both actual extractors and profiles.
+Equal text uses identical profiled extraction dependencies plus an exact
+legacy candidate probe and guard-decision observer. A possible divergent
+legacy decision runs the actual main extractor. The scripts and generated
+probe/observer are published as inert `.py.txt` snapshots.
 
-To reproduce the input scope, download each immutable URL listed in the summary
-and verify its byte count, SHA256, Git blob SHA1, and row count. Compare the
-complete manual provision-file set against the pinned corpus tree. Load the
-recorded baseline source and metadata bytes with `git show`, load the final
-bytes whose hashes are recorded, and call `authoritative_numeric_recall_text`
-and `extract_typed_numeric_inventory_occurrences_from_text` with each recorded
-profile. Check source and input hashes again when the run completes. Use GIL
-CPython 3.13.9, at most four workers, the recorded thread caps, and streamed
-row output.
+`corpus-pipeline-proof.json`, the independent construction review, and the
+completion reports document the proof's limits and checks. The supplemental
+review authenticates all 99 baseline package Git blobs and the identical
+top-level ordinal dictionary population omitted by the declaration graph.
+The completion verifier and a separate independent audit reconcile all 68,848 unique row keys and hashes,
+all deltas, both profiles' totals, and all output/current-source hashes.
+`corpus-reproduction.md` gives the precise restoration layout and commands.
 
-These artifacts document the current execution. They do not authenticate a
-historical signing event, production encoding, or full artifact validation.
+The corpus covers raw bodies. Generated public-gate properties separately
+exercise qualified monetary captions, referenced stamps, sole body chunks,
+other composition layouts, unknown contents titles, and genuine locators.
+This does not establish a complete composed-book differential, full artifact
+validation, historical signing event, or production outcome.
+
+Results identify file bytes, not an uncreated commit. The hub must commit the
+validated bytes, bind PR artifact links to that resulting head, resolve the
+upstream merge, and require green resulting-head CI before landing.

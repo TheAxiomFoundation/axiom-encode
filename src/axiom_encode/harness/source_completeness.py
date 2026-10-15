@@ -2243,6 +2243,17 @@ _MANUAL_OPERATIVE_HEADING_CONTEXT = re.compile(
     r"this[ \t]+date|effective[ \t]+date|as[ \t]+of)\b",
     re.IGNORECASE,
 )
+# Contents membership alone cannot prove a title harmless: financial topics
+# can also caption operative numeric columns. Other titles require an exact
+# reviewed complete-source role rather than heuristic context authority.
+_MANUAL_NONOPERATIVE_PROCEDURE_TITLES = frozenset(
+    {
+        "Application Process",
+        "Retroactive Applications",
+        "Advance Notice of Adverse Action",
+        "Warranties, Representations and Covenants",
+    }
+)
 _MANUAL_TABLE_COLUMN = re.compile(
     r"[ \t]*(?:household[ \t]+(?:type|size)|assistance[ \t]+group|"
     r"benefit[ \t]+type|payment[ \t]+type)[ \t]*\r?\n?",
@@ -13476,7 +13487,7 @@ def _manual_heading_context_is_independent(
 
     headings = {candidate.start(): candidate for candidate in candidates}
     last_heading_end = max((heading.end() for heading in headings.values()), default=0)
-    titles = frozenset(reviewed_titles)
+    titles = frozenset(reviewed_titles) & _MANUAL_NONOPERATIVE_PROCEDURE_TITLES
     offset = 0
     for line in text.splitlines(keepends=True):
         content = line.strip()
