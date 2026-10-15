@@ -3,9 +3,12 @@
 The [reproduction helper](../../scripts/reproduce_subdivision_recall_audit.py)
 runs the repository's independent span audit against a fixed signed corpus
 release and the pinned audit baseline `4f3547461300bfa70569f57c83728b2ad25d9d0b`.
-The baseline's production module is byte-identical to the current merge base with
-`origin/main`, `c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3`; both have SHA-256
-`875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62`.
+The baseline's production module is byte-identical to `origin/main` at
+`c7fe642eee36ba4e1a766d3eae8a9f3bb31b9ed3`; both have SHA-256
+`875df7eb77efdaef6add1ca6756989f2881b5825dcf65dd6e66c0f30c43f3b62`. Main later
+changed the module only in companion-test and paired-case evidence code (#1916),
+outside numeric recall and locator masking, so the audit's counts still describe
+this change.
 The helper downloads and verifies one corpus artifact at a time. Each audit
 subprocess has a 480-second timeout
 within a 540-second shard budget. Run each shard as a separate command; a whole
