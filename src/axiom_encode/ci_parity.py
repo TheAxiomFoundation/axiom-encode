@@ -6427,6 +6427,60 @@ def _ci_dependency_refs(checkout: Path, source: Path) -> None:
         _isolated_git(checkout, "update-ref", default, tip, check=False)
 
 
+def _ci_composer_refs(checkout: Path, source: Path) -> None:
+    """Leave the composer clone with the refs CI's composer checkout holds.
+
+    "Checkout axiom-compose" fetches with fetch-depth 0 (92ccb0f2 L1602):
+    every branch of the GitHub repository as refs/remotes/origin/*, its tags,
+    and the pinned commit detached, with no local branch and no
+    refs/remotes/origin/HEAD. Archive substitution ($Format:%D$ under
+    export-subst, which the encoder pin's provision script archives through)
+    and version schemes read these refs. A transport clone instead holds the
+    local checkout's own branches, as origin/* and one local branch. So the
+    clone's branch refs are dropped, and its remote-tracking refs become the
+    local checkout's view of GitHub's branches (its own refs/remotes/origin/*,
+    current as of its last fetch). Tags stay the local checkout's; see
+    "Composer refs" in docs/ci-parity.md.
+    """
+
+    refs = _isolated_git(
+        checkout, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"
+    ).stdout.split()
+    if refs:
+        _isolated_git(
+            checkout,
+            "update-ref",
+            "--stdin",
+            stdin="".join(f"option no-deref\ndelete {ref}\n" for ref in refs),
+        )
+    _isolated_git(
+        checkout,
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        str(source),
+        "+refs/remotes/origin/*:refs/remotes/origin/*",
+        check=False,
+    )
+    if (
+        _isolated_git(
+            checkout,
+            "rev-parse",
+            "--verify",
+            "-q",
+            "refs/remotes/origin/HEAD",
+            check=False,
+        ).returncode
+        == 0
+    ):
+        _isolated_git(
+            checkout,
+            "update-ref",
+            "--stdin",
+            stdin="option no-deref\ndelete refs/remotes/origin/HEAD\n",
+        )
+
+
 def _git_blob_digest(path: Path, algorithm: str) -> str:
     """The Git object id of a regular file's raw bytes (no filters, no links)."""
 
@@ -6734,9 +6788,10 @@ def _fresh_dependency_entry(
     clone = resources.enter_context(
         committed_checkout(source, commit, repository=repository)
     )
-    if name != "compose":
-        # "Checkout axiom-compose" alone asks for fetch-depth 0, with tags
-        # (L1602); the other dependency checkouts are fetched without them.
+    if name == "compose":
+        # "Checkout axiom-compose" alone asks for fetch-depth 0 (L1602).
+        _ci_composer_refs(clone, source)
+    else:
         _ci_dependency_refs(clone, source)
     entry = layout.entry(_CHECKOUT_NAMES[name])
     if entry.exists() or entry.is_symlink():

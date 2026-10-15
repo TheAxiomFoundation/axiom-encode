@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import io
 import json
 import os
 import re
@@ -18,6 +19,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -3738,3 +3740,57 @@ def test_real_uv_git_dependency_ignores_the_developers_git_hooks(
     assert (
         tmp_path / "temp" / "axiom-compose-site-packages" / "axiom_corpus_marker.py"
     ).exists()
+
+
+# ---------------------------------------------------------------------------
+# Round-8 review fix (GPT-6.1 Sol, executed)
+# ---------------------------------------------------------------------------
+
+
+def test_composer_entry_holds_ci_refs_so_archive_substitution_matches(
+    tmp_path: Path,
+) -> None:
+    """The encoder pin's provision script archives the composer checkout, and
+    $Format:%D$ under export-subst writes the ref names into the package."""
+
+    upstream = gates._repo(
+        tmp_path,
+        {
+            ".gitattributes": "_version.py export-subst\n",
+            "_version.py": 'REFS = "$Format:%D$"\n',
+        },
+        name="axiom-compose-upstream",
+    )
+    source = tmp_path / "axiom-compose"
+    subprocess.run(["git", "clone", "-q", str(upstream), str(source)], check=True)
+    gates._git(source, "branch", "local-feature")
+    commit = _committed(source)
+    (tmp_path / "layout").mkdir()
+    layout, _compose = _composer_layout(tmp_path / "layout")
+    shutil.rmtree(layout.entry("axiom-compose"))
+
+    with contextlib.ExitStack() as resources:
+        entry = ci_parity._fresh_dependency_entry(
+            resources,
+            layout,
+            "compose",
+            source,
+            commit,
+            "TheAxiomFoundation/axiom-compose",
+        )
+        refs = gates._git(entry, "for-each-ref", "--format=%(refname)").split()
+        archived = subprocess.run(
+            ["git", "-C", str(entry), "archive", "HEAD", "_version.py"],
+            capture_output=True,
+            check=True,
+            env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull},
+        ).stdout
+        head = gates._git(entry, "rev-parse", "HEAD")
+
+    # CI: the pinned commit detached, GitHub's branches as origin/*.
+    assert refs == ["refs/remotes/origin/main"]
+    assert head == commit
+    with tarfile.open(fileobj=io.BytesIO(archived)) as tar:
+        member = tar.extractfile("_version.py")
+        assert member is not None
+        assert member.read() == b'REFS = "HEAD, origin/main"\n'
