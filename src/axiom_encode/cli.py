@@ -35,7 +35,7 @@ from binascii import Error as BinasciiError
 from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
@@ -2483,6 +2483,11 @@ def main():
         "--all",
         action="store_true",
         help="Verify every existing RuleSpec YAML file, not only git changes",
+    )
+    guard_generated_parser.add_argument(
+        "--retrospective",
+        action="store_true",
+        help="Audit an exact historical HEAD at or before the trusted frozen cutoff",
     )
     _add_required_corpus_path_argument(guard_generated_parser)
     _add_expected_encoder_checkout_argument(guard_generated_parser)
@@ -7894,6 +7899,7 @@ def cmd_guard_generated(args):
         head_ref=args.head_ref,
         roots=roots,
         all_files=all_files,
+        retrospective=bool(getattr(args, "retrospective", False)),
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
@@ -8018,6 +8024,13 @@ def _historical_manifest_refresh_inputs(
     issues = _applied_manifest_exact_schema_issues(
         payload,
         manifest_label=manifest_relative.as_posix(),
+    )
+    signing_broker = _historical_apply_verifier(
+        signing_broker,
+        repo_path,
+        manifest_relative,
+        manifest_raw,
+        payload,
     )
     signature_issue = _applied_encoding_manifest_signature_issue(
         payload,
@@ -8793,6 +8806,7 @@ def signed_import_inventory(
             _load_verified_applied_encoding_manifest_payload(
                 repo_path,
                 manifest_path.as_posix(),
+                historical_verification=True,
                 roots=roots,
                 signing_broker=signing_broker,
                 expected_waiver_set_sha256=expected_waiver_set_sha256,
@@ -10056,7 +10070,7 @@ def _legacy_replacement_pending_paths(
 
     pending: list[str] = []
     manifest_root = repo_path / APPLIED_ENCODING_MANIFEST_DIR
-    candidates: list[tuple[str, dict[str, object]]] = []
+    candidates: list[tuple[str, dict[str, object], bytes]] = []
     if manifest_root.is_dir():
         for manifest_path in sorted(manifest_root.rglob("*.json")):
             manifest_label = manifest_path.relative_to(repo_path).as_posix()
@@ -10082,7 +10096,7 @@ def _legacy_replacement_pending_paths(
                 or payload.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
             ):
                 continue
-            candidates.append((manifest_label, payload))
+            candidates.append((manifest_label, payload, manifest_raw))
     receipt_root = repo_path / APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
     receipt_candidates = (
         sorted(receipt_root.rglob("*.json")) if receipt_root.is_dir() else []
@@ -10096,7 +10110,7 @@ def _legacy_replacement_pending_paths(
     if signing_broker is None:
         return sorted(
             {
-                *[f"invalid:{label}" for label, _payload in candidates],
+                *[f"invalid:{label}" for label, _payload, _raw in candidates],
                 *[
                     f"invalid:{path.relative_to(repo_path).as_posix()}"
                     for path in receipt_candidates
@@ -10104,10 +10118,12 @@ def _legacy_replacement_pending_paths(
             }
         )
     bound_receipts: set[Path] = set()
-    for manifest_label, payload in candidates:
+    for manifest_label, payload, manifest_raw in candidates:
         if (
             set(payload) != _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS
-            or _applied_encoding_manifest_signature_issue(payload, signing_broker)
+            or _historical_artifact_signature_issue(
+                payload, signing_broker, repo_path, manifest_label, manifest_raw
+            )
         ):
             pending.append(f"invalid:{manifest_label}")
             continue
@@ -10171,7 +10187,9 @@ def _legacy_replacement_pending_paths(
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
             or hashlib.sha256(receipt_raw).hexdigest() != binding.get("receipt_sha256")
-            or _applied_encoding_manifest_signature_issue(receipt, signing_broker)
+            or _historical_artifact_signature_issue(
+                receipt, signing_broker, repo_path, receipt_relative, receipt_raw
+            )
         ):
             pending.append(f"invalid:{manifest_label}")
             continue
@@ -10420,7 +10438,9 @@ def _legacy_replacement_pending_paths(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
-            or _applied_encoding_manifest_signature_issue(receipt, signing_broker)
+            or _historical_artifact_signature_issue(
+                receipt, signing_broker, repo_path, receipt_relative, receipt_raw
+            )
             or receipt_relative not in bound_receipts
         ):
             pending.append(f"invalid:{receipt_label}")
@@ -10787,6 +10807,7 @@ def _verified_current_applied_manifest_payload(
         _load_verified_applied_encoding_manifest_payload(
             manifest_root,
             manifest_path.relative_to(manifest_root).as_posix(),
+            historical_verification=True,
             signing_broker=signing_broker,
             local_corpus_release=local_corpus_release,
         )
@@ -14281,6 +14302,7 @@ def _applied_manifest_paths_for_files(
             _load_verified_applied_encoding_manifest_payload(
                 repo_path,
                 relative_manifest_path,
+                historical_verification=True,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
                 path_migration_receipt_proof_cache=(path_migration_receipt_proof_cache),
@@ -22178,6 +22200,7 @@ def _cmd_migrate_rulespec_paths(args) -> None:
             _load_verified_applied_encoding_manifest_payload(
                 repo_path,
                 owner_path,
+                historical_verification=True,
                 roots=roots,
                 signing_broker=signing_broker,
                 expected_waiver_set_sha256=waiver_sha256,
@@ -22363,6 +22386,7 @@ def _cmd_migrate_rulespec_paths(args) -> None:
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     owner_path,
+                    historical_verification=True,
                     roots=roots,
                     signing_broker=signing_broker,
                     expected_waiver_set_sha256=waiver_sha256,
@@ -22399,6 +22423,7 @@ def _cmd_migrate_rulespec_paths(args) -> None:
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     destination.as_posix(),
+                    historical_verification=True,
                     roots=roots,
                     signing_broker=signing_broker,
                     expected_waiver_set_sha256=waiver_sha256,
@@ -22510,6 +22535,7 @@ def cmd_retire(args):
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     candidate,
+                    historical_verification=True,
                     roots=roots,
                     signing_broker=signing_broker,
                     expected_waiver_set_sha256=waiver_sha256,
@@ -22685,6 +22711,7 @@ def cmd_retire(args):
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     manifest_path.relative_to(repo_path).as_posix(),
+                    historical_verification=True,
                     roots=roots,
                     signing_broker=signing_broker,
                     expected_waiver_set_sha256=locked_waiver,
@@ -22708,6 +22735,7 @@ def cmd_retire(args):
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
                     manifest_path.relative_to(repo_path).as_posix(),
+                    historical_verification=True,
                     signing_broker=signing_broker,
                     expected_waiver_set_sha256=locked_waiver,
                     local_corpus_release=locked_release,
@@ -22746,10 +22774,22 @@ def guard_generated_change_issues(
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     changed_files: list[str] | None = None,
     all_files: bool = False,
+    retrospective: bool = False,
     expected_encoder_checkout: Path | None = None,
 ) -> list[str]:
     """Return issues for RuleSpec changes not bound to the signed local release."""
     repo_path = Path(repo_path).resolve()
+    if retrospective:
+        from axiom_encode.retired_apply import retrospective_head_issue
+
+        try:
+            broker = get_signing_broker()
+            inventory = getattr(broker, "retired_apply_inventory", None)
+            issue = retrospective_head_issue(inventory, repo_path, head_ref)
+        except SigningBrokerError as exc:
+            issue = str(exc)
+        if issue:
+            return [f"Retrospective guard is not bound to frozen trust: {issue}"]
     pending_transaction = repo_path / _APPLY_TRANSACTION_DIRECTORY
     if pending_transaction.exists() or pending_transaction.is_symlink():
         return [
@@ -22886,6 +22926,9 @@ def guard_generated_change_issues(
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         surviving_manifest_paths,
+        historical_verification=all_files or retrospective,
+        historical_head_ref=head_ref,
+        retrospective=retrospective,
         roots=roots,
         local_corpus_release=local_corpus_release,
         expected_encoder_identity=expected_encoder_identity,
@@ -22929,6 +22972,9 @@ def guard_generated_change_issues(
     issues.extend(
         _generated_provenance_gate_issues(
             repo_path,
+            historical_verification=all_files or retrospective,
+            historical_head_ref=head_ref,
+            retrospective=retrospective,
             protected=protected,
             surviving_manifest_paths=surviving_manifest_paths,
             roots=roots,
@@ -23146,6 +23192,9 @@ def _unchanged_direct_importer_of_changed_rulespec(
 def _generated_provenance_gate_issues(
     repo_path: Path,
     *,
+    historical_verification: bool = True,
+    historical_head_ref: str = "HEAD",
+    retrospective: bool = False,
     protected: list[str],
     surviving_manifest_paths: list[str],
     roots: tuple[str, ...],
@@ -23160,6 +23209,9 @@ def _generated_provenance_gate_issues(
     coverage = _manifest_coverage_by_file(
         repo_path,
         surviving_manifest_paths,
+        historical_verification=historical_verification,
+        historical_head_ref=historical_head_ref,
+        retrospective=retrospective,
         roots=roots,
         local_corpus_release=local_corpus_release,
         expected_encoder_identity=expected_encoder_identity,
@@ -23375,6 +23427,9 @@ def _manifest_coverage_by_file(
     repo_path: Path,
     manifest_paths: list[str],
     *,
+    historical_verification: bool = True,
+    historical_head_ref: str = "HEAD",
+    retrospective: bool = False,
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     local_corpus_release: LocalCorpusRelease | None = None,
     expected_encoder_identity: Mapping[str, str] | None = None,
@@ -23403,6 +23458,9 @@ def _manifest_coverage_by_file(
             _load_verified_applied_encoding_manifest_payload(
                 repo_path,
                 manifest_path,
+                historical_verification=historical_verification,
+                historical_head_ref=historical_head_ref,
+                retrospective=retrospective,
                 roots=roots,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
@@ -24765,8 +24823,8 @@ def _load_verified_path_migration_receipt(
             issues.append(f"{label} axiom_encode_git.version disagrees with receipt")
         if provenance.get("identity_source") not in _APPLY_IDENTITY_SOURCES:
             issues.append(f"{label} axiom_encode_git.identity_source is invalid")
-    signature_issue = _applied_encoding_manifest_signature_issue(
-        payload, signing_broker
+    signature_issue = _historical_artifact_signature_issue(
+        payload, signing_broker, repo_path, receipt_path, raw
     )
     if signature_issue:
         issues.append(f"{label} {signature_issue}")
@@ -25048,8 +25106,10 @@ def _migrated_model_manifest_issues(
         migrated,
         manifest_label=migrated_label,
     )
-    signature_issue = _applied_encoding_manifest_signature_issue(
-        migrated, signing_broker
+    signature_issue = _historical_nested_signature_issue(
+        migrated,
+        signing_broker,
+        binding.get("prior_manifest_path") if isinstance(binding, dict) else None,
     )
     if signature_issue:
         issues.append(f"{migrated_label} {signature_issue}")
@@ -25526,9 +25586,12 @@ def _legacy_replacement_manifest_issues(
         parsed_generated_at = None
     if parsed_generated_at is None or parsed_generated_at.tzinfo is None:
         issues.append(f"{manifest_label} replacement receipt timestamp is invalid")
-    receipt_signature_issue = _applied_encoding_manifest_signature_issue(
+    receipt_signature_issue = _historical_artifact_signature_issue(
         receipt,
         signing_broker,
+        repo_path,
+        receipt_path,
+        receipt_raw,
     )
     if receipt_signature_issue:
         issues.append(f"{manifest_label} replacement receipt {receipt_signature_issue}")
@@ -25869,8 +25932,12 @@ def _legacy_replacement_manifest_issues(
             == APPLIED_ENCODING_MANIFEST_SCHEMA
             and dependent_manifest.get("tool") == APPLIED_ENCODING_MODEL_TOOL
             and dependent_manifest.get("backend") in APPLIED_ENCODING_ENCODER_BACKENDS
-            and not _applied_encoding_manifest_signature_issue(
-                dependent_manifest, signing_broker
+            and not _historical_artifact_signature_issue(
+                dependent_manifest,
+                signing_broker,
+                repo_path,
+                dependent_manifest_path,
+                dependent_manifest_raw,
             )
             and isinstance(dependent_applied, list)
             and primary
@@ -26533,8 +26600,12 @@ def _legacy_replacement_manifest_issues(
             != expected_waiver_set_sha256
             or dependent_manifest.get("applied_files") != dependent["live_files"]
             or dependent_manifest.get("legacy_migration") != expected_migration
-            or _applied_encoding_manifest_signature_issue(
-                dependent_manifest, signing_broker
+            or _historical_artifact_signature_issue(
+                dependent_manifest,
+                signing_broker,
+                repo_path,
+                dependent_manifest_path,
+                dependent_manifest_raw,
             )
         ):
             issues.append(
@@ -26602,8 +26673,12 @@ def _legacy_replacement_manifest_issues(
                 nested_successor, manifest_label=nested_label
             )
         )
-        nested_successor_signature_issue = _applied_encoding_manifest_signature_issue(
-            nested_successor, signing_broker
+        nested_successor_signature_issue = _historical_nested_signature_issue(
+            nested_successor,
+            signing_broker,
+            successor_manifest_evidence.get("path")
+            if isinstance(successor_manifest_evidence, dict)
+            else None,
         )
         if nested_successor_signature_issue:
             issues.append(f"{nested_label} {nested_successor_signature_issue}")
@@ -26724,8 +26799,12 @@ def _legacy_replacement_manifest_issues(
             or current_manifest.get("applied_files") != successor_files
             or current_manifest.get("legacy_migration") != expected_successor_migration
             or current_manifest.get("retained_successor_manifest") != nested_successor
-            or _applied_encoding_manifest_signature_issue(
-                current_manifest, signing_broker
+            or _historical_artifact_signature_issue(
+                current_manifest,
+                signing_broker,
+                repo_path,
+                current_manifest_path,
+                current_manifest_raw,
             )
         ):
             issues.append(
@@ -27125,7 +27204,9 @@ def _legacy_exact_dependent_manifest_issues(
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
         or receipt_sha256 != binding.get("receipt_sha256")
-        or _applied_encoding_manifest_signature_issue(receipt, signing_broker)
+        or _historical_artifact_signature_issue(
+            receipt, signing_broker, repo_path, receipt_path, receipt_raw
+        )
     ):
         return [f"{manifest_label} exact dependent receipt is invalid"]
     if (
@@ -27200,9 +27281,18 @@ def _legacy_exact_dependent_manifest_issues(
         not isinstance(outer, dict)
         or set(outer) != _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS
         or outer.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
-        or _applied_encoding_manifest_signature_issue(outer, signing_broker)
+        or _historical_artifact_signature_issue(
+            outer, signing_broker, repo_path, outer_path, outer_raw
+        )
     ):
         return [*issues, f"{manifest_label} cascade owner is invalid"]
+    signing_broker = _historical_apply_verifier(
+        signing_broker,
+        repo_path,
+        outer_path,
+        outer_raw,
+        outer,
+    )
     owner_binding = outer.get("replacement")
     if (
         not isinstance(owner_binding, dict)
@@ -27298,7 +27388,9 @@ def _legacy_retained_successor_manifest_issues(
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
         or receipt_sha256 != binding.get("receipt_sha256")
-        or _applied_encoding_manifest_signature_issue(receipt, signing_broker)
+        or _historical_artifact_signature_issue(
+            receipt, signing_broker, repo_path, receipt_path, receipt_raw
+        )
     ):
         return [f"{manifest_label} retained successor receipt is invalid"]
     replacement = receipt.get("replacement")
@@ -27362,9 +27454,18 @@ def _legacy_retained_successor_manifest_issues(
         or not isinstance(outer, dict)
         or set(outer) != _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS
         or outer.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
-        or _applied_encoding_manifest_signature_issue(outer, signing_broker)
+        or _historical_artifact_signature_issue(
+            outer, signing_broker, repo_path, outer_path, outer_raw
+        )
     ):
         return [f"{manifest_label} retained successor cascade owner is invalid"]
+    signing_broker = _historical_apply_verifier(
+        signing_broker,
+        repo_path,
+        outer_path,
+        outer_raw,
+        outer,
+    )
     return _legacy_replacement_manifest_issues(
         outer,
         repo_path=repo_path,
@@ -27379,6 +27480,9 @@ def _load_verified_applied_encoding_manifest_payload(
     repo_path: Path,
     manifest_path: str,
     *,
+    historical_verification: bool = False,
+    historical_head_ref: str = "HEAD",
+    retrospective: bool = False,
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     signing_broker: SigningBroker | Ed25519PublicKey | None = None,
     expected_waiver_set_sha256: str | None = None,
@@ -27468,6 +27572,16 @@ def _load_verified_applied_encoding_manifest_payload(
             manifest_sha256,
             [f"{manifest_label} is not an encoder apply manifest"],
         )
+    signing_broker = _historical_apply_verifier(
+        signing_broker,
+        repo_path,
+        manifest_label,
+        manifest_bytes,
+        payload,
+        allow_retired_artifact=historical_verification,
+        head_ref=historical_head_ref,
+        retrospective=retrospective,
+    )
     signature_issue = _applied_encoding_manifest_signature_issue(
         payload, signing_broker
     )
@@ -27504,6 +27618,33 @@ def _load_verified_applied_encoding_manifest_payload(
             issues.append(
                 f"{manifest_label} cannot verify pinned encoder identity: {exc}"
             )
+    if (
+        historical_verification
+        and isinstance(signing_broker, _HistoricalApplyVerifier)
+        and payload["signature"]["key_id"]
+        != _applied_encoding_manifest_key_id(
+            _coerce_applied_encoding_manifest_verifier(signing_broker)
+        )
+    ):
+        # Signature and exact frozen-byte admission succeeded above. The owner
+        # froze this producer with the artifact; a newer verifier pin must not
+        # reinterpret it as a fresh producer. Internal provenance, execution,
+        # source and waiver consistency are still checked below.
+        provenance = payload.get("axiom_encode_git")
+        if isinstance(provenance, dict):
+            commit = provenance.get("commit")
+            version = provenance.get("version")
+            if (
+                isinstance(commit, str)
+                and re.fullmatch(r"[0-9a-f]{40}", commit) is not None
+                and isinstance(version, str)
+                and version
+            ):
+                expected_encoder_identity = {
+                    "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                    "commit": commit,
+                    "version": version,
+                }
     if expected_encoder_identity is not None:
         issues.extend(
             _applied_manifest_tool_execution_issues(
@@ -27709,6 +27850,9 @@ def _load_applied_encoding_manifest_entries(
     repo_path: Path,
     manifest_paths: list[str],
     *,
+    historical_verification: bool = True,
+    historical_head_ref: str = "HEAD",
+    retrospective: bool = False,
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     local_corpus_release: LocalCorpusRelease | None = None,
     expected_encoder_identity: Mapping[str, str] | None = None,
@@ -27753,6 +27897,9 @@ def _load_applied_encoding_manifest_entries(
             _load_verified_applied_encoding_manifest_payload(
                 repo_path,
                 manifest_path,
+                historical_verification=historical_verification,
+                historical_head_ref=historical_head_ref,
+                retrospective=retrospective,
                 roots=roots,
                 signing_broker=signing_broker,
                 expected_waiver_set_sha256=expected_waiver_set_sha256,
@@ -27808,7 +27955,105 @@ def _raw_ed25519_public_key(public_key: Ed25519PublicKey) -> bytes:
     )
 
 
-def _applied_encoding_manifest_verifier() -> Ed25519PublicKey | None:
+@dataclass(frozen=True)
+class _HistoricalApplyVerifier:
+    """Verification-only trust scoped to one persisted repository artifact."""
+
+    broker: SigningBroker
+    context: object
+    payload: dict
+    allow_retired_artifact: bool = True
+
+    def __getattr__(self, name: str):
+        return getattr(self.broker, name)
+
+
+def _historical_apply_verifier(
+    verifier: SigningBroker | Ed25519PublicKey,
+    repo_path: Path,
+    artifact_path: str | Path,
+    artifact_bytes: bytes,
+    payload: dict,
+    *,
+    allow_retired_artifact: bool = True,
+    head_ref: str = "HEAD",
+    retrospective: bool = False,
+) -> SigningBroker | Ed25519PublicKey:
+    """Attach exact artifact evidence without adding a signing capability."""
+
+    from axiom_encode.retired_apply import RetiredApplyContext
+
+    if isinstance(verifier, _HistoricalApplyVerifier):
+        head_ref = verifier.context.head_ref
+        retrospective = verifier.context.retrospective
+        verifier = verifier.broker
+    if not getattr(verifier, "retired_apply_public_keys_raw", ()):
+        return verifier
+    return _HistoricalApplyVerifier(
+        verifier,
+        RetiredApplyContext(
+            repo_path,
+            artifact_path,
+            artifact_bytes,
+            head_ref=head_ref,
+            retrospective=retrospective,
+        ),
+        payload,
+        allow_retired_artifact,
+    )
+
+
+def _historical_artifact_signature_issue(
+    payload: dict,
+    verifier: SigningBroker | Ed25519PublicKey,
+    repo_path: Path,
+    artifact_path: str | Path,
+    artifact_bytes: bytes,
+) -> str | None:
+    """Verify a separately persisted receipt or successor at its own path."""
+
+    return _applied_encoding_manifest_signature_issue(
+        payload,
+        _historical_apply_verifier(
+            verifier,
+            repo_path,
+            artifact_path,
+            artifact_bytes,
+            payload,
+        ),
+    )
+
+
+def _historical_nested_signature_issue(
+    payload: dict,
+    verifier: SigningBroker | Ed25519PublicKey,
+    artifact_path: str | Path | None = None,
+) -> str | None:
+    """Admit embedded evidence only from its frozen original envelope."""
+
+    issue = _applied_encoding_manifest_signature_issue(payload, verifier)
+    if issue is None:
+        return None
+    if isinstance(verifier, _HistoricalApplyVerifier) and artifact_path is not None:
+        from axiom_encode.retired_apply import RetiredApplyContext
+
+        context = verifier.context
+        verifier = _HistoricalApplyVerifier(
+            verifier.broker,
+            RetiredApplyContext(
+                context.repo_path,
+                artifact_path,
+                b"",
+                head_ref=context.head_ref,
+                retrospective=context.retrospective,
+            ),
+            {},  # Embedded evidence cannot become a live-artifact authorization.
+            False,
+        )
+    return _applied_encoding_manifest_signature_issue(payload, verifier)
+
+
+def _applied_encoding_manifest_verifier() -> SigningBroker | Ed25519PublicKey | None:
     """Load the protected broker trust root for persisted apply manifests."""
 
     try:
@@ -27818,6 +28063,8 @@ def _applied_encoding_manifest_verifier() -> Ed25519PublicKey | None:
     public_key_raw = broker.apply_public_key_raw
     if public_key_raw is None or len(public_key_raw) != 32:
         return None
+    if getattr(broker, "retired_apply_public_keys_raw", ()):
+        return broker
     return Ed25519PublicKey.from_public_bytes(public_key_raw)
 
 
@@ -27915,7 +28162,33 @@ def _applied_encoding_manifest_signature_issue(
     except SigningBrokerError as exc:
         return f"cannot load the encoder apply manifest trust root: {exc}"
     if signature.get("key_id") != _applied_encoding_manifest_key_id(public_key):
-        return "uses an unknown encoder apply manifest signing key"
+        if not isinstance(signing_broker, _HistoricalApplyVerifier):
+            return "uses an unknown encoder apply manifest signing key"
+        nested = payload is not signing_broker.payload
+        if not nested and not signing_broker.allow_retired_artifact:
+            return "uses an unknown encoder apply manifest signing key"
+        retired_key = next(
+            (
+                raw
+                for raw in signing_broker.retired_apply_public_keys_raw
+                if signature.get("key_id")
+                == f"sha256:{hashlib.sha256(raw).hexdigest()}"
+            ),
+            None,
+        )
+        if retired_key is None:
+            return "uses an unknown encoder apply manifest signing key"
+        from axiom_encode.retired_apply import retired_apply_payload_admission_issue
+
+        historical_issue = retired_apply_payload_admission_issue(
+            signing_broker.retired_apply_inventory,
+            signing_broker.context,
+            payload,
+            nested=nested,
+        )
+        if historical_issue:
+            return f"is not frozen historical apply evidence: {historical_issue}"
+        public_key = Ed25519PublicKey.from_public_bytes(retired_key)
     actual = signature.get("value")
     if not isinstance(actual, str):
         return "has an invalid encoder apply manifest signature"
@@ -31014,6 +31287,7 @@ def _resolve_legacy_replacement_contract(
             _load_verified_applied_encoding_manifest_payload(
                 policy_checkout_path,
                 successor_manifest_path.as_posix(),
+                historical_verification=True,
                 signing_broker=verifier,
                 expected_waiver_set_sha256=expected_waiver_set_sha256,
                 local_corpus_release=corpus_release,
