@@ -2814,11 +2814,14 @@ def main():
     )
     retired_metadata_parser.add_argument("--plan", type=Path, required=True)
     retired_metadata_parser.add_argument(
-        "--policy-repo-path", type=Path, required=True,
+        "--policy-repo-path",
+        type=Path,
+        required=True,
         help="Exact canonical rulespec-<country> checkout",
     )
     retired_metadata_parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Write replayable postimages and an unsigned receipt in a scratch checkout",
     )
     _add_required_corpus_path_argument(retired_metadata_parser)
@@ -22813,7 +22816,9 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
-    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(repo_path, changed, base_ref=base_ref)
+    retired_metadata_change_issues = _retired_source_metadata_change_set_issues(
+        repo_path, changed, base_ref=base_ref
+    )
     if retired_metadata_change_issues:
         return retired_metadata_change_issues
     if not protected:
@@ -23929,19 +23934,36 @@ def _applied_manifest_tool_execution_issues(
         applied_files = payload.get("applied_files")
         if tool == RETIRED_SOURCE_METADATA_TOOL:
             if (
-                not isinstance(applied_files, list) or not applied_files
-                or any(not isinstance(item, dict) or set(item) != {"path", "sha256"} for item in applied_files)
+                not isinstance(applied_files, list)
+                or not applied_files
+                or any(
+                    not isinstance(item, dict) or set(item) != {"path", "sha256"}
+                    for item in applied_files
+                )
             ):
-                issues.append(f"{manifest_label} retired source metadata migration has malformed file entries")
+                issues.append(
+                    f"{manifest_label} retired source metadata migration has malformed file entries"
+                )
             provenance = payload.get("axiom_encode_git")
             if not isinstance(provenance, dict) or (
                 provenance.get("commit") != expected_encoder_identity.get("commit")
                 or provenance.get("version") != expected_encoder_identity.get("version")
                 or provenance.get("dirty_tracked") is not False
             ):
-                issues.append(f"{manifest_label} retired source metadata migration does not match the running pinned encoder")
-            if any(field in payload for field in ("source_attestation", "validation_execution", "deterministic_execution")):
-                issues.append(f"{manifest_label} retired source metadata migration may claim only receipt-bound replay")
+                issues.append(
+                    f"{manifest_label} retired source metadata migration does not match the running pinned encoder"
+                )
+            if any(
+                field in payload
+                for field in (
+                    "source_attestation",
+                    "validation_execution",
+                    "deterministic_execution",
+                )
+            ):
+                issues.append(
+                    f"{manifest_label} retired source metadata migration may claim only receipt-bound replay"
+                )
             return issues
         if tool == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL:
             if not isinstance(applied_files, list) or any(
@@ -27584,7 +27606,11 @@ def _load_verified_applied_encoding_manifest_payload(
             rulespec_snapshots=applied_file_snapshots,
         )
     )
-    issues.extend(_retired_source_metadata_manifest_issues(payload, repo_path=repo_path, manifest_label=manifest_label))
+    issues.extend(
+        _retired_source_metadata_manifest_issues(
+            payload, repo_path=repo_path, manifest_label=manifest_label
+        )
+    )
     source_attestation = payload.get("source_attestation")
     if isinstance(source_attestation, dict):
         toolchain = load_rulespec_toolchain(repo_path)
