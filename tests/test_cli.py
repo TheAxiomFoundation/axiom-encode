@@ -232,6 +232,7 @@ from axiom_encode.cli import (
     _try_repair_generated_computed_output_test_inputs_for_apply,
     _try_repair_generated_conditional_vacuity_tests_for_apply,
     _try_repair_generated_day_period_test_shorthands_for_apply,
+    _try_repair_generated_deferred_canonical_citations_for_apply,
     _try_repair_generated_delegated_policy_settings_for_apply,
     _try_repair_generated_embedded_scalar_literals_for_apply,
     _try_repair_generated_empty_test_outputs_for_apply,
@@ -21864,6 +21865,146 @@ module:
 
         assert repaired == ["module.source_verification.values"]
         assert rules_file.read_text() == prefix
+
+    def test_deferred_citation_repair_uses_exact_diagnostic_and_source_root(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: >-
+        7 CFR 273.10(a)(1) requires the application date and certification
+        history; neither input is available in this calculation.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "identifies source branch (a) (`a/1`) but its deferral does not "
+            "name an exact missing dependency, input, or runtime capability. "
+            "For this rejected current-source branch, the literal canonical "
+            "citation required in `reason` is `us/regulation/7/273/10(a)(1)`"
+        )
+
+        assert _try_repair_generated_deferred_canonical_citations_for_apply(
+            result, output_root=output_root, issues=[issue]
+        ) == ["module.deferred_outputs[0].reason"]
+        assert rules_file.read_text() == original.replace(
+            "7 CFR 273.10(a)(1)", "us/regulation/7/273/10(a)(1)"
+        )
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+
+    @pytest.mark.parametrize(
+        "citation,output",
+        [
+            (
+                "us/regulation/7/273/11(a)(1)",
+                "us:regulations/7-cfr/273/10/a/1#application_month",
+            ),
+            (
+                "us/regulation/7/273/10(a)(1)",
+                "us:regulations/7-cfr/273/10/c#application_month",
+            ),
+        ],
+    )
+    def test_deferred_citation_repair_refuses_other_source_or_branch(
+        self, tmp_path, citation, output
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        rules_file.parent.mkdir(parents=True)
+        original = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: {output}
+      reason: 7 CFR 273.10(a)(1) requires application facts.
+rules: []
+"""
+        rules_file.write_text(original)
+        result = SimpleNamespace(runner="codex-test-model", output_file=str(rules_file))
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            f"`{citation}`"
+        )
+
+        assert (
+            _try_repair_generated_deferred_canonical_citations_for_apply(
+                result, output_root=output_root, issues=[issue]
+            )
+            == []
+        )
+        assert rules_file.read_text() == original
+
+    def test_encode_apply_revalidates_after_deferred_citation_repair(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        rules_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+  deferred_outputs:
+    - output: us:regulations/7-cfr/273/10/a/1#application_month
+      reason: 7 CFR 273.10(a)(1) requires the application date.
+rules: []
+"""
+        )
+        result.output_file = str(rules_file)
+        issue = (
+            "[complete-source-unit:deferral] `module.deferred_outputs[0]` "
+            "literal canonical citation required in `reason` is "
+            "`us/regulation/7/273/10(a)(1)`"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert "us/regulation/7/273/10(a)(1) requires" in rules_file.read_text()
+        assert "apply=auto_repaired_deferred_canonical_citations:" in (
+            capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_deferred_canonical_citations"] == [
+            "module.deferred_outputs[0].reason"
+        ]
 
     def test_encode_apply_removes_empty_deferred_source_values(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)

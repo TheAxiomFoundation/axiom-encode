@@ -33199,6 +33199,34 @@ def _run_encode_attempt(
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
+                repaired_deferred_citations = (
+                    _try_repair_generated_deferred_canonical_citations_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_deferred_citations:
+                    outcome["auto_repaired_deferred_canonical_citations"] = (
+                        repaired_deferred_citations
+                    )
+                    print(
+                        "  apply=auto_repaired_deferred_canonical_citations:"
+                        + ",".join(repaired_deferred_citations)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 repaired_source_relation_types = (
                     _try_repair_generated_invalid_source_relation_types_for_apply(
                         result,
@@ -44408,6 +44436,131 @@ def _try_repair_generated_invalid_source_verification_values_for_apply(
     except (OSError, RuntimeError, UnicodeError):
         return []
     return ["module.source_verification.values"]
+
+
+def _try_repair_generated_deferred_canonical_citations_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: Sequence[str],
+) -> list[str]:
+    """Use an attested CFR citation spelling in generated deferral reasons.
+
+    A complete-source-unit diagnostic identifies the exact canonical citation.
+    Only replace its equivalent human-readable CFR label in the same generated
+    reason. No missing dependency, reason text, or signed import is invented.
+    """
+    citations: dict[int, str] = {}
+    for issue in issues:
+        if "[complete-source-unit:deferral]" not in str(issue):
+            continue
+        index_match = re.search(r"`module\.deferred_outputs\[(\d+)\]`", str(issue))
+        citation_match = re.search(
+            r"literal canonical citation required in `reason` is `([^`]+)`",
+            str(issue),
+        )
+        if index_match is None or citation_match is None:
+            continue
+        index = int(index_match.group(1))
+        citation = citation_match.group(1)
+        if index in citations and citations[index] != citation:
+            return []
+        citations[index] = citation
+    if not citations:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    try:
+        original = rules_file.read_bytes().decode("utf-8")
+        payload = yaml.safe_load(original)
+        root_node = yaml.compose(original)
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict) or not isinstance(root_node, MappingNode):
+        return []
+    module = payload.get("module")
+    if not isinstance(module, dict):
+        return []
+    verification = module.get("source_verification")
+    deferred = module.get("deferred_outputs")
+    if not isinstance(verification, dict) or not isinstance(deferred, list):
+        return []
+    source_root = verification.get("corpus_citation_path")
+    if not isinstance(source_root, str):
+        return []
+    cfr = re.fullmatch(r"us/regulation/(\d+)/(\d+)/(\d+)", source_root)
+    if cfr is None:
+        return []
+    title, part, section = cfr.groups()
+    output_root_anchor = f"us:regulations/{title}-cfr/{part}/{section}"
+
+    def _unique_value(node: object, key: str) -> object | None:
+        if not isinstance(node, MappingNode):
+            return None
+        matches = [
+            value
+            for field, value in node.value
+            if isinstance(field, ScalarNode) and field.value == key
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    module_node = _unique_value(root_node, "module")
+    deferred_node = _unique_value(module_node, "deferred_outputs")
+    if not isinstance(deferred_node, SequenceNode) or len(deferred_node.value) != len(
+        deferred
+    ):
+        return []
+
+    expected = copy.deepcopy(payload)
+    edits: list[tuple[int, int, str]] = []
+    repaired: list[str] = []
+    for index, citation in sorted(citations.items()):
+        if index >= len(deferred) or not isinstance(deferred[index], dict):
+            return []
+        if not citation.startswith(source_root):
+            return []
+        suffix = citation[len(source_root) :]
+        if not suffix or re.fullmatch(r"(?:\([A-Za-z0-9]+\))+", suffix) is None:
+            return []
+        branch = "/".join(re.findall(r"\(([A-Za-z0-9]+)\)", suffix))
+        output = deferred[index].get("output")
+        if not isinstance(output, str) or output.split("#", 1)[0] != (
+            f"{output_root_anchor}/{branch}"
+        ):
+            return []
+        alias = f"{title} CFR {part}.{section}{suffix}"
+        reason = deferred[index].get("reason")
+        if not isinstance(reason, str) or reason.count(alias) != 1:
+            continue
+        reason_node = _unique_value(deferred_node.value[index], "reason")
+        if not isinstance(reason_node, ScalarNode):
+            return []
+        start, end = reason_node.start_mark.index, reason_node.end_mark.index
+        source = original[start:end]
+        if source.count(alias) != 1:
+            continue
+        edits.append((start, end, source.replace(alias, citation, 1)))
+        expected["module"]["deferred_outputs"][index]["reason"] = reason.replace(
+            alias, citation, 1
+        )
+        repaired.append(f"module.deferred_outputs[{index}].reason")
+    if not edits:
+        return []
+    updated = original
+    for start, end, replacement in sorted(edits, reverse=True):
+        updated = updated[:start] + replacement + updated[end:]
+    try:
+        if yaml.safe_load(updated) != expected:
+            return []
+        mode = stat.S_IMODE(rules_file.stat().st_mode)
+        _atomic_replace_bytes(rules_file, updated.encode("utf-8"), mode=mode)
+    except (OSError, RuntimeError, UnicodeError, ValueError, yaml.YAMLError):
+        return []
+    return repaired
 
 
 def _try_repair_generated_unquoted_source_scalars_for_apply(
