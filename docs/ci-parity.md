@@ -174,8 +174,8 @@ Python. The scripts cover:
   ref, so `git describe --tags` and the version schemes built on it
   (setuptools-scm, hatch-vcs) see what they see on the runner; the
   `rulespec-us` entry is reduced the same way, while the composer keeps its
-  tags, since "Checkout axiom-compose" fetches with `fetch-depth: 0` (see
-  "Composer tags" under "Known differences"). Git runs on these copies
+  tags and remote branches, since "Checkout axiom-compose" fetches with
+  `fetch-depth: 0` (see "Composer refs" under "Known differences"). Git runs on these copies
   without the developer's global or system configuration or hooks. CI
   fetches every dependency with its full history (`--unshallow`, and
   `fetch-depth: 0` for the composer), so a shallow local dependency
@@ -652,13 +652,16 @@ named:
   `GITHUB_HEAD_REF` (a branch name the head commit does not carry),
   `RUNNER_NAME`, `RUNNER_DEBUG` and `RUNNER_TOOL_CACHE`. Committed content
   that names one of them resolves differently than in CI.
-- **Composer tags.** CI's composer checkout carries the upstream
-  repository's tags (`fetch-depth: 0`); `ci`'s fresh clone carries the tags
-  of the local checkout it is cloned from. A tag that exists only locally,
-  or one missing locally, changes what `git describe --tags` (and a
-  setuptools-scm or hatch-vcs version built on it) reports there. To match
-  CI, fetch the composer checkout's tags from GitHub and delete local-only
-  ones before a run.
+- **Composer refs.** CI's composer checkout carries the GitHub
+  repository's branches (as `origin/*`) and tags (`fetch-depth: 0`), with
+  no local branch. `ci`'s fresh clone has no local branch or `origin/HEAD`
+  either; its `origin/*` branches are the local checkout's view of GitHub
+  (its own `refs/remotes/origin/*`, as of its last fetch), and its tags are
+  the local checkout's. A branch or tag that differs locally changes what
+  `git describe --tags` (and a setuptools-scm or hatch-vcs version built on
+  it) and archive substitution (`$Format:%D$` under `export-subst`) report
+  there. To match CI, fetch the composer checkout from GitHub with `--prune`
+  and `--prune-tags`, and delete local-only tags, before a run.
 - **The composer build's platform.** uv resolves and installs the composer's
   requirements for the host: environment markers such as
   `sys_platform == "linux"` and the wheels it picks follow this machine's
