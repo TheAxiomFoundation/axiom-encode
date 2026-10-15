@@ -1,3 +1,7 @@
+## 0.2.2212
+
+- Count a case pair as the witness for a source exception only when the toggled input matches the exception's own controlling condition, not words in its consequence (7 CFR 273.4(c)(5) same-sponsor clause). The condition is narrowed only for `if`/`when`/`whenever`/`unless`/`except`/`provided that` cues whose consequence's own predicate states an outcome; requirement consequences, reservations and conditions without a clear end keep the whole clause.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.
