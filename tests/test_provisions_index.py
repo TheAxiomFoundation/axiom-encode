@@ -7,6 +7,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -523,6 +524,17 @@ def _publish_fixture(tmp_path: Path, *, python: str) -> dict[str, Any]:
     bin_dir.mkdir()
     (bin_dir / "gh").write_text(GH_STUB)
     (bin_dir / "gh").chmod(0o755)
+    if shutil.which("timeout") is None:  # macOS: a coreutils-compatible shim
+        (bin_dir / "timeout").write_text(
+            f"#!{sys.executable}\n"
+            "import subprocess, sys\n"
+            "try:\n"
+            "    code = subprocess.run(sys.argv[2:], timeout=float(sys.argv[1]))\n"
+            "    sys.exit(code.returncode)\n"
+            "except subprocess.TimeoutExpired:\n"
+            "    sys.exit(124)\n"
+        )
+        (bin_dir / "timeout").chmod(0o755)
     gitconfig = tmp_path / "gitconfig"
     gitconfig.write_text(
         f'[url "file://{remote.parent}/"]\n'
@@ -654,3 +666,60 @@ def test_publish_step_publishes_the_lane_unchanged_when_refresh_fails(
     )
     assert evidence["mode"] == "error"
     assert "Reverse index: `error`" in (tmp_path / "gh-body.txt").read_text()
+
+
+def _refresh_wrapper(tmp_path: Path, body: str) -> str:
+    wrapper = tmp_path / "python-wrapper"
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'for argument in "$@"; do\n'
+        '  if [ "$argument" = refresh-provisions-index ]; then\n'
+        f"{body}"
+        "  fi\n"
+        "done\n"
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    wrapper.chmod(0o755)
+    return str(wrapper)
+
+
+def test_a_refresh_that_fails_after_moving_the_lane_is_rolled_back(
+    tmp_path: Path,
+) -> None:
+    # The real refresh commits and moves the branch, then the process fails.
+    wrapper = _refresh_wrapper(
+        tmp_path, f'    "{sys.executable}" "$@" > /dev/null; exit 1\n'
+    )
+    fixture = _publish_fixture(tmp_path, python=wrapper)
+
+    result = _run_publish(fixture)
+
+    assert result.returncode == 0, result.stderr
+    assert "reverse index refresh failed" in result.stderr
+    assert _remote_lane(fixture) == fixture["lane_head"]
+    assert (fixture["checkout"] / pi.INDEX_PATH).read_text() == '{"stale": true}\n'
+    evidence = json.loads(
+        (fixture["runner"] / "targeted-reencode/provisions-index.json").read_text()
+    )
+    assert evidence["mode"] == "error"
+
+
+def test_a_refresh_timeout_takes_the_error_path(tmp_path: Path) -> None:
+    wrapper = _refresh_wrapper(tmp_path, "    sleep 30\n")
+    fixture = _publish_fixture(tmp_path, python=wrapper)
+    fixture["env"]["AXIOM_INDEX_REFRESH_TIMEOUT"] = "2"
+
+    result = _run_publish(fixture)
+
+    assert result.returncode == 0, result.stderr
+    assert "reverse index refresh failed" in result.stderr
+    assert _remote_lane(fixture) == fixture["lane_head"]
+    assert "Reverse index: `error`" in (tmp_path / "gh-body.txt").read_text()
+
+
+def test_the_publish_step_bounds_and_rolls_back_the_refresh() -> None:
+    command = str(_publish_step()["run"])
+    assert 'timeout "${AXIOM_INDEX_REFRESH_TIMEOUT:-900}"' in command
+    assert command.index('reset -q --hard "$lane_head"') < command.index(
+        'rev-parse HEAD)" = "$lane_head"'
+    )

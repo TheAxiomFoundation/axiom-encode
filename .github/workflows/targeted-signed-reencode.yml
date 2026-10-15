@@ -4189,11 +4189,16 @@ jobs:
           # PR: the lane is then published exactly as before.
           lane_head="$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)"
           provisions_index="$RUNNER_TEMP/targeted-reencode/provisions-index.json"
-          if ! "${workflow_python[@]}" \
+          # Bounded: a pathological YAML tree must not hold the step to the
+          # job timeout; a timeout takes the same error path.
+          if ! timeout "${AXIOM_INDEX_REFRESH_TIMEOUT:-900}" "${workflow_python[@]}" \
             axiom-encode/scripts/prepare_signed_backfill.py \
             refresh-provisions-index "$RULESPEC_CHECKOUT" "$RULESPEC_REF" \
             > "$provisions_index"; then
             echo "warning: reverse index refresh failed; publishing the signed lane without it" >&2
+            # A failure after the refresh moved the branch or checkout must
+            # never block the lane: restore the signed lane head exactly.
+            git -C "$RULESPEC_CHECKOUT" reset -q --hard "$lane_head"
             test "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" = "$lane_head"
             test -z "$(git -C "$RULESPEC_CHECKOUT" status --porcelain --untracked-files=all)"
             jq -n --arg head "$lane_head" '{

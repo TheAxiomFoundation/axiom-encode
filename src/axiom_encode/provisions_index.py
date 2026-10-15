@@ -17,9 +17,17 @@ non-UTF-8 modules, a citation-bearing module whose YAML crashes the loader
 rather than failing to parse), raises
 :class:`UnsupportedIndexTree` so the caller leaves the index alone.
 
-The index is derived metadata: no signed manifest, receipt, or the
-generated-provenance guard binds it, and rulespec CI recomputes it from the
-YAML, so a wrong regeneration can only fail the same check that fails today.
+The index is derived metadata for ordinary model-apply lanes: no model-apply
+manifest or the generated-provenance guard binds it, and rulespec CI
+recomputes it from the YAML, so a wrong regeneration can only fail the same
+check that fails today. Legacy-replacement manifests and receipts DO bind the
+index as an applied file; the refresh never touches lanes that change the
+index or carry receipts.
+
+Byte equivalence also assumes PyYAML parses identically here and in rulespec
+CI: rulespec's reverse-index job installs unpinned ``pyyaml`` while the
+trusted runtime uses this package's ``uv.lock`` pin. A parser divergence can
+only make the freshness check fail as it does today.
 """
 
 from __future__ import annotations
