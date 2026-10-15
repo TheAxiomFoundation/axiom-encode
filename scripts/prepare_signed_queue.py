@@ -2010,6 +2010,9 @@ def reconcile_candidates(
                     "dispatchable": False,
                     "reason": "merged-rulespec-pr",
                     "history_url": merged_pr.get("html_url"),
+                    # Protected queue jobs only execute on attempt 1. Later
+                    # skipped reruns must not change the evidence attempt.
+                    "target_run_attempt": 1,
                     "target_run_url": target_run.get("html_url"),
                 }
             )
@@ -2129,6 +2132,7 @@ def finalization_target_plan(
             {
                 "id": item["id"],
                 "pull_request_url": item["history_url"],
+                "target_run_attempt": item["target_run_attempt"],
                 "target_run_url": item["target_run_url"],
             }
             for item in reconciled["items"]
@@ -2166,6 +2170,7 @@ def _verify_target_evidence(
         raise ValueError(f"{item['id']} target evidence contains a non-object")
     actor = run.get("actor")
     expected_run_url = decision["target_run_url"]
+    expected_run_attempt = decision["target_run_attempt"]
     if (
         run.get("status") != "completed"
         or run.get("conclusion") != "success"
@@ -2197,7 +2202,7 @@ def _verify_target_evidence(
         "queue_manifest_sha256": dispatch_queue_sha256(payload),
         "rulespec_base": payload["dispatch"]["rulespec_ref"],
         "schema": "axiom-encode/targeted-reencode-artifact/v1",
-        "workflow_run_attempt": 1,
+        "workflow_run_attempt": expected_run_attempt,
         "workflow_run_id": str(run_id),
     }
     mismatches = [
@@ -2267,7 +2272,7 @@ def _verify_target_evidence(
             run.get("head_sha"),
             f"{item['id']} target run head",
         ),
-        "target_run_attempt": 1,
+        "target_run_attempt": expected_run_attempt,
         "target_run_url": expected_run_url,
     }
 
