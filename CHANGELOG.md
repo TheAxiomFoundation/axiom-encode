@@ -1,3 +1,7 @@
+## 0.2.2210
+
+- In federal US statutes, regulations and guidance, stop counting administrative condition sentences (a notice, verification, Federal Register publication or agency workflow step as the main verb of the main clause, a definitions lead-in, and the guidance-portal disclaimer) as complete-source-unit controls or paired-case conditions. Sentences with a numeric limit, a computation, an outcome after their leading condition or after a `;`, notice content with its own outcome, a trailing exception, or a second predicate after the administrative verb stay controls; administrative sentences still compete for case pairs; federal forms, policies, rulemaking, `/manual/` paths, state and non-US sources are unchanged.
+
 ## 0.2.2183
 
 - Repair source-verification metadata emitted for generated overlay targets during protected apply while preserving source-bound validation.

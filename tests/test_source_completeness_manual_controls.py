@@ -262,19 +262,28 @@ def test_manual_procedure_needs_no_paired_test_cases():
         ]
 
     assert not paired_case_issues("us-or/manual/odhs/open/page-999")
-    assert paired_case_issues("us-or/regulation/461/135/9999")
+    # Outside US sources the procedure still needs paired cases. On a US
+    # regulation this verification sentence is administrative and needs none
+    # either (test_source_completeness_administrative_controls).
+    assert paired_case_issues("uk/regulation/2013/376/9999")
 
 
 @pytest.mark.parametrize(
-    "citation",
+    ("source", "citation"),
     (
-        "us/statute/7/2015",
-        "us-or/regulation/461/135/0750",
-        "uk-harrow/manual/council-tax-reduction-scheme-2026-2027",
+        # Outside US manuals a condition sentence stays a control unless it is
+        # US administrative prose, such as the verification in PROCEDURE
+        # (test_source_completeness_administrative_controls).
+        ("When the household moves, update the address.", "us/statute/7/2015"),
+        (
+            "When the household moves, update the address.",
+            "us-or/regulation/461/135/0750",
+        ),
+        (PROCEDURE, "uk-harrow/manual/council-tax-reduction-scheme-2026-2027"),
     ),
 )
-def test_procedure_stays_a_control_outside_us_manuals(citation: str):
-    assert _controls(PROCEDURE, citation)
+def test_procedure_stays_a_control_outside_us_manuals(source: str, citation: str):
+    assert _controls(source, citation)
 
 
 @pytest.mark.parametrize(
