@@ -31305,8 +31305,17 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
             rest = condition_text[index + 1 :]
             if re.match(r"\s*(?:and|but|or|nor)\b", rest, flags=re.IGNORECASE):
                 continue
+            if re.match(r"\s*then\b", rest, flags=re.IGNORECASE) and (
+                len(re.findall(r"\w+", condition_text[:index])) >= 3
+            ):
+                # `When ..., then ...`: the consequence starts here.
+                end = index
+                break
             if index > 0 and condition_text[index - 1].isdigit() and rest[:1].isdigit():
                 # A thousands separator (`$1,500`).
+                continue
+            if re.match(r"\s*(?:and\s+|or\s+)?\(\w{1,4}\)", rest, flags=re.IGNORECASE):
+                # A list of paragraph references (`paragraphs (d), (e), and (f)`).
                 continue
             if re.match(
                 r"\s*[^,;.()]{1,60},\s*(?:and|or)\b", rest, flags=re.IGNORECASE
@@ -31320,13 +31329,23 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
             if skip_phrase_close:
                 skip_phrase_close = False
                 continue
+            if re.match(
+                r"\s*(?:as\s+(?:defined|described|provided)|within\s+the\s+meaning"
+                r"|without)\b",
+                rest,
+                flags=re.IGNORECASE,
+            ):
+                # `..., as defined in paragraphs (h)(5) and (6), at the close of
+                # the taxable year is ...`: an inserted qualifier, not the end.
+                skip_phrase_close = True
+                continue
             if re.match(r"\s*[^,;.()]{1,20},", rest):
                 # A short inserted phrase (`..., above, ...`, `..., in 1969, ...`)
                 # and the comma that closes it.
                 skip_phrase_close = True
                 continue
             if re.search(
-                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with)\s*$",
+                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with|and|but|or)\s*$",
                 condition_text[:index],
                 flags=re.IGNORECASE,
             ):

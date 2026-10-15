@@ -248,6 +248,39 @@ def test_pair_toggling_the_exception_condition_still_witnesses_it():
             "verification, the household's benefits will revert.",
             "If in these circumstances the household does not provide verification",
         ),
+        # A list of paragraph references does not end the condition.
+        (
+            "If an arrangement meets the requirements of paragraphs (d), (e), and "
+            "(f) of this section, but the employee fails to return any excess "
+            "amount, the excess is treated as paid under a nonaccountable plan.",
+            "If an arrangement meets the requirements of paragraphs (d), (e), and "
+            "(f) of this section, but the employee fails to return any excess "
+            "amount",
+        ),
+        # A defining qualifier and a `without` phrase do not end it.
+        (
+            "If a REIT makes the election and the value of its financing assets, as "
+            "defined in paragraphs (h)(5) and (6) of this section, at the close of "
+            "the taxable year is 10 percent or less, the REIT is not eligible.",
+            "If a REIT makes the election and the value of its financing assets, as "
+            "defined in paragraphs (h)(5) and (6) of this section, at the close of "
+            "the taxable year is 10 percent or less",
+        ),
+        (
+            "When the appellant fails to appear at the hearing, without giving "
+            "notice of good cause, then the appeal shall be considered abandoned.",
+            "When the appellant fails to appear at the hearing, without giving "
+            "notice of good cause",
+        ),
+        # A comma after a dangling conjunction continues the condition.
+        (
+            "if there is a cost-of-living increase but, because the premium "
+            "increase is greater, the beneficiary would receive a lower cash "
+            "benefit, the premium is reduced and the benefit is not reduced.",
+            "if there is a cost-of-living increase but, because the premium "
+            "increase is greater, the beneficiary would receive a lower cash "
+            "benefit",
+        ),
         # An anaphoric condition (`if so`) keeps its whole clause.
         (
             "if so, whether they are deemed to have demonstrated community engagement.",
