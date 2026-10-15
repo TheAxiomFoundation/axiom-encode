@@ -12,8 +12,6 @@ import io
 import json
 import os
 import random
-import shutil
-import subprocess
 import tempfile
 from contextlib import redirect_stdout
 from dataclasses import dataclass, replace
@@ -61,45 +59,15 @@ def case_aliases_supported(tmp_path_factory) -> bool:
 
 
 @pytest.fixture(scope="module")
-def real_engine_root() -> Path:
-    """Use an explicit engine or the same local built engine as corpus audits."""
+def real_engine_root(real_engine) -> Path:
+    """The engine checkout from the shared ``real_engine`` fixture.
 
-    declared = os.environ.get("AXIOM_ENCODE_TEST_ENGINE_PATH")
-    if declared:
-        root = Path(declared).resolve()
-        if not any(
-            (root / candidate).is_file()
-            for candidate in (
-                "target/release/axiom-rules-engine",
-                "target/debug/axiom-rules-engine",
-                "axiom-rules-engine",
-            )
-        ):
-            pytest.fail("AXIOM_ENCODE_TEST_ENGINE_PATH has no built rules engine")
-        return root
-    locator = shutil.which("axiom-locate")
-    if locator is None:
-        pytest.skip(
-            "real engine unavailable: set AXIOM_ENCODE_TEST_ENGINE_PATH or "
-            "provide axiom-locate engine"
-        )
-    located = subprocess.run(
-        [locator, "engine"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=45,
-    )
-    if located.returncode != 0:
-        pytest.skip("axiom-locate engine found no built rules engine")
-    binary = Path(located.stdout.strip()).resolve()
-    if not binary.is_file():
-        pytest.fail("axiom-locate engine returned a missing binary")
-    return (
-        binary.parents[2]
-        if binary.parent.name in {"debug", "release"}
-        else binary.parent
-    )
+    Depending on ``real_engine`` marks these tests ``real_engine``, so CI's
+    real-engine job runs them against the pinned, receipt-bound engine and the
+    ordinary test job deselects them (see ``tests/real_engine.py``).
+    """
+
+    return real_engine.root
 
 
 @dataclass(frozen=True)
