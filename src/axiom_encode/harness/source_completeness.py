@@ -31236,20 +31236,45 @@ def _exception_witnesses_for_branch(
     )
 
 
-# A consequence that states an outcome (eligibility, an amount, a count, an
-# exclusion, a deeming, benefits or an allotment) is the exception's result, not
-# a condition a case pair can toggle. A requirement consequence (`the claimant
-# shall file a joint return`) is itself the tested condition and stays.
+# A consequence that states an outcome (eligibility, an entitlement, a count,
+# an exclusion, a deeming, a payment) is the exception's result, not a condition
+# a case pair can toggle. The outcome must be the consequence's own predicate:
+# its subject (no `that`/`which`/`if`/`whether` clause, parentheses removed)
+# followed by an outcome verb. A requirement consequence (`the claimant shall
+# file a joint return`, `the State agency must determine if eligibility exists`)
+# is itself the tested condition and stays, even when it names eligibility.
+_EXCEPTION_OUTCOME_PARTICIPLE = (
+    r"(?:(?:in)?eligible|entitled|qualified|disqualified|deemed|counted|excluded|"
+    r"included|disregarded|deducted|allowed|denied|terminated|reduced|increased|"
+    r"prorated|budgeted|treated|considered|issued|paid|restored|reinstated|"
+    r"expunged|suspended|exempt|reissued|recomputed)"
+)
 _EXCEPTION_OUTCOME_CONSEQUENCE = re.compile(
-    r"\b(?:in)?eligib(?:le|ility)\b|\bqualif(?:y|ies|ied)\b"
-    r"|\bentitle(?:d|ment)\b|\bdeem(?:s|ed|ing)?\b"
-    r"|\b(?:shall|must|will|may|is|are|be)\s+(?:not\s+)?(?:be\s+)?"
-    r"(?:counted|excluded|included|disregarded|deducted|allowed|denied|"
-    r"terminated|reduced|increased|prorated|budgeted|treated|considered|"
-    r"issued|paid|disqualified)\b"
-    r"|\bbenefits?\b|\ballotments?\b",
+    r"\s*(?:then\b\s*,?\s*)?"
+    r"(?:(?!(?:that|which|who|whom|whose|if|whether|when|unless|because)\b)"
+    r"[\w'\u2019./-]+\s+){0,10}?"
+    r"(?:"
+    r"(?:(?:is|are|was|were|becomes?|remains?|shall|must|will|would|may|can)"
+    r"(?:\s+not)?(?:\s+(?:be|become|remain))?"
+    r"(?:\s+(?:totally|thereby|then|also|only|still|otherwise))?\s+)?"
+    + _EXCEPTION_OUTCOME_PARTICIPLE
+    + r"|(?:shall|must|will|would|may|can|does|do)(?:\s+not)?(?:\s+also)?\s+"
+    r"(?:deem|count|exclude|include|disregard|deduct|allow|deny|terminate|reduce|"
+    r"increase|prorate|budget|treat|consider|issue|pay|disqualify|restore|"
+    r"reinstate|suspend|qualify|receive|reissue|recompute|revert)"
+    r"|(?:deems|counts|excludes|includes|disregards|pays|treats|qualif(?:y|ies)|"
+    r"deem|count|exclude|include|disregard|pay|treat)"
+    r")\b",
     flags=re.IGNORECASE,
 )
+
+
+def _exception_consequence_states_outcome(consequence: str) -> bool:
+    previous = None
+    while previous != consequence:
+        previous = consequence
+        consequence = re.sub(r"\([^()]*\)", " ", consequence)
+    return bool(_EXCEPTION_OUTCOME_CONSEQUENCE.match(consequence))
 
 
 def _source_exception_controlling_condition_text(condition_text: str) -> str:
@@ -31345,7 +31370,8 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
                 skip_phrase_close = True
                 continue
             if re.search(
-                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with|and|but|or)\s*$",
+                r"\b(?:is|are|was|were|be|that|the|a|an|of|to|by|with|and|but|or|then|"
+                r"because|since|if)\s*$",
                 condition_text[:index],
                 flags=re.IGNORECASE,
             ):
@@ -31374,7 +31400,7 @@ def _source_exception_controlling_condition_text(condition_text: str) -> str:
         end is None
         # `if so`, `if applicable`: an anaphoric condition needs its context.
         or len(re.findall(r"\w+", condition_text[:end])) < 4
-        or not _EXCEPTION_OUTCOME_CONSEQUENCE.search(condition_text[end + 1 :])
+        or not _exception_consequence_states_outcome(condition_text[end + 1 :])
     ):
         return condition_text
     return condition_text[:end]

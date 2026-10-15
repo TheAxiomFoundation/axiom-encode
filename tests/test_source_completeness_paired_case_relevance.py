@@ -281,6 +281,47 @@ def test_pair_toggling_the_exception_condition_still_witnesses_it():
             "increase is greater, the beneficiary would receive a lower cash "
             "benefit",
         ),
+        # A comma after a dangling `then` or `because` continues the condition.
+        (
+            "if fishermen worked 9 months in 1987, 8 months in 1989, and then, "
+            "because of abnormal ice conditions, worked only 5 months in 1990, "
+            "such fishermen could not be excluded under this rule in 1990.",
+            "if fishermen worked 9 months in 1987, 8 months in 1989, and then, "
+            "because of abnormal ice conditions, worked only 5 months in 1990",
+        ),
+        (
+            "if a credit is disallowed and recapture is required because, during "
+            "the compliance period, the applicant sells the qualifying assets, the "
+            "credit is reduced.",
+            "if a credit is disallowed and recapture is required because, during "
+            "the compliance period, the applicant sells the qualifying assets",
+        ),
+        # The outcome must be the consequence's own predicate: a requirement
+        # that names eligibility, or an outcome only inside parentheses, keeps
+        # the whole clause.
+        (
+            "If eligibility expires under one eligible status, the State agency "
+            "must determine if eligibility exists under another status.",
+            "If eligibility expires under one eligible status, the State agency "
+            "must determine if eligibility exists under another status.",
+        ),
+        (
+            "if, after notice by the Commissioner that such person is likely "
+            "eligible for any payments, such person fails within 30 days to take "
+            "all appropriate steps to apply for and (if eligible) obtain any such "
+            "payments.",
+            "if, after notice by the Commissioner that such person is likely "
+            "eligible for any payments, such person fails within 30 days to take "
+            "all appropriate steps to apply for and (if eligible) obtain any such "
+            "payments.",
+        ),
+        (
+            "If one-half or more of the employee's time is spent in performing "
+            "services that constitute wages, then all the remuneration paid the "
+            "employee for that payroll period shall be deemed to be wages.",
+            "If one-half or more of the employee's time is spent in performing "
+            "services that constitute wages",
+        ),
         # An anaphoric condition (`if so`) keeps its whole clause.
         (
             "if so, whether they are deemed to have demonstrated community engagement.",
