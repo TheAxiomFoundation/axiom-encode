@@ -5306,6 +5306,19 @@ def _analyze_rulespec_payload(
         source_text=source_text,
         branches=branches,
         corpus_citation_path=corpus_citation_path,
+        stated_value_evidence=_StatedValueEvidence(
+            values_by_rule=_numeric_values_by_rule_name(
+                artifact_numeric_bindings
+                if artifact_numeric_bindings is not None
+                else collect_artifact_numeric_bindings(
+                    content,
+                    extract_named_scalars=extract_named_scalars,
+                    imported_symbol_contents=(),
+                )
+            ),
+            extract_numeric_occurrences=extract_numeric_grounding_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        ),
     )
     named_rules = {
         str(rule.get("name") or "").strip(): rule
@@ -5737,12 +5750,116 @@ def _analyze_rulespec_payload(
     )
 
 
+@dataclass(frozen=True)
+class _StatedValueEvidence:
+    """What a non-principal rule needs to show that it encodes a branch."""
+
+    values_by_rule: Mapping[str, tuple[float, ...]]
+    extract_numeric_occurrences: NumericOccurrenceExtractor
+    numeric_value_is_grounded: NumericGroundingPredicate
+
+
+def _numeric_values_by_rule_name(
+    bindings: Sequence[tuple[str, float]],
+) -> dict[str, tuple[float, ...]]:
+    values: dict[str, list[float]] = {}
+    for name, value in bindings:
+        values.setdefault(str(name), []).append(float(value))
+    return {name: tuple(found) for name, found in values.items()}
+
+
+# A comparison or limit makes a branch an operative condition, not a stated
+# value: `under the age of 19`, `does not exceed $100`, `at least 25 percent`.
+_STATED_VALUE_CONDITION_LANGUAGE = re.compile(
+    r"\b(?:"
+    r"under(?=\s+(?:the\s+)?age\b|\s+\$?\d)|over(?=\s+(?:the\s+)?age\b|\s+\$?\d)|"
+    r"(?:more|less|fewer|greater)\s+than|at\s+(?:least|most)|"
+    r"exceed(?:s|ed|ing)?|up\s+to|below|above|"
+    r"or\s+(?:more|less|older|younger|over|under)"
+    r")\b",
+    flags=re.IGNORECASE,
+)
+
+
+_RULE_FORMULA_NUMBER = re.compile(r"(?<![A-Za-z0-9_.])-?\d+(?:\.\d+)?(?![A-Za-z0-9_])")
+
+
+def _rule_version_numeric_values(rule: dict[str, Any]) -> tuple[float, ...]:
+    """Numbers a rule states in its version formulas and value tables."""
+
+    found: list[float] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, bool):
+            return
+        if isinstance(value, (int, float)):
+            found.append(float(value))
+        elif isinstance(value, str):
+            found.extend(float(item) for item in _RULE_FORMULA_NUMBER.findall(value))
+        elif isinstance(value, dict):
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+
+    versions = rule.get("versions")
+    for version in versions if isinstance(versions, list) else ():
+        if isinstance(version, dict):
+            for key in ("formula", "values", "value", "brackets"):
+                collect(version.get(key))
+    return tuple(found)
+
+
+def _non_principal_rule_encodes_branch(
+    rule: dict[str, Any],
+    branch_path: tuple[str, ...],
+    *,
+    branches: Sequence[SourceStructureBranch],
+    evidence: _StatedValueEvidence,
+) -> bool:
+    """Whether a parameter (or other non-principal rule) encodes its branch.
+
+    A parameter encodes a branch only when the branch is a stated value: the
+    branch text states one of the rule's values, and the branch's own text
+    states no condition, exception or limit around it. Otherwise the
+    parameter only cites the branch (`7 CFR 273.4(c)(3)(vi)`: "a sponsored
+    alien child under 18" is an exemption, not the number 18), and a
+    principal output or a precise deferral must account for it.
+    """
+
+    if not branch_path:
+        return True
+    matches = [branch for branch in branches if branch.path == branch_path]
+    if not matches:
+        return True
+    values = (
+        *evidence.values_by_rule.get(str(rule.get("name") or "").strip(), ()),
+        *_rule_version_numeric_values(rule),
+    )
+    if not values:
+        return False
+    for branch in matches:
+        own_text = _source_branch_direct_text(branch, branches=branches)
+        if _EXCEPTION_LANGUAGE.search(own_text) or (
+            _STATED_VALUE_CONDITION_LANGUAGE.search(own_text)
+        ):
+            continue
+        occurrences = tuple(evidence.extract_numeric_occurrences(branch.text))
+        if any(
+            evidence.numeric_value_is_grounded(value, occurrences) for value in values
+        ):
+            return True
+    return False
+
+
 def _rule_coverage(
     payload: dict[str, Any],
     *,
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    stated_value_evidence: _StatedValueEvidence | None = None,
 ) -> tuple[
     set[tuple[str, ...]],
     set[tuple[str, ...]],
@@ -5777,9 +5894,20 @@ def _rule_coverage(
                 paths.add(excerpt_branch.path)
             elif _collapse_text(excerpt) in _collapse_text(source_text):
                 paths.add(())
+        principal = kind in {"derived", "derived_relation"}
         for path in paths:
-            all_paths.add(path)
-        if kind in {"derived", "derived_relation"} and name:
+            if (
+                principal
+                or stated_value_evidence is None
+                or _non_principal_rule_encodes_branch(
+                    rule,
+                    path,
+                    branches=branches,
+                    evidence=stated_value_evidence,
+                )
+            ):
+                all_paths.add(path)
+        if principal and name:
             principal_rules[name] = rule
             principal_rule_paths.setdefault(name, set()).update(paths)
             for path in paths:
