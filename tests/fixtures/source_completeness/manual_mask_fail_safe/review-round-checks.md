@@ -1,12 +1,19 @@
 # Review round validation
 
-These checks cover the fix-round changes based on reviewed head
-`132bf991487f4e7c934e405f94f1ff58caf2a78a`. They are separate from the historical
-812-pass preintegration receipts. The hub must validate its resulting commit
-after its version bump; these results do not establish remote CI status.
+This is the author's historical report of fix-round checks based on reviewed
+head `132bf991487f4e7c934e405f94f1ff58caf2a78a`. The **966-pass total, intermediate
+red/green counts and earlier review outcomes below are author-reported**: their
+underlying execution logs and review transcripts are not committed in this
+repository. The listed selections are rerunnable, but this report alone does not
+independently establish that those historical executions or reviews occurred.
+The separate author-reported 812-pass preintegration receipts also describe
+historical bytes.
+The hub must validate its resulting commit after its version bump; neither
+historical report establishes current-head results or remote CI status.
 
-All final pytest runs passed without skips or assertion failures. Repeated
-intermediate runs are excluded from the **966 distinct passing nodes** below.
+The author reported that all final pytest runs passed without skips or assertion
+failures, excluding repeated intermediate runs from the **966 distinct passing
+nodes** below.
 Hypothesis settings and explicit examples in the existing suites were retained.
 
 | Selection | Passed | Deselected |
@@ -23,20 +30,23 @@ selection includes all 94 new page-value nodes and the 14 restored safety nodes.
 The 469-node selection includes all 384 earlier mask/replay/typography nodes,
 64 manual controls and 21 manual-prose nodes.
 
-The original page tests were first run before production edits: 28 failed and
+The author reported the original page tests before production edits: 28 failed and
 12 passed across two disjoint selections. The exact review probe failed for
 raw source with page and root citations in both numeric profiles; the property
 failed in both profiles. Follow-up regressions exposed six structural-cleaner
 failures, then 18 quote/NBSP failures and 18 interior Unicode-line failures on
-intermediate fixes. All corresponding final tests pass.
+intermediate fixes. The corresponding final passes are also author-reported.
 
-Independent review identified the quote/Unicode prefix and interior line-boundary
-gaps, which were fixed and re-reviewed. The final code/test review reported no
-actionable findings. Two old exact-set assertions were strengthened by adding 93;
+The author reported that independent review identified the quote/Unicode prefix
+and interior line-boundary gaps, which were fixed and re-reviewed, and that the
+final code/test review reported no actionable findings. Those earlier review
+outcomes are not independently reproducible without their omitted transcripts.
+Two old exact-set assertions were strengthened by adding 93;
 the restored safety file retains its recorded historical hash.
 
-Reproduction uses the repository's locked uv environment, a GIL Python 3.13,
-one pytest process at a time, all five numerical thread caps set to 4, and
+The reported execution environment used the repository's locked uv environment,
+a GIL Python 3.13, one pytest process at a time, all five numerical thread caps
+set to 4, and
 `OMP_WAIT_POLICY=PASSIVE`. Each run used the following common flags, a distinct
 temporary basetemp removed afterwards, and a nine-minute process bound:
 
@@ -108,7 +118,8 @@ tests/test_source_completeness.py::test_us_locator_masks_do_not_apply_outside_us
 tests/test_source_completeness.py::test_us_manual_locator_masks_do_not_apply_to_other_manuals
 ```
 
-Additional checks passed:
+The author also reported these checks as passed; their historical logs are not
+committed here:
 
 - `uv run --locked ruff check pyproject.toml src/axiom_encode scripts tests`
 - `uv run --locked ruff format --check` on the two changed source files, the
@@ -119,4 +130,7 @@ Additional checks passed:
 The full pytest/CI matrix, real-engine job and full raw-corpus replay were not
 run. Original corpus bytes and the full row ledger remain unavailable in this
 checkout; the historical bundle's totals are not a new corpus execution.
-
+The semantic classifications of hash-authorized source roles whose complete
+source bodies are absent are **not reproducible here**. Registry hashes and
+recorded offsets can be inspected, and supplied fixtures can be rerun, but those
+checks cannot independently establish the role of each omitted source body.

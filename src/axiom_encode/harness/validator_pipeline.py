@@ -1229,6 +1229,7 @@ _STRUCTURAL_SOURCE_PREFIX_PATTERN = re.compile(
     r"\d+\s+(?=[A-Z][A-Za-z].*:)|\([0-9A-Za-zivxlcdm]+\)\s+)",
     re.IGNORECASE,
 )
+_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 # Page syntax cannot prove that a leading integer is nonoperative. The
 # completeness mask authenticates complete manual context before erasing
 # genuine locators; generic cleanup must preserve candidates that remain,
@@ -1237,6 +1238,7 @@ _MANUAL_PAGE_CANDIDATE_LINE_PATTERN = re.compile(
     # Use the same line boundaries as splitlines(), including PDF separators.
     r"(?:\A|(?<=[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]))"
     r"""(?:[^\S\r\n\v\f\x1c-\x1e\x85\u2028\u2029]|["'`“”‘’])*(?P<value>\d{1,4})"""
+    rf"[{re.escape(_STRUCTURAL_SOURCE_QUOTE_CHARS)}]*"
     r"(?=\s+(?:\((?:0?[1-9]|1[0-2])/(?:19|20)\d{2}\)|Chapter\b))",
     re.IGNORECASE,
 )
@@ -1360,7 +1362,6 @@ _STRUCTURAL_SOURCE_SECTION_PATTERN = re.compile(
     r"(?=$|[\s,.;:])",
     re.IGNORECASE,
 )
-_STRUCTURAL_SOURCE_QUOTE_CHARS = "\"'`“”‘’"
 _SYNTHETIC_MODELING_INSTRUCTION_PATTERN = re.compile(
     r"^\s*model\s+`[^`]+`\s+as\b",
     re.IGNORECASE,
