@@ -221,6 +221,11 @@ def test_incremental_execution_input_case_alias_reports_full_fallback(
     configured = audit_repo.root / "docs/EXECUTION"
     if input_argument == "axiom_compose_path":
         configured /= "COMPOSE.md"
+        if not configured.exists():
+            # The composer path must name an existing executable. Only a
+            # case-insensitive filesystem makes the upper-case spelling name
+            # the changed file; on a case-sensitive one it names nothing.
+            pytest.skip("case-sensitive filesystem: the alias names no executable")
 
     code, report, executed = _run_audit(
         audit_repo,
