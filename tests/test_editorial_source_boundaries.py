@@ -48,12 +48,16 @@ def test_authentic_and_adversarial_normal_consumers(name, scope, digest, monkeyp
     summary = text[cert.notice_span[0] : cert.notice_span[1]]
     required = vp._high_signal_top_level_subparagraphs(text)
     assert issues(text, None, scope)
-    assert issues(text, summary, scope) == []
+    # A text ancestry certificate is proposal evidence. Runtime waiver now
+    # additionally requires a byte-bound reviewed tombstone or a repealed row.
+    assert issues(text, summary, scope) == issues(text, None, scope)
     assert issues(text, "(1) Operative payments.", scope)
     assert vp._high_signal_top_level_subparagraphs(text) == required
     with monkeypatch.context() as m:
         m.setattr(
-            vp, "_authoritative_deferred_editorial_source_slice", lambda *args: False
+            vp,
+            "_authoritative_deferred_editorial_source_slice",
+            lambda *args, **kwargs: False,
         )
         assert issues(text, summary, scope) == issues(text, None, scope)
     first = cert.structural_paths[0][0]
@@ -150,22 +154,20 @@ def test_authentic_and_adversarial_normal_consumers(name, scope, digest, monkeyp
         ) == vp._high_signal_top_level_subparagraphs(changed)
 
 
-def test_actual_deferred_policy_consumers():
+def test_actual_deferred_policy_consumers_require_reviewed_tombstones():
     for name, citation, relative in [
         ("a-9", "us/statute/26/3121", "us/statutes/26/3121/a/9.yaml"),
         ("b-12", "us/statute/26/3306", "us/statutes/26/3306/b/12.yaml"),
     ]:
         content = (FIXTURES / (name + "-policy.yaml")).read_text()
         source = (FIXTURES / (name + "-source.txt")).read_text()
-        assert (
-            vp.find_source_subparagraph_coverage_issues(
-                content, rules_file=Path(relative), source_texts={citation: source}
-            )
-            == []
+        deferred_issues = vp.find_source_subparagraph_coverage_issues(
+            content, rules_file=Path(relative), source_texts={citation: source}
         )
+        assert deferred_issues
         payload = yaml.safe_load(content)
         payload["module"]["status"] = "active"
-        assert vp.find_source_subparagraph_coverage_issues(
+        assert deferred_issues == vp.find_source_subparagraph_coverage_issues(
             yaml.safe_dump(payload),
             rules_file=Path(relative),
             source_texts={citation: source},
