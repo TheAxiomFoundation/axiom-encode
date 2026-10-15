@@ -4574,7 +4574,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     assert "targeted-signed-reencode.yml/runs" in command
     assert "finalize-repin" in command
     assert "finalization-target-plan" in command
-    assert "targeted-reencode-$run_id" in command
+    assert '"targeted-reencode-${run_id}-${run_attempt}"' in command
     assert "jobs?filter=all&per_page=100" in command
     assert "--slurpfile jobs" in command
     assert "sha256sum -c SHA256SUMS" in command
