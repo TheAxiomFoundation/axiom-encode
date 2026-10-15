@@ -586,6 +586,16 @@ def _install_trusted_git_wrapper(
         "            and options[option_cursor + 1] == '--'\n"
         "        )\n"
         "    if command == 'log':\n"
+        "        historical_prefix = [\n"
+        "            '--full-history', '-m', '--format=%H', '--no-renames',\n"
+        "        ]\n"
+        "        if options[:4] == historical_prefix:\n"
+        "            return (\n"
+        "                len(options) > 6\n"
+        "                and re.fullmatch(r'[0-9a-f]{40}\\.\\.[0-9a-f]{40}', options[4]) is not None\n"
+        "                and options[5] == '--'\n"
+        "                and all(safe_path(value) for value in options[6:])\n"
+        "            )\n"
         "        return options == [\n"
         "            '--format=%H', '--', 'pyproject.toml',\n"
         "            'src/axiom_encode/__init__.py', 'uv.lock',\n"
@@ -1566,6 +1576,8 @@ def _signing_trust_roots_payload(
     eval_root: str,
     corpus_release_root: str,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory: dict[str, object] | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "schema": "axiom-encode/signing-trust-roots/v2",
@@ -1580,7 +1592,60 @@ def _signing_trust_roots_payload(
             corpus_release_root,
             *retired_corpus_release_roots,
         ]
+    if bool(retired_apply_roots) != (retired_apply_inventory is not None):
+        raise SystemExit(
+            "retired apply roots and the frozen inventory must be supplied together"
+        )
+    if retired_apply_roots:
+        from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+        try:
+            inventory = validate_retired_apply_inventory(retired_apply_inventory)
+        except ValueError as exc:
+            raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
+        if any(not root.strip() for root in retired_apply_roots):
+            raise SystemExit("retired apply roots must not be empty")
+        payload["schema"] = "axiom-encode/signing-trust-roots/v4"
+        payload["retired_apply_ed25519_public_keys"] = list(retired_apply_roots)
+        payload["retired_apply_inventory"] = inventory
     return payload
+
+
+def _load_retired_apply_inventory(path: Path) -> dict[str, object]:
+    """Read an owner-protected inventory only at supervisor provisioning time."""
+
+    if not path.is_absolute() or Path(os.path.abspath(path)) != path:
+        raise SystemExit("retired apply inventory path must be absolute and normalized")
+    for component in (path, *path.parents):
+        metadata = component.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_mode & 0o022
+        ):
+            raise SystemExit(
+                "retired apply inventory and its parents must be root-owned, non-writable, and free of symlinks"
+            )
+    if not path.is_file():
+        raise SystemExit("retired apply inventory must be a regular file")
+    if path.stat().st_size > 16 * 1024 * 1024:
+        raise SystemExit("retired apply inventory exceeds 16 MiB")
+
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    from axiom_encode.retired_apply import validate_retired_apply_inventory
+
+    try:
+        value = json.loads(path.read_bytes(), object_pairs_hook=unique_object)
+        return validate_retired_apply_inventory(value)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"invalid retired apply frozen inventory: {exc}") from exc
 
 
 def provision(
@@ -1600,11 +1665,26 @@ def provision(
     codex_cli_archive: Path | None = None,
     install_pinned_codex_cli: bool = False,
     retired_corpus_release_roots: tuple[str, ...] = (),
+    retired_apply_roots: tuple[str, ...] = (),
+    retired_apply_inventory_path: Path | None = None,
 ) -> None:
     if any(not root.strip() for root in retired_corpus_release_roots):
         raise SystemExit(
             "refusing to provision: retired corpus release roots must not be empty"
         )
+    retired_inventory = (
+        _load_retired_apply_inventory(retired_apply_inventory_path)
+        if retired_apply_inventory_path is not None
+        else None
+    )
+    trust_payload = _signing_trust_roots_payload(
+        apply_root,
+        eval_root,
+        corpus_release_root,
+        retired_corpus_release_roots,
+        retired_apply_roots,
+        retired_inventory,
+    )
     encoder_attestation_args = (
         encoder_origin_repository,
         encoder_commit,
@@ -1677,12 +1757,6 @@ def provision(
         )
         launcher.chmod(0o755)
         trust = destination / "signing-trust-roots.json"
-        trust_payload = _signing_trust_roots_payload(
-            apply_root,
-            eval_root,
-            corpus_release_root,
-            retired_corpus_release_roots,
-        )
         trust.write_text(json.dumps(trust_payload, sort_keys=True) + "\n")
         trust.chmod(0o644)
         if provision_encoder:
@@ -1718,6 +1792,18 @@ if __name__ == "__main__":
         action="append",
         default=[],
         help="Retired verification-only corpus release root; repeat for each key.",
+    )
+    parser.add_argument(
+        "--retired-apply-root",
+        action="append",
+        default=[],
+        help="Retired verification-only apply root (raw base64); requires frozen inventory.",
+    )
+    parser.add_argument(
+        "--retired-apply-inventory",
+        type=Path,
+        default=None,
+        help="Owner-reviewed root-protected frozen inventory; copied inline into protected trust.",
     )
     parser.add_argument(
         "--install-pinned-codex-cli",
@@ -1798,4 +1884,6 @@ if __name__ == "__main__":
         else None,
         args.install_pinned_codex_cli,
         tuple(args.retired_corpus_release_root),
+        tuple(args.retired_apply_root),
+        args.retired_apply_inventory,
     )
