@@ -50,6 +50,18 @@ from axiom_encode.constants import (
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
 )
+from axiom_encode.encode_timing import (
+    PHASE_ARTIFACT_REPAIR,
+    PHASE_CANDIDATE_VALIDATION,
+    PHASE_MODEL_CALL,
+    PHASE_PREPARE,
+    PHASE_RECORD_RESULT,
+    PHASE_REPAIR_OVERLAY,
+    PHASE_RETAINED_CANDIDATE_PREFLIGHT,
+    PHASE_STAGE_CANDIDATE,
+    mark_encode_phase,
+    timed_phase,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -3767,6 +3779,29 @@ def _deterministic_tree_identity(
     }
 
 
+def _read_only_git_environment() -> dict[str, str]:
+    """Keep private child isolation and use only the checkout's real Git graph."""
+
+    environment = {
+        key: value
+        for key, value in scrub_attestation_signing_keys().items()
+        if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_NO_LAZY_FETCH="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_COUNT="1",
+        GIT_CONFIG_KEY_0="core.commitGraph",
+        GIT_CONFIG_VALUE_0="false",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return environment
+
+
 def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
     """Return git stdout for one read-only identity query, if available."""
 
@@ -3778,9 +3813,10 @@ def _git_command_bytes(checkout: Path, *args: str) -> bytes | None:
             [git_executable, "-C", str(checkout), *args],
             check=False,
             capture_output=True,
-            env=scrub_attestation_signing_keys(),
+            env=_read_only_git_environment(),
+            timeout=30,
         )
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0:
         return None
@@ -8053,6 +8089,7 @@ _EVAL_SCALAR_REPAIR_MARKERS = (
 )
 
 
+@timed_phase(PHASE_ARTIFACT_REPAIR)
 def _apply_generated_eval_repairs(
     *,
     rulespec_file: Path,
@@ -8944,6 +8981,9 @@ def _run_single_eval(
     accept_valid_retry_candidate: bool = False,
     axiom_compose_path: Path | None = None,
 ) -> EvalResult:
+    # Encode-loop phases (no-ops outside `encode`): the workspace and prompt
+    # are preparation; later marks follow the try through the candidate.
+    mark_encode_phase(PHASE_PREPARE)
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -9027,6 +9067,7 @@ def _run_single_eval(
     if accept_valid_retry_candidate:
         assert validation_retry_candidate is not None
         assert validation_retry_candidate.tests is not None
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         preflight_started = time.monotonic()
         _write_eval_artifact_text(
             output_file,
@@ -9049,6 +9090,7 @@ def _run_single_eval(
             workspace,
             protected_paths=protected_paths,
         )
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9075,6 +9117,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
         )
+        mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
             rulespec_file=output_file,
             relative_output=relative_output,
@@ -9086,6 +9129,7 @@ def _run_single_eval(
                 "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
                 + ",".join(rebound_hashes)
             )
+            mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
             retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
@@ -9112,6 +9156,7 @@ def _run_single_eval(
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
             )
+            mark_encode_phase(PHASE_RETAINED_CANDIDATE_PREFLIGHT)
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
@@ -9155,6 +9200,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        mark_encode_phase(PHASE_MODEL_CALL)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
                 runner=runner,
@@ -9172,6 +9218,7 @@ def _run_single_eval(
                 required_test_case_contracts=required_test_case_contracts,
             )
         )
+    mark_encode_phase(PHASE_STAGE_CANDIDATE)
     overlay_validation_issue: str | None = None
     if (
         wrote_artifact
@@ -9256,6 +9303,7 @@ def _run_single_eval(
 
     metrics = retained_candidate_metrics if retained_candidate_accepted else None
     if wrote_artifact and not retained_candidate_accepted:
+        mark_encode_phase(PHASE_CANDIDATE_VALIDATION)
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -9282,6 +9330,7 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
         )
+    mark_encode_phase(PHASE_RECORD_RESULT)
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
         if overlay_validation_issue not in metrics.ci_issues:
@@ -10295,6 +10344,11 @@ companion test file required by the task and deterministic validation.
             "it as an input. A same-named derived or parameter rule is not an "
             "input reference, but companion `#input.<name>` assignments must "
             "still be replaced with factual inputs. "
+            "To remove an obsolete deferred output, emit an exact YAML item "
+            "containing only `output: <existing output>` and "
+            "`repair_remove: true`. Other deferred-output records may contain "
+            "only `output`, `reason`, `blocked_by`, and `source_values`. "
+            "Source completeness still applies after removal. "
             "The encoder removes accepted markers before validation. Never emit "
             "prose or patch syntax.\n"
         )
@@ -10596,6 +10650,7 @@ Import and context rules:
         source_text,
         workspace,
         rulespec_context_files,
+        target_anchor=target_ref_prefix,
     )
 
     test_file_name = _rulespec_test_path(Path(target_file_name)).name
@@ -10989,6 +11044,11 @@ Complete-source-unit mode is enabled for this request:
   every subsection marker represented by the output branch, and name a
   concrete source-stated missing input or runtime capability. The output path
   is not a source citation.
+  For a U.S. regulation branch, use the resolver-attested canonical citation
+  in `reason`, such as `us/regulation/7/273/10(a)(1)` for that exact branch;
+  display-style `7 CFR 273.10(a)(1)` alone does not identify it to the
+  completeness validator. Follow the citation with the concrete missing input
+  or runtime capability; do not infer a citation beyond the supplied source.
   Never guess a blocker target.
 - A child-branch `source:` citation does not cover a distinct parent chapeau.
   When a parent chapeau states applicability, temporal scope, or a shared
@@ -11360,7 +11420,7 @@ RuleSpec requirements:
 - If an upstream output is already executable, do not replace it with a local
   placeholder fact or compatibility alias.
 - Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula, declare that fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`) with its `entity`, `dtype`, and `period`, and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
-- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
+- Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`. The arguments list must declare one entity kind per tuple slot in tuple order; for person-to-household membership, use `arguments: [Person, Household]`. The engine rejects an executed relation that declares only `arity`.
 - If the requested source text includes a limitation, cap, exception, or
   cross-referenced subparagraph that changes the final exported amount, the
   final exported amount must apply that limitation. If a copied sibling/context
@@ -12202,6 +12262,7 @@ def _format_canonical_concept_registry_guidance(
     context_files: list[EvalContextFile],
     *,
     registry: ConceptRegistry | None = None,
+    target_anchor: str | None = None,
 ) -> str:
     """Inject canonical-concept registry directives scoped to mentioned concepts.
 
@@ -12209,6 +12270,11 @@ def _format_canonical_concept_registry_guidance(
     blocked synonym in the registry; emits a terse "use these exact names"
     block for the matched concepts only. Concepts that never appear in any
     text are omitted so the prompt does not pay tokens for irrelevant rules.
+
+    ``target_anchor`` is the RuleSpec anchor of the module being encoded (the
+    prompt's ``target_ref_prefix``). It only changes the line for a concept
+    with several producer vintages: the line then says whether this module
+    is one of those producers. Single-producer lines do not depend on it.
     """
     if registry is None:
         try:
@@ -12248,8 +12314,11 @@ def _format_canonical_concept_registry_guidance(
     lines: list[str] = []
     for concept in matched:
         parts: list[str] = [f"`{concept.canonical_name}`"]
-        if concept.has_producer:
-            parts.append(f"producer `{concept.producer_anchor}`")
+        producer_guidance = _canonical_concept_producer_guidance(
+            concept, target_anchor=target_anchor
+        )
+        if producer_guidance:
+            parts.append(producer_guidance)
         if concept.blocked_synonyms:
             blocked = ", ".join(f"`{s}`" for s in concept.blocked_synonyms)
             parts.append(f"do not use: {blocked}")
@@ -12260,6 +12329,58 @@ Canonical concept names:
 Use these exact identifiers for the listed legal concepts; never introduce the blocked synonyms. The post-apply validator rejects drift, so picking the canonical name on the first pass avoids wasted re-encodes:
 {lines}
 """.format(lines="\n".join(lines))
+
+
+def _canonical_concept_producer_guidance(
+    concept: Concept, *, target_anchor: str | None = None
+) -> str | None:
+    """Describe where a registered concept's producer lives, for the prompt.
+
+    One producer: ``producer `<anchor>```, as before vintages existed. Several
+    producers (one per vintage, e.g. per fiscal year): every vintage is
+    listed with its registered period, and when the module being encoded is
+    known the line says whether it is one of them, so a producer encode
+    defines the name locally and any other module references the vintage
+    whose dates it encodes instead of defining it.
+    """
+    if not concept.has_producer:
+        return None
+
+    def labelled(anchor: str) -> str:
+        period = concept.producer_period(anchor)
+        return f"`{anchor}` ({period.describe()})" if period else f"`{anchor}`"
+
+    anchors = concept.producer_anchors
+    if len(anchors) == 1:
+        return f"producer {labelled(anchors[0])}"
+    if concept.accepts_producer_anchor(target_anchor):
+        period = concept.producer_period(target_anchor)
+        vintage = (
+            f"the {period.label} producer ({period.effective_from.isoformat()} "
+            f"to {period.effective_to.isoformat()})"
+            if period
+            else "one of its vintage producers"
+        )
+        others = ", ".join(labelled(a) for a in anchors if a != target_anchor)
+        return (
+            f"this module, `{target_anchor}`, is {vintage}: when this source "
+            "sets it, define it here under this exact name rather than "
+            f"importing another vintage; other vintages: {others}"
+        )
+    listed = ", ".join(labelled(a) for a in anchors)
+    choice = (
+        "when importing it, reference the producer whose period covers the "
+        "dates you encode"
+        if concept.producer_periods
+        else "when importing it, reference the producer of the vintage you mean"
+    )
+    guidance = f"one producer per vintage, only at {listed}; {choice}"
+    if target_anchor is not None:
+        guidance += (
+            "; this module is not one of them, so do not define a rule with "
+            "this name here"
+        )
+    return guidance
 
 
 def _format_existing_target_contract_guidance(
@@ -17547,6 +17668,7 @@ def _repair_overlay_candidate_base_issue(
     return None
 
 
+@timed_phase(PHASE_REPAIR_OVERLAY)
 def _overlay_validation_retry_candidate(
     rulespec_file: Path,
     *,
@@ -17623,7 +17745,9 @@ def _overlay_validation_retry_candidate(
 
     generated_module = generated.get("module")
     preserved_module = preserved.get("module")
-    if isinstance(generated_module, dict) and isinstance(preserved_module, dict):
+    if isinstance(generated_module, dict):
+        if not isinstance(preserved_module, dict):
+            preserved_module = {}
         preserved_source_verification = preserved_module.get("source_verification")
         corpus_citation_path = (
             preserved_source_verification.get("corpus_citation_path")
@@ -17656,6 +17780,8 @@ def _overlay_validation_retry_candidate(
         ):
             raise ValueError("repair overlay deferred outputs must be lists")
         generated_outputs: set[str] = set()
+        removed_outputs: set[str] = set()
+        deferred: list[dict[str, object]] = []
         for item in generated_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("generated deferred outputs must name an output")
@@ -17665,11 +17791,26 @@ def _overlay_validation_retry_candidate(
                     f"generated deferred outputs contains duplicate output `{output}`"
                 )
             generated_outputs.add(output)
-        deferred = list(generated_deferred)
+            if "repair_remove" in item:
+                if (
+                    set(item) != {"output", "repair_remove"}
+                    or item.get("repair_remove") is not True
+                ):
+                    raise ValueError(
+                        f"generated deferred outputs removal marker for `{output}` "
+                        "must contain only output and repair_remove: true"
+                    )
+                removed_outputs.add(output)
+                continue
+            deferred.append(item)
+        preserved_outputs: set[str] = set()
         for item in preserved_deferred:
             if not isinstance(item, dict) or not isinstance(item.get("output"), str):
                 raise ValueError("preserved deferred outputs must name an output")
             output = item["output"]
+            preserved_outputs.add(output)
+            if output in removed_outputs:
+                continue
             output_name = output.rsplit("#", 1)[-1]
             if output_name in generated_rule_names:
                 repairs.append(f"resolved_deferred_output:{output}")
@@ -17678,8 +17819,31 @@ def _overlay_validation_retry_candidate(
                 deferred.append(item)
                 generated_outputs.add(output)
                 repairs.append(f"deferred_output:{output}")
+        unknown_removals = sorted(removed_outputs - preserved_outputs)
+        if unknown_removals:
+            raise ValueError(
+                "generated deferred outputs removal marker names no preserved item: "
+                + ", ".join(f"`{output}`" for output in unknown_removals)
+            )
+        for item in deferred:
+            unsupported_keys = set(item) - {
+                "output",
+                "reason",
+                "blocked_by",
+                "source_values",
+            }
+            if unsupported_keys:
+                raise ValueError(
+                    f"repair overlay deferred outputs for `{item['output']}` contains "
+                    "unsupported keys: " + ", ".join(sorted(map(str, unsupported_keys)))
+                )
+        repairs.extend(
+            f"removed_deferred_output:{output}" for output in sorted(removed_outputs)
+        )
         if deferred:
             generated_module["deferred_outputs"] = deferred
+        else:
+            generated_module.pop("deferred_outputs", None)
 
     test_file = _rulespec_test_path(rulespec_file)
     merged_test_payload: object | None = None

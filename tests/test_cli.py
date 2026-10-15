@@ -7374,30 +7374,6 @@ class TestCmdValidate:
 
 
 class TestCmdCompile:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _rulespec_file(self, tmp_path: Path, content: str | None = None) -> Path:
         checkout = tmp_path / "rulespec-us"
         rules_file = checkout / "us/statutes/1/test.yaml"
@@ -7420,12 +7396,14 @@ rules:
         )
         return rules_file
 
-    def _compile_args(self, rules_file: Path, *, json_output: bool):
+    def _compile_args(
+        self, rules_file: Path, *, json_output: bool, axiom_rules_path: Path
+    ):
         args = MagicMock()
         args.file = rules_file
         args.json = json_output
         args.as_of = None
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.axiom_rules_engine_ref = None
         args.rulespec_dependency_root = []
         return args
@@ -7439,8 +7417,12 @@ rules:
             cmd_compile(args)
         assert exc_info.value.code == 1
 
-    def test_compile_success_text(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=False)
+    def test_compile_success_text(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=False,
+            axiom_rules_path=real_engine.root,
+        )
 
         with pytest.raises(SystemExit) as exc_info:
             cmd_compile(args)
@@ -7449,8 +7431,12 @@ rules:
         assert "Compiled" in captured.out
         assert "test_rule" in captured.out
 
-    def test_compile_success_json(self, capsys, tmp_path):
-        args = self._compile_args(self._rulespec_file(tmp_path), json_output=True)
+    def test_compile_success_json(self, real_engine, capsys, tmp_path):
+        args = self._compile_args(
+            self._rulespec_file(tmp_path),
+            json_output=True,
+            axiom_rules_path=real_engine.root,
+        )
         args.as_of = "2024-01-01"
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7462,10 +7448,11 @@ rules:
         assert output["rule_count"] == 1
         assert output["rules"] == ["test_rule"]
 
-    def test_compile_failure_text(self, capsys, tmp_path):
+    def test_compile_failure_text(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=False,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7474,10 +7461,11 @@ rules:
         captured = capsys.readouterr()
         assert "Compilation failed" in captured.out
 
-    def test_compile_failure_json(self, capsys, tmp_path):
+    def test_compile_failure_json(self, real_engine, capsys, tmp_path):
         args = self._compile_args(
             self._rulespec_file(tmp_path, "format: rulespec/v1\nrules: ["),
             json_output=True,
+            axiom_rules_path=real_engine.root,
         )
 
         with pytest.raises(SystemExit) as exc_info:
@@ -7512,30 +7500,6 @@ rules:
 
 
 class TestCmdTest:
-    def _require_axiom_rules_path(self) -> Path:
-        candidates = (
-            Path(
-                "/Users/maxghenis/TheAxiomFoundation/_worktrees/"
-                "axiom-rules-engine-canonical-loader-hard-cut"
-            ),
-            Path("/Users/maxghenis/TheAxiomFoundation/axiom-rules-engine"),
-        )
-        for axiom_rules_path in candidates:
-            binary = axiom_rules_path / "target" / "debug" / "axiom-rules-engine"
-            probe = (
-                subprocess.run(
-                    [str(binary), "compile", "--help"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                if binary.exists()
-                else None
-            )
-            if probe is not None and "--rulespec-root" in (probe.stdout + probe.stderr):
-                return axiom_rules_path
-        pytest.skip("local explicit-root axiom-rules-engine binary is not built")
-
     def _write_rulespec_with_test(
         self,
         tmp_path: Path,
@@ -7580,13 +7544,13 @@ rules:
         )
         return repo
 
-    def _args(self, repo: Path, *, json_output: bool):
+    def _args(self, repo: Path, *, json_output: bool, axiom_rules_path: Path):
         _write_test_rulespec_toolchain(repo)
         args = MagicMock()
         args.root = repo / "us"
         args.paths = []
         args.json = json_output
-        args.axiom_rules_path = self._require_axiom_rules_path()
+        args.axiom_rules_path = axiom_rules_path
         args.rulespec_dependency_root = []
         return args
 
@@ -8200,11 +8164,13 @@ rules:
         )
         assert proof_import["hash"] == f"sha256:{_sha256_file(child_a2)}"
 
-    def test_executes_companion_tests_success_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_success_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=15)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
@@ -8213,7 +8179,9 @@ rules:
         assert output["cases"] == 1
         assert output["failures"] == []
 
-    def test_executes_companion_tests_with_custom_period_name(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_custom_period_name(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/policies/ssa/base.yaml"
         target.parent.mkdir(parents=True)
@@ -8243,12 +8211,16 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_with_table_rows(self, capsys, tmp_path):
+    def test_executes_companion_tests_with_table_rows(
+        self, real_engine, capsys, tmp_path
+    ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/payment.yaml"
         target.parent.mkdir(parents=True)
@@ -8286,13 +8258,15 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
     def test_executes_companion_tests_with_absolute_relation_inputs(
-        self, capsys, tmp_path
+        self, real_engine, capsys, tmp_path
     ):
         repo = tmp_path / "rulespec-us"
         target = repo / "us/statutes/1/relation.yaml"
@@ -8328,16 +8302,20 @@ rules:
         )
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         assert json.loads(capsys.readouterr().out)["success"] is True
 
-    def test_executes_companion_tests_failure_json(self, capsys, tmp_path):
+    def test_executes_companion_tests_failure_json(self, real_engine, capsys, tmp_path):
         repo = self._write_rulespec_with_test(tmp_path, expected_benefit=16)
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 1
         output = json.loads(capsys.readouterr().out)
@@ -8345,7 +8323,7 @@ rules:
         assert "expected 16" in output["failures"][0]["message"]
 
     def test_executes_companion_tests_prefers_current_repo_over_env_root(
-        self, capsys, monkeypatch, tmp_path
+        self, real_engine, capsys, monkeypatch, tmp_path
     ):
         stale_repo = tmp_path / "canonical" / "rulespec-us"
         stale_child = stale_repo / "us/statutes/1/child.yaml"
@@ -8411,7 +8389,9 @@ rules:
         monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", str(stale_repo))
 
         with pytest.raises(SystemExit) as exc_info:
-            cmd_test(self._args(repo, json_output=True))
+            cmd_test(
+                self._args(repo, json_output=True, axiom_rules_path=real_engine.root)
+            )
 
         assert exc_info.value.code == 0
         output = json.loads(capsys.readouterr().out)
@@ -9191,6 +9171,63 @@ $533 with 2 children
     )
 
     assert repaired == "$533 with 2 children"
+
+
+def test_closest_exact_source_excerpt_keeps_parenthesized_numeric_heading():
+    source_text = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/fns_snap_fy2026_cola_memo_page_3.txt"
+    ).read_text()
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level)"
+
+
+def test_closest_exact_source_excerpt_retains_governing_parenthetical_condition():
+    source_text = (
+        "(a) If the household has an elderly member, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == source_text
+
+
+def test_closest_exact_source_excerpt_rejects_long_governing_condition():
+    source_text = (
+        "(a) If the household has an elderly member and "
+        + "the household meets the additional eligibility requirements and " * 8
+        + "has qualifying income, use the higher limit "
+        "(165 Percent of Poverty Level)."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_does_not_wrap_partial_parenthetical():
+    repaired = _closest_exact_source_excerpt(
+        source_text="(165 Percent of Poverty Level for Guam)",
+        excerpt="165 Percent of Poverty Level",
+        numeric_profile="en-US",
+    )
+
+    assert repaired == "(165 Percent of Poverty Level for Guam)"
 
 
 def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
@@ -14678,6 +14715,206 @@ class TestCmdEncode:
             "initial_model": DEFAULT_OPENAI_MODEL,
             "escalation_model": DEFAULT_OPENAI_ESCALATION_MODEL,
         }
+
+    def test_encode_records_each_try_wall_time_and_phases(self, tmp_path, capsys):
+        """Every try carries its wall time and a contiguous phase timeline; the
+        loop's setup and finalization close the gap to the whole run."""
+        from datetime import datetime, timezone
+
+        from axiom_encode.encode_timing import EncodeLoopTimer
+
+        class TickingClock:
+            now = 50.0
+
+            def __call__(self) -> float:
+                self.now += 1.0
+                return self.now
+
+        clock = TickingClock()
+
+        def timer_factory():
+            return EncodeLoopTimer(
+                monotonic=clock,
+                origin=(clock.now, datetime(2026, 10, 7, 16, tzinfo=timezone.utc)),
+            )
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+        with patch("axiom_encode.cli.EncodeLoopTimer", side_effect=timer_factory):
+            exit_code, *_rest = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (False, ["terra-2"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert [iteration.attempt for iteration in run.iterations] == [1, 2, 3]
+        for earlier, later in zip(run.iterations, run.iterations[1:]):
+            # A try ends the instant the next one starts.
+            assert earlier.finished_at == later.started_at
+        for iteration in run.iterations:
+            # duration_ms keeps meaning "the model call" for existing readers.
+            assert iteration.duration_ms == 123
+            assert iteration.started_at.endswith("Z")
+            phases = iteration.phases
+            assert phases[0]["started_at"] == iteration.started_at
+            assert phases[-1]["finished_at"] == iteration.finished_at
+            for earlier, later in zip(phases, phases[1:]):
+                assert earlier["finished_at"] == later["started_at"]
+            assert sum(phase["duration_ms"] for phase in phases) == (
+                iteration.wall_duration_ms
+            )
+            names = [phase["name"] for phase in phases]
+            assert names[:4] == [
+                "other",
+                "prepare",
+                "apply_repair",
+                "overlay_validation",
+            ]
+            assert names[-1] == "retry_handoff"
+        assert "apply_write" not in [
+            phase["name"] for phase in run.iterations[0].phases
+        ]
+        assert "apply_write" in [phase["name"] for phase in run.iterations[-1].phases]
+
+        loop = run.outcome["encode_loop_timing"]
+        assert loop["schema"] == "axiom-encode/encode-loop-timing/v1"
+        assert loop["try_count"] == 3
+        assert loop["tries_ms"] == sum(
+            iteration.wall_duration_ms for iteration in run.iterations
+        )
+        assert loop["setup_ms"] > 0 and loop["finalize_ms"] > 0
+        assert (
+            loop["setup_ms"]
+            + loop["tries_ms"]
+            + loop["between_tries_ms"]
+            + loop["finalize_ms"]
+        ) == loop["wall_duration_ms"]
+
+        out = capsys.readouterr().out
+        assert "  try=1 start at=2026-10-07T16:" in out
+        assert re.search(
+            r"^  try=2 phase=overlay_validation at=\S+Z prev=apply_repair:\d+ms$",
+            out,
+            flags=re.MULTILINE,
+        )
+        assert re.search(r"^  try=3 end at=\S+Z wall_ms=\d+", out, re.MULTILINE)
+
+    def test_encode_sync_payload_carries_try_timing(self, tmp_path):
+        """The run handed to the Supabase sync already holds the timing."""
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            pytest.raises(SystemExit),
+        ):
+            cmd_encode(args)
+
+        synced_run = mock_sync.call_args.args[0]
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at and iteration.finished_at
+        assert isinstance(iteration.wall_duration_ms, int)
+        assert sum(phase["duration_ms"] for phase in iteration.phases) == (
+            iteration.wall_duration_ms
+        )
+        loop = synced_run.outcome["encode_loop_timing"]
+        assert loop["try_count"] == 1
+        assert loop["tries_ms"] == iteration.wall_duration_ms
+
+    def test_encode_survives_a_failed_timing_write(self, tmp_path, capsys):
+        """Telemetry never fails an encode: when the local timing write fails,
+        the run still records and syncs its outcome, and no copy carries the
+        per-try timing the local row lacks."""
+        import sqlite3
+
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ) as mock_sync,
+            patch.object(
+                EncodingDB,
+                "update_run_iterations",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            pytest.raises(SystemExit) as failed_write,
+        ):
+            cmd_encode(args)
+
+        assert "  encode_timing=failed:OperationalError" in capsys.readouterr().out
+        synced_run = mock_sync.call_args.args[0]
+        assert synced_run.outcome["status"]
+        assert "encode_loop_timing" not in synced_run.outcome
+        (iteration,) = synced_run.iterations
+        assert iteration.started_at is None and iteration.phases is None
+        stored = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert stored.outcome["status"] == synced_run.outcome["status"]
+        assert stored.iterations[0].phases is None
+
+        # The same encode without the failure exits the same way.
+        (tmp_path / "baseline").mkdir()
+        baseline_args = self._make_args(tmp_path / "baseline", backend="codex")
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            patch(
+                "axiom_encode.cli._sync_run_to_supabase_if_configured",
+                return_value={"configured": True, "run": True, "session": True},
+            ),
+            pytest.raises(SystemExit) as baseline,
+        ):
+            cmd_encode(baseline_args)
+        assert failed_write.value.code == baseline.value.code
+
+    def test_encode_try_error_passes_through_and_clears_the_timer(self, tmp_path):
+        """An error inside a try reaches the caller unchanged, and the loop
+        timer is no longer active afterwards."""
+        from axiom_encode.encode_timing import active_encode_loop_timer
+
+        args = self._make_args(tmp_path, backend="codex")
+        with (
+            patch(
+                "axiom_encode.cli.run_model_eval",
+                side_effect=RuntimeError("model backend exploded"),
+            ),
+            patch.dict(
+                os.environ,
+                {"AXIOM_CORPUS_RELEASE_PUBLIC_KEY": TEST_RELEASE_PUBLIC_KEY},
+                clear=True,
+            ),
+            pytest.raises(RuntimeError, match="model backend exploded"),
+        ):
+            cmd_encode(args)
+
+        assert active_encode_loop_timer() is None
 
     def test_encode_retries_from_best_candidate_when_later_attempt_regresses(
         self, tmp_path
@@ -21474,6 +21711,87 @@ rules: []
         assert run.outcome["auto_repaired_invalid_source_verification_values"] == [
             "module.source_verification.values"
         ]
+        assert run.outcome["overlay_validation_success"] is True
+        assert run.outcome["status"] == "apply_applied"
+
+    def test_encode_apply_repairs_source_verification_values_reported_by_overlay(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.metrics = SimpleNamespace(
+            compile_pass=False,
+            compile_issues=[],
+            ci_pass=False,
+            ci_issues=[],
+            grounded_numeric_count=0,
+            ungrounded_numeric_count=0,
+            embedded_source_present=True,
+            grounding=[],
+            numeric_occurrence_issues=[],
+            generalist_review_pass=None,
+            generalist_review_score=None,
+            generalist_review_issues=[],
+            policyengine_pass=None,
+            policyengine_score=None,
+            policyengine_issues=[],
+        )
+        result.error = "Generated RuleSpec failed compile validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "regulations/7-cfr/273/10.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/regulation/7/273/10
+    source_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    values:
+      earned_income_deduction_rate: 0.2
+  summary: SNAP earned income deduction.
+rules: []
+"""
+        )
+        result.output_file = str(output_file)
+        issue = (
+            "regulations/7-cfr/273/10.yaml: compile: Axiom rules engine compile "
+            "failed: yaml parse error: module.source_verification: unknown field "
+            "`values`, expected one of `corpus_citation_path`, `source_sha256`, "
+            "`upstream_source_check` at line 21 column 5"
+        )
+        applied_file = args.policy_repo_path / "regulations/7-cfr/273/10.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[(False, [issue], {}), (True, [], {})],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 2
+        mock_apply.assert_called_once()
+        assert (
+            "values"
+            not in yaml.safe_load(output_file.read_text())["module"][
+                "source_verification"
+            ]
+        )
+        assert (
+            "apply=auto_repaired_invalid_source_verification_values:"
+            "module.source_verification.values" in capsys.readouterr().out
+        )
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
@@ -37659,7 +37977,7 @@ rules: []
         ]
         assert payload["rules"] == []
 
-    def test_mixed_missing_deferred_output_repair_keeps_encoded_rules(self, tmp_path):
+    def test_mixed_missing_deferred_output_repair_requires_source(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = (
             output_root / "codex-gpt-5.5" / "regulations/388/388-450/388-450-0162.yaml"
@@ -37707,24 +38025,8 @@ rules:
         )
 
         payload = yaml.safe_load(rules_file.read_text())
-        assert repaired == [
-            "us-wa:regulations/388/388-450/388-450-0162/a#basic_food_income_eligible"
-        ]
-        assert payload["module"]["deferred_outputs"] == [
-            {
-                "output": (
-                    "us-wa:regulations/388/388-450/388-450-0162/a"
-                    "#basic_food_income_eligible"
-                ),
-                "reason": (
-                    "Generated module encodes the supported rules from this "
-                    "source, but this source subparagraph depends on policy "
-                    "surfaces or entities that are not available in the current "
-                    "RuleSpec context. It is deferred instead of being modeled "
-                    "as a caller-supplied input or an unsupported local entity."
-                ),
-            }
-        ]
+        assert repaired == []
+        assert "deferred_outputs" not in payload["module"]
         assert [rule["name"] for rule in payload["rules"]] == [
             "cash_assistance_income_requirement_satisfied"
         ]
@@ -42023,6 +42325,51 @@ class TestEncodeReplacementTarget:
             citation_path="us-nc/statute/105/105-153.7",
             body="broader official source",
             resolved_source=object(),
+        )
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path("statutes/105/105-153.7/a.yaml")
+        assert resolved.context_paths == (target,)
+
+    def test_accepts_existing_child_module_from_its_exact_parent_source(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        args.replace_rulespec_path = Path("us-nc/statutes/105/105-153.7/a.yaml")
+        target = content_root / "statutes" / "105" / "105-153.7" / "a.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us-nc/statute/105/105-153.7\n"
+            "rules: []\n"
+        )
+        source_unit.requested = "us-nc/statute/105/105-153.7"
+        source_unit.citation_path = source_unit.requested
+        replacement_source = SimpleNamespace(
+            requested=source_unit.requested,
+            citation_path=source_unit.citation_path,
+            body=source_unit.body,
+            resolved_source=source_unit.resolved_source,
         )
 
         with patch(
@@ -50024,6 +50371,115 @@ rules:
                 (Path("us/regulations/7-cfr/273/10.yaml"),),
                 overlay_content_root=content_root,
                 dependents=[dependent],
+            )
+
+    def test_scheduled_two_hop_proof_chain_is_authenticated(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        sibling = content_root / "policies/usda/snap/state-plan-composition.yaml"
+        for module in (target, first, second, sibling):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        first_sha = hashlib.sha256(first.read_bytes()).hexdigest()
+        second.write_text(
+            f"""format: rulespec/v1
+imports:
+  - us:regulations/7-cfr/273/10
+rules:
+  - name: nonhousehold_member_treatment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:regulations/7-cfr/273/10#shelter_deduction
+              hash: sha256:{first_sha}
+"""
+        )
+        sibling.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        resolved = _resolve_scheduled_proof_hash_dependents(
+            (
+                Path("us/regulations/7-cfr/273/10.yaml"),
+                Path("us/regulations/7-cfr/273/11/c.yaml"),
+            ),
+            overlay_content_root=content_root,
+            dependents=[first, second],
+        )
+
+        assert resolved == {first, second}
+        assert f"hash: sha256:{first_sha}" in second.read_text()
+        # The first dependent has now been regenerated; only its proof-pinned
+        # second dependent may be deferred, not an ordinary sibling importer.
+        first.write_text(first.read_text() + "# signed re-encode\n")
+        first_closure_skip = _resolve_scheduled_proof_hash_dependents(
+            (Path("us/regulations/7-cfr/273/11/c.yaml"),),
+            overlay_content_root=content_root,
+            dependents=[second, sibling],
+        )
+        assert first_closure_skip == {second}
+        assert [
+            path for path in (second, sibling) if path not in first_closure_skip
+        ] == [sibling]
+
+    def test_scheduled_two_hop_chain_requires_second_proof_import(self, tmp_path):
+        content_root = tmp_path / "rulespec-us" / "us"
+        target = content_root / "statutes/7/2012/j.yaml"
+        first = content_root / "regulations/7-cfr/273/10.yaml"
+        second = content_root / "regulations/7-cfr/273/11/c.yaml"
+        for module in (target, first, second):
+            module.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        first.write_text(
+            """format: rulespec/v1
+imports:
+  - us:statutes/7/2012/j
+rules:
+  - name: shelter_deduction
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:statutes/7/2012/j#elderly_or_disabled_member
+              hash: sha256:deadbeef
+"""
+        )
+        second.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n  - us:regulations/7-cfr/273/10\n"
+            "rules: []\n"
+        )
+
+        with pytest.raises(ValueError, match="lacks a proof import pinned"):
+            _resolve_scheduled_proof_hash_dependents(
+                (
+                    Path("us/regulations/7-cfr/273/10.yaml"),
+                    Path("us/regulations/7-cfr/273/11/c.yaml"),
+                ),
+                overlay_content_root=content_root,
+                dependents=[first, second],
             )
 
     def test_missing_input_parser_accepts_relation_warning_before_error(self):

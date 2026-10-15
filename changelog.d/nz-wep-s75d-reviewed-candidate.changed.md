@@ -1,0 +1,1 @@
+Admit the reviewed New Zealand Winter Energy Payment section 75 candidate (rulespec-nz `a3b2ded3`) against branch `nzhub/wep-s75d` instead of `nzhub/wep-s75c`, which has moved since the first promotion. The candidate bytes are unchanged.

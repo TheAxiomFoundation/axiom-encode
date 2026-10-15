@@ -1,0 +1,45 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Internal Revenue Code section 63(c) defines the standard deduction as the
+    basic standard deduction plus any additional standard deduction. Annual
+    inflation-adjusted dollar amounts are imported from the IRS tax-year
+    authority, not encoded in the statute file.
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+  - name: num_aged_members
+    kind: derived
+    entity: TaxUnit
+    dtype: Integer
+    period: Year
+    source: IRC section 63(f)(1)(A)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_tax_unit, is_aged_65_or_over)
+  - name: additional_std_ded_amount
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: IRC section 63(f)(1)(A), aggregated over qualifying individuals
+    versions:
+      - effective_from: '2026-01-01'
+        formula: num_aged_members * additional_standard_deduction_per_condition_amount
+  - name: standard_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: IRC section 63(c)(1)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: basic_standard_deduction_amount + additional_std_ded_amount

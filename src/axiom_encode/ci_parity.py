@@ -33,6 +33,7 @@ from typing import Any
 import yaml
 
 from axiom_encode import __version__
+from axiom_encode.corpus_materialize import remote_fetch_disabled
 from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
@@ -1381,10 +1382,14 @@ def run_ci(args: argparse.Namespace) -> int:
             roots = (*roots, "programs")
         if not roots:
             raise ValueError("No validation roots resolved")
-        with local_corpus_release_verification(args.corpus_release_public_key):
+        with (
+            local_corpus_release_verification(args.corpus_release_public_key),
+            remote_fetch_disabled() if args.offline else contextlib.nullcontext(),
+        ):
             # Authenticate the release signature and its complete artifact
             # inventory even when changed-file selection produces no later
-            # corpus-consuming gate.
+            # corpus-consuming gate. A lock-file corpus checkout also gets the
+            # release's provisions placed here (offline: cache and git only).
             load_rulespec_local_corpus_release(repo, paths["corpus"])
             results = execute_gates(args, caller, paths, roots)
     except Exception as exc:

@@ -642,36 +642,6 @@ def _write_signed_guard_fixture(
     return rulespec_root, corpus_root
 
 
-def _current_engine_root() -> Path | None:
-    configured = os.environ.get("AXIOM_RULES_ENGINE_ROOT")
-    candidates = [
-        *(Path(configured).expanduser() for _ in (0,) if configured),
-        ROOT.parent / "axiom-rules-engine-canonical-loader-hard-cut",
-        ROOT.parents[1] / "axiom-rules-engine",
-    ]
-    for root in candidates:
-        if not root.is_dir():
-            continue
-        for binary in (
-            root / "target" / "debug" / "axiom-rules-engine",
-            root / "target" / "release" / "axiom-rules-engine",
-            root / "axiom-rules-engine",
-        ):
-            if not binary.is_file() or not os.access(binary, os.X_OK):
-                continue
-            probe = subprocess.run(
-                [str(binary), "compile", "--help"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if probe.returncode == 0 and "--rulespec-root" in (
-                probe.stdout + probe.stderr
-            ):
-                return root.resolve()
-    return None
-
-
 def _write_current_engine_fixture(tmp_path: Path) -> tuple[Path, Path]:
     rulespec_root = tmp_path / "rulespec-us"
     corpus_root = tmp_path / "axiom-corpus"
@@ -1570,13 +1540,11 @@ def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transactio
 
 
 def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
+    real_engine,
     signing_supervisor: Path,
     trusted_real_cli_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
 ) -> None:
-    engine_root = _current_engine_root()
-    if engine_root is None:
-        pytest.skip("current axiom-rules-engine binary is not available")
     rules, corpus_root = _write_current_engine_fixture(tmp_path)
     apply_public, _apply_key = _keypair(b"\xab" * 32)
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
@@ -1598,7 +1566,7 @@ def test_supervised_validate_uses_signed_release_and_current_engine_end_to_end(
             "--corpus-path",
             str(corpus_root),
             "--axiom-rules-engine-path",
-            str(engine_root),
+            str(real_engine.root),
             "--skip-reviewers",
         ),
     )
@@ -2533,8 +2501,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert 'cascade_args+=("${dependent_citations[@]}")' in cascade_step["run"]
     assert "--allow-proof-import-subset" in cascade_step["run"]
-    assert 'cascade_mode="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert (
+        "all-direct|all-direct-proof-chain|proof-import-subset|proof-import-subset-chain|proof-import-chain"
+        in cascade_step["run"]
+    )
+    assert 'cascade_result="$("${cascade_args[@]}")"' in cascade_step["run"]
+    assert "cascade_args+=(--json)" in cascade_step["run"]
     assert "DEPENDENT_CASCADE_MODE=%s" in cascade_step["run"]
+    assert "DEPENDENT_RULESPEC_PATHS_JSON=%s" in cascade_step["run"]
 
     signed_import_step = next(
         step for step in steps if step.get("name") == "Verify existing signed imports"
@@ -2661,7 +2635,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         command
     )
     assert "--legacy-dependent-rulespec-path" in command
-    assert 'citation-rulespec-path "$DEPENDENT_CITATION"' in command
+    assert "dependent_rulespec_path=\"$(jq -er '.[0]'" in command
     assert '[ "$target_only" = "true" ]' in command
     assert (
         "queue-authorized re-encodes cannot override the RuleSpec target path"
@@ -2669,11 +2643,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert '--output "$RUNNER_TEMP/generated/$output_lane"' in command
     assert '"$SECOND_DEPENDENT_CITATION"' in command
-    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 "" "" false' in command
+    assert '"$SECOND_DEPENDENT_REVIEW_FINDING" false dependent-2 \\' in command
+    assert '"$second_replacement_path" "" false' in command
+    assert '"$second_dependent_rulespec_path" != "$canonical_second_path"' in command
     assert '"$CITATION" "$REVIEW_FINDING" "$primary_target_only" target \\\n' in command
     assert 'local scheduled_dependent_paths_json="${11:-[]}"' in command
     assert "--scheduled-dependent-rulespec-path" in command
     assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-subset-chain"' in command
+    assert 'DEPENDENT_CASCADE_MODE:-}" = "proof-import-chain"' in command
     assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" \\\n' in command
     assert '"$REPLACE_RULESPEC_PATH" "$REPLACE_LEGACY_RULESPEC_PATH"' in command
     assert '"$CITATION" "$REVIEW_FINDING" false \\\n' in command
@@ -3067,7 +3045,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     checksum_command = checksum_step["run"]
     assert 'artifact="$RUNNER_TEMP/targeted-reencode"' in checksum_command
     assert 'cd "$artifact"' in checksum_command
-    assert "sha256sum * > SHA256SUMS" in checksum_command
+    assert "find . -type f ! -path ./SHA256SUMS -print0" in checksum_command
+    assert "xargs -0 -r sha256sum > SHA256SUMS" in checksum_command
+    assert "sha256sum --check SHA256SUMS" in checksum_command
     assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' not in checksum_command
     assert upload_step["id"] == "upload_signed_reencode_artifact"
     assert upload_step["with"]["name"] == (
@@ -3075,6 +3055,46 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def test_targeted_reencode_checksums_include_nested_admission_files(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    artifact = tmp_path / "targeted-reencode"
+    admission = artifact / "source-admission" / "target"
+    admission.mkdir(parents=True)
+    (artifact / "lane-pull-request.json").write_text('{"number":1770}\n')
+    (admission / "source.json").write_text('{"admitted":true}\n')
+
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    checksums = (artifact / "SHA256SUMS").read_text()
+    assert "./lane-pull-request.json" in checksums
+    assert "./source-admission/target/source.json" in checksums
+    assert "./SHA256SUMS" not in checksums
+
+    (artifact / "unexpected-link").symlink_to(admission / "source.json")
+    rejected = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", command],
+        env={**os.environ, "RUNNER_TEMP": str(tmp_path)},
+        capture_output=True,
+        text=True,
+    )
+    assert rejected.returncode != 0
+    assert "artifact contains a symlink" in rejected.stderr
 
 
 def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:
@@ -5077,6 +5097,10 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (1, "proof-import-subset", "target-existing"),
         (2, "", ""),
         (2, "", "target-existing"),
+        (2, "all-direct", "target-existing"),
+        (2, "all-direct-proof-chain", "target-existing"),
+        (2, "proof-import-subset-chain", "target-existing"),
+        (2, "proof-import-chain", "target-existing"),
     ],
 )
 def test_targeted_signed_reencode_orders_target_and_dependents(
@@ -5183,6 +5207,9 @@ if sys.argv[-1] == os.environ["CITATION"]:
             {
                 "DEPENDENT_CITATION": "us/regulation/42/435/559",
                 "DEPENDENT_REVIEW_FINDING": "Preserve the dependent source.",
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    ["us/regulations/42-cfr/435/559.yaml"]
+                ),
             }
         )
     if repair_lane == "dependent":
@@ -5229,6 +5256,20 @@ if sys.argv[-1] == os.environ["CITATION"]:
                 "SECOND_DEPENDENT_REVIEW_FINDING": (
                     "Preserve the second dependent source."
                 ),
+                "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+                    [
+                        "us/regulations/42-cfr/435/559.yaml",
+                        "us/regulations/42-cfr/435/561/c.yaml"
+                        if cascade_mode
+                        in {
+                            "all-direct",
+                            "all-direct-proof-chain",
+                            "proof-import-subset-chain",
+                            "proof-import-chain",
+                        }
+                        else "us/regulations/42-cfr/435/561.yaml",
+                    ]
+                ),
             }
         )
 
@@ -5274,16 +5315,44 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[0][encode_args[0].index(option) + 1] == expected_value
         assert "--repair-candidate-tests-only" not in encode_args[0]
     assert ("--apply-target-only" in encode_args[0]) is (
-        dependent_count > 0 and cascade_mode != "proof-import-subset"
+        dependent_count > 0
+        and cascade_mode
+        not in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
     scheduled_option = "--scheduled-dependent-rulespec-path"
     assert (scheduled_option in encode_args[0]) is (
-        cascade_mode == "proof-import-subset"
+        cascade_mode
+        in {
+            "proof-import-subset",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }
     )
-    if cascade_mode == "proof-import-subset":
+    if cascade_mode in {
+        "proof-import-subset",
+        "proof-import-subset-chain",
+        "proof-import-chain",
+    }:
         assert encode_args[0][encode_args[0].index(scheduled_option) + 1] == (
             "us/regulations/42-cfr/435/559.yaml"
         )
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert encode_args[0].count(scheduled_option) == 2
+            second = encode_args[0].index(
+                scheduled_option, encode_args[0].index(scheduled_option) + 1
+            )
+            assert encode_args[0][second + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
     assert (
         Path(encode_args[0][encode_args[0].index("--review-findings") + 1])
         .read_text(encoding="utf-8")
@@ -5304,7 +5373,24 @@ if sys.argv[-1] == os.environ["CITATION"]:
             assert encode_args[1].count("--repair-candidate-path") == 1
             assert encode_args[1].count("--repair-candidate-rulespec-sha256") == 1
             assert encode_args[1].count("--repair-candidate-tests-sha256") == 1
-        assert ("--apply-target-only" in encode_args[1]) is (dependent_count == 2)
+        assert "--apply-target-only" not in encode_args[1]
+        assert (scheduled_option in encode_args[1]) is (
+            cascade_mode
+            in {
+                "proof-import-chain",
+                "all-direct-proof-chain",
+                "proof-import-subset-chain",
+            }
+        )
+        if cascade_mode in {
+            "proof-import-chain",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+        }:
+            assert encode_args[1].count(scheduled_option) == 1
+            assert encode_args[1][encode_args[1].index(scheduled_option) + 1] == (
+                "us/regulations/42-cfr/435/561/c.yaml"
+            )
         assert (
             Path(encode_args[1][encode_args[1].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5315,6 +5401,18 @@ if sys.argv[-1] == os.environ["CITATION"]:
         assert encode_args[2][-1] == "us/regulation/42/435/561"
         assert "--apply-target-only" not in encode_args[2]
         assert "--repair-candidate-root" not in encode_args[2]
+        if cascade_mode in {
+            "all-direct",
+            "all-direct-proof-chain",
+            "proof-import-subset-chain",
+            "proof-import-chain",
+        }:
+            assert (
+                encode_args[2][encode_args[2].index("--replace-rulespec-path") + 1]
+                == "us/regulations/42-cfr/435/561/c.yaml"
+            )
+        else:
+            assert "--replace-rulespec-path" not in encode_args[2]
         assert (
             Path(encode_args[2][encode_args[2].index("--review-findings") + 1])
             .read_text(encoding="utf-8")
@@ -5803,6 +5901,9 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
         "CITATION": "us-nc/statute/105/105-153.7",
         "DEPENDENT_CITATION": dependent_citation,
         "DEPENDENT_REVIEW_FINDING": dependent_finding,
+        "DEPENDENT_RULESPEC_PATHS_JSON": json.dumps(
+            ["us-nc/statutes/105/105-153.5.yaml"] if with_dependent else []
+        ),
         "GITHUB_WORKSPACE": str(tmp_path),
         "REPLACE_LEGACY_RULESPEC_PATH": (
             "us-nc/policies/income_tax/PILOT_LIABILITY_PIPELINE.yaml"

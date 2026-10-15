@@ -399,6 +399,170 @@ def test_live_emission_records_real_gate_verdicts(tmp_path):
     assert by_stage["generate"].attrs.get("backfilled") is None
 
 
+def test_live_generate_event_carries_try_timing(tmp_path):
+    from axiom_encode.harness.encoding_db import Iteration
+
+    phases = [
+        {
+            "name": "model_call",
+            "started_at": "2026-10-07T16:00:00.000Z",
+            "finished_at": "2026-10-07T16:00:40.000Z",
+            "duration_ms": 40_000,
+        },
+        {
+            "name": "candidate_validation",
+            "started_at": "2026-10-07T16:00:40.000Z",
+            "finished_at": "2026-10-07T16:01:00.000Z",
+            "duration_ms": 20_000,
+            "breakdown_ms": {"ci_test_cases": 15_000, "other": 5_000},
+        },
+    ]
+    loop_timing = {
+        "schema": "axiom-encode/encode-loop-timing/v1",
+        "origin": "process",
+        "started_at": "2026-10-07T15:59:58.000Z",
+        "finished_at": "2026-10-07T16:01:01.000Z",
+        "wall_duration_ms": 63_000,
+        "setup_ms": 2_000,
+        "tries_ms": 60_000,
+        "between_tries_ms": 0,
+        "finalize_ms": 1_000,
+        "try_count": 1,
+    }
+    result = SimpleNamespace(
+        success=True,
+        output_file="/tmp/out.yaml",
+        error=None,
+        citation="us/statute/7/2012/j",
+        metrics=None,
+    )
+    rx.emit_live_encode_events(
+        result,
+        "timedrun",
+        {"final_success": True, "encode_loop_timing": loop_timing},
+        total_duration_ms=40_000,
+        iterations=[
+            Iteration(
+                attempt=1,
+                duration_ms=40_000,
+                started_at="2026-10-07T16:00:00.000Z",
+                finished_at="2026-10-07T16:01:00.000Z",
+                wall_duration_ms=60_000,
+                phases=phases,
+            ),
+            Iteration(attempt=2, duration_ms=1),  # untimed: left out
+        ],
+        log_dir=tmp_path,
+    )
+
+    generate = next(
+        event
+        for event in rl.iter_events(tmp_path / "timedrun.jsonl")
+        if event.stage == "generate"
+    )
+    assert generate.attrs["tries"] == [
+        {
+            "attempt": 1,
+            "started_at": "2026-10-07T16:00:00.000Z",
+            "finished_at": "2026-10-07T16:01:00.000Z",
+            "wall_duration_ms": 60_000,
+            "phases": phases,
+        }
+    ]
+    assert generate.attrs["encode_loop_timing"] == loop_timing
+
+
+def test_live_generate_event_without_timing_records_nulls(tmp_path):
+    result = SimpleNamespace(success=True, output_file="/tmp/out.yaml", metrics=None)
+    rx.emit_live_encode_events(result, "untimed", {}, log_dir=tmp_path)
+    (generate,) = [
+        event
+        for event in rl.iter_events(tmp_path / "untimed.jsonl")
+        if event.stage == "generate"
+    ]
+    assert generate.attrs["tries"] is None
+    assert generate.attrs["encode_loop_timing"] is None
+
+
+def test_backfill_reads_try_timing_from_iterations_json(tmp_path):
+    db = tmp_path / "encodings.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE encoding_runs (id TEXT, timestamp TEXT, citation TEXT, "
+        "agent_type TEXT, agent_model TEXT, total_duration_ms INTEGER, "
+        "review_results_json TEXT, outcome_json TEXT, iterations_json TEXT)"
+    )
+    timed = {
+        "attempt": 1,
+        "duration_ms": 40_000,
+        "started_at": "2026-10-07T16:00:00.000Z",
+        "finished_at": "2026-10-07T16:01:00.000Z",
+        "wall_duration_ms": 60_000,
+        "phases": [
+            {
+                "name": "model_call",
+                "started_at": "2026-10-07T16:00:00.000Z",
+                "finished_at": "2026-10-07T16:00:40.000Z",
+                "duration_ms": 40_000,
+            },
+            {
+                "name": "candidate_validation",
+                "started_at": "2026-10-07T16:00:40.000Z",
+                "finished_at": "2026-10-07T16:01:00.000Z",
+                "duration_ms": 20_000,
+                "breakdown_ms": {"ci_test_cases": 15_000, "other": 5_000},
+            },
+        ],
+    }
+    conn.executemany(
+        "INSERT INTO encoding_runs VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+            (
+                "timed01",
+                "2026-10-07T16:01:01+00:00",
+                "us/statute/7/2012/j",
+                "openai:encoder",
+                "gpt-6-luna",
+                40_000,
+                None,
+                json.dumps({"final_success": True}),
+                json.dumps([timed, "malformed entry"]),
+            ),
+            (
+                "broken1",
+                "2026-10-07T16:02:00+00:00",
+                "us/statute/x",
+                "openai:encoder",
+                "gpt-6-luna",
+                1,
+                None,
+                None,
+                "{not json",
+            ),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    log_dir = tmp_path / "logs"
+    report = rx.export_backfill(db, [], log_dir=log_dir, limit=10)
+
+    assert report["exported"] == 2
+    events = {
+        event.run_id: event
+        for event in (
+            *rl.iter_events(log_dir / "timed01.jsonl"),
+            *rl.iter_events(log_dir / "broken1.jsonl"),
+        )
+        if event.stage == "generate"
+    }
+    (backfilled_try,) = events["timed01"].attrs["tries"]
+    assert backfilled_try["attempt"] == 1
+    assert backfilled_try["wall_duration_ms"] == 60_000
+    assert backfilled_try["phases"] == timed["phases"]
+    assert events["broken1"].attrs["tries"] is None
+
+
 # ---------------------------------------------------------------------------
 # Export + publish + staleness (end to end over a tiny sqlite db)
 # ---------------------------------------------------------------------------

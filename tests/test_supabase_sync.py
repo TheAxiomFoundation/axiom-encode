@@ -1527,6 +1527,64 @@ class TestSyncRunCostLedger:
             "errors": [],
         }
 
+    def test_payload_carries_each_try_wall_time_and_phases(self):
+        """encodings.encoding_runs.iterations gets the try's timing verbatim;
+        an untimed attempt keeps exactly the old keys."""
+        from axiom_encode.harness.encoding_db import Iteration
+
+        phases = [
+            {
+                "name": "model_call",
+                "started_at": "2026-10-07T16:00:00.000Z",
+                "finished_at": "2026-10-07T16:00:40.000Z",
+                "duration_ms": 40_000,
+            },
+            {
+                "name": "candidate_validation",
+                "started_at": "2026-10-07T16:00:40.000Z",
+                "finished_at": "2026-10-07T16:01:00.000Z",
+                "duration_ms": 20_000,
+                "breakdown_ms": {"ci_test_cases": 15_000, "other": 5_000},
+            },
+        ]
+        mock_run = self._make_run_with_ledger()
+        mock_run.iterations = [
+            Iteration(
+                attempt=1,
+                duration_ms=40_000,
+                success=True,
+                model="terra",
+                input_tokens=10,
+                started_at="2026-10-07T16:00:00.000Z",
+                finished_at="2026-10-07T16:01:00.000Z",
+                wall_duration_ms=60_000,
+                phases=phases,
+            ),
+            Iteration(attempt=2, duration_ms=10, success=True),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "cost-123"}]
+        )
+
+        assert sync_run_to_supabase(mock_run, "ci_only", client=mock_client) is True
+        payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        timed, untimed = payload["iterations"]
+        assert timed["duration_ms"] == 40_000
+        assert timed["started_at"] == "2026-10-07T16:00:00.000Z"
+        assert timed["finished_at"] == "2026-10-07T16:01:00.000Z"
+        assert timed["wall_duration_ms"] == 60_000
+        assert timed["phases"] == phases
+        assert untimed == {
+            "attempt": 2,
+            "duration_ms": 10,
+            "success": True,
+            "errors": [],
+        }
+
     def test_non_finite_attempt_cost_stays_absent(self):
         from axiom_encode.harness.encoding_db import Iteration
 

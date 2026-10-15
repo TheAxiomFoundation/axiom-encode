@@ -59,7 +59,7 @@ UV_OPTIONS = workflow_shell.load_uv_options()
 
 # workflow -> jobs whose environment runs the repository's tests or linters.
 TEST_ENVIRONMENTS = {
-    "ci.yml": {"test", "lint"},
+    "ci.yml": {"test", "real-engine", "lint"},
     "signing-supervisor.yml": {"build-and-test"},
 }
 LOCKED_DEV_SYNCS = {
@@ -221,6 +221,7 @@ def test_discovery_is_not_vacuous():
     }
     assert {
         ("ci.yml:test", "sync"),
+        ("ci.yml:real-engine", "sync"),
         ("ci.yml:lint", "sync"),
         ("signing-supervisor.yml:build-and-test", "sync"),
         ("prepare-all-state-snap-queue.yml:prepare", "run"),
@@ -822,7 +823,8 @@ def _tr_converts_case(words: tuple[str, ...]) -> bool:
 # and the only names each writes. A new writer needs a reviewed entry here.
 GITHUB_ENV_WRITERS = {
     ("targeted-signed-reencode.yml", "encode", "Validate dependent cascade"): {
-        "DEPENDENT_CASCADE_MODE"
+        "DEPENDENT_CASCADE_MODE",
+        "DEPENDENT_RULESPEC_PATHS_JSON",
     },
 }
 

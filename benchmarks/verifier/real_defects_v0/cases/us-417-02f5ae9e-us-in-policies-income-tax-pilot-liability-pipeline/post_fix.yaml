@@ -1,0 +1,63 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-in/statute/6-3-2-1
+  summary: |-
+    Composed Indiana individual adjusted-gross-income tax pipeline for tax year
+    2026. It accepts one TaxUnit-level completed-return Indiana adjusted gross
+    income boundary, applies the 2.95 per cent rate imported from the encoded
+    IC 6-3-2-1 module, and floors the resulting state tax at zero. This matches
+    PolicyEngine's in_agi feeding in_agi_tax. The boundary already reflects all
+    upstream federal income, Indiana add-backs, deductions, and exemptions, so
+    this module makes no independent claim about that upstream chain. Indiana
+    county tax is a separate levy and is excluded. The nonrefundable Indiana
+    529-plan credit and all other credits are also excluded. Both the imported
+    rate and this calculation are bounded to 2026 so adjacent years fail closed.
+imports:
+  - us-in:statutes/6-3-2-1#individual_adjusted_gross_income_tax_rate
+rules:
+  - name: in_pit_pilot_income_tax_liability
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: IC 6-3-2-1(a)(3), 2.95 per cent of Indiana adjusted gross income for tax year 2026 before credits and excluding county tax
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-in:statutes/6-3-2-1#individual_adjusted_gross_income_tax_rate
+              output: individual_adjusted_gross_income_tax_rate
+              hash: sha256:60b88ec2e42b87bbcd5bf0574bfd5e3a8b45cb593ea4625902263b0eb75ca13f
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-in/statute/6-3-2-1
+              excerpt: "For taxable years beginning after December 31, 2025, and before January 1, 2027, two and ninety-five hundredths percent (2.95%)."
+          - path: versions[0].effective_from
+            kind: effective_period
+            source:
+              corpus_citation_path: us-in/statute/6-3-2-1
+              excerpt: "For taxable years beginning after December 31, 2025"
+          - path: versions[0].effective_to
+            kind: effective_period
+            source:
+              corpus_citation_path: us-in/statute/6-3-2-1
+              excerpt: "and before January 1, 2027"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          max(0, in_pit_pilot_indiana_adjusted_gross_income * individual_adjusted_gross_income_tax_rate)
+inputs:
+  - name: in_pit_pilot_indiana_adjusted_gross_income
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    description: Completed-return Indiana adjusted gross income supplied by the caller as an upstream oracle boundary.

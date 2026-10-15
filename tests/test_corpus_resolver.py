@@ -3068,6 +3068,112 @@ def test_us_cfr_hierarchy_ignores_reused_nested_numeric_markers(tmp_path: Path):
     assert "(2) Verification of questionable information." not in resolved.body
 
 
+def test_pinned_cfr_273_11_c_slice_requires_exact_source_bytes(monkeypatch):
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(a) First subsection.\n\n"
+        "(b) Second subsection.\n\n"
+        "(2) Nested condition.\n\n"
+        "(i) First Roman item.\n\n"
+        "(ii) Second Roman item.\n\n"
+        "(c) Treatment of income and resources of certain nonhousehold members.\n\n"
+        "(1) Target condition.\n\n"
+        "(2) Second target condition.\n\n"
+        "(d) Treatment of income and resources of other nonhousehold members."
+    )
+    monkeypatch.setattr(
+        corpus_resolver,
+        "_PINNED_CFR_273_11_PARENT_SHA256",
+        hashlib.sha256(body.encode()).hexdigest(),
+    )
+
+    assert corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/c", resolved_path=parent
+    ) == (
+        "(c) Treatment of income and resources of certain nonhousehold members.\n\n"
+        "(1) Target condition.\n\n"
+        "(2) Second target condition."
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body.replace("Second target condition", "Changed target condition"),
+            requested_path=f"{parent}/c",
+            resolved_path=parent,
+        )
+
+
+def test_us_cfr_hierarchy_keeps_contiguous_roman_c_nested():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(a) First subsection.\n\n"
+        "(b) Second subsection.\n\n"
+        "(2) Nested condition.\n\n"
+        "(xcix) Ninety-nine.\n\n"
+        "(c) One hundred.\n\n"
+        "(ci) One hundred one.\n\n"
+        "(d) Next subsection."
+    )
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/b/2/c", resolved_path=parent
+        )
+        == "(c) One hundred."
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/c", resolved_path=parent
+        )
+
+
+def test_us_cfr_hierarchy_keeps_skipped_roman_v_nested():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(u) Subsection.\n\n"
+        "(1) Condition.\n\n"
+        "(i) First.\n\n"
+        "(ii) Second.\n\n"
+        "(v) Fifth.\n\n"
+        "(vi) Sixth.\n\n"
+        "(w) Next subsection."
+    )
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/u/1/v", resolved_path=parent
+        )
+        == "(v) Fifth."
+    )
+    assert "(v) Fifth." in corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/u", resolved_path=parent
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
+def test_us_cfr_hierarchy_does_not_promote_roman_v_with_inline_numeric_reference():
+    parent = "us/regulation/7/273/11"
+    body = (
+        "(u) Subsection.\n\n"
+        "(1) Condition.\n\n"
+        "(i) First.\n\n"
+        "(ii) Second.\n\n"
+        "(v) Fifth. (1) A reference, not a child.\n\n"
+        "(vi) Sixth.\n\n"
+        "(w) Next subsection."
+    )
+
+    assert "(v) Fifth." in corpus_resolver._slice_parent_body(
+        body, requested_path=f"{parent}/u", resolved_path=parent
+    )
+    with pytest.raises(CorpusSourceSliceError, match="missing structural marker"):
+        corpus_resolver._slice_parent_body(
+            body, requested_path=f"{parent}/v", resolved_path=parent
+        )
+
+
 def test_metadata_parent_composes_descendants_deterministically(tmp_path: Path):
     version = "2026-01-01-children"
     _write_selector(tmp_path, [_scope(version)])
