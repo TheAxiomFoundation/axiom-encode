@@ -156,6 +156,12 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "us",
             "87c766a7ecc76d7d36272c648f6daf87b4669317",
         ),
+        # rulespec-us#1790: independently reviewed signed FY2026 income
+        # standards on the #1778 stack; downstream CFR metadata remains open.
+        (
+            "us",
+            "949b31dc3a7c105519eafdc2cb6117d82d4c3578",
+        ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
             "us",
@@ -209,6 +215,12 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "87c766a7ecc76d7d36272c648f6daf87b4669317",
             "axiom/signed-backfill-us-38756101655-1",
+        ),
+        # rulespec-us#1790: admit only its exact reviewed, signed branch tip.
+        (
+            "us",
+            "949b31dc3a7c105519eafdc2cb6117d82d4c3578",
+            "axiom/signed-backfill-us-38802732779-1",
         ),
         # rulespec-us#1183: reviewed FL SNAP BBCE candidate promotion.
         (
